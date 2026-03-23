@@ -61,6 +61,12 @@ echo ""
 echo "Installing skills..."
 install_file "$SCRIPT_DIR/skills/new-project/SKILL.md" "$CLAUDE_DIR/skills/new-project/SKILL.md"
 
+# Instalar statusline
+echo ""
+echo "Installing statusline..."
+install_file "$SCRIPT_DIR/statusline.sh" "$CLAUDE_DIR/statusline.sh"
+chmod +x "$CLAUDE_DIR/statusline.sh"
+
 # Instalar settings.json (con cuidado — puede tener config del usuario)
 echo ""
 if [ -e "$CLAUDE_DIR/settings.json" ] && [ ! -L "$CLAUDE_DIR/settings.json" ]; then
@@ -77,4 +83,7 @@ echo "Installed:"
 echo "  - 7 agents (orchestrator, architect, backend-dev, frontend-dev, db-specialist, qa, security-reviewer)"
 echo "  - 5 hooks (pre-commit-guard, pre-push-guard, post-pr-create, session-start-context, context-monitor)"
 echo "  - 1 skill (new-project)"
+echo "  - statusline (model, branch, tokens, rate limits)"
 echo "  - settings.json"
+echo ""
+echo "Restart Claude Code for the statusline to take effect."
