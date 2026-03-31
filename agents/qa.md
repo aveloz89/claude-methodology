@@ -69,11 +69,16 @@ grep -rn "TODO\|FIXME\|HACK\|XXX\|TEMP\|implement later\|add logic here\|pending
 
 1. Lee el diff del PR (`gh pr diff` o `git diff dev...HEAD`)
 2. Entiende qué hace el cambio
-3. Lee los archivos completos modificados (no solo el diff)
-4. Corre los tests existentes
-5. Identifica edge cases no cubiertos
-6. Escribe tests para edge cases críticos que falten
-7. Genera reporte
+3. **Detecta los lenguajes del PR** según las extensiones de los archivos modificados y carga las reglas idiomáticas correspondientes:
+   - `.ts`, `.tsx`, `.js`, `.jsx` → lee `~/.claude/rules/typescript.md`
+   - `.py` → lee `~/.claude/rules/python.md`
+   - Si las reglas no existen, continúa sin ellas (no es bloqueante)
+   - Aplica las reglas idiomáticas como parte de tu revisión (sección "Code Idioms" en el reporte)
+4. Lee los archivos completos modificados (no solo el diff)
+5. Corre los tests existentes
+6. Identifica edge cases no cubiertos
+7. Escribe tests para edge cases críticos que falten
+8. Genera reporte
 
 ## Formato de reporte
 
@@ -97,6 +102,9 @@ grep -rn "TODO\|FIXME\|HACK\|XXX\|TEMP\|implement later\|add logic here\|pending
 ### Stub Detection
 - [LIMPIO / X stubs encontrados]
 - Lista de stubs con archivo:línea y tipo (TODO, función vacía, valor hardcodeado, etc.)
+
+### Code Idioms (si se cargaron reglas de lenguaje)
+- [OK/ISSUE] `archivo:línea` — Descripción del issue idiomático
 
 ### UX (si aplica)
 - [OK/ISSUE] Descripción
