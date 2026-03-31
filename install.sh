@@ -18,11 +18,6 @@ echo "Target: $CLAUDE_DIR"
 echo "Mode: $MODE"
 echo ""
 
-# Crear directorios si no existen
-mkdir -p "$CLAUDE_DIR/agents"
-mkdir -p "$CLAUDE_DIR/hooks"
-mkdir -p "$CLAUDE_DIR/skills/new-project"
-
 install_file() {
   local src="$1"
   local dest="$2"
@@ -41,25 +36,51 @@ install_file() {
   fi
 }
 
-# Instalar agentes
+# Instalar agentes (dinámico — todos los .md en agents/)
 echo ""
 echo "Installing agents..."
+mkdir -p "$CLAUDE_DIR/agents"
+AGENT_COUNT=0
 for f in "$SCRIPT_DIR"/agents/*.md; do
   install_file "$f" "$CLAUDE_DIR/agents/$(basename "$f")"
+  AGENT_COUNT=$((AGENT_COUNT + 1))
 done
 
 # Instalar hooks
 echo ""
 echo "Installing hooks..."
+mkdir -p "$CLAUDE_DIR/hooks"
+HOOK_COUNT=0
 for f in "$SCRIPT_DIR"/hooks/*.sh; do
   install_file "$f" "$CLAUDE_DIR/hooks/$(basename "$f")"
   chmod +x "$CLAUDE_DIR/hooks/$(basename "$f")"
+  HOOK_COUNT=$((HOOK_COUNT + 1))
 done
 
-# Instalar skills
+# Instalar skills (dinámico — todos los subdirectorios en skills/)
 echo ""
 echo "Installing skills..."
-install_file "$SCRIPT_DIR/skills/new-project/SKILL.md" "$CLAUDE_DIR/skills/new-project/SKILL.md"
+SKILL_COUNT=0
+for skill_dir in "$SCRIPT_DIR"/skills/*/; do
+  skill_name="$(basename "$skill_dir")"
+  mkdir -p "$CLAUDE_DIR/skills/$skill_name"
+  for f in "$skill_dir"*; do
+    [ -f "$f" ] && install_file "$f" "$CLAUDE_DIR/skills/$skill_name/$(basename "$f")"
+  done
+  SKILL_COUNT=$((SKILL_COUNT + 1))
+done
+
+# Instalar rules (dinámico — todos los .md en rules/)
+echo ""
+echo "Installing rules..."
+RULE_COUNT=0
+if [ -d "$SCRIPT_DIR/rules" ]; then
+  mkdir -p "$CLAUDE_DIR/rules"
+  for f in "$SCRIPT_DIR"/rules/*.md; do
+    [ -f "$f" ] && install_file "$f" "$CLAUDE_DIR/rules/$(basename "$f")"
+    RULE_COUNT=$((RULE_COUNT + 1))
+  done
+fi
 
 # Instalar statusline
 echo ""
@@ -80,10 +101,11 @@ echo ""
 echo "=== Installation complete ==="
 echo ""
 echo "Installed:"
-echo "  - 7 agents (orchestrator, architect, backend-dev, frontend-dev, db-specialist, qa, security-reviewer)"
-echo "  - 5 hooks (pre-commit-guard, pre-push-guard, post-pr-create, session-start-context, context-monitor)"
-echo "  - 1 skill (new-project)"
-echo "  - statusline (model, branch, tokens, rate limits)"
+echo "  - $AGENT_COUNT agents"
+echo "  - $HOOK_COUNT hooks"
+echo "  - $SKILL_COUNT skills"
+echo "  - $RULE_COUNT rules"
+echo "  - statusline"
 echo "  - settings.json"
 echo ""
-echo "Restart Claude Code for the statusline to take effect."
+echo "Restart Claude Code for changes to take effect."
