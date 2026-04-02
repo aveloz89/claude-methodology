@@ -1,8 +1,7 @@
 #!/bin/bash
-# Post PR create: Detecta cuando se crea un PR y notifica para review.
+# Post PR create: Detecta cuando se crea un PR y dispara review automático.
 # Recibe JSON en stdin con tool_input y stdout del comando ejecutado.
-# NOTA: Este hook es informativo — muestra la URL del PR creado.
-# El orchestrator debe ser invocado manualmente por el usuario para el review.
+# Ejecuta automáticamente los agentes QA y security-reviewer sobre el PR.
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
@@ -17,7 +16,9 @@ PR_URL=$(echo "$INPUT" | jq -r '.stdout // empty' | grep -oE 'https://github.com
 
 if [ -n "$PR_URL" ]; then
   echo "PR creado: $PR_URL"
-  echo "Para review, invoca al @orchestrator con esta URL."
+  echo ""
+  echo "ACCIÓN REQUERIDA: Ejecuta en paralelo los agentes QA (subagent_type=qa) y security-reviewer (subagent_type=security-reviewer) para revisar este PR: $PR_URL"
+  echo "Usa 'gh pr diff' y 'gh pr view' para obtener el contexto del PR y pásalo a ambos agentes."
 fi
 
 exit 0
