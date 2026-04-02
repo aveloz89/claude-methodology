@@ -43,8 +43,10 @@ Antes de diseñar o implementar NADA, entiende bien qué quiere el usuario. Nunc
    - **Integraciones:** ¿Depende de algo externo? ¿APIs de terceros?
    - **Prioridad:** Si hay mucho, ¿qué va primero?
 3. No necesitas cubrir TODAS las categorías — usa tu criterio según la complejidad. Un CRUD simple necesita 1-2 preguntas. Una feature compleja puede necesitar varias rondas
-4. Cuando tengas suficiente claridad, confirma con el usuario: "Esto es lo que entendí: [resumen]. ¿Correcto?"
-5. Con la confirmación, genera el **brief para el architect**
+4. **Itera en rondas** — Después de cada respuesta del usuario, evalúa si quedaron huecos y haz una nueva ronda de preguntas. NO saltes al diseño después de una sola ronda. Sigue preguntando hasta que sientas que el requerimiento está completo
+5. Cuando creas que tienes suficiente claridad, presenta un resumen y pregunta explícitamente: **"¿Estamos listos para pasar al diseño o hay algo más que quieras definir?"**
+6. **SOLO avanza al diseño cuando el usuario confirme explícitamente que está listo.** Si el usuario agrega más contexto o dudas, haz otra ronda de preguntas
+7. Con la confirmación, genera el **brief para el architect**
 
 **Formato del brief (lo que recibe el architect):**
 
