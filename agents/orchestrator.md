@@ -175,6 +175,33 @@ Después de que `frontend-dev` y `backend-dev` terminen y los servicios estén c
 - Es un cambio pequeño cubierto por unit/integration tests
 - El usuario explícitamente dice que no necesita E2E
 
+### Fase 2.8: Monitoreo de CI (después de crear PR)
+
+Después de que un dev crea el PR, monitorea los checks de CI antes de pasar a review:
+
+1. **Espera a que los checks terminen:**
+   ```bash
+   gh pr checks <number> --watch --fail-fast
+   ```
+2. **Si todos pasan** → avanza a Fase 3 (Review)
+3. **Si algún check falla:**
+   - Lee los logs del check que falló:
+     ```bash
+     gh run list --branch <branch> --limit 1 --json databaseId,conclusion
+     gh run view <run-id> --log-failed
+     ```
+   - Analiza el error: ¿es un fallo de tests, lint, build, types, o dependencias?
+   - Asigna el fix al agente correspondiente:
+     - Error de build/compilación/dependencias → `build-resolver`
+     - Error de tests o lint → el dev que creó el PR (back o front)
+   - El agente corrige en el **mismo branch del PR**, commitea y pushea
+   - **Vuelve al paso 1** — monitorea los checks de nuevo hasta que pasen
+   - Máximo **3 intentos** de fix automático. Si después de 3 intentos sigue fallando, reporta al usuario con el contexto completo del error y las correcciones intentadas
+
+**Cuándo NO monitorear CI:**
+- El proyecto no tiene GitHub Actions configurado (`gh run list` retorna vacío)
+- El usuario explícitamente pide saltarse CI
+
 ### Fase 3: Revisión de PR
 Cuando se crea un PR (o te piden revisar uno):
 1. Lee el diff completo para entender el alcance
