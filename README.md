@@ -20,7 +20,7 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 |------|--------|----------|
 | **pre-commit-guard** | PreToolUse (Bash) | Corre tests antes de cada commit. Detecta pnpm/yarn/npm/pytest |
 | **pre-push-guard** | PreToolUse (Bash) | Bloquea push directo a main |
-| **post-pr-create** | PostToolUse (Bash) | Notifica cuando se crea un PR para invocar review |
+| **post-pr-create** | PostToolUse (Bash) | Instruye al orquestador para disparar QA y security-reviewer automáticamente al crear un PR |
 | **session-start-context** | SessionStart | Muestra branch, último commit, estado de .planning/ |
 | **context-monitor** | PostToolUse (Bash) | Avisa cuando el contexto se está agotando (35% warning, 25% critical) |
 

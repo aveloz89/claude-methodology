@@ -82,7 +82,7 @@ Si ya estás en un feature/* o hotfix/* branch, trabaja ahí directamente.
       - ¿Agregaste una dependencia de sistema (ej: librería nativa, herramienta de build)? → actualiza el Dockerfile del frontend
       - ¿Agregaste una variable de entorno nueva? → agrégala al `docker-compose.yml` y al `.env.example`
       - ¿Cambiaste el puerto de la app? → actualiza el port mapping en el compose
-      - ¿El diseño del architect incluye tareas de infraestructura Docker para el frontend? → impleméntalas
+      - ¿El diseño del architect incluye tareas de infraestructura Docker para el frontend? → implementa solo cambios a tu Dockerfile. Los cambios al `docker-compose.yml` son responsabilidad del backend-dev para evitar conflictos
     - **Deploy para preview:**
       - Identifica el servicio de frontend leyendo el compose file (busca el servicio que expone el puerto del front)
       - Rebuild y reinicia solo el servicio afectado:
