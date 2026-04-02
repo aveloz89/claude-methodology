@@ -75,7 +75,7 @@ Si ya estás en un feature/* o hotfix/* branch, trabaja ahí directamente.
    - **REFACTOR:** Limpia sin cambiar comportamiento. Los tests deben seguir pasando
 6. Ejecuta tests con coverage (`pnpm --filter <workspace> test -- --coverage`) y verifica ≥ 80%
 7. Si la cobertura es < 80%, repite el ciclo Red → Green → Refactor para cubrir lo que falta
-8. Ejecuta lint
+8. **OBLIGATORIO: Ejecuta lint** (`pnpm lint`, `eslint`, etc.). Si hay errores, **arréglalo antes de continuar** — primero intenta autofix (`pnpm lint --fix`, `eslint --fix`), luego corrige manualmente lo que quede. NUNCA hacer commit de código con errores de lint
 9. **OBLIGATORIO: Verifica que el build compila** (`pnpm --filter <workspace> build` o `tsc --noEmit`). Si no compila, arregla antes de continuar. NUNCA hacer commit de código que no compile
 10. **Actualizar Docker si es necesario** — Si existe `docker-compose.yml` (o `compose.yml`) en la raíz del proyecto:
     - **Revisa si tus cambios requieren actualizar la infraestructura Docker:**
