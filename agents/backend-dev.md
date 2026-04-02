@@ -74,19 +74,25 @@ Si ya estás en un feature/* o hotfix/* branch, trabaja ahí directamente.
 7. Si la cobertura es < 80%, repite el ciclo Red → Green → Refactor para cubrir lo que falta
 8. Si hay lint configurado, verifica que pase
 9. **OBLIGATORIO: Verifica que el build compila** (`pnpm build` o `tsc --noEmit` del workspace afectado). Si no compila, arregla antes de continuar. NUNCA hacer commit de código que no compile
-10. **Deploy a Docker para preview** — Si existe `docker-compose.yml` (o `compose.yml`) en la raíz del proyecto:
-    - Identifica el servicio de backend leyendo el compose file (busca el servicio que expone el puerto del back)
-    - Rebuild y reinicia solo el servicio afectado:
-      ```bash
-      docker compose up -d --build <servicio-backend>
-      ```
-    - Verifica que el contenedor arrancó sin errores:
-      ```bash
-      docker compose ps <servicio-backend>
-      docker compose logs --tail=20 <servicio-backend>
-      ```
-    - Si el contenedor falla, revisa los logs, arregla el problema y repite antes de continuar
-    - Reporta al usuario la URL donde puede ver el cambio (ej: `http://localhost:8080`)
+10. **Actualizar Docker si es necesario** — Si existe `docker-compose.yml` (o `compose.yml`) en la raíz del proyecto:
+    - **Revisa si tus cambios requieren actualizar la infraestructura Docker:**
+      - ¿Agregaste una dependencia de sistema (ej: librería nativa, herramienta CLI)? → actualiza el Dockerfile del backend
+      - ¿Agregaste una variable de entorno nueva? → agrégala al `docker-compose.yml` y al `.env.example`
+      - ¿Cambiaste el puerto de la app? → actualiza el port mapping en el compose
+      - ¿El diseño del architect incluye tareas de infraestructura Docker? → impleméntalas (nuevos servicios en compose, cambios en Dockerfiles, etc.)
+    - **Deploy para preview:**
+      - Identifica el servicio de backend leyendo el compose file (busca el servicio que expone el puerto del back)
+      - Rebuild y reinicia solo el servicio afectado:
+        ```bash
+        docker compose up -d --build <servicio-backend>
+        ```
+      - Verifica que el contenedor arrancó sin errores:
+        ```bash
+        docker compose ps <servicio-backend>
+        docker compose logs --tail=20 <servicio-backend>
+        ```
+      - Si el contenedor falla, revisa los logs, arregla el problema y repite antes de continuar
+      - Reporta al usuario la URL donde puede ver el cambio (ej: `http://localhost:8080`)
 11. **Verificación final antes de commit** — Muestra evidencia concreta:
     - Tests: X pasando, 0 fallando
     - Coverage: X% (≥ 80%)

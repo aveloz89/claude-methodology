@@ -110,11 +110,22 @@ Diseñar:
 - Si hay auth: qué rutas son protegidas, cómo se maneja el redirect a login
 
 **Docker (si el proyecto usa docker-compose):**
-Si existe `docker-compose.yml` en la raíz, considera si el diseño requiere cambios:
-- Nuevo servicio (ej: Redis, worker, etc.) → agregar al compose
-- Nuevas variables de entorno → agregar al `.env` y al compose
-- Nuevos puertos expuestos → documentar en el diseño
-- Incluir estos cambios en el plan de implementación como tareas para el dev correspondiente
+Si existe `docker-compose.yml` (o `compose.yml`) en la raíz, **léelo siempre** durante el análisis inicial junto con los Dockerfiles de cada servicio y cualquier override (`docker-compose.override.yml`, `docker-compose.prod.yml`). Evalúa si el diseño requiere cambios de infraestructura:
+
+- **Nuevo servicio** (ej: Redis, queue worker, cache, etc.) → define el servicio completo en la sección de infraestructura del diseño (imagen, puertos, volumes, depends_on, healthcheck)
+- **Eliminar servicio** que ya no se necesita → documéntalo con justificación
+- **Nuevas variables de entorno** → agregar al `.env.example` y al compose
+- **Nuevos puertos expuestos** → documentar y verificar que no colisionen con servicios existentes
+- **Cambios en Dockerfiles** (nueva dependencia de sistema, cambio de base image, nuevo build stage) → documentar qué Dockerfile cambia y por qué
+
+**Seguridad Docker:**
+- Pinear versiones de imágenes base (no usar `latest`)
+- Usar `USER nonroot` en Dockerfiles de producción
+- No hardcodear secrets en compose — usar `.env` (excluido de git) o Docker secrets
+- Multi-stage builds para imágenes de producción (separar build de runtime)
+- Solo exponer puertos necesarios
+
+Incluir TODOS estos cambios como tareas explícitas en el plan de implementación, asignadas al backend-dev (infraestructura backend y compose) o frontend-dev (solo su Dockerfile).
 
 **Dependencias:**
 - Librerías necesarias (preferir las que ya usa el proyecto)
@@ -198,6 +209,11 @@ En proyectos nuevos o cuando el brief implica un cambio estructural significativ
 - **Tipo:** [Monolito | Monolito modular | Clean Architecture | Hexagonal | Microservicios]
 - **Justificación:** [por qué esta arquitectura para este proyecto]
 - **Estructura de directorios:** [layout principal]
+
+### Infraestructura Docker (si aplica)
+- [ ] Cambios en `docker-compose.yml`: [qué servicios se agregan/modifican/eliminan y por qué]
+- [ ] Cambios en Dockerfiles: [qué Dockerfile cambia y qué se agrega/modifica]
+- [ ] Variables de entorno nuevas: [listar con valores de ejemplo]
 
 ### Archivos afectados
 - `path/to/file.ts` — [qué cambia]
