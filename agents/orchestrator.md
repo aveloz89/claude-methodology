@@ -84,9 +84,10 @@ Antes de diseñar o implementar NADA, entiende bien qué quiere el usuario. Nunc
 ```
 
 **Cuándo saltar brainstorming:**
-- El usuario ya da un requerimiento detallado y claro — confirma y pasa directo al architect
 - Es un bug fix con pasos de reproducción claros
-- Es una tarea técnica concreta ("actualiza la dependencia X", "agrega un índice a la tabla Y")
+- Es una tarea técnica concreta y acotada ("actualiza la dependencia X", "agrega un índice a la tabla Y", "cambia el puerto de 3000 a 8080")
+
+**NUNCA saltes brainstorming para features o cambios funcionales**, aunque el usuario dé un requerimiento que parezca detallado. Siempre haz al menos una ronda de preguntas — el usuario puede tener contexto que no mencionó, y las preguntas ayudan a descubrir huecos antes de diseñar.
 
 ### Fase 0.5: Design System (si hay UI)
 
