@@ -93,6 +93,11 @@ Si ya estás en un feature/* o hotfix/* branch, trabaja ahí directamente.
         ```
       - Si el contenedor falla, revisa los logs, arregla el problema y repite antes de continuar
       - Reporta al usuario la URL donde puede ver el cambio (ej: `http://localhost:8080`)
+    - **Verificar que los cambios son visibles localmente:**
+      - Si el servicio tiene hot reload configurado (volume mounts + watch mode), verifica que los cambios se reflejaron automáticamente revisando los logs del container (`docker compose logs --tail=5 <servicio>`)
+      - Si NO tiene hot reload, reinicia el servicio: `docker compose restart <servicio-backend>`
+      - Si cambiaste dependencias o Dockerfile, rebuild es obligatorio: `docker compose up -d --build <servicio-backend>`
+    - **Sin Docker:** si el proyecto corre localmente sin Docker, asegúrate de que el dev server esté corriendo en watch mode. Si no lo está, reinícialo
 11. **Verificación final antes de commit** — Muestra evidencia concreta:
     - Tests: X pasando, 0 fallando
     - Coverage: X% (≥ 80%)
