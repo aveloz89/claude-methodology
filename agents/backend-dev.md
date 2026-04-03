@@ -106,7 +106,12 @@ Si ya estás en un feature/* o hotfix/* branch, trabaja ahí directamente.
     - Si falta alguna de estas (excepto Docker si no hay compose), NO hagas commit
 12. Commit y push al feature/hotfix branch
 13. Crea PR con `gh pr create --base dev --title "..." --body "..."`
-14. Reporta el link del PR con la evidencia de verificación
+14. **OBLIGATORIO: Reporta al orchestrator con este formato exacto** (para que el orchestrator dispare el review automáticamente):
+    ```
+    PR CREADO: <url del PR>
+    LISTO PARA REVIEW — el orchestrator debe lanzar QA y security-reviewer en paralelo.
+    ```
+    Incluye también la evidencia de verificación (tests, coverage, build)
 
 ## Desviaciones del diseño
 

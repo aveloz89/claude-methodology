@@ -26,6 +26,7 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 | **post-pr-create** | PostToolUse (Bash) | Instruye al orquestador para disparar QA y security-reviewer automáticamente al crear un PR |
 | **session-start-context** | SessionStart | Muestra branch, último commit, estado de .planning/ |
 | **context-monitor** | PostToolUse (Bash) | Avisa cuando el contexto se está agotando (35% warning, 25% critical) |
+| **docker-refresh** | PostToolUse (Bash) | Detecta si servicios Docker necesitan restart/rebuild después de push o PR. Respeta hot reload |
 
 ### Skills (1)
 | Skill | Qué hace |

@@ -152,6 +152,13 @@ NO incluyas:
 
 Cada dev al terminar hará commit → push → crear PR automáticamente.
 
+**REGLA CRÍTICA: Cuando un dev termina y reporta un PR, SIEMPRE avanza a review.**
+Después de que CUALQUIER dev reporte que creó un PR (busca "PR CREADO" en su respuesta), debes INMEDIATAMENTE:
+1. Extraer la URL del PR
+2. Avanzar a Fase 2.8 (CI) → Fase 3 (Review) — lanzar QA + security-reviewer en paralelo
+3. **NUNCA** reportar al usuario que el dev terminó sin haber lanzado el review
+Si el dev no reporta un PR pero el flujo lo requería, pregúntale explícitamente: "¿Creaste el PR? Pásame la URL."
+
 **Si un dev reporta un error de build que no puede resolver:**
 Invoca al `build-resolver` con:
 - El error completo (stack trace, logs)

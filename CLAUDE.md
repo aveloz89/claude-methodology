@@ -38,6 +38,7 @@ Sistema de agentes especializados, hooks y workflows para desarrollo fullstack c
 | `post-pr-create.sh` | PostToolUse (Bash) | Dispara review automático de QA + security al crear PR |
 | `session-start-context.sh` | SessionStart | Muestra branch, último commit, estado de `.planning/` |
 | `context-monitor.sh` | PostToolUse (Bash) | Avisa cuando el contexto se agota (35% warning, 25% critical) |
+| `docker-refresh.sh` | PostToolUse (Bash) | Detecta si servicios Docker necesitan restart/rebuild después de push o PR |
 
 ## Verificación pre-commit (obligatoria para devs)
 
