@@ -4,7 +4,7 @@
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-if echo "$COMMAND" | grep -qE 'gh\s+pr\s+merge\b.*--admin'; then
+if echo "$COMMAND" | grep -qE '^\s*gh\s+pr\s+merge\b.*--admin'; then
   echo '{"decision":"block","reason":"Blocked: --admin bypasses branch protections. PRs must pass all required checks before merging."}'
   exit 0
 fi
