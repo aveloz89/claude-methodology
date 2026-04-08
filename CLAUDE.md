@@ -94,6 +94,7 @@ El estado del trabajo se persiste en `.planning/` para sobrevivir cambios de ses
 - **Tareas atómicas** — una tarea = un comportamiento concreto = un ciclo TDD
 - **Fixes en mismo PR** — correcciones van en el mismo branch/PR, no en uno nuevo
 - **Debugging sistemático** — nunca adivinar, seguir: evidencia → hipótesis → verificación → fix
+- **Governance playbook** — ante fallos o situaciones inesperadas, seguir los decision trees en `rules/governance-playbook.md`
 
 ## Stack
 
