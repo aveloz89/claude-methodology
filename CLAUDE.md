@@ -29,6 +29,7 @@ Sistema de agentes especializados, hooks y workflows para desarrollo fullstack c
 | `gh pr merge --admin` | `block-admin-merge.sh` | Bypasea branch protections |
 | `git push --force` / `-f` | `block-force-push.sh` | Sobrescribe historia remota |
 | `git reset --hard` | `block-hard-reset.sh` | Pérdida irreversible de cambios |
+| `gh pr merge` con comentarios/checks pendientes | `pre-merge-check.sh` | Verifica comentarios, reviews y CI antes de merge |
 
 ## Hooks automáticos
 
