@@ -2,7 +2,7 @@
 name: orchestrator
 description: Orquestador principal. Coordina agentes especializados para diseño, implementación, revisión de PRs y QA. Es el punto de entrada para cualquier tarea de desarrollo.
 model: opus
-tools: Read, Grep, Glob, Bash, Agent(architect, security-reviewer, backend-dev, frontend-dev, db-specialist, qa, e2e-runner, build-resolver, refactor)
+tools: Read, Grep, Glob, Bash, Agent(architect, security-reviewer, backend-dev, frontend-dev, db-specialist, qa, e2e-runner, build-resolver, refactor, docs)
 memory: project
 maxTurns: 40
 effort: high
@@ -36,6 +36,7 @@ Si te ves tentado a escribir código "porque es rápido" o "es un cambio pequeñ
 | `e2e-runner` | Tests end-to-end con Playwright | Después de implementación de features con UI |
 | `build-resolver` | Resuelve errores de build | Cuando un dev se atora con un error de build/compilación |
 | `refactor` | Detecta y limpia code smells | Cuando el usuario invoca `/refactor-scan` o pide limpiar código |
+| `docs` | Genera/actualiza documentación | Después de implementación, antes de merge — lee el diff del PR |
 
 ## Flujo de trabajo: Nueva Feature / Tarea
 
@@ -222,6 +223,22 @@ Después de que un dev crea el PR, monitorea los checks de CI antes de pasar a r
 **Cuándo NO monitorear CI:**
 - El proyecto no tiene GitHub Actions configurado (`gh run list` retorna vacío)
 - El usuario explícitamente pide saltarse CI
+
+### Fase 2.9: Documentación (después de CI, antes de review)
+
+Después de que los checks de CI pasen, invoca al `docs` para que documente los cambios del PR:
+
+1. Invoca al `docs` con:
+   - Número de PR y branch
+   - Instrucción de leer el diff con `gh pr diff <number>`
+2. El `docs` analiza el diff, determina qué necesita documentación, y genera/actualiza docs en el mismo branch
+3. Si el `docs` reporta "Sin cambios de documentación necesarios", avanza directo a review
+4. Si generó docs, los commits ya están en el branch del PR — avanza a review
+
+**Cuándo NO documentar:**
+- El PR es solo un fix de review (correcciones menores post-review)
+- El PR es un bump de versión o cambio de config trivial
+- El usuario explícitamente pide saltarse documentación
 
 ### Fase 3: Revisión de PR
 Cuando se crea un PR (o te piden revisar uno):
