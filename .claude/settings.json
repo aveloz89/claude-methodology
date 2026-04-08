@@ -18,6 +18,11 @@
             "type": "command",
             "command": "bash hooks/block-hard-reset.sh",
             "statusMessage": "Checking for hard reset..."
+          },
+          {
+            "type": "command",
+            "command": "bash hooks/pre-merge-check.sh",
+            "statusMessage": "Verifying PR is ready to merge..."
           }
         ]
       }

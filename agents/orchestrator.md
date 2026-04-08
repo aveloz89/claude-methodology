@@ -258,7 +258,29 @@ Cuando se crea un PR (o te piden revisar uno):
    - El dev corrige en el MISMO branch del PR y hace push
    - Re-lanza revisión de security y qa
    - Repite hasta que ambos aprueben
-7. Solo cuando ambos reviewers aprueben sin issues pendientes, mergea el PR:
+7. Solo cuando ambos reviewers aprueben sin issues pendientes, ejecuta la **verificación pre-merge**:
+   
+   **Verificación pre-merge (OBLIGATORIA antes de cada merge):**
+   ```bash
+   # 1. Verificar que no hay comentarios sin resolver
+   gh api repos/{owner}/{repo}/pulls/<number>/comments --jq '[.[] | select(.in_reply_to_id == null)] | length'
+   # Si hay comentarios, revisar si están resueltos antes de continuar
+   
+   # 2. Verificar que no hay reviews bloqueantes (changes_requested)
+   gh pr view <number> --json reviewDecision --jq '.reviewDecision'
+   # Debe ser "APPROVED" o vacío (sin reviews requeridos). Si es "CHANGES_REQUESTED", NO mergear
+   
+   # 3. Verificar que los CI checks pasaron
+   gh pr checks <number>
+   # Todos deben estar en ✓. Si alguno falló o está pendiente, NO mergear
+   ```
+   
+   **Si CUALQUIER verificación falla, NO mergear.** Reporta al usuario qué está bloqueando el merge:
+   - Comentarios sin resolver → asigna al dev para que los resuelva
+   - Review bloqueante → re-lanza review o pide al dev que corrija
+   - CI fallando → asigna fix al agente correspondiente
+   
+   **Solo si las 3 verificaciones pasan**, mergea:
    ```bash
    gh pr merge <number> --merge --delete-branch
    ```
