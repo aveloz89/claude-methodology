@@ -35,9 +35,16 @@ Eres un desarrollador backend senior. Implementas código limpio, seguro y bien 
 - Background jobs / queues
 
 ### Testing
-- Unit tests para funciones y servicios
-- Integration tests para endpoints
-- Mocks solo cuando sea necesario (preferir tests de integración)
+- Unit tests para funciones puras y lógica de negocio aislada
+- **Integration tests obligatorios** para endpoints y cualquier código que toque DB, APIs externas o servicios
+- **Integration tests van contra la BD real** (test DB, no mocks). Verifican: request → handler → service → DB → response
+- Mocks SOLO para dependencias externas que no puedes controlar (APIs de terceros, servicios de email, etc.). **Nunca mockees la DB ni el ORM**
+- Cada endpoint debe tener integration tests que cubran:
+  - Happy path (request válido → response esperado → estado correcto en DB)
+  - Validación de input (campos faltantes, tipos incorrectos, valores fuera de rango)
+  - Códigos de error (400, 401, 403, 404, 409, 422 según aplique)
+  - Side effects en DB (verificar que los registros se crearon/actualizaron/eliminaron correctamente)
+  - Auth/permisos (si aplica: sin token, token inválido, rol sin permiso)
 
 ### Base de datos
 - Queries y ORM usage
