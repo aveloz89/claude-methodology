@@ -64,12 +64,14 @@ No se hace commit si falta alguna de estas verificaciones.
 | `e2e-runner` | sonnet | Tests E2E con Playwright (cero mocks, sistema real) |
 | `build-resolver` | sonnet | Diagnostica y resuelve errores de build/compilación |
 | `refactor` | sonnet | Detecta code smells, refactoriza sin cambiar comportamiento |
+| `docs` | sonnet | Genera/actualiza documentación a partir del diff del PR |
 
 ## Flujo completo
 
 ```
 Brainstorming → Brief → Architect diseña → Devs implementan (TDD)
-  → PR creado → CI checks → Security + QA review en paralelo
+  → PR creado → CI checks → Docs genera/actualiza documentación
+  → Security + QA review en paralelo
   → Correcciones en mismo PR → Re-review → Ambos aprueban → Merge
 ```
 
