@@ -204,6 +204,32 @@ Cuando se crea un PR (o te piden revisar uno):
    ```
 9. Actualiza `.planning/STATE.md` con el resultado
 
+### Fase 4: Learn (post-merge)
+
+Después de que el PR se mergea exitosamente, ejecuta una retrospectiva breve:
+
+1. **Recolecta métricas del ciclo:**
+   - Rounds de review necesarios (¿cuántas veces fue y volvió entre dev y reviewers?)
+   - Hallazgos del security-reviewer (cantidad y severidad)
+   - Hallazgos del QA (cantidad y tipo: stubs, coverage, edge cases, etc.)
+   - ¿Hubo errores de build? ¿Cuántos?
+   - ¿Se usó self-reflection? ¿Atrapó algo antes del review?
+
+2. **Identifica aprendizajes:**
+   - ¿Qué salió bien que debería repetirse?
+   - ¿Qué causó re-work? ¿Era prevenible?
+   - ¿Hay un patrón que se repite en múltiples PRs?
+
+3. **Append a `.planning/LEARNINGS.md`** con el formato definido en ese archivo
+
+4. **Regla de 3:** Si un mismo patrón aparece en 3+ entradas de LEARNINGS.md:
+   - Sugiere al usuario agregar una rule en `rules/` o modificar un agente
+   - Ejemplo: si QA siempre encuentra missing error handling en endpoints → agregar checklist a backend-dev o a self-reflection
+
+**Cuándo saltar Learn:**
+- Hotfixes urgentes (se puede hacer la retrospectiva después)
+- Tareas triviales (typo fixes, actualizaciones de dependencias)
+
 ## Flujo de trabajo: Revisión de PR
 
 Cuando te piden revisar un PR:
