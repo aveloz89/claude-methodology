@@ -102,9 +102,15 @@ Si ya estás en un feature/* o hotfix/* branch, trabaja ahí directamente.
     - Build: compilación exitosa
     - Docker: contenedor corriendo (si aplica)
     - Si falta alguna de estas (excepto Docker si no hay compose), NO hagas commit
-12. Commit y push al feature/hotfix branch
-13. Crea PR con `gh pr create --base dev --title "..." --body "..."`
-14. Reporta el link del PR con la evidencia de verificación
+12. **Self-reflection** — Antes de commitear, revisa tu propio código contra las rules idiomáticas:
+    - Lee `rules/self-reflection.md` para el proceso completo
+    - Ejecuta `git diff` y revisa cada archivo modificado contra `rules/typescript.md`
+    - Verifica el checklist: tipos (no `any`), no non-null assertions, `import type`, no floating promises, patrones idiomáticos
+    - Corrige cualquier violación encontrada y re-ejecuta tests
+    - Si corregiste algo, menciónalo brevemente en el commit message
+13. Commit y push al feature/hotfix branch
+14. Crea PR con `gh pr create --base dev --title "..." --body "..."`
+15. Reporta el link del PR con la evidencia de verificación
 
 ## Desviaciones del diseño
 
