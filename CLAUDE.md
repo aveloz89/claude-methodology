@@ -96,6 +96,24 @@ El estado del trabajo se persiste en `.planning/` para sobrevivir cambios de ses
 - **Debugging sistemático** — nunca adivinar, seguir: evidencia → hipótesis → verificación → fix
 - **Governance playbook** — ante fallos o situaciones inesperadas, seguir los decision trees en `rules/governance-playbook.md`
 
+## Adversarial Testing
+
+Tests que validan la metodología misma — que los hooks bloquean lo que deben, que QA detecta code smells, que security detecta vulnerabilidades:
+- `tests/adversarial/test-hooks.sh` — tests automatizados de hooks
+- `tests/adversarial/test-qa-detection.md` — fixtures de código malo para validar QA
+- `tests/adversarial/test-security-detection.md` — fixtures de vulnerabilidades para validar security
+
+Ejecutar después de modificar agentes, hooks o rules. Ver `tests/adversarial/README.md`.
+
+## Validación Periódica de Agentes
+
+Proceso para verificar que los agentes no han degradado en calidad:
+- `tests/validation/agent-validation.md` — prompts canónicos y expected behaviors por agente
+- `tests/validation/VALIDATION-LOG.md` — log de resultados
+- `rules/validation-schedule.md` — frecuencia y proceso
+
+Ejecutar mensualmente o antes de cada release. Ver `rules/validation-schedule.md`.
+
 ## Stack
 
 Los agentes detectan el stack del proyecto automáticamente. Ver `rules/python.md` y `rules/typescript.md` para reglas idiomáticas por lenguaje.
