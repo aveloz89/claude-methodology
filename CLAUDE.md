@@ -116,4 +116,14 @@ Ejecutar mensualmente o antes de cada release. Ver `rules/validation-schedule.md
 
 ## Stack
 
-Los agentes detectan el stack del proyecto automáticamente. Ver `rules/python.md` y `rules/typescript.md` para reglas idiomáticas por lenguaje.
+Los agentes detectan el stack del proyecto automáticamente. Ver `rules/` para reglas idiomáticas por lenguaje:
+
+| Archivo | Lenguaje / Tecnología | Extensiones |
+|---------|----------------------|-------------|
+| `rules/python.md` | Python | `.py` |
+| `rules/typescript.md` | TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx` |
+| `rules/go.md` | Go | `.go` |
+| `rules/rust.md` | Rust | `.rs` |
+| `rules/csharp.md` | C# | `.cs` |
+| `rules/html.md` | HTML | `.html`, `.htm`, `.jsx`, `.tsx`, `.vue`, `.svelte` |
+| `rules/css.md` | CSS | `.css`, `.scss`, `.sass`, `.less` |
