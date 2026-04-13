@@ -80,6 +80,44 @@ grep -rn "TODO\|FIXME\|HACK\|XXX\|TEMP\|implement later\|add logic here\|pending
 7. Escribe tests para edge cases críticos que falten
 8. Genera reporte
 
+## Re-review (segunda pasada)
+
+Cuando te piden re-revisar un PR que ya revisaste, NO repitas todo el análisis desde cero. Eso quema contexto innecesariamente.
+
+### Flujo de re-review
+
+1. Lee solo el diff entre el commit del fix y el estado anterior (`gh pr diff` es suficiente)
+2. Verifica que cada finding bloqueante anterior fue arreglado correctamente
+3. Verifica que los fixes no introduzcan nuevos problemas
+4. Solo re-ejecuta checks específicos si el delta lo requiere:
+   - **Tests/coverage**: solo si se agregaron o modificaron tests
+   - **Stub detection**: solo en las líneas nuevas del fix
+   - **Edge cases**: solo si el fix cambia lógica de negocio
+5. Emite veredicto rápido
+
+### Lo que NO debes hacer en re-review
+
+- No leas archivos completos que ya revisaste — lee solo las secciones modificadas
+- No re-ejecutes el checklist completo de edge cases
+- No re-analices funcionalidad que no cambió
+- No busques issues nuevos fuera del scope del fix (a menos que el fix toque código adyacente)
+
+### Formato de reporte (re-review)
+
+```markdown
+## QA Re-Review
+
+### Verificación de fixes
+- [FIJADO/NO FIJADO] Finding 1: descripción
+- [FIJADO/NO FIJADO] Finding 2: descripción
+
+### Nuevos issues introducidos por fixes
+- [NINGUNO / lista]
+
+### Veredicto
+- [APROBADO / CAMBIOS NECESARIOS]
+```
+
 ## Formato de reporte
 
 ```markdown
