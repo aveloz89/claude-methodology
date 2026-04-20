@@ -117,6 +117,11 @@ Si existe `docker-compose.yml` (o `compose.yml`) en la raíz, **léelo siempre**
 - **Nuevas variables de entorno** → agregar al `.env.example` y al compose
 - **Nuevos puertos expuestos** → documentar y verificar que no colisionen con servicios existentes
 - **Cambios en Dockerfiles** (nueva dependencia de sistema, cambio de base image, nuevo build stage) → documentar qué Dockerfile cambia y por qué
+- **Hot reload en desarrollo** — Asegura que el compose de desarrollo tenga volume mounts del código fuente al container para que los cambios se reflejen sin rebuild. El dev server de cada servicio debe correr en watch mode:
+  - Node/TS: `tsx --watch`, `nodemon`, `vite dev` (HMR)
+  - Python: `uvicorn --reload`, `flask --debug`
+  - Go: `air`
+  - Si el servicio no soporta hot reload, documentarlo para que el dev sepa que debe hacer rebuild manual
 
 **Seguridad Docker:**
 - Pinear versiones de imágenes base (no usar `latest`)

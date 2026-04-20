@@ -16,14 +16,19 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 | **qa-frontend** | sonnet | UX, accesibilidad, componentes, estado UI, tests frontend, coverage ≥ 80% |
 | **qa-backend** | sonnet | Contratos de API, lógica de negocio, datos, tests backend, coverage ≥ 80% |
 
-### Hooks (5)
+### Hooks (10)
 | Hook | Evento | Qué hace |
 |------|--------|----------|
 | **pre-commit-guard** | PreToolUse (Bash) | Corre tests antes de cada commit. Detecta pnpm/yarn/npm/pytest |
 | **pre-push-guard** | PreToolUse (Bash) | Bloquea push directo a main |
+| **block-admin-merge** | PreToolUse (Bash) | Bloquea `gh pr merge --admin` que bypasea branch protections |
+| **block-force-push** | PreToolUse (Bash) | Bloquea `git push --force` / `-f` |
+| **block-hard-reset** | PreToolUse (Bash) | Bloquea `git reset --hard` |
+| **pre-merge-check** | PreToolUse (Bash) | Bloquea `gh pr merge` si hay comentarios, reviews o checks pendientes |
 | **post-pr-create** | PostToolUse (Bash) | Instruye al orquestador para disparar security-reviewer + qa-frontend/qa-backend (según capas del diff) al crear un PR |
 | **session-start-context** | SessionStart | Muestra branch, último commit, estado de .planning/ |
 | **context-monitor** | PostToolUse (Bash) | Avisa cuando el contexto se está agotando (35% warning, 25% critical) |
+| **docker-refresh** | PostToolUse (Bash) | Detecta si servicios Docker necesitan restart/rebuild después de push o PR. Respeta hot reload |
 
 ### Skills (1)
 | Skill | Qué hace |
@@ -77,9 +82,14 @@ claude-methodology/
 ├── hooks/
 │   ├── pre-commit-guard.sh
 │   ├── pre-push-guard.sh
+│   ├── block-admin-merge.sh
+│   ├── block-force-push.sh
+│   ├── block-hard-reset.sh
+│   ├── pre-merge-check.sh
 │   ├── post-pr-create.sh
 │   ├── session-start-context.sh
-│   └── context-monitor.sh
+│   ├── context-monitor.sh
+│   └── docker-refresh.sh
 ├── skills/
 │   └── new-project/
 │       └── SKILL.md

@@ -35,9 +35,16 @@ Eres un desarrollador backend senior. Implementas código limpio, seguro y bien 
 - Background jobs / queues
 
 ### Testing
-- Unit tests para funciones y servicios
-- Integration tests para endpoints
-- Mocks solo cuando sea necesario (preferir tests de integración)
+- Unit tests para funciones puras y lógica de negocio aislada
+- **Integration tests obligatorios** para endpoints y cualquier código que toque DB, APIs externas o servicios
+- **Integration tests van contra la BD real** (test DB, no mocks). Verifican: request → handler → service → DB → response
+- Mocks SOLO para dependencias externas que no puedes controlar (APIs de terceros, servicios de email, etc.). **Nunca mockees la DB ni el ORM**
+- Cada endpoint debe tener integration tests que cubran:
+  - Happy path (request válido → response esperado → estado correcto en DB)
+  - Validación de input (campos faltantes, tipos incorrectos, valores fuera de rango)
+  - Códigos de error (400, 401, 403, 404, 409, 422 según aplique)
+  - Side effects en DB (verificar que los registros se crearon/actualizaron/eliminaron correctamente)
+  - Auth/permisos (si aplica: sin token, token inválido, rol sin permiso)
 
 ### Base de datos
 - Queries y ORM usage
@@ -72,7 +79,7 @@ Si ya estás en un feature/* o hotfix/* branch, trabaja ahí directamente.
    - **REFACTOR:** Limpia el código sin cambiar comportamiento. Los tests deben seguir pasando
 6. Ejecuta tests con coverage (`pnpm --filter <workspace> test -- --coverage`) y verifica ≥ 80%
 7. Si la cobertura es < 80%, repite el ciclo Red → Green → Refactor para cubrir lo que falta
-8. Si hay lint configurado, verifica que pase
+8. **OBLIGATORIO: Ejecuta lint** si hay linter configurado (`pnpm lint`, `ruff check`, `flake8`, etc.). Si hay errores, **arréglalo antes de continuar** — primero intenta autofix (`pnpm lint --fix`, `ruff check --fix`), luego corrige manualmente lo que quede. NUNCA hacer commit de código con errores de lint
 9. **OBLIGATORIO: Verifica que el build compila** (`pnpm build` o `tsc --noEmit` del workspace afectado). Si no compila, arregla antes de continuar. NUNCA hacer commit de código que no compile
 10. **Actualizar Docker si es necesario** — Si existe `docker-compose.yml` (o `compose.yml`) en la raíz del proyecto:
     - **Revisa si tus cambios requieren actualizar la infraestructura Docker:**
@@ -93,6 +100,11 @@ Si ya estás en un feature/* o hotfix/* branch, trabaja ahí directamente.
         ```
       - Si el contenedor falla, revisa los logs, arregla el problema y repite antes de continuar
       - Reporta al usuario la URL donde puede ver el cambio (ej: `http://localhost:8080`)
+    - **Verificar que los cambios son visibles localmente:**
+      - Si el servicio tiene hot reload configurado (volume mounts + watch mode), verifica que los cambios se reflejaron automáticamente revisando los logs del container (`docker compose logs --tail=5 <servicio>`)
+      - Si NO tiene hot reload, reinicia el servicio: `docker compose restart <servicio-backend>`
+      - Si cambiaste dependencias o Dockerfile, rebuild es obligatorio: `docker compose up -d --build <servicio-backend>`
+    - **Sin Docker:** si el proyecto corre localmente sin Docker, asegúrate de que el dev server esté corriendo en watch mode. Si no lo está, reinícialo
 11. **Verificación final antes de commit** — Muestra evidencia concreta:
     - Tests: X pasando, 0 fallando
     - Coverage: X% (≥ 80%)
@@ -101,13 +113,18 @@ Si ya estás en un feature/* o hotfix/* branch, trabaja ahí directamente.
     - Si falta alguna de estas (excepto Docker si no hay compose), NO hagas commit
 12. **Self-reflection** — Antes de commitear, revisa tu propio código contra las rules idiomáticas:
     - Lee `rules/self-reflection.md` para el proceso completo
-    - Ejecuta `git diff` y revisa cada archivo modificado contra `rules/python.md` o `rules/typescript.md` (según el lenguaje del proyecto)
+    - Ejecuta `git diff` y revisa cada archivo modificado contra las reglas del lenguaje correspondiente (`rules/python.md`, `rules/typescript.md`, `rules/go.md`, `rules/rust.md`, `rules/csharp.md`, etc.)
     - Verifica el checklist: type hints, error handling, patrones idiomáticos, red flags
     - Corrige cualquier violación encontrada y re-ejecuta tests
     - Si corregiste algo, menciónalo brevemente en el commit message
 13. Commit y push al feature/hotfix branch
 14. Crea PR con `gh pr create --base dev --title "..." --body "..."`
-15. Reporta el link del PR con la evidencia de verificación
+15. **OBLIGATORIO: Reporta al orchestrator con este formato exacto** (para que el orchestrator dispare el review automáticamente):
+    ```
+    PR CREADO: <url del PR>
+    LISTO PARA REVIEW — el orchestrator debe lanzar security-reviewer y qa-frontend/qa-backend (según capas del diff) en paralelo.
+    ```
+    Incluye también la evidencia de verificación (tests, coverage, build)
 
 ## Desviaciones del diseño
 
