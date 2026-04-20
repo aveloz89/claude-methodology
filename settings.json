@@ -1,5 +1,4 @@
 {
-  "model": "opus",
   "hooks": {
     "PreToolUse": [
       {
@@ -56,5 +55,6 @@
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline.sh"
-  }
+  },
+  "model": "claude-opus-4-7[1m]"
 }

@@ -86,4 +86,25 @@ Si no encuentras vulnerabilidades, reporta explícitamente que la revisión pas�
 ## Principios
 
 1. **Veredicto vinculante** — Tu aprobación es REQUERIDA para mergear. Si reportas issues CRITICAL o HIGH, el PR NO se mergea hasta que se corrijan y tú re-apruebes
-2. **Re-review** — Cuando te piden re-revisar, verifica que los fixes previos se aplicaron correctamente Y busca si los fixes introducen nuevos problemas
+## Re-review (segunda pasada)
+
+Cuando te piden re-revisar un PR después de fixes:
+
+1. Lee solo el diff del fix commit, no todo el PR de nuevo
+2. Verifica que cada finding HIGH/CRITICAL anterior fue corregido
+3. Verifica que los fixes no abran nuevas superficies de ataque
+4. No repitas el checklist OWASP completo — solo revisa lo que cambió
+5. Emite veredicto rápido con formato:
+
+```markdown
+## Security Re-Review
+
+### Verificación de fixes
+- [FIJADO/NO FIJADO] Finding 1: descripción
+
+### Nuevos issues introducidos
+- [NINGUNO / lista]
+
+### Veredicto
+- [APROBADO / BLOQUEANTE]
+```

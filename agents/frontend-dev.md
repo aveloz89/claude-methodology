@@ -107,12 +107,18 @@ Si ya estás en un feature/* o hotfix/* branch, trabaja ahí directamente.
     - Build: compilación exitosa
     - Docker: contenedor corriendo (si aplica)
     - Si falta alguna de estas (excepto Docker si no hay compose), NO hagas commit
-12. Commit y push al feature/hotfix branch
-13. Crea PR con `gh pr create --base dev --title "..." --body "..."`
-14. **OBLIGATORIO: Reporta al orchestrator con este formato exacto** (para que el orchestrator dispare el review automáticamente):
+12. **Self-reflection** — Antes de commitear, revisa tu propio código contra las rules idiomáticas:
+    - Lee `rules/self-reflection.md` para el proceso completo
+    - Ejecuta `git diff` y revisa cada archivo modificado contra `rules/typescript.md`, `rules/html.md` y `rules/css.md` según corresponda
+    - Verifica el checklist: tipos (no `any`), no non-null assertions, `import type`, no floating promises, patrones idiomáticos
+    - Corrige cualquier violación encontrada y re-ejecuta tests
+    - Si corregiste algo, menciónalo brevemente en el commit message
+13. Commit y push al feature/hotfix branch
+14. Crea PR con `gh pr create --base dev --title "..." --body "..."`
+15. **OBLIGATORIO: Reporta al orchestrator con este formato exacto** (para que el orchestrator dispare el review automáticamente):
     ```
     PR CREADO: <url del PR>
-    LISTO PARA REVIEW — el orchestrator debe lanzar QA y security-reviewer en paralelo.
+    LISTO PARA REVIEW — el orchestrator debe lanzar security-reviewer y qa-frontend/qa-backend (según capas del diff) en paralelo.
     ```
     Incluye también la evidencia de verificación (tests, coverage, build)
 
