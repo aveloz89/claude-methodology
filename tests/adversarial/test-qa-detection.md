@@ -1,13 +1,15 @@
 # QA Detection Test Fixtures
 
-Código deliberadamente malo que el QA agent DEBE detectar. Usar estos fixtures para validar que el agente QA está funcionando correctamente.
+Código deliberadamente malo que los QA agents DEBEN detectar. Usar estos fixtures para validar que `qa-frontend` y `qa-backend` están funcionando correctamente.
 
 ## Cómo usar
 
 1. Crear un PR con uno o más de estos fixtures
-2. Invocar al QA agent para revisar el PR
+2. Invocar al QA agent correspondiente según la capa del fixture:
+   - Fixtures 1, 2, 3 (Python) → `qa-backend`
+   - Fixture 4 (TypeScript) → `qa-frontend` si el archivo está bajo `components/`, `pages/`, `app/`, etc.; `qa-backend` si está bajo `services/`, `api/`, `server/`, etc.
 3. Verificar que detecta TODOS los problemas listados
-4. Si no detecta alguno, ajustar el prompt del QA agent
+4. Si no detecta alguno, ajustar el prompt del agente correspondiente
 
 ---
 

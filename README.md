@@ -4,7 +4,7 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 
 ## Qué incluye
 
-### Agentes (7)
+### Agentes (8)
 | Agente | Modelo | Rol |
 |--------|--------|-----|
 | **orchestrator** | opus | Coordina todo el flujo: brainstorming → diseño → implementación → review → merge |
@@ -13,14 +13,15 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 | **frontend-dev** | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) |
 | **db-specialist** | sonnet | Diseño de esquemas, migraciones, optimización de queries |
 | **security-reviewer** | opus | Auditoría OWASP Top 10, secrets, dependencias (read-only) |
-| **qa** | sonnet | Funcionalidad, edge cases, stub detection, coverage ≥ 80% |
+| **qa-frontend** | sonnet | UX, accesibilidad, componentes, estado UI, tests frontend, coverage ≥ 80% |
+| **qa-backend** | sonnet | Contratos de API, lógica de negocio, datos, tests backend, coverage ≥ 80% |
 
 ### Hooks (5)
 | Hook | Evento | Qué hace |
 |------|--------|----------|
 | **pre-commit-guard** | PreToolUse (Bash) | Corre tests antes de cada commit. Detecta pnpm/yarn/npm/pytest |
 | **pre-push-guard** | PreToolUse (Bash) | Bloquea push directo a main |
-| **post-pr-create** | PostToolUse (Bash) | Instruye al orquestador para disparar QA y security-reviewer automáticamente al crear un PR |
+| **post-pr-create** | PostToolUse (Bash) | Instruye al orquestador para disparar security-reviewer + qa-frontend/qa-backend (según capas del diff) al crear un PR |
 | **session-start-context** | SessionStart | Muestra branch, último commit, estado de .planning/ |
 | **context-monitor** | PostToolUse (Bash) | Avisa cuando el contexto se está agotando (35% warning, 25% critical) |
 
@@ -35,15 +36,15 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 Idea → Brainstorming (orchestrator pregunta) → Brief
   → Architect diseña + escribe schemas/contratos
   → Devs implementan con TDD (Red → Green → Refactor)
-  → PR creado → Security + QA review en paralelo
+  → PR creado → Security + QA (qa-frontend y/o qa-backend según capas) review en paralelo
   → Si hay issues → Dev corrige en mismo PR → Re-review
-  → Ambos aprueban → Merge
+  → Todos aprueban → Merge
 ```
 
 ## Reglas enforced
 
 - **80% test coverage** mínimo para mergear
-- **Dual review** obligatorio (security + QA)
+- **Dual review** obligatorio (security + QA frontend/backend según capas del diff)
 - **TDD** obligatorio (test antes que código)
 - **Build debe compilar** antes de commit
 - **No push directo a main**
@@ -70,7 +71,8 @@ claude-methodology/
 │   ├── backend-dev.md
 │   ├── frontend-dev.md
 │   ├── db-specialist.md
-│   ├── qa.md
+│   ├── qa-frontend.md
+│   ├── qa-backend.md
 │   └── security-reviewer.md
 ├── hooks/
 │   ├── pre-commit-guard.sh

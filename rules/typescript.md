@@ -1,6 +1,6 @@
 # TypeScript Review Rules
 
-Reglas idiomáticas para revisar código TypeScript/JavaScript. El QA agent lee este archivo cuando el PR contiene archivos `.ts`, `.tsx`, `.js`, `.jsx`.
+Reglas idiomáticas para revisar código TypeScript/JavaScript. Lo lee `qa-frontend` para archivos en rutas de UI (`components/`, `pages/`, `app/`, `hooks/`, etc.) y `qa-backend` para archivos en rutas de servidor (`api/`, `services/`, `controllers/`, `routes/`, etc.). Las reglas de React dentro de este archivo solo aplican al review de `qa-frontend`.
 
 ## Tipos
 
