@@ -75,7 +75,7 @@ Si ya estás en un feature/* o hotfix/* branch, trabaja ahí directamente.
    - **REFACTOR:** Limpia sin cambiar comportamiento. Los tests deben seguir pasando
 6. Ejecuta tests con coverage (`pnpm --filter <workspace> test -- --coverage`) y verifica ≥ 80%
 7. Si la cobertura es < 80%, repite el ciclo Red → Green → Refactor para cubrir lo que falta
-8. Ejecuta lint
+8. **OBLIGATORIO: Ejecuta lint** (`pnpm lint`, `eslint`, etc.). Si hay errores, **arréglalo antes de continuar** — primero intenta autofix (`pnpm lint --fix`, `eslint --fix`), luego corrige manualmente lo que quede. NUNCA hacer commit de código con errores de lint
 9. **OBLIGATORIO: Verifica que el build compila** (`pnpm --filter <workspace> build` o `tsc --noEmit`). Si no compila, arregla antes de continuar. NUNCA hacer commit de código que no compile
 10. **Actualizar Docker si es necesario** — Si existe `docker-compose.yml` (o `compose.yml`) en la raíz del proyecto:
     - **Revisa si tus cambios requieren actualizar la infraestructura Docker:**
@@ -96,6 +96,11 @@ Si ya estás en un feature/* o hotfix/* branch, trabaja ahí directamente.
         ```
       - Si el contenedor falla, revisa los logs, arregla el problema y repite antes de continuar
       - Reporta al usuario la URL donde puede ver el cambio (ej: `http://localhost:3000`)
+    - **Verificar que los cambios son visibles localmente:**
+      - Si el servicio tiene hot reload / HMR configurado (volume mounts + Vite/Next/etc.), verifica que los cambios se reflejaron automáticamente revisando los logs del container (`docker compose logs --tail=5 <servicio>`)
+      - Si NO tiene hot reload, reinicia el servicio: `docker compose restart <servicio-frontend>`
+      - Si cambiaste dependencias o Dockerfile, rebuild es obligatorio: `docker compose up -d --build <servicio-frontend>`
+    - **Sin Docker:** si el proyecto corre localmente sin Docker, asegúrate de que el dev server esté corriendo en watch mode. Si no lo está, reinícialo
 11. **Verificación final antes de commit** — Muestra evidencia concreta:
     - Tests: X pasando, 0 fallando
     - Coverage: X% (≥ 80%)
@@ -104,13 +109,18 @@ Si ya estás en un feature/* o hotfix/* branch, trabaja ahí directamente.
     - Si falta alguna de estas (excepto Docker si no hay compose), NO hagas commit
 12. **Self-reflection** — Antes de commitear, revisa tu propio código contra las rules idiomáticas:
     - Lee `rules/self-reflection.md` para el proceso completo
-    - Ejecuta `git diff` y revisa cada archivo modificado contra `rules/typescript.md`
+    - Ejecuta `git diff` y revisa cada archivo modificado contra `rules/typescript.md`, `rules/html.md` y `rules/css.md` según corresponda
     - Verifica el checklist: tipos (no `any`), no non-null assertions, `import type`, no floating promises, patrones idiomáticos
     - Corrige cualquier violación encontrada y re-ejecuta tests
     - Si corregiste algo, menciónalo brevemente en el commit message
 13. Commit y push al feature/hotfix branch
 14. Crea PR con `gh pr create --base dev --title "..." --body "..."`
-15. Reporta el link del PR con la evidencia de verificación
+15. **OBLIGATORIO: Reporta al orchestrator con este formato exacto** (para que el orchestrator dispare el review automáticamente):
+    ```
+    PR CREADO: <url del PR>
+    LISTO PARA REVIEW — el orchestrator debe lanzar security-reviewer y qa-frontend/qa-backend (según capas del diff) en paralelo.
+    ```
+    Incluye también la evidencia de verificación (tests, coverage, build)
 
 ## Desviaciones del diseño
 

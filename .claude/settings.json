@@ -1,0 +1,31 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash hooks/block-admin-merge.sh",
+            "statusMessage": "Checking for --admin bypass..."
+          },
+          {
+            "type": "command",
+            "command": "bash hooks/block-force-push.sh",
+            "statusMessage": "Checking for force push..."
+          },
+          {
+            "type": "command",
+            "command": "bash hooks/block-hard-reset.sh",
+            "statusMessage": "Checking for hard reset..."
+          },
+          {
+            "type": "command",
+            "command": "bash hooks/pre-merge-check.sh",
+            "statusMessage": "Verifying PR is ready to merge..."
+          }
+        ]
+      }
+    ]
+  }
+}
