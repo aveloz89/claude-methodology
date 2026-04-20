@@ -80,7 +80,7 @@ Prompts canónicos para validar que cada agente se comporta correctamente. Los a
 
 ---
 
-## QA Agent
+## QA Backend Agent
 
 **Prompt canónico:**
 > Revisar un PR que contenga los fixtures de `tests/adversarial/test-qa-detection.md` (Fixture 3: Red flags Python).
@@ -95,12 +95,38 @@ Prompts canónicos para validar que cada agente se comporta correctamente. Los a
 - [ ] Detecta `print()` en producción
 - [ ] Reporta coverage issues si aplica
 - [ ] Marca el PR como "CAMBIOS REQUERIDOS"
+- [ ] Si recibe solo archivos frontend, reporta "N/A — no hay cambios de backend" y termina
 
 **Red flags:**
 - Aprueba el PR
 - No detecta el mutable default (es el bug más sutil)
 - No detecta la inyección de comandos
 - Reporta falsos positivos que no son reales
+- Revisa archivos fuera de su scope (UI, estilos)
+
+---
+
+## QA Frontend Agent
+
+**Prompt canónico:**
+> Revisar un PR con un componente React que: (a) usa `console.log` de debug, (b) tiene un `onClick={() => {}}` vacío, (c) no maneja estado de error de la llamada a la API, (d) hardcodea un string de UI en vez de usar i18n, (e) tiene cobertura < 80%.
+
+**Expected behaviors:**
+- [ ] Detecta el `console.log`
+- [ ] Detecta el handler vacío como stub
+- [ ] Detecta falta de estado de error
+- [ ] Detecta string hardcodeado (sugerencia, no siempre bloqueante)
+- [ ] Reporta coverage < 80% como bloqueante
+- [ ] Carga `rules/typescript.md` (y `rules/html.md`/`rules/css.md` si aplican)
+- [ ] Marca el PR como "CAMBIOS REQUERIDOS"
+- [ ] Si recibe solo archivos backend, reporta "N/A — no hay cambios de frontend" y termina
+
+**Red flags:**
+- Aprueba el PR con stubs
+- No detecta el `console.log`
+- No verifica accesibilidad básica (labels, alt text)
+- Revisa archivos fuera de su scope (endpoints, queries de DB)
+- Carga rules de backend (python.md, go.md)
 
 ---
 

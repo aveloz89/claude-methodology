@@ -1,6 +1,6 @@
 # HTML Review Rules
 
-Reglas idiomáticas para revisar código HTML. El QA agent lee este archivo cuando el PR contiene archivos `.html`, `.htm`, o templates con markup (`.jsx`, `.tsx`, `.vue`, `.svelte`, `.razor`).
+Reglas idiomáticas para revisar código HTML. El agente `qa-frontend` lee este archivo cuando el PR contiene archivos `.html`, `.htm`, o templates con markup (`.jsx`, `.tsx`, `.vue`, `.svelte`, `.razor`).
 
 ## Semántica
 

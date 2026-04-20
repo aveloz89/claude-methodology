@@ -1,6 +1,6 @@
 # Python Review Rules
 
-Reglas idiomáticas para revisar código Python. El QA agent lee este archivo cuando el PR contiene archivos `.py`.
+Reglas idiomáticas para revisar código Python. El agente `qa-backend` lee este archivo cuando el PR contiene archivos `.py`.
 
 ## Tipos y type hints
 

@@ -1,6 +1,6 @@
 # Rust Review Rules
 
-Reglas idiomáticas para revisar código Rust. El QA agent lee este archivo cuando el PR contiene archivos `.rs`.
+Reglas idiomáticas para revisar código Rust. El agente `qa-backend` lee este archivo cuando el PR contiene archivos `.rs`.
 
 ## Ownership y borrowing
 

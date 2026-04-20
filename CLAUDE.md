@@ -7,7 +7,7 @@ Sistema de agentes especializados, hooks y workflows para desarrollo fullstack c
 1. **Brainstorming antes de diseñar** — El orchestrator entiende el requerimiento haciendo preguntas antes de pasar al architect. Solo se salta para bug fixes y tareas técnicas acotadas
 2. **Diseño antes de código** — El architect diseña la solución (estructura, contratos, schemas) antes de que los devs implementen
 3. **TDD obligatorio** — Red → Green → Refactor. Nunca código de producción sin un test que falle primero
-4. **Dual review obligatorio** — security-reviewer + QA deben aprobar antes de merge
+4. **Dual review obligatorio** — security-reviewer + QA (qa-frontend y/o qa-backend según capas del diff) deben aprobar antes de merge
 5. **80% test coverage mínimo** — PRs con menos de 80% no se mergean
 
 ## Gitflow
@@ -62,7 +62,8 @@ No se hace commit si falta alguna de estas verificaciones.
 | `frontend-dev` | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) |
 | `db-specialist` | sonnet | Esquemas, migraciones, optimización de queries |
 | `security-reviewer` | opus | Auditoría OWASP Top 10, secrets, dependencias (read-only) |
-| `qa` | sonnet | Funcionalidad, edge cases, stub detection, coverage ≥ 80% |
+| `qa-frontend` | sonnet | UX, accesibilidad, componentes, estado UI, tests frontend, coverage ≥ 80% |
+| `qa-backend` | sonnet | Contratos de API, lógica de negocio, datos, tests backend, coverage ≥ 80% |
 | `e2e-runner` | sonnet | Tests E2E con Playwright (cero mocks, sistema real) |
 | `build-resolver` | sonnet | Diagnostica y resuelve errores de build/compilación |
 | `refactor` | sonnet | Detecta code smells, refactoriza sin cambiar comportamiento |
@@ -73,8 +74,8 @@ No se hace commit si falta alguna de estas verificaciones.
 ```
 Brainstorming → Brief → Architect diseña → Devs implementan (TDD + Self-Reflection)
   → PR creado → CI checks → Docs genera/actualiza documentación
-  → Security + QA review en paralelo
-  → Correcciones en mismo PR → Re-review → Ambos aprueban → Merge → Learn
+  → Security + QA (qa-frontend y/o qa-backend según capas del diff) review en paralelo
+  → Correcciones en mismo PR → Re-review → Todos aprueban → Merge → Learn
 ```
 
 ## Estado persistente (.planning/)
