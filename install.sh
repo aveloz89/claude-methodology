@@ -2,8 +2,10 @@
 # Instala la metodología de Claude Code en ~/.claude/
 # Uso: ./install.sh [--symlink | --copy]
 #
-# --symlink: Crea symlinks (cambios en el repo se reflejan automáticamente)
-# --copy:    Copia los archivos (independiente del repo)
+# --symlink: Crea symlinks de los DIRECTORIOS completos (agents/, hooks/, rules/, skills/).
+#            Cualquier archivo que agregues al repo aparece al instante en ~/.claude/,
+#            sin reinstalar.
+# --copy:    Copia los archivos uno por uno (independiente del repo).
 # Default:   --symlink
 
 set -e
@@ -18,6 +20,42 @@ echo "Target: $CLAUDE_DIR"
 echo "Mode: $MODE"
 echo ""
 
+mkdir -p "$CLAUDE_DIR"
+
+# Symlinkea (o copia) un directorio completo del repo a ~/.claude/.
+# Si el destino existe como directorio real, lo respalda a *.bak antes.
+install_dir() {
+  local src="$1"
+  local dest="$2"
+  local label="$3"
+
+  if [ ! -d "$src" ]; then
+    echo "  SKIP: $src no existe"
+    return
+  fi
+
+  if [ -L "$dest" ]; then
+    rm "$dest"
+  elif [ -d "$dest" ]; then
+    echo "  BACKUP: $dest → ${dest}.bak"
+    rm -rf "${dest}.bak"
+    mv "$dest" "${dest}.bak"
+  fi
+
+  if [ "$MODE" = "--symlink" ]; then
+    ln -s "$src" "$dest"
+    local count
+    count=$(find "$src" -maxdepth 1 -mindepth 1 | wc -l | tr -d ' ')
+    echo "  LINK: $dest → $src ($count $label)"
+  else
+    cp -R "$src" "$dest"
+    local count
+    count=$(find "$dest" -maxdepth 1 -mindepth 1 | wc -l | tr -d ' ')
+    echo "  COPY: $src → $dest ($count $label)"
+  fi
+}
+
+# Symlinkea (o copia) un archivo individual.
 install_file() {
   local src="$1"
   local dest="$2"
@@ -36,76 +74,42 @@ install_file() {
   fi
 }
 
-# Instalar agentes (dinámico — todos los .md en agents/)
 echo ""
 echo "Installing agents..."
-mkdir -p "$CLAUDE_DIR/agents"
-AGENT_COUNT=0
-for f in "$SCRIPT_DIR"/agents/*.md; do
-  install_file "$f" "$CLAUDE_DIR/agents/$(basename "$f")"
-  AGENT_COUNT=$((AGENT_COUNT + 1))
-done
+install_dir "$SCRIPT_DIR/agents" "$CLAUDE_DIR/agents" "agents"
 
-# Instalar hooks
 echo ""
 echo "Installing hooks..."
-mkdir -p "$CLAUDE_DIR/hooks"
-HOOK_COUNT=0
-for f in "$SCRIPT_DIR"/hooks/*.sh; do
-  install_file "$f" "$CLAUDE_DIR/hooks/$(basename "$f")"
-  chmod +x "$CLAUDE_DIR/hooks/$(basename "$f")"
-  HOOK_COUNT=$((HOOK_COUNT + 1))
-done
+install_dir "$SCRIPT_DIR/hooks" "$CLAUDE_DIR/hooks" "hooks"
 
-# Instalar skills (dinámico — todos los subdirectorios en skills/)
 echo ""
 echo "Installing skills..."
-SKILL_COUNT=0
-for skill_dir in "$SCRIPT_DIR"/skills/*/; do
-  skill_name="$(basename "$skill_dir")"
-  mkdir -p "$CLAUDE_DIR/skills/$skill_name"
-  for f in "$skill_dir"*; do
-    [ -f "$f" ] && install_file "$f" "$CLAUDE_DIR/skills/$skill_name/$(basename "$f")"
-  done
-  SKILL_COUNT=$((SKILL_COUNT + 1))
-done
+install_dir "$SCRIPT_DIR/skills" "$CLAUDE_DIR/skills" "skills"
 
-# Instalar rules (dinámico — todos los .md en rules/)
 echo ""
 echo "Installing rules..."
-RULE_COUNT=0
-if [ -d "$SCRIPT_DIR/rules" ]; then
-  mkdir -p "$CLAUDE_DIR/rules"
-  for f in "$SCRIPT_DIR"/rules/*.md; do
-    [ -f "$f" ] && install_file "$f" "$CLAUDE_DIR/rules/$(basename "$f")"
-    RULE_COUNT=$((RULE_COUNT + 1))
-  done
-fi
+install_dir "$SCRIPT_DIR/rules" "$CLAUDE_DIR/rules" "rules"
 
-# Instalar statusline
 echo ""
 echo "Installing statusline..."
 install_file "$SCRIPT_DIR/statusline.sh" "$CLAUDE_DIR/statusline.sh"
-chmod +x "$CLAUDE_DIR/statusline.sh"
+chmod +x "$CLAUDE_DIR/statusline.sh" 2>/dev/null || true
 
-# Instalar settings.json (con cuidado — puede tener config del usuario)
 echo ""
 if [ -e "$CLAUDE_DIR/settings.json" ] && [ ! -L "$CLAUDE_DIR/settings.json" ]; then
   echo "WARNING: ~/.claude/settings.json already exists."
-  echo "  Your current settings.json has been backed up to settings.json.bak"
+  echo "  Your current settings.json will be backed up to settings.json.bak"
   echo "  Review and merge manually if needed."
 fi
 install_file "$SCRIPT_DIR/settings.json" "$CLAUDE_DIR/settings.json"
 
 echo ""
 echo "=== Installation complete ==="
-echo ""
-echo "Installed:"
-echo "  - $AGENT_COUNT agents"
-echo "  - $HOOK_COUNT hooks"
-echo "  - $SKILL_COUNT skills"
-echo "  - $RULE_COUNT rules"
-echo "  - statusline"
-echo "  - settings.json"
+if [ "$MODE" = "--symlink" ]; then
+  echo ""
+  echo "Los directorios agents/, hooks/, skills/, rules/ son symlinks al repo."
+  echo "Cualquier archivo nuevo que agregues está disponible al instante,"
+  echo "sin volver a correr este script."
+fi
 echo ""
 echo "Restart Claude Code for changes to take effect."
