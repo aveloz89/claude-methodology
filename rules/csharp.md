@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.cs"
+---
+
 # C# Review Rules
 
 Reglas idiomáticas para revisar código C#. El agente `qa-backend` lee este archivo cuando el PR contiene archivos `.cs`.

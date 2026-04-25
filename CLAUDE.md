@@ -95,7 +95,7 @@ El estado del trabajo se persiste en `.planning/` para sobrevivir cambios de ses
 - **Tareas atómicas** — una tarea = un comportamiento concreto = un ciclo TDD
 - **Fixes en mismo PR** — correcciones van en el mismo branch/PR, no en uno nuevo
 - **Debugging sistemático** — nunca adivinar, seguir: evidencia → hipótesis → verificación → fix
-- **Governance playbook** — ante fallos o situaciones inesperadas, seguir los decision trees en `rules/governance-playbook.md`
+- **Governance playbook** — ante fallos o situaciones inesperadas, seguir los decision trees en `rulebooks/governance-playbook.md`
 
 ## Adversarial Testing
 
@@ -111,9 +111,9 @@ Ejecutar después de modificar agentes, hooks o rules. Ver `tests/adversarial/RE
 Proceso para verificar que los agentes no han degradado en calidad:
 - `tests/validation/agent-validation.md` — prompts canónicos y expected behaviors por agente
 - `tests/validation/VALIDATION-LOG.md` — log de resultados
-- `rules/validation-schedule.md` — frecuencia y proceso
+- `rulebooks/validation-schedule.md` — frecuencia y proceso
 
-Ejecutar mensualmente o antes de cada release. Ver `rules/validation-schedule.md`.
+Ejecutar mensualmente o antes de cada release. Ver `rulebooks/validation-schedule.md`.
 
 ## Stack
 

@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.css"
+  - "**/*.scss"
+  - "**/*.sass"
+  - "**/*.less"
+---
+
 # CSS Review Rules
 
 Reglas idiomáticas para revisar código CSS. El agente `qa-frontend` lee este archivo cuando el PR contiene archivos `.css`, `.scss`, `.sass`, `.less`, o archivos con estilos inline/módulos CSS.
