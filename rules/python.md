@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.py"
+---
+
 # Python Review Rules
 
 Reglas idiomáticas para revisar código Python. El agente `qa-backend` lee este archivo cuando el PR contiene archivos `.py`.

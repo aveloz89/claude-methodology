@@ -476,4 +476,4 @@ Cuando una feature se completa (PR mergeado a dev):
 11. **Tareas atómicas** — Descompón features en tareas bite-sized. Una tarea = un comportamiento concreto = un ciclo TDD
 12. **Estado persistente** — Mantén .planning/ actualizado en cada fase. El estado sobrevive sesiones y resets
 13. **Pause/Resume** — Si el usuario para o el contexto se agota, crea HANDOFF.md con todo lo necesario para retomar
-14. **Governance** — En caso de fallo o situación inesperada, consulta `rules/governance-playbook.md` para el decision tree correspondiente
+14. **Governance** — En caso de fallo o situación inesperada, consulta `~/.claude/rulebooks/governance-playbook.md` para el decision tree correspondiente
