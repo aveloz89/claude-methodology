@@ -3,7 +3,7 @@
 # Single line: Model | tokens | %used | %remain | think | 5h bar @reset | 7d bar @reset | extra
 
 set -f  # disable globbing
-VERSION="1.2.0"
+VERSION="1.4.2"
 
 input=$(cat)
 
@@ -19,6 +19,7 @@ green='\033[38;2;0;160;0m'
 cyan='\033[38;2;46;149;153m'
 red='\033[38;2;255;85;85m'
 yellow='\033[38;2;230;200;0m'
+purple='\033[38;2;167;139;250m'
 white='\033[38;2;220;220;220m'
 dim='\033[2m'
 reset='\033[0m'
@@ -27,7 +28,7 @@ reset='\033[0m'
 format_tokens() {
     local num=$1
     if [ "$num" -ge 1000000 ]; then
-        awk "BEGIN {printf \"%.1fm\", $num / 1000000}"
+        awk "BEGIN {v=sprintf(\"%.1f\",$num/1000000)+0; if(v==int(v)) printf \"%dm\",v; else printf \"%.1fm\",v}"
     elif [ "$num" -ge 1000 ]; then
         awk "BEGIN {printf \"%.0fk\", $num / 1000}"
     else
@@ -71,6 +72,7 @@ version_gt() {
 }
 # ===== Extract data from JSON =====
 model_name=$(echo "$input" | jq -r '.model.display_name // "Claude"')
+model_name=$(echo "$model_name" | sed 's/ *(\([0-9.]*[kKmM]*\) context)/ \1/')  # "(1M context)" → "1M"
 
 # Context window
 size=$(echo "$input" | jq -r '.context_window.context_window_size // 200000')
@@ -130,6 +132,8 @@ out+="effort: "
 case "$effort_level" in
     low)    out+="${dim}${effort_level}${reset}" ;;
     medium) out+="${orange}med${reset}" ;;
+    high)   out+="${green}${effort_level}${reset}" ;;
+    xhigh)  out+="${purple}${effort_level}${reset}" ;;
     max)    out+="${red}${effort_level}${reset}" ;;
     *)      out+="${green}${effort_level}${reset}" ;;
 esac
@@ -203,7 +207,7 @@ if [ -n "$builtin_five_hour_pct" ] || [ -n "$builtin_seven_day_pct" ]; then
     use_builtin=true
 fi
 
-# Fall back to cached API call only when Claude Code didn't supply rate_limits data
+# Cache setup — shared across all Claude Code instances to avoid rate limits
 claude_config_dir_hash=$(echo -n "$claude_config_dir" | shasum -a 256 2>/dev/null || echo -n "$claude_config_dir" | sha256sum 2>/dev/null)
 claude_config_dir_hash=$(echo "$claude_config_dir_hash" | cut -c1-8)
 cache_file="/tmp/claude/statusline-usage-cache-${claude_config_dir_hash}.json"
@@ -213,37 +217,60 @@ mkdir -p /tmp/claude
 needs_refresh=true
 usage_data=""
 
-if ! $use_builtin; then
-    # Check cache — shared across all Claude Code instances to avoid rate limits
-    if [ -f "$cache_file" ] && [ -s "$cache_file" ]; then
-        cache_mtime=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null)
-        now=$(date +%s)
-        cache_age=$(( now - cache_mtime ))
-        if [ "$cache_age" -lt "$cache_max_age" ]; then
-            needs_refresh=false
-        fi
-        usage_data=$(cat "$cache_file" 2>/dev/null)
+# Always load cache — used as primary source for API path, and as fallback when builtin reports zero
+if [ -f "$cache_file" ] && [ -s "$cache_file" ]; then
+    cache_mtime=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null)
+    now=$(date +%s)
+    cache_age=$(( now - cache_mtime ))
+    if [ "$cache_age" -lt "$cache_max_age" ]; then
+        needs_refresh=false
     fi
+    usage_data=$(cat "$cache_file" 2>/dev/null)
+fi
 
-    # Fetch fresh data if cache is stale
-    if $needs_refresh; then
-        touch "$cache_file"  # stampede lock: prevent parallel panes from fetching simultaneously
-        token=$(get_oauth_token)
-        if [ -n "$token" ] && [ "$token" != "null" ]; then
-            response=$(curl -s --max-time 10 \
-                -H "Accept: application/json" \
-                -H "Content-Type: application/json" \
-                -H "Authorization: Bearer $token" \
-                -H "anthropic-beta: oauth-2025-04-20" \
-                -H "User-Agent: claude-code/2.1.34" \
-                "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
-            # Only cache valid usage responses (not error/rate-limit JSON)
-            if [ -n "$response" ] && echo "$response" | jq -e '.five_hour' >/dev/null 2>&1; then
-                usage_data="$response"
-                echo "$response" > "$cache_file"
-            fi
+# When builtin values are all zero AND reset timestamps are missing, it likely indicates
+# an API failure on Claude's side — fall through to cached data instead of displaying
+# misleading 0%. Genuine zero responses (after a billing reset) still include valid
+# resets_at timestamps, so we trust those.
+effective_builtin=false
+if $use_builtin; then
+    # Trust builtin if any percentage is non-zero
+    if { [ -n "$builtin_five_hour_pct" ] && [ "$(printf '%.0f' "$builtin_five_hour_pct" 2>/dev/null)" != "0" ]; } || \
+       { [ -n "$builtin_seven_day_pct" ] && [ "$(printf '%.0f' "$builtin_seven_day_pct" 2>/dev/null)" != "0" ]; }; then
+        effective_builtin=true
+    fi
+    # Also trust if reset timestamps are present — genuine zero responses include valid reset times
+    if ! $effective_builtin; then
+        if { [ -n "$builtin_five_hour_reset" ] && [ "$builtin_five_hour_reset" != "null" ] && [ "$builtin_five_hour_reset" != "0" ]; } || \
+           { [ -n "$builtin_seven_day_reset" ] && [ "$builtin_seven_day_reset" != "null" ] && [ "$builtin_seven_day_reset" != "0" ]; }; then
+            effective_builtin=true
         fi
     fi
+fi
+
+# Refresh API cache when stale — runs regardless of builtin rate_limits because
+# extra_usage is only exposed through the OAuth usage endpoint (not stdin JSON).
+# Throttled to cache_max_age and stampede-locked via touch for shared panes.
+if $needs_refresh; then
+    touch "$cache_file"  # stampede lock: prevent parallel panes from fetching simultaneously
+    token=$(get_oauth_token)
+    if [ -n "$token" ] && [ "$token" != "null" ]; then
+        response=$(curl -s --max-time 10 \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $token" \
+            -H "anthropic-beta: oauth-2025-04-20" \
+            -H "User-Agent: claude-code/2.1.34" \
+            "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
+        # Only cache valid usage responses (not error/rate-limit JSON)
+        if [ -n "$response" ] && echo "$response" | jq -e '.five_hour' >/dev/null 2>&1; then
+            usage_data="$response"
+            echo "$response" > "$cache_file"
+        fi
+    fi
+    # Remove the stampede sentinel if the fetch failed to produce valid JSON —
+    # otherwise an empty cache file would suppress retries for a full cache_max_age window.
+    [ -f "$cache_file" ] && [ ! -s "$cache_file" ] && rm -f "$cache_file"
 fi
 
 # Cross-platform ISO to epoch conversion
@@ -319,7 +346,30 @@ format_reset_time() {
 
 sep=" ${dim}|${reset} "
 
-if $use_builtin; then
+# Render extra_usage segment from API usage data (not available via stdin rate_limits).
+# Appends to the global $out. No-op when data is missing or is_enabled is false.
+render_extra_usage() {
+    local data="$1"
+    [ -z "$data" ] && return
+    local enabled
+    enabled=$(echo "$data" | jq -r '.extra_usage.is_enabled // false' 2>/dev/null)
+    [ "$enabled" != "true" ] && return
+
+    local pct used limit
+    pct=$(echo "$data" | jq -r '.extra_usage.utilization // 0' | awk '{printf "%.0f", $1}')
+    used=$(echo "$data" | jq -r '.extra_usage.used_credits // 0' | LC_NUMERIC=C awk '{printf "%.2f", $1/100}')
+    limit=$(echo "$data" | jq -r '.extra_usage.monthly_limit // 0' | LC_NUMERIC=C awk '{printf "%.2f", $1/100}')
+
+    if [ -n "$used" ] && [ -n "$limit" ] && [[ "$used" != *'$'* ]] && [[ "$limit" != *'$'* ]]; then
+        local color
+        color=$(usage_color "$pct")
+        out+="${sep}${white}extra${reset} ${color}\$${used}/\$${limit}${reset}"
+    else
+        out+="${sep}${white}extra${reset} ${green}enabled${reset}"
+    fi
+}
+
+if $effective_builtin; then
     # ---- Use rate_limits data provided directly by Claude Code in JSON input ----
     # resets_at values are Unix epoch integers in this source
     if [ -n "$builtin_five_hour_pct" ]; then
@@ -341,6 +391,31 @@ if $use_builtin; then
             [ -n "$seven_day_reset" ] && out+=" ${dim}@${seven_day_reset}${reset}"
         fi
     fi
+
+    # Render extra_usage from API cache (stdin rate_limits doesn't expose it)
+    render_extra_usage "$usage_data"
+
+    # Cache builtin values so they're available as fallback when API is unavailable.
+    # Convert epoch resets_at to ISO 8601 for compatibility with the API-format cache parser.
+    # Preserve extra_usage from prior API response so we don't clobber it.
+    _fh_reset_json="null"
+    if [ -n "$builtin_five_hour_reset" ] && [ "$builtin_five_hour_reset" != "null" ] && [ "$builtin_five_hour_reset" != "0" ]; then
+        _fh_iso=$(date -u -r "$builtin_five_hour_reset" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                  date -u -d "@$builtin_five_hour_reset" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+        [ -n "$_fh_iso" ] && _fh_reset_json="\"$_fh_iso\""
+    fi
+    _sd_reset_json="null"
+    if [ -n "$builtin_seven_day_reset" ] && [ "$builtin_seven_day_reset" != "null" ] && [ "$builtin_seven_day_reset" != "0" ]; then
+        _sd_iso=$(date -u -r "$builtin_seven_day_reset" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                  date -u -d "@$builtin_seven_day_reset" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+        [ -n "$_sd_iso" ] && _sd_reset_json="\"$_sd_iso\""
+    fi
+    _extra_json=$(echo "$usage_data" | jq -c '.extra_usage // null' 2>/dev/null)
+    [ -z "$_extra_json" ] && _extra_json="null"
+    printf '{"five_hour":{"utilization":%s,"resets_at":%s},"seven_day":{"utilization":%s,"resets_at":%s},"extra_usage":%s}' \
+        "${builtin_five_hour_pct:-0}" "$_fh_reset_json" \
+        "${builtin_seven_day_pct:-0}" "$_sd_reset_json" \
+        "$_extra_json" > "$cache_file" 2>/dev/null
 elif [ -n "$usage_data" ] && echo "$usage_data" | jq -e '.five_hour' >/dev/null 2>&1; then
     # ---- Fall back: API-fetched usage data ----
     # ---- 5-hour (current) ----
@@ -361,20 +436,7 @@ elif [ -n "$usage_data" ] && echo "$usage_data" | jq -e '.five_hour' >/dev/null 
     out+="${sep}${white}7d${reset} ${seven_day_color}${seven_day_pct}%${reset}"
     [ -n "$seven_day_reset" ] && out+=" ${dim}@${seven_day_reset}${reset}"
 
-    # ---- Extra usage ----
-    extra_enabled=$(echo "$usage_data" | jq -r '.extra_usage.is_enabled // false')
-    if [ "$extra_enabled" = "true" ]; then
-        extra_pct=$(echo "$usage_data" | jq -r '.extra_usage.utilization // 0' | awk '{printf "%.0f", $1}')
-        extra_used=$(echo "$usage_data" | jq -r '.extra_usage.used_credits // 0' | LC_NUMERIC=C awk '{printf "%.2f", $1/100}')
-        extra_limit=$(echo "$usage_data" | jq -r '.extra_usage.monthly_limit // 0' | LC_NUMERIC=C awk '{printf "%.2f", $1/100}')
-        # Validate: if values are empty or contain unexpanded variables, show simple "enabled" label
-        if [ -n "$extra_used" ] && [ -n "$extra_limit" ] && [[ "$extra_used" != *'$'* ]] && [[ "$extra_limit" != *'$'* ]]; then
-            extra_color=$(usage_color "$extra_pct")
-            out+="${sep}${white}extra${reset} ${extra_color}\$${extra_used}/\$${extra_limit}${reset}"
-        else
-            out+="${sep}${white}extra${reset} ${green}enabled${reset}"
-        fi
-    fi
+    render_extra_usage "$usage_data"
 else
     # No valid usage data — show placeholders
     out+="${sep}${white}5h${reset} ${dim}-${reset}"
@@ -406,6 +468,11 @@ if $version_needs_refresh; then
     if [ -n "$vc_response" ] && echo "$vc_response" | jq -e '.tag_name' >/dev/null 2>&1; then
         version_data="$vc_response"
         echo "$vc_response" > "$version_cache_file"
+    elif [ ! -s "$version_cache_file" ]; then
+        # Fetch failed and the cache has no usable content — drop the empty
+        # stampede lock so the next render retries instead of the fresh mtime
+        # suppressing update checks for the full 24h TTL.
+        rm -f "$version_cache_file" 2>/dev/null
     fi
 fi
 
@@ -413,7 +480,7 @@ update_line=""
 if [ -n "$version_data" ]; then
     latest_tag=$(echo "$version_data" | jq -r '.tag_name // empty')
     if [ -n "$latest_tag" ] && version_gt "$latest_tag" "$VERSION"; then
-        update_line="\n${dim}Update available: ${latest_tag} → https://github.com/daniel3303/ClaudeCodeStatusLine${reset}"
+        update_line="\n${dim}Update available: ${latest_tag} → Tell Claude: \"Find my installed status bar and update it\"${reset}"
     fi
 fi
 
