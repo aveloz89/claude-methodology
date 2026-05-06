@@ -78,13 +78,27 @@ Busca código placeholder en archivos backend:
 
 Si encuentras stubs → **BLOQUEANTE**.
 
-### 7. Regresiones
+### 7. Implementation Principles (backend)
+
+Valida que el diff cumple `~/.claude/rules/implementation-principles.md`:
+
+- **YAGNI:** ¿hay endpoints, parámetros opcionales, servicios o handlers que no responden al brief? ¿hay configurabilidad no pedida?
+- **Defensive code:** validaciones para casos que no pueden ocurrir (ej: un param tipado como `int` validado contra `None` cuando el framework ya lo garantiza). **NOTA:** validación en boundaries (input de usuario, APIs externas) SÍ es legítima — no la marques como violación
+- **Abstracciones especulativas:** helper, factory, mixin o interface que envuelve una sola llamada o una sola implementación concreta
+- **Refactor colateral:** renames, reorganización, cambios de estilo en código no relacionado al brief
+- **Comentarios redundantes:** describen QUÉ hace el código en vez de POR QUÉ
+
+Severidad:
+- Scope creep severo (endpoint nuevo, modelo nuevo, migración no pedida) → **BLOQUEANTE**
+- Scope creep leve (un try/except defensivo en lógica interna) → **SUGERENCIA**
+
+### 8. Regresiones
 - Firmas públicas: endpoints, tipos compartidos, eventos de cola
 - Contratos con frontend: payload/response shape que el cliente espera
 - Schemas de DB: columnas renombradas o removidas
 - Variables de entorno nuevas sin default documentado
 
-### 8. Code Idioms (rules de backend)
+### 9. Code Idioms (rules de backend)
 
 Detecta extensiones en el diff y carga **solo las rules aplicables**:
 
@@ -177,6 +191,10 @@ Archivos revisados: [lista de paths backend del diff]
 ### Stub Detection
 - [LIMPIO / X stubs encontrados]
 - Lista con `archivo:línea` y tipo
+
+### Implementation Principles
+- [LIMPIO / X violaciones encontradas]
+- Lista con `archivo:línea`, tipo (YAGNI/defensive/abstracción/refactor colateral) y severidad (BLOQUEANTE/SUGERENCIA)
 
 ### Code Idioms (si se cargaron reglas)
 - [OK/ISSUE] `archivo:línea` — Descripción

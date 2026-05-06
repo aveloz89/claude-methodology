@@ -69,13 +69,27 @@ Busca código placeholder en archivos frontend:
 
 Si encuentras stubs → **BLOQUEANTE**.
 
-### 6. Regresiones
+### 6. Implementation Principles (frontend)
+
+Valida que el diff cumple `~/.claude/rules/implementation-principles.md`:
+
+- **YAGNI:** ¿hay componentes, props, hooks o estados que no responden al brief? ¿hay configurabilidad o flexibilidad no pedida?
+- **Defensive code:** `try/catch` o validación de props para casos imposibles (ej: validar que un prop tipado como `string` no sea `null` cuando TypeScript ya lo garantiza)
+- **Abstracciones especulativas:** un nuevo `useFooHelper`, HOC, factory o wrapper que envuelve una sola llamada
+- **Refactor colateral:** renames, reorganización de imports, cambios de estilo en código no relacionado al brief
+- **Comentarios redundantes:** describen QUÉ hace el código en vez de POR QUÉ
+
+Severidad:
+- Scope creep severo (feature/componente no pedido) → **BLOQUEANTE**
+- Scope creep leve (un try/catch defensivo, un comentario sobrante) → **SUGERENCIA**
+
+### 7. Regresiones
 - Componentes compartidos: ¿el cambio rompe otros consumidores?
 - Props/tipos exportados: ¿cambió la firma pública?
 - Estilos globales: ¿el cambio en CSS puede afectar otras pantallas?
 - Estado global (stores, context): ¿la forma cambió?
 
-### 7. Code Idioms (rules de frontend)
+### 8. Code Idioms (rules de frontend)
 
 Detecta extensiones en el diff y carga **solo las rules aplicables**:
 
@@ -163,6 +177,10 @@ Archivos revisados: [lista de paths frontend del diff]
 ### Stub Detection
 - [LIMPIO / X stubs encontrados]
 - Lista con `archivo:línea` y tipo
+
+### Implementation Principles
+- [LIMPIO / X violaciones encontradas]
+- Lista con `archivo:línea`, tipo (YAGNI/defensive/abstracción/refactor colateral) y severidad (BLOQUEANTE/SUGERENCIA)
 
 ### Code Idioms (si se cargaron reglas)
 - [OK/ISSUE] `archivo:línea` — Descripción

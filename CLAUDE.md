@@ -49,6 +49,7 @@ Antes de cada commit, los devs deben verificar:
 3. Build compila sin errores
 4. Docker container corre (si aplica)
 5. Self-reflection contra `rules/self-reflection.md` (revisar código contra rules idiomáticas del lenguaje)
+6. Implementation principles contra `rules/implementation-principles.md` (scope mínimo, sin abstracciones especulativas, sin refactor colateral)
 
 No se hace commit si falta alguna de estas verificaciones.
 
@@ -58,6 +59,7 @@ No se hace commit si falta alguna de estas verificaciones.
 |--------|--------|-----|
 | `orchestrator` | opus | Coordina el flujo completo. No implementa — delega |
 | `architect` | opus | Diseña soluciones, define contratos/schemas como código |
+| `ui-ux` | opus | Genera design system (estilo, paleta, tipografía, anti-patterns) y valida flujos antes de implementar |
 | `backend-dev` | sonnet | Implementa backend con TDD y gitflow |
 | `frontend-dev` | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) |
 | `db-specialist` | sonnet | Esquemas, migraciones, optimización de queries |
@@ -72,7 +74,8 @@ No se hace commit si falta alguna de estas verificaciones.
 ## Flujo completo
 
 ```
-Brainstorming → Brief → Architect diseña → Devs implementan (TDD + Self-Reflection)
+Brainstorming → Brief → [UI/UX genera design system si hay UI] → Architect diseña
+  → Devs implementan (TDD + Self-Review: implementation-principles + idiomática)
   → PR creado → CI checks → Docs genera/actualiza documentación
   → Security + QA (qa-frontend y/o qa-backend según capas del diff) review en paralelo
   → Correcciones en mismo PR → Re-review → Todos aprueban → Merge → Learn
@@ -95,6 +98,9 @@ El estado del trabajo se persiste en `.planning/` para sobrevivir cambios de ses
 - **Tareas atómicas** — una tarea = un comportamiento concreto = un ciclo TDD
 - **Fixes en mismo PR** — correcciones van en el mismo branch/PR, no en uno nuevo
 - **Debugging sistemático** — nunca adivinar, seguir: evidencia → hipótesis → verificación → fix
+- **YAGNI estricto** — implementar solo lo que el brief pide; sin abstracciones especulativas ni error handling defensivo (ver `rules/implementation-principles.md`)
+- **Cambios quirúrgicos** — el diff debe ser mínimo y trazable al brief; refactor colateral va en PR aparte
+- **Asumir explícito** — si el brief es ambiguo, preguntar antes de implementar; no adivinar
 - **Governance playbook** — ante fallos o situaciones inesperadas, seguir los decision trees en `rulebooks/governance-playbook.md`
 
 ## Adversarial Testing

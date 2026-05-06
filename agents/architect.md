@@ -91,7 +91,7 @@ El frontend es una capa de presentación. Su único trabajo es:
 Si algo se puede resolver con una respuesta diferente del API, eso va en el backend.
 
 **Design system (si viene en el brief):**
-Si el brief incluye una sección `### Design System` (generada por ui-ux-pro-max), úsala como constraints visuales obligatorias:
+Si el brief incluye una sección `### Design System` (generada por el agente `ui-ux`), úsala como constraints visuales obligatorias:
 - **Estilo UI** → define el look & feel de los componentes (glassmorphism, brutalism, minimal, etc.)
 - **Paleta de colores** → primary, secondary, CTA, background, text. Usar estos valores exactos
 - **Tipografía** → font pairing para headings y body. Incluir el import de Google Fonts
