@@ -1,3 +1,14 @@
+---
+paths:
+  - "**/*.html"
+  - "**/*.htm"
+  - "**/*.vue"
+  - "**/*.svelte"
+  - "**/*.razor"
+  - "**/*.jsx"
+  - "**/*.tsx"
+---
+
 # HTML Review Rules
 
 Reglas idiomáticas para revisar código HTML. El agente `qa-frontend` lee este archivo cuando el PR contiene archivos `.html`, `.htm`, o templates con markup (`.jsx`, `.tsx`, `.vue`, `.svelte`, `.razor`).

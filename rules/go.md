@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.go"
+---
+
 # Go Review Rules
 
 Reglas idiomáticas para revisar código Go. El agente `qa-backend` lee este archivo cuando el PR contiene archivos `.go`.
