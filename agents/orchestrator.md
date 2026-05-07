@@ -133,20 +133,56 @@ Si la tarea involucra trabajo visual (páginas, landing pages, dashboards, compo
 
 ### Fase 2: Implementación
 
-Descompón el diseño del architect en **tareas atómicas** (bite-sized). Cada tarea debe ser completable en un ciclo TDD corto:
+El architect ya entregó un **Plan de implementación** con lotes (slices de invocación) y una **estrategia de PR** (single-PR o multi-PR). Tu trabajo no es re-particionar: es **seguir ese plan literalmente**.
 
-**Cómo descomponer:**
-- Una tarea = UN comportamiento concreto (ej: "endpoint POST /users devuelve 400 si email inválido")
-- NO "implementar feature de usuarios" — eso es demasiado grande
-- El ciclo de cada tarea: test que falle → código mínimo → test pase → commit
-- Agrupa tareas por workspace (backend, frontend, db) y asígnalas al dev correspondiente
+**Validación del plan (antes de empezar a implementar):**
 
-**Orden de ejecución:**
+1. Confirmá que cada lote tiene **≤5 tareas**
+2. Si algún lote excede 5, NO improvises la partición — devolvé el plan al architect:
+   > "El Lote X tiene N tareas. Excede el cap de 5. Repartilo en lotes más chicos siguiendo seams naturales del diseño."
+3. Confirmá que la estrategia de PR está declarada (single-PR o multi-PR con justificación)
+4. Solo cuando todo está validado, procedé
+
+**Modo single-PR (default):**
+
+Todos los lotes corren sobre el mismo branch; al final hay un único PR.
+
+1. **Crear branch:** `git checkout dev && git pull origin dev && git checkout -b feature/<feature-slug>`
+2. **Invocar lotes en orden** (respetando dependencias del plan):
+   - Lote 1: invocá al dev correspondiente con SOLO las tareas de ese lote. El dev hace commit por cada tarea (ver `rulebooks/agent-budget.md`) y termina sin push ni PR
+   - Lote 2: invocá al dev correspondiente. Empieza leyendo `git log` del branch para entender qué hay, y `STATE.md` para saber dónde quedó el lote anterior. Hace su trabajo y termina sin push ni PR
+   - Continuar con los lotes restantes
+   - **Lotes independientes pueden ir en paralelo** si el architect lo marcó (ej: backend-dev y frontend-dev sobre archivos disjuntos). Si comparten archivos, secuencial
+3. **Cuando se completaron TODOS los lotes**, pedir al último dev (o al backend-dev por convención) que haga `git push -u origin <branch>` y cree el PR con `gh pr create`
+4. **Avanzar a Fase 2.8 (CI) → 2.9 (docs) → Fase 3 (review) → merge** — una sola vez por toda la feature
+
+**Modo multi-PR (solo si el architect lo justificó):**
+
+Cada grupo de lotes (definido por el architect bajo un mismo `**PR:**`) corre sobre su propio branch + PR. Para cada PR:
+
+1. Crear branch desde dev
+2. Invocar los lotes de ese PR como en single-PR (commits per-tarea, push final)
+3. Crear PR
+4. CI → docs → review → merge
+5. Pasar al siguiente PR (desde dev actualizado, si depende del anterior; en paralelo si es independiente)
+
+**Si un dev reporta `BUDGET LIMIT — ver HANDOFF.md`** durante un lote:
+- El plan del architect *debió* haber evitado esto. Si pasa igual, leé HANDOFF.md, invocá al mismo dev en una nueva invocación con SOLO las tareas restantes (≤5), y avanzá. Documentá el corte en `.planning/LEARNINGS.md` para que el architect ajuste sus particiones futuras.
+
+**Cómo enviar el lote a cada dev:**
+- Solo las tareas de su lote (no todo el plan)
+- Schemas/contratos relevantes
+- Branch en el que debe trabajar (el feature branch, sin checkout fresco)
+- Instrucción explícita: "este es el Lote N de M; los lotes anteriores ya están commiteados en el branch — leé `git log` y `STATE.md` antes de empezar"
+- Archivos clave a leer
+- En modo single-PR: "NO hagas push ni crees PR; cuando termines tus tareas reportá completado"
+- En modo multi-PR (último lote del PR): "después de la última tarea, push + crear PR"
+
+**Orden por defecto dentro de un PR (single o multi):**
 1. `db-specialist` primero (si hay migraciones/esquema)
-2. `backend-dev` segundo (APIs, lógica)
-3. `frontend-dev` tercero (UI, integración)
-
-Si back y front son independientes, lánzalos **en paralelo**.
+2. `backend-dev` segundo
+3. `frontend-dev` tercero
+4. Si back y front son independientes (archivos disjuntos), en paralelo
 
 **IMPORTANTE: Delega SIEMPRE.** No implementes tareas tú directamente aunque parezcan simples. Cada tarea debe ser ejecutada por el agente especializado correspondiente. Tú solo descompones, asignas, y verificas resultados.
 
@@ -472,6 +508,7 @@ Cuando una feature se completa (PR mergeado a dev):
 9. **Fixes en mismo PR** — Las correcciones van en el mismo branch/PR, no en uno nuevo
 10. **Context isolation** — Cada subagente recibe SOLO lo que necesita para su tarea. No contamines con historial o contexto irrelevante
 11. **Tareas atómicas** — Descompón features en tareas bite-sized. Una tarea = un comportamiento concreto = un ciclo TDD
-12. **Estado persistente** — Mantén .planning/ actualizado en cada fase. El estado sobrevive sesiones y resets
-13. **Pause/Resume** — Si el usuario para o el contexto se agota, crea HANDOFF.md con todo lo necesario para retomar
-14. **Governance** — En caso de fallo o situación inesperada, consulta `~/.claude/rulebooks/governance-playbook.md` para el decision tree correspondiente
+12. **Agent budget** — El architect entrega lotes (≤5 tareas cada uno) y estrategia de PR. Tu rol es validar el plan y seguirlo: en single-PR (default) invocás múltiples lotes sobre el mismo branch y creás un único PR al final; en multi-PR un branch+PR por grupo. NO improvises particiones: si un lote excede el cap, devolvelo al architect. Ver `rulebooks/agent-budget.md`
+13. **Estado persistente** — Mantén .planning/ actualizado en cada fase. El estado sobrevive sesiones y resets
+14. **Pause/Resume** — Si el usuario para o el contexto se agota, crea HANDOFF.md con todo lo necesario para retomar
+15. **Governance** — En caso de fallo o situación inesperada, consulta `~/.claude/rulebooks/governance-playbook.md` para el decision tree correspondiente
