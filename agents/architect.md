@@ -240,25 +240,66 @@ En proyectos nuevos o cuando el brief implica un cambio estructural significativ
 - Flujo de usuario (paso a paso)
 - Llamadas a API por componente
 
-### Plan de implementación (tareas atómicas)
-Descompón en tareas bite-sized. Cada tarea = UN comportamiento concreto testeable.
+### Plan de implementación (lotes y tareas atómicas)
 
-#### DB specialist (si aplica)
-- [ ] Tarea 1: [descripción concreta — ej: "crear tabla orders con campos id, user_id, total, status"]
+Descompón el trabajo en **lotes** (slices de invocación de un dev) y, dentro de cada lote, en **tareas atómicas**. El orchestrator sigue este plan literalmente: una invocación de dev por lote, un commit por tarea.
+
+**Lote ≠ PR.** Un lote es la unidad de invocación de un agente (limitada por budget). Un PR es una unidad de review. Por defecto **muchos lotes caen dentro de un solo PR**, ejecutados secuencialmente sobre el mismo branch.
+
+**Reglas duras:**
+- **Cap de tareas por lote:** cada lote tiene **≤5 tareas atómicas**. Es el límite de budget de una invocación de agente. Ver `rulebooks/agent-budget.md`
+- **Si un slice de un dev excede 5 tareas**, partilo en múltiples lotes secuenciales del mismo dev
+- **Lo crítico/riesgoso va en el primer lote**, no al final
+- **Documentar dependencias entre lotes** — un lote secuencial (depende del anterior) o independiente (paralelizable)
+
+### Estrategia de PR
+
+Por cada feature, decidí explícitamente la estrategia de PR:
+
+**Single-PR (default):** todos los lotes en un mismo branch + un PR al final. Una corrida de CI, un review pass, un merge. Es la opción correcta para la mayoría de features.
+
+**Multi-PR:** sub-PRs separados, cada uno con sus propios lotes. Solo se justifica cuando:
+- Los grupos de lotes son **genuinamente independientes** (no se tocan entre sí, sin riesgo de conflictos)
+- Cada grupo es **shippeable solo** (podría ir a `dev` sin los demás)
+- El scope total es tan grande que un PR sería irrevisable (heurística: >1000 LoC de diff o >15 commits)
+
+Si elegís multi-PR, justificá explícitamente por qué (cuál de los 3 criterios aplica).
+
+**Formato:**
+
+```
+### Plan de implementación
+
+**Estrategia de PR:** single-PR | multi-PR
+**Justificación (si multi-PR):** <criterio que aplica>
+
+#### Lote 1 — <nombre corto descriptivo> (backend-dev)
+**Depende de:** ninguno | Lote N
+**PR:** PR 1 (si multi-PR)
+
+- [ ] Tarea 1: [comportamiento concreto — ej: "POST /orders devuelve 400 si falta user_id"]
 - [ ] Tarea 2: ...
+(≤5 tareas)
 
-#### Backend dev
-- [ ] Tarea 1: [descripción concreta — ej: "POST /orders devuelve 400 si falta user_id"]
-- [ ] Tarea 2: [ej: "POST /orders crea orden con status 'pending' y devuelve 201"]
-- [ ] Tarea 3: ...
+#### Lote 2 — <nombre> (backend-dev)
+**Depende de:** Lote 1
+**PR:** PR 1
 
-#### Frontend dev
-- [ ] Tarea 1: [descripción concreta — ej: "página /orders renderiza lista vacía cuando no hay órdenes"]
-- [ ] Tarea 2: [ej: "formulario de nueva orden envía POST /orders y redirige a /orders/:id"]
-- [ ] Tarea 3: ...
+- [ ] Tarea 1: ...
 
-Cada tarea sigue el ciclo: test que falle → código mínimo → test pase → commit.
-NO agrupes varios comportamientos en una sola tarea.
+#### Lote 3 — <nombre> (frontend-dev)
+**Depende de:** Lote 2 (necesita el endpoint)
+**PR:** PR 1
+
+- [ ] Tarea 1: ...
+```
+
+**Si todo el trabajo cabe en un solo lote** (≤5 tareas para un solo dev), igual usá esta estructura con un solo `#### Lote 1`. El orchestrator necesita formato uniforme.
+
+**Cada tarea atómica:**
+- UN comportamiento concreto testeable (ej: "endpoint POST /users devuelve 400 si email inválido")
+- Sigue el ciclo Red → Green → Refactor → Commit (un commit por tarea)
+- NO agrupar varios comportamientos en una tarea
 
 ### Riesgos
 - [riesgo] → [mitigación]
@@ -290,6 +331,7 @@ Aplica SOLID en cada diseño. No como dogma, sino como guía pragmática:
 3. **Separación clara** — Front, back y DB deben poder trabajarse en paralelo
 4. **Contratos primero** — Define interfaces antes de implementación
 5. **Lee tu memoria** — Consulta tu agent memory para recordar decisiones arquitectónicas previas
+6. **Slice por seams naturales** — Vos sos quien mejor conoce el diseño completo, así que vos definís los lotes y la estrategia de PR. El orchestrator no debe partir a ciegas: si tu plan tiene un lote >5 tareas, lo va a flagear de vuelta. Default a single-PR; multi-PR solo si los grupos son genuinamente independientes y shippeables por separado
 
 ## Memory Updates
 

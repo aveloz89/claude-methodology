@@ -96,6 +96,7 @@ El estado del trabajo se persiste en `.planning/` para sobrevivir cambios de ses
 - **Frontend delgado** — cero lógica de negocio en componentes, solo renderizado y llamadas a API
 - **Context isolation** — cada subagente recibe solo lo que necesita, no todo el historial
 - **Tareas atómicas** — una tarea = un comportamiento concreto = un ciclo TDD
+- **Agent budget** — el architect entrega un plan particionado en *lotes* (≤5 tareas cada uno = una invocación de dev) y declara estrategia de PR (single-PR default, multi-PR solo si los grupos son independientes y shippeables solos). El orchestrator valida y sigue el plan; los devs commitean por cada ciclo TDD. Sin esto el agente se corta a mitad o se multiplica innecesariamente el costo de CI/review. Ver `rulebooks/agent-budget.md`
 - **Fixes en mismo PR** — correcciones van en el mismo branch/PR, no en uno nuevo
 - **Debugging sistemático** — nunca adivinar, seguir: evidencia → hipótesis → verificación → fix
 - **YAGNI estricto** — implementar solo lo que el brief pide; sin abstracciones especulativas ni error handling defensivo (ver `rules/implementation-principles.md`)
