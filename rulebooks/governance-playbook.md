@@ -133,7 +133,7 @@ Build falla en main o dev después de merge
      → PR con el fix + el código original corregido
 ```
 
-## 9. Contexto agotado durante implementación
+## 9. Contexto agotado durante implementación (sesión del usuario)
 
 ```
 El context-monitor avisa que el contexto está en 25% (critical)
@@ -142,3 +142,27 @@ El context-monitor avisa que el contexto está en 25% (critical)
   → Paso 3: Informar al usuario que debe iniciar nueva sesión
   → Paso 4: En la nueva sesión, leer HANDOFF.md y retomar
 ```
+
+## 10. Budget agotado en una invocación de agente
+
+Distinto de #9 — acá el corte es del *sub-agente* (dev, qa, etc.), no de la sesión del usuario.
+
+```
+Síntomas: el agente reporta "BUDGET LIMIT", o se cortó sin reportar dejando código sin commitear
+  → Causa raíz típica: el orchestrator pasó demasiadas tareas en una invocación
+
+Si el agente alcanzó a aplicar el fallback (reportó BUDGET LIMIT):
+  → Paso 1: Leer .planning/HANDOFF.md que dejó el agente
+  → Paso 2: Confirmar que los commits per-tarea están en el branch (git log)
+  → Paso 3: Invocar al mismo dev en una nueva invocación con SOLO las tareas restantes
+            (re-aplicando el cap de 5 tareas; partir más si todavía es mucho)
+  → Paso 4: La nueva invocación retoma desde HANDOFF.md y borra el archivo al terminar
+
+Si el agente se cortó sin fallback (último mensaje truncado, sin commits):
+  → Paso 1: Revisar el branch local — verificar qué quedó committeado
+  → Paso 2: Si no hay commits → trabajo perdido, hay que re-invocar desde cero pero con cap de 5
+  → Paso 3: Si hay commits parciales → identificar la última tarea completada y continuar desde ahí
+  → Paso 4: Documentar el corte en .planning/LEARNINGS.md (señal de que hay que reducir más el cap o partir en sub-PRs)
+```
+
+Prevención: aplicar `rulebooks/agent-budget.md` antes de delegar (cap de 5 tareas, commit por tarea).
