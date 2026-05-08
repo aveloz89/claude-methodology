@@ -29,6 +29,11 @@
             "type": "command",
             "command": "bash hooks/pre-merge-check.sh",
             "statusMessage": "Verifying PR is ready to merge..."
+          },
+          {
+            "type": "command",
+            "command": "bash hooks/pre-release-sweep.sh",
+            "statusMessage": "Checking latent bugs before PR to main..."
           }
         ]
       }
