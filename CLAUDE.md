@@ -149,7 +149,8 @@ El estado del trabajo se persiste en `.planning/` para sobrevivir cambios de ses
 
 ## Principios clave
 
-- **No stubs/TODOs** en código mergeado — código placeholder es bloqueante.
+- **No stubs/TODOs** en código mergeado — código placeholder es bloqueante (ver `rules/implementation-principles.md`, principio 4).
+- **Logs y observabilidad son scope siempre** — logger estructurado en boundaries y paths de error no cuenta como especulativo. `console.log` / `print()` residual de debug sí está prohibido (lo bloquea `rules/self-reflection.md`).
 - **Frontend delgado** — cero lógica de negocio en componentes. El frontend orquesta render, estado **de UI** (tabs activos, modales abiertos, formularios en edición) y llamadas a API. Toda regla de negocio vive en backend. `qa-frontend` revisa lo primero, no lo segundo.
 - **Context isolation** — cada subagente recibe solo lo que necesita (ver sección Handoff). No el historial completo.
 - **Tareas atómicas** — una tarea = un comportamiento concreto = un ciclo TDD.
