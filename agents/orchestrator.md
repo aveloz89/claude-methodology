@@ -35,7 +35,7 @@ Si te ves tentado a escribir código "porque es rápido": **NO lo hagas. Delega.
 | `security-reviewer` | Audita seguridad (siempre bloqueante en PR) | Al revisar PRs |
 | `qa-frontend` | Revisa UX, accesibilidad, componentes, tests de frontend | PR con archivos de UI |
 | `qa-backend` | Revisa contratos API, lógica, datos, tests de backend | PR con archivos de servidor |
-| `e2e-runner` | Tests end-to-end con Playwright | Después de implementación de features con UI |
+| `e2e-runner` | Tests end-to-end con Playwright | **Pre-release a `main`** (bloqueante, Modo B). El usuario también puede invocarlo aparte para PRs a `dev` (Modo A, sugerencia) |
 | `build-resolver` | Resuelve errores de build/CI | Cuando un dev se atora con error de build |
 | `refactor` | Detecta y limpia code smells | Comando `/refactor-scan` o pedido explícito |
 | `docs` | Genera/actualiza documentación a partir del diff | Después de CI pasar, antes de review |
@@ -200,19 +200,6 @@ El plan del architect debió evitar esto. Si pasa:
 
 Invocá `build-resolver` con: error completo, branch, archivos afectados. Resuelve en el mismo branch y reporta qué hizo.
 
-### Fase 2.5: Tests E2E (si hay UI)
-
-Antes de invocar `e2e-runner`, **asegurate de que los servicios estén corriendo**:
-
-```bash
-docker compose up -d
-docker compose ps                    # verificar que todos están "healthy"
-```
-
-Si algún healthcheck falla, escala al dev correspondiente antes de continuar con E2E.
-
-Detalles del flujo de E2E (qué pasarle al runner, cómo manejar fallos): ver `~/.claude/rulebooks/orchestrator-runbook.md`.
-
 ### Fase 2.8: Monitoreo de CI
 
 Después de que se crea el PR:
@@ -255,10 +242,17 @@ Si reporta "sin cambios necesarios", avanza directo a Fase 3.
    - Asigná fixes al dev correspondiente (mismo branch del PR). Si el bloqueante es de schema/migración/query optimizada, va al `db-specialist`
    - Re-lanzá **solo los reviewers que marcaron issues** (no los que aprobaron)
    - Repetí hasta que todos aprueben
-6. Cuando todos aprueben, ejecutá la **verificación pre-merge** (3 comandos `gh` específicos en `~/.claude/rulebooks/orchestrator-runbook.md`)
-7. Solo si las 3 verificaciones pasan: `gh pr merge <number> --merge --delete-branch`
-8. Si era hotfix (PR a main), después del merge integrá a dev (procedimiento en runbook)
-9. Actualizá `.planning/STATE.md` con resultado
+6. **Si el PR es a `main` (release)**: invocá `e2e-runner` en Modo B antes de la verificación pre-merge.
+   - Pasale: branch del PR, lista de archivos del diff, URL base del frontend (Docker o staging)
+   - Antes de invocarlo, asegurate de que los servicios estén corriendo: `docker compose up -d && docker compose ps`. Si algún healthcheck falla, escalá al dev correspondiente
+   - El `e2e-runner` corre tests sobre el branch del PR a main directamente, commitea y pushea sus tests al mismo branch
+   - **Si reporta FALLA → BLOQUEANTE**: reasignar al `frontend-dev` / `backend-dev` / `db-specialist` según la capa donde falló. Re-invocar `e2e-runner` después del fix
+   - **Si reporta PASA**: continuar a verificación pre-merge
+   - Para PRs a `dev`, **no invoques `e2e-runner`** desde acá — el usuario lo invoca aparte cuando quiere (Modo A)
+7. Cuando todos aprueben (incluyendo `e2e-runner` si era PR a main), ejecutá la **verificación pre-merge** (3 comandos `gh` específicos en `~/.claude/rulebooks/orchestrator-runbook.md`)
+8. Solo si las verificaciones pasan: `gh pr merge <number> --merge --delete-branch`
+9. Si era hotfix (PR a main), después del merge integrá a dev (procedimiento en runbook)
+10. Actualizá `.planning/STATE.md` con resultado
 
 ### Fase 4: Learn (post-merge)
 
