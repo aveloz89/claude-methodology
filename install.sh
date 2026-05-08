@@ -2,7 +2,7 @@
 # Instala la metodología de Claude Code en ~/.claude/
 # Uso: ./install.sh [--symlink | --copy]
 #
-# --symlink: Crea symlinks de los DIRECTORIOS completos (agents/, hooks/, rules/, skills/).
+# --symlink: Crea symlinks de los DIRECTORIOS completos (agents/, hooks/, rules/, rulebooks/, skills/).
 #            Cualquier archivo que agregues al repo aparece al instante en ~/.claude/,
 #            sin reinstalar.
 # --copy:    Copia los archivos uno por uno (independiente del repo).
@@ -91,6 +91,10 @@ echo "Installing rules..."
 install_dir "$SCRIPT_DIR/rules" "$CLAUDE_DIR/rules" "rules"
 
 echo ""
+echo "Installing rulebooks..."
+install_dir "$SCRIPT_DIR/rulebooks" "$CLAUDE_DIR/rulebooks" "rulebooks"
+
+echo ""
 echo "Installing statusline..."
 install_file "$SCRIPT_DIR/statusline.sh" "$CLAUDE_DIR/statusline.sh"
 chmod +x "$CLAUDE_DIR/statusline.sh" 2>/dev/null || true
@@ -107,7 +111,7 @@ echo ""
 echo "=== Installation complete ==="
 if [ "$MODE" = "--symlink" ]; then
   echo ""
-  echo "Los directorios agents/, hooks/, skills/, rules/ son symlinks al repo."
+  echo "Los directorios agents/, hooks/, skills/, rules/, rulebooks/ son symlinks al repo."
   echo "Cualquier archivo nuevo que agregues está disponible al instante,"
   echo "sin volver a correr este script."
 fi
