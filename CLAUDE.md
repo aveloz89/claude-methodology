@@ -116,7 +116,7 @@ El paso 1 está reforzado por `pre-commit-guard.sh`, pero los demás son respons
 | `security-reviewer` | opus | Auditoría OWASP Top 10, secrets, dependencias (read-only). **Bloqueante en PR.** |
 | `qa-frontend` | sonnet | UX, accesibilidad, componentes, estado UI, tests frontend, coverage ≥ 80%. **Bloqueante en PR si el diff toca frontend.** |
 | `qa-backend` | sonnet | Contratos de API, lógica de negocio, datos, tests backend, coverage ≥ 80%. **Bloqueante en PR si el diff toca backend.** |
-| `e2e-runner` | sonnet | Tests E2E con Playwright (cero mocks, sistema real). Corre **solo en PRs a `main`** (no en cada PR a `dev`) y nightly |
+| `e2e-runner` | sonnet | Tests E2E con Playwright (cero mocks, sistema real). **Modo A**: usuario lo invoca para PRs a `dev` (sugerencia, no bloqueante; trabaja en branch propio `e2e/*`). **Modo B**: orchestrator lo invoca pre-release a `main` (bloqueante; trabaja sobre branch del PR a main) |
 | `build-resolver` | sonnet | Diagnostica y resuelve errores de build/compilación |
 | `refactor` | sonnet | Detecta code smells, refactoriza sin cambiar comportamiento. Lee issues con label `legacy-violation`, `controversial-fix` y `latent-bug` como input |
 | `latent-bugs-sweep` | sonnet | Escanea el repo buscando bugs latentes (código roto que aún no se ejercitó). Read-only. Crea issues con label `latent-bug`. Invocado manualmente o pre-release |
