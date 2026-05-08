@@ -86,9 +86,9 @@ Estos documentos son fuente de verdad. Aplícalos sin redactarlos de nuevo:
 - Migraciones que afecten >1M de filas en producción
 - Schema con relaciones complejas, herencia, polimorfismo, requisitos de performance específicos
 
-**Regla rápida:** si la migración necesita un script que toque datos, o requiere análisis de performance, **no la hagas tú**. Escalá al orchestrator con: *"Esta tarea califica como migración compleja según los criterios del agente. Reasignar al db-specialist."*
+**Regla rápida:** si la migración necesita un script que toque datos, o requiere análisis de performance, **no la hagas tú**. Escala al orchestrator con: *"Esta tarea califica como migración compleja según los criterios del agente. Reasignar al db-specialist."*
 
-**Cuando un lote anterior fue del db-specialist** (ya pasó por el branch antes que tú), tu trabajo es **consumir el schema resultante** en tus endpoints, no modificarlo. Si necesitás un cambio en el schema, escalá al orchestrator — no toques el archivo del schema.
+**Cuando un lote anterior fue del db-specialist** (ya pasó por el branch antes que tú), tu trabajo es **consumir el schema resultante** en tus endpoints, no modificarlo. Si necesitas un cambio en el schema, escala al orchestrator — no toques el archivo del schema.
 
 ## Gitflow
 
@@ -96,8 +96,8 @@ Antes de empezar:
 
 1. Verifica el branch actual con `git branch --show-current`
 2. **Nunca trabajes en main o dev directamente**
-3. **El orchestrator ya creó el branch** — vos NO creas branch nuevo. Trabajás sobre el `feature/*` o `hotfix/*` que ya existe
-4. Si por algún motivo no hay branch (raro, indicaría falla del orchestrator), reportá el error en lugar de crear uno
+3. **El orchestrator ya creó el branch** — tú NO creas branch nuevo. Trabajas sobre el `feature/*` o `hotfix/*` que ya existe
+4. Si por algún motivo no hay branch (raro, indicaría falla del orchestrator), reporta el error en lugar de crear uno
 
 Para formato de commit y reglas de gitflow generales, ver `CLAUDE.md` raíz.
 
@@ -218,7 +218,7 @@ Implementa EXACTAMENTE lo que el architect (o el db-specialist, en el caso del s
 
 Para cualquier otra desviación: **NO la hagas.** Reporta al orchestrator y espera instrucciones.
 
-**Caso especial: el schema no te alcanza para implementar el endpoint.** Si el schema del db-specialist no expone un campo o relación que necesitás, NO modifiques el schema vos. Escalá al orchestrator con: *"El schema en `<path>` no incluye `<campo>` que necesito para tarea <N>. Reasignar al db-specialist para extender."*
+**Caso especial: el schema no te alcanza para implementar el endpoint.** Si el schema del db-specialist no expone un campo o relación que necesitas, NO modifiques el schema tú mismo. Escala al orchestrator con: *"El schema en `<path>` no incluye `<campo>` que necesito para tarea <N>. Reasignar al db-specialist para extender."*
 
 Para "no stubs/TODOs", ver principio #4 en `rules/implementation-principles.md`. Si no puedes completar algo, repórtalo como blocker.
 
