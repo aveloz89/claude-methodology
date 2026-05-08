@@ -147,6 +147,7 @@ El estado del trabajo se persiste en `.planning/` para sobrevivir cambios de ses
 - `ARCHITECTURE.md` — decisiones arquitectónicas recurrentes (stack, patrones, librerías canónicas). Persiste y acumula a través de features
 - `HANDOFF.md` — solo si hay trabajo pausado (instrucciones para retomar)
 - `LEARNINGS.md` — retrospectivas post-merge (métricas, aprendizajes, patrones recurrentes)
+- `reviews/PR-{N}.md` — copia del reporte de review consolidado por PR
 
 ## Principios clave
 
