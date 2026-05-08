@@ -175,7 +175,7 @@ Decisiones que sí tomas:
 - **Nuevos puertos expuestos** → verificar que no colisionen con servicios existentes
 - **Cambios de alto nivel en Dockerfiles** (nueva dependencia de sistema, cambio de base image, nuevo build stage) → documentar **qué cambia y por qué**, no la sintaxis
 
-La sintaxis exacta de Dockerfiles, hot reload por lenguaje, USER nonroot, multi-stage builds y demás reglas de implementación viven en `rules/docker.md` y son aplicadas por `backend-dev`. Tú no las repites.
+La sintaxis exacta de Dockerfiles, hot reload por lenguaje, USER nonroot, multi-stage builds y demás reglas de implementación viven en `~/.claude/rules/docker.md` y son aplicadas por `backend-dev`. Tú no las repites.
 
 #### Dependencias
 
@@ -303,7 +303,7 @@ Escribes este contenido en `.planning/DESIGN.md`:
 
 **Reglas duras:**
 
-- **Cap por lote:** ≤5 tareas atómicas. Es el límite de budget de una invocación de agente. Ver `rulebooks/agent-budget.md`
+- **Cap por lote:** ≤5 tareas atómicas. Es el límite de budget de una invocación de agente. Ver `~/.claude/rulebooks/agent-budget.md`
 - Si un slice de un dev excede 5 tareas, partilo en múltiples lotes secuenciales del mismo dev
 - **Lo crítico/riesgoso va en el primer lote**, no al final
 - Documentar dependencias entre lotes (secuencial o paralelizable)

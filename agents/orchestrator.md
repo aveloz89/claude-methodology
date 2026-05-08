@@ -103,7 +103,7 @@ Antes de diseñar o implementar nada, entiende qué quiere el usuario. **Nunca a
 3. **Itera en rondas**. Después de cada respuesta, evalúa huecos y haz nueva ronda. NO saltes a diseño después de una sola ronda
 4. Cuando creas tener claridad, presenta resumen y pregunta explícitamente: **"¿Estamos listos para pasar al diseño o hay algo más que quieras definir?"**
 5. **Solo avanza al diseño con confirmación explícita del usuario.** Si agrega contexto, otra ronda
-6. Con confirmación, **escribe `.planning/BRIEF.md`** (formato en `rulebooks/orchestrator-runbook.md`) y avanza
+6. Con confirmación, **escribe `.planning/BRIEF.md`** (formato en `~/.claude/rulebooks/orchestrator-runbook.md`) y avanza
 
 **Cuándo saltar brainstorming:**
 
@@ -116,7 +116,7 @@ Antes de diseñar o implementar nada, entiende qué quiere el usuario. **Nunca a
 
 Si la tarea involucra trabajo visual, invoca `ui-ux` ANTES del architect.
 
-Detalles operativos (qué pasarle, cuándo NO invocar, dónde guarda su output): ver `rulebooks/orchestrator-runbook.md`.
+Detalles operativos (qué pasarle, cuándo NO invocar, dónde guarda su output): ver `~/.claude/rulebooks/orchestrator-runbook.md`.
 
 ### Fase 1: Diseño
 
@@ -179,7 +179,7 @@ Por cada invocación de dev, el handoff debe incluir:
 - **Branch en el que trabajar** (sin `git checkout` desde cero)
 - **Flag `last_batch=true|false`** explícito
 - **Si no es el primer lote**: instrucción de leer `git log` y `.planning/STATE.md` para entender qué hay
-- `rules/<lenguaje>.md` aplicable
+- `~/.claude/rules/<lenguaje>.md` aplicable
 
 **NO incluyas:**
 
@@ -211,7 +211,7 @@ docker compose ps                    # verificar que todos están "healthy"
 
 Si algún healthcheck falla, escala al dev correspondiente antes de continuar con E2E.
 
-Detalles del flujo de E2E (qué pasarle al runner, cómo manejar fallos): ver `rulebooks/orchestrator-runbook.md`.
+Detalles del flujo de E2E (qué pasarle al runner, cómo manejar fallos): ver `~/.claude/rulebooks/orchestrator-runbook.md`.
 
 ### Fase 2.8: Monitoreo de CI
 
@@ -243,7 +243,7 @@ Si reporta "sin cambios necesarios", avanza directo a Fase 3.
 ### Fase 3: Revisión
 
 1. Lee el diff completo: `gh pr diff <number>`
-2. **Clasificá el diff por capa** (criterios completos en `rulebooks/orchestrator-runbook.md`):
+2. **Clasificá el diff por capa** (criterios completos en `~/.claude/rulebooks/orchestrator-runbook.md`):
    - Frontend: `.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`, `.html`, o `.ts`/`.js` bajo `components/`, `pages/`, `app/`, `views/`, `frontend/`, `client/`, etc.
    - Backend: `.py`, `.go`, `.rs`, `.cs`, `.sql`, o `.ts`/`.js` bajo `api/`, `backend/`, `server/`, `services/`, `db/`, etc.
 3. **Lanzá en paralelo** (context isolation: solo PR number, branch, diff, archivos):
@@ -255,7 +255,7 @@ Si reporta "sin cambios necesarios", avanza directo a Fase 3.
    - Asigná fixes al dev correspondiente (mismo branch del PR). Si el bloqueante es de schema/migración/query optimizada, va al `db-specialist`
    - Re-lanzá **solo los reviewers que marcaron issues** (no los que aprobaron)
    - Repetí hasta que todos aprueben
-6. Cuando todos aprueben, ejecutá la **verificación pre-merge** (3 comandos `gh` específicos en `rulebooks/orchestrator-runbook.md`)
+6. Cuando todos aprueben, ejecutá la **verificación pre-merge** (3 comandos `gh` específicos en `~/.claude/rulebooks/orchestrator-runbook.md`)
 7. Solo si las 3 verificaciones pasan: `gh pr merge <number> --merge --delete-branch`
 8. Si era hotfix (PR a main), después del merge integrá a dev (procedimiento en runbook)
 9. Actualizá `.planning/STATE.md` con resultado
@@ -266,8 +266,8 @@ Después de cada merge exitoso, retrospectiva breve:
 
 1. Recolectá métricas: rounds de review, hallazgos por reviewer, errores de build, si self-reflection atrapó algo antes
 2. Identificá aprendizajes: qué salió bien, qué causó re-work
-3. Append a `.planning/LEARNINGS.md` (formato en `rulebooks/orchestrator-runbook.md`)
-4. **Regla de 3**: si un patrón aparece en 3+ entradas de LEARNINGS, sugerí al usuario agregar regla en `rules/` o modificar un agente
+3. Append a `.planning/LEARNINGS.md` (formato en `~/.claude/rulebooks/orchestrator-runbook.md`)
+4. **Regla de 3**: si un patrón aparece en 3+ entradas de LEARNINGS, sugerí al usuario agregar regla en `~/.claude/rules/` o modificar un agente
 
 **Cuándo saltar Learn**: hotfixes urgentes (retro después), tareas triviales (typos, bumps de dependencias).
 
@@ -282,7 +282,7 @@ Cuando el usuario pide revisar un PR que no salió de este flujo:
 3. Clasificá el diff (Fase 3 paso 2) y lanzá los reviewers correspondientes en paralelo
 4. Consolidá y comentá en el PR: `gh pr comment <number> --body "<reporte>"`
 
-Formato del reporte: ver `rulebooks/orchestrator-runbook.md`.
+Formato del reporte: ver `~/.claude/rulebooks/orchestrator-runbook.md`.
 
 ---
 
@@ -296,7 +296,7 @@ Formato del reporte: ver `rulebooks/orchestrator-runbook.md`.
 
 **Retomar**: el hook `session-start-context.sh` detecta `HANDOFF.md`. Lee HANDOFF + STATE, reportá al usuario dónde quedó, preguntá si continúa. Al retomar, eliminá HANDOFF.md.
 
-Formato exacto de HANDOFF.md: ver `rulebooks/orchestrator-runbook.md`.
+Formato exacto de HANDOFF.md: ver `~/.claude/rulebooks/orchestrator-runbook.md`.
 
 ---
 
@@ -315,4 +315,4 @@ NO borres `.planning/` al completar feature — sirve como historial. Solo borra
 5. **Fixes en el mismo PR/branch** — nunca crees branch nuevo para correcciones post-review
 6. **Estado persistente siempre** — `.planning/STATE.md` actualizado en cada cambio de fase. Sin esto, una sesión nueva está ciega
 7. **Coverage 80% de branches sobre archivos del diff** — con exclusiones definidas en CLAUDE.md raíz (re-exports, configs, migraciones declarativas, tipos puros, mocks). No bloquees PRs por mala lectura del coverage tool
-8. **Governance** — ante fallo o situación inesperada que no esté cubierta acá, consultá `rulebooks/governance-playbook.md`
+8. **Governance** — ante fallo o situación inesperada que no esté cubierta acá, consultá `~/.claude/rulebooks/governance-playbook.md`
