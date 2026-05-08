@@ -95,7 +95,7 @@ Antes de cada commit, el dev verifica (en este orden):
 2. Lint pasa sin errores (autofix primero, manual después).
 3. Build compila sin errores.
 4. Docker container corre, si aplica.
-5. **Self-reflection idiomática** contra `rules/self-reflection.md` — revisar el diff contra las reglas idiomáticas del lenguaje (type hints, no `any`, no `console.log`, naming, etc.).
+5. **Self-reflection idiomática** contra `rules/self-reflection.md` — ejecutar el proceso ahí definido, que carga `rules/<lenguaje>.md` aplicable según el diff y revisa solo las líneas modificadas. Las reglas concretas viven en cada `rules/<lenguaje>.md`, no aquí.
 6. **Implementation principles** contra `rules/implementation-principles.md` — revisar el diff contra YAGNI, scope mínimo, cambios quirúrgicos, sin abstracciones especulativas ni refactor colateral.
 
 Los pasos 5 y 6 son ejercicios distintos: el 5 revisa **cómo** está escrito el código, el 6 revisa **qué** se escribió. Hacerlos en pasadas separadas evita que el juicio de scope se diluya en la revisión idiomática.
