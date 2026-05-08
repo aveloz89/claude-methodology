@@ -46,6 +46,7 @@ Si un agente necesita información que no recibió, debe **pedirla explícitamen
 - Hotfixes: `git checkout main && git checkout -b hotfix/descripcion-corta`
 - PRs de features van a `dev`, hotfixes a `main`.
 - Merges siempre con `--no-ff`.
+- **`--delete-branch` solo para `feature/*` y `hotfix/*`**, nunca al mergear `dev → main`. `dev` es persistente: borrarlo rompe gitflow y obliga a recrearlo. Al hacer release, usar `gh pr merge <N> --merge` sin `--delete-branch`.
 
 ### Formato de commits
 
