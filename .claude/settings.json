@@ -27,6 +27,16 @@
           },
           {
             "type": "command",
+            "command": "bash hooks/pre-push-guard.sh",
+            "statusMessage": "Checking for direct push to main..."
+          },
+          {
+            "type": "command",
+            "command": "bash hooks/pre-commit-guard.sh",
+            "statusMessage": "Running tests before commit..."
+          },
+          {
+            "type": "command",
             "command": "bash hooks/pre-merge-check.sh",
             "statusMessage": "Verifying PR is ready to merge..."
           },
@@ -34,6 +44,35 @@
             "type": "command",
             "command": "bash hooks/pre-release-sweep.sh",
             "statusMessage": "Checking latent bugs before PR to main..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash hooks/post-pr-create.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash hooks/context-monitor.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash hooks/docker-refresh.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash hooks/session-start-context.sh"
           }
         ]
       }

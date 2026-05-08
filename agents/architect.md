@@ -186,7 +186,7 @@ La sintaxis exacta de Dockerfiles, hot reload por lenguaje, USER nonroot, multi-
 
 - Cambios breaking
 - Migraciones de datos necesarias
-- Performance concerns
+- Riesgos de performance
 - Dependencias entre lotes/PRs
 
 ## Principios SOLID
@@ -307,7 +307,7 @@ Escribes este contenido en `.planning/DESIGN.md`:
 - Si un slice de un dev excede 5 tareas, partilo en múltiples lotes secuenciales del mismo dev
 - **Lo crítico/riesgoso va en el primer lote**, no al final
 - Documentar dependencias entre lotes (secuencial o paralelizable)
-- **Orden cuando hay db-specialist:** si la feature involucra trabajo de DB que califica como complejo (backfill, cambio de tipo con datos, particionamiento, optimización de queries, constraints sobre datos existentes, migraciones >1M filas — ver criterios completos en `agents/orchestrator.md`), el lote del `db-specialist` va **primero**. `backend-dev` consume el schema resultante; sin schema disponible, su lote queda bloqueado. Excepción: si los lotes son genuinamente disjuntos (db-specialist toca tabla X, backend-dev no la toca), pueden paralelizar.
+- **Orden cuando hay db-specialist:** si la feature involucra trabajo de DB que califica como complejo (backfill, cambio de tipo con datos, particionamiento, optimización de queries, constraints sobre datos existentes, migraciones >1M filas — ver criterios completos en `~/.claude/agents/orchestrator.md`), el lote del `db-specialist` va **primero**. `backend-dev` consume el schema resultante; sin schema disponible, su lote queda bloqueado. Excepción: si los lotes son genuinamente disjuntos (db-specialist toca tabla X, backend-dev no la toca), pueden paralelizar.
 
 **Estrategia de PR:**
 

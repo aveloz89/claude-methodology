@@ -118,7 +118,7 @@ El paso 1 está reforzado por `pre-commit-guard.sh`, pero los demás son respons
 | `qa-backend` | sonnet | Contratos de API, lógica de negocio, datos, tests backend, coverage ≥ 80%. **Bloqueante en PR si el diff toca backend.** |
 | `e2e-runner` | sonnet | Tests E2E con Playwright (cero mocks, sistema real). **Modo A**: usuario lo invoca para PRs a `dev` (sugerencia, no bloqueante; trabaja en branch propio `e2e/*`). **Modo B**: orchestrator lo invoca pre-release a `main` (bloqueante; trabaja sobre branch del PR a main) |
 | `build-resolver` | sonnet | Diagnostica y resuelve errores de build/compilación |
-| `refactor` | sonnet | Detecta code smells, refactoriza sin cambiar comportamiento. Lee issues con label `legacy-violation`, `controversial-fix` y `latent-bug` como input |
+| `refactor` | sonnet | Detecta code smells, refactoriza sin cambiar comportamiento. Lee issues con label `legacy-violation`, `controversial-fix`, `latent-bug` y `stale-docs` como input |
 | `latent-bugs-sweep` | sonnet | Escanea el repo buscando bugs latentes (código roto que aún no se ejercitó). Read-only. Crea issues con label `latent-bug`. Invocado manualmente o pre-release |
 | `docs` | sonnet | Genera/actualiza documentación a partir del diff del PR |
 
@@ -149,6 +149,7 @@ El estado del trabajo se persiste en `.planning/` para sobrevivir cambios de ses
 - `ARCHITECTURE.md` — decisiones arquitectónicas recurrentes (stack, patrones, librerías canónicas). Persiste y acumula a través de features
 - `HANDOFF.md` — solo si hay trabajo pausado (instrucciones para retomar)
 - `LEARNINGS.md` — retrospectivas post-merge (métricas, aprendizajes, patrones recurrentes)
+- `FOLLOWUPS.md` — ideas y mejoras inmaduras que surgen durante el trabajo y aún no son issues. Cuando una entrada madura, se promueve a GitHub Issue y se borra de aquí
 - `reviews/PR-{N}.md` — copia del reporte de review consolidado por PR
 
 ## Principios clave

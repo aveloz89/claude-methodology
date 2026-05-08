@@ -4,11 +4,18 @@
 # crea esos issues; este hook verifica que no se mergeen archivos con bugs
 # críticos pendientes.
 
+# Fail-open si faltan dependencias: el hook no debe bloquear comandos cuando
+# no puede ejecutarse correctamente.
+if ! command -v jq >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1; then
+  echo '{"continue":true}'
+  exit 0
+fi
+
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-# Solo interceptar `gh pr create --base main`
-if ! echo "$COMMAND" | grep -qE '^\s*gh\s+pr\s+create\b.*--base\s+main\b'; then
+# Solo interceptar `gh pr create --base main` (acepta `--base main` y `--base=main`)
+if ! echo "$COMMAND" | grep -qE '^\s*gh\s+pr\s+create\b.*--base[ =]main\b'; then
   echo '{"continue":true}'
   exit 0
 fi

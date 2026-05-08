@@ -145,7 +145,7 @@ Un archivo/clase/módulo que hace cosas no relacionadas. Ej: un service que vali
 
 #### God files / clases
 
-Archivos que todo el mundo importa, con demasiadas funciones exportadas, que son grab-bag de utilidades. Detectar con: `grep -rn "from '<archivo>'" --include="*.ts" -r src/ | wc -l` — si supera ~30 imports, candidato.
+Archivos que todo el mundo importa, con demasiadas funciones exportadas, que acumulan utilidades sin foco claro. Detectar con: `grep -rn "from '<archivo>'" --include="*.ts" -r src/ | wc -l` — si supera ~30 imports, candidato.
 
 #### Dead code (candidatos para revisión humana)
 

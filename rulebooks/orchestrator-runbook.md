@@ -2,7 +2,7 @@
 
 Detalles operativos del agente `orchestrator`: formatos de archivos persistentes, comandos específicos, criterios de clasificación, reportes. El agente lo lee bajo demanda, no en cada invocación.
 
-El comportamiento del orchestrator (qué fases ejecutar, cuándo invocar a qué agente, reglas duras) vive en `.claude/agents/orchestrator.md`. Este documento es el complemento práctico.
+El comportamiento del orchestrator (qué fases ejecutar, cuándo invocar a qué agente, reglas duras) vive en `~/.claude/agents/orchestrator.md`. Este documento es el complemento práctico.
 
 ## Estructura de `.planning/`
 
@@ -257,7 +257,7 @@ Guardar copia en `.planning/reviews/PR-<number>.md`.
 
 Cuando la tarea tiene componente visual:
 
-1. **Invocá `ui-ux`** con context isolation. Pasale SOLO:
+1. **Invoca `ui-ux`** con context isolation. Pásale SOLO:
    - El brief del brainstorming (`.planning/BRIEF.md` o pasaje relevante)
    - Nombre del proyecto
    - Path al `design-system/` del proyecto si ya existe (para extender en lugar de reescribir)
@@ -267,9 +267,9 @@ Cuando la tarea tiene componente visual:
    - `design-system/<NombreProyecto>/MASTER.md` (estilo UI, paleta, tipografía, espaciado, componentes core, anti-patterns, checklist)
    - `design-system/<NombreProyecto>/pages/<page>.md` para páginas críticas (landing, onboarding, dashboard, checkout)
 
-3. Si `ui-ux` te pide tono/audiencia/industria/referencias que faltan en el brief, preguntale al usuario y reenviá la respuesta al agente
+3. Si `ui-ux` te pide tono/audiencia/industria/referencias que faltan en el brief, pregúntale al usuario y reenvía la respuesta al agente
 
-4. Recibí el reporte del `ui-ux` y copiá el bloque "Para incluir en el brief al architect" a la sección `### Design System` del `BRIEF.md` antes de invocar al architect
+4. Recibe el reporte del `ui-ux` y copia el bloque "Para incluir en el brief al architect" a la sección `### Design System` del `BRIEF.md` antes de invocar al architect
 
 **Cuándo NO invocar `ui-ux`:**
 
@@ -290,7 +290,7 @@ docker compose up -d
 docker compose ps
 ```
 
-Verificá que todos los servicios estén `healthy`. Si alguno falla, escalá al dev correspondiente antes de lanzar E2E.
+Verifica que todos los servicios estén `healthy`. Si alguno falla, escala al dev correspondiente antes de lanzar E2E.
 
 Después:
 
@@ -299,9 +299,9 @@ Después:
    - Lista de archivos del diff (`gh pr view <PR> --json files --jq '.files[].path'`)
    - URL base del frontend (Docker o staging)
 2. El `e2e-runner` trabaja sobre el branch del PR a main directamente: si faltan tests, los crea; corre los existentes; commitea y pushea al mismo branch
-3. Si los tests fallan → **BLOQUEANTE**: asigná el fix al dev correspondiente (front, back o db según dónde falle el flow)
+3. Si los tests fallan → **BLOQUEANTE**: asigna el fix al dev correspondiente (front, back o db según dónde falle el flow)
 4. El `e2e-runner` re-ejecuta después del fix hasta que pasen
-5. **Máximo 3 ciclos de fix-rerun.** Si después de 3 sigue fallando, escalá al usuario
+5. **Máximo 3 ciclos de fix-rerun.** Si después de 3 sigue fallando, escala al usuario
 
 **Cuándo NO ejecutar E2E pre-release** (raro):
 
@@ -346,9 +346,9 @@ Rules aplicables:
 - ~/.claude/rules/<lenguaje>.md
 - ~/.claude/rules/docker.md (si aplica)
 
-Si no es el primer lote: leé `git log` y `.planning/STATE.md` antes de empezar.
+Si no es el primer lote: lee `git log` y `.planning/STATE.md` antes de empezar.
 
-Si last_batch=false: NO push, NO PR. Reportá completado.
+Si last_batch=false: NO push, NO PR. Reporta completado.
 Si last_batch=true: después de la última tarea, push + crear PR.
 ```
 

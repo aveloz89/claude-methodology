@@ -251,7 +251,7 @@ Mensaje en español, alineado con `CLAUDE.md` raíz.
 
 Si el orchestrator o un reviewer pide cambios en la documentación:
 
-1. Verificá que estás en el mismo branch del PR: `git checkout <branch-del-pr>`
+1. Verifica que estás en el mismo branch del PR: `git checkout <branch-del-pr>`
 2. Aplica las correcciones solicitadas
 3. Commit y push al mismo branch
 4. Reporta al orchestrator que las correcciones están listas
