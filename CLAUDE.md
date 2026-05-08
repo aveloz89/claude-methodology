@@ -29,7 +29,7 @@ Cada subagente recibe un paquete de contexto, no el historial completo de la ses
 - **Documento(s) completo(s) relevantes** + **descripción específica de la tarea**.
 - Documentos típicos según el agente:
   - `architect` recibe: `BRIEF.md` completo + tarea ("diseña la solución para esto").
-  - `backend-dev` / `frontend-dev` reciben: sección de `DESIGN.md` correspondiente al lote + lista de tareas TDD del lote + `rules/<lenguaje>.md` aplicable.
+  - `backend-dev` / `frontend-dev` reciben: sección de `DESIGN.md` correspondiente al lote + lista de tareas TDD del lote + `~/.claude/rules/<lenguaje>.md` aplicable.
   - `security-reviewer` / `qa-*` reciben: diff completo del PR + `DESIGN.md` + `BRIEF.md` (necesitan saber qué se quería para juzgar si el código lo cumple).
   - `db-specialist` recibe: `DESIGN.md` (sección de datos) + schema actual.
 - **Quien construye el paquete es el orchestrator**, no el agente que va a recibirlo. Los devs no se autoinvocan.
@@ -86,6 +86,7 @@ Reglas:
 | `session-start-context.sh` | SessionStart | Muestra branch, último commit, estado de `.planning/` |
 | `context-monitor.sh` | PostToolUse (Bash) | Avisa cuando el contexto se agota (35% warning, 25% critical) |
 | `docker-refresh.sh` | PostToolUse (Bash) | Detecta si servicios Docker necesitan restart/rebuild después de push o PR |
+| `pre-release-sweep.sh` | PreToolUse (Bash, antes de `gh pr create --base main`) | Bloquea el PR si hay issues abiertos con label `latent-bug` de severidad CRÍTICO que afecten archivos del diff |
 
 ## Verificación pre-commit (responsabilidad del dev)
 
@@ -95,8 +96,8 @@ Antes de cada commit, el dev verifica (en este orden):
 2. Lint pasa sin errores (autofix primero, manual después).
 3. Build compila sin errores.
 4. Docker container corre, si aplica.
-5. **Self-reflection idiomática** contra `rules/self-reflection.md` — ejecutar el proceso ahí definido, que carga `rules/<lenguaje>.md` aplicable según el diff y revisa solo las líneas modificadas. Las reglas concretas viven en cada `rules/<lenguaje>.md`, no aquí.
-6. **Implementation principles** contra `rules/implementation-principles.md` — revisar el diff contra YAGNI, scope mínimo, cambios quirúrgicos, sin abstracciones especulativas ni refactor colateral.
+5. **Self-reflection idiomática** contra `~/.claude/rules/self-reflection.md` — ejecutar el proceso ahí definido, que carga `~/.claude/rules/<lenguaje>.md` aplicable según el diff y revisa solo las líneas modificadas. Las reglas concretas viven en cada `~/.claude/rules/<lenguaje>.md`, no aquí.
+6. **Implementation principles** contra `~/.claude/rules/implementation-principles.md` — revisar el diff contra YAGNI, scope mínimo, cambios quirúrgicos, sin abstracciones especulativas ni refactor colateral.
 
 Los pasos 5 y 6 son ejercicios distintos: el 5 revisa **cómo** está escrito el código, el 6 revisa **qué** se escribió. Hacerlos en pasadas separadas evita que el juicio de scope se diluya en la revisión idiomática.
 
@@ -117,7 +118,8 @@ El paso 1 está reforzado por `pre-commit-guard.sh`, pero los demás son respons
 | `qa-backend` | sonnet | Contratos de API, lógica de negocio, datos, tests backend, coverage ≥ 80%. **Bloqueante en PR si el diff toca backend.** |
 | `e2e-runner` | sonnet | Tests E2E con Playwright (cero mocks, sistema real). Corre **solo en PRs a `main`** (no en cada PR a `dev`) y nightly |
 | `build-resolver` | sonnet | Diagnostica y resuelve errores de build/compilación |
-| `refactor` | sonnet | Detecta code smells, refactoriza sin cambiar comportamiento |
+| `refactor` | sonnet | Detecta code smells, refactoriza sin cambiar comportamiento. Lee issues con label `legacy-violation`, `controversial-fix` y `latent-bug` como input |
+| `latent-bugs-sweep` | sonnet | Escanea el repo buscando bugs latentes (código roto que aún no se ejercitó). Read-only. Crea issues con label `latent-bug`. Invocado manualmente o pre-release |
 | `docs` | sonnet | Genera/actualiza documentación a partir del diff del PR |
 
 ### Política de degradación de modelo
@@ -151,18 +153,18 @@ El estado del trabajo se persiste en `.planning/` para sobrevivir cambios de ses
 
 ## Principios clave
 
-- **No stubs/TODOs** en código mergeado — código placeholder es bloqueante (ver `rules/implementation-principles.md`, principio 4).
-- **Logs y observabilidad son scope siempre** — logger estructurado en boundaries y paths de error no cuenta como especulativo. `console.log` / `print()` residual de debug sí está prohibido (lo bloquea `rules/self-reflection.md`).
+- **No stubs/TODOs** en código mergeado — código placeholder es bloqueante (ver `~/.claude/rules/implementation-principles.md`, principio 4).
+- **Logs y observabilidad son scope siempre** — logger estructurado en boundaries y paths de error no cuenta como especulativo. `console.log` / `print()` residual de debug sí está prohibido (lo bloquea `~/.claude/rules/self-reflection.md`).
 - **Frontend delgado** — cero lógica de negocio en componentes. El frontend orquesta render, estado **de UI** (tabs activos, modales abiertos, formularios en edición) y llamadas a API. Toda regla de negocio vive en backend. `qa-frontend` revisa lo primero, no lo segundo.
 - **Context isolation** — cada subagente recibe solo lo que necesita (ver sección Handoff). No el historial completo.
 - **Tareas atómicas** — una tarea = un comportamiento concreto = un ciclo TDD.
-- **Agent budget** — el architect entrega un plan particionado en *lotes* (≤5 tareas cada uno = una invocación de dev) y declara estrategia de PR (single-PR default, multi-PR solo si los grupos son independientes y shippeables solos). El orchestrator valida y sigue el plan; los devs commitean por cada ciclo TDD. Sin esto el agente se corta a mitad o se multiplica innecesariamente el costo de CI/review. Ver `rulebooks/agent-budget.md`.
+- **Agent budget** — el architect entrega un plan particionado en *lotes* (≤5 tareas cada uno = una invocación de dev) y declara estrategia de PR (single-PR default, multi-PR solo si los grupos son independientes y shippeables solos). El orchestrator valida y sigue el plan; los devs commitean por cada ciclo TDD. Sin esto el agente se corta a mitad o se multiplica innecesariamente el costo de CI/review. Ver `~/.claude/rulebooks/agent-budget.md`.
 - **Fixes en mismo PR** — correcciones van en el mismo branch/PR, no en uno nuevo.
 - **Debugging sistemático** — nunca adivinar, seguir: evidencia → hipótesis → verificación → fix.
-- **YAGNI estricto** — implementar solo lo que el brief pide; sin abstracciones especulativas ni error handling defensivo (ver `rules/implementation-principles.md`).
+- **YAGNI estricto** — implementar solo lo que el brief pide; sin abstracciones especulativas ni error handling defensivo (ver `~/.claude/rules/implementation-principles.md`).
 - **Cambios quirúrgicos** — el diff debe ser mínimo y trazable al brief; refactor colateral va en PR aparte.
 - **Asumir explícito** — si el brief es ambiguo, preguntar antes de implementar; no adivinar.
-- **Governance playbook** — ante fallos o situaciones inesperadas, seguir los decision trees en `rulebooks/governance-playbook.md`.
+- **Governance playbook** — ante fallos o situaciones inesperadas, seguir los decision trees en `~/.claude/rulebooks/governance-playbook.md`.
 
 ## Salud del sistema de agentes (recomendado, no bloqueante)
 
@@ -184,7 +186,7 @@ Prompts canónicos con expected behaviors documentados, para verificar que cada 
 
 - `tests/validation/agent-validation.md` — prompts y expected behaviors por agente
 - `tests/validation/VALIDATION-LOG.md` — log de resultados
-- `rulebooks/validation-schedule.md` — frecuencia y proceso
+- `~/.claude/rulebooks/validation-schedule.md` — frecuencia y proceso
 
 Cuándo ejecutar: mensualmente, o antes de cada release significativo, o después de modificar prompts de agentes.
 
@@ -194,11 +196,11 @@ Los agentes detectan el stack del proyecto automáticamente. Ver `rules/` para r
 
 | Archivo | Lenguaje / Tecnología | Extensiones |
 |---------|----------------------|-------------|
-| `rules/python.md` | Python | `.py` |
-| `rules/typescript.md` | TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx` |
-| `rules/go.md` | Go | `.go` |
-| `rules/rust.md` | Rust | `.rs` |
-| `rules/csharp.md` | C# | `.cs` |
-| `rules/html.md` | HTML | `.html`, `.htm`, `.jsx`, `.tsx`, `.vue`, `.svelte` |
-| `rules/css.md` | CSS | `.css`, `.scss`, `.sass`, `.less` |
-| `rules/docker.md` | Docker (Dockerfile + compose) | `Dockerfile`, `Dockerfile.*`, `docker-compose*.yml`, `compose*.yml`, `.dockerignore` |
+| `~/.claude/rules/python.md` | Python | `.py` |
+| `~/.claude/rules/typescript.md` | TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx` |
+| `~/.claude/rules/go.md` | Go | `.go` |
+| `~/.claude/rules/rust.md` | Rust | `.rs` |
+| `~/.claude/rules/csharp.md` | C# | `.cs` |
+| `~/.claude/rules/html.md` | HTML | `.html`, `.htm`, `.jsx`, `.tsx`, `.vue`, `.svelte` |
+| `~/.claude/rules/css.md` | CSS | `.css`, `.scss`, `.sass`, `.less` |
+| `~/.claude/rules/docker.md` | Docker (Dockerfile + compose) | `Dockerfile`, `Dockerfile.*`, `docker-compose*.yml`, `compose*.yml`, `.dockerignore` |
