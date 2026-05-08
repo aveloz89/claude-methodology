@@ -277,9 +277,13 @@ Cuando la tarea tiene componente visual:
 - El cambio respeta el design system existente sin nuevos componentes ni páginas críticas
 - El usuario ya proporcionó un design system completo o guía visual específica
 
-## Detalle: Fase 2.5 (E2E)
+## Detalle: pre-release E2E (Modo B del e2e-runner) en PRs a main
 
-Antes de invocar `e2e-runner`:
+**Solo aplica para PRs a `main` (release).** Para PRs a `dev`, el usuario invoca a `e2e-runner` aparte (Modo A) — eso no es scope del orchestrator.
+
+Antes de la verificación pre-merge en un PR a main, invoca `e2e-runner` en Modo B.
+
+Pre-requisito — servicios corriendo:
 
 ```bash
 docker compose up -d
@@ -290,20 +294,19 @@ Verificá que todos los servicios estén `healthy`. Si alguno falla, escalá al 
 
 Después:
 
-1. **Invocá `e2e-runner`** con:
-   - Flujos de usuario descritos en `DESIGN.md`
-   - Branch donde está el código
-   - URL base del frontend en Docker (ej: `http://localhost:3000`)
-2. El `e2e-runner` crea tests de Playwright para los flujos críticos y los ejecuta
-3. Si los tests fallan, asigná el fix al dev correspondiente (front, back o db según dónde falle el flow)
-4. El `e2e-runner` re-ejecuta hasta que pasen
+1. **Invocá `e2e-runner` en Modo B** con:
+   - Branch del PR a main
+   - Lista de archivos del diff (`gh pr view <PR> --json files --jq '.files[].path'`)
+   - URL base del frontend (Docker o staging)
+2. El `e2e-runner` trabaja sobre el branch del PR a main directamente: si faltan tests, los crea; corre los existentes; commitea y pushea al mismo branch
+3. Si los tests fallan → **BLOQUEANTE**: asigná el fix al dev correspondiente (front, back o db según dónde falle el flow)
+4. El `e2e-runner` re-ejecuta después del fix hasta que pasen
 5. **Máximo 3 ciclos de fix-rerun.** Si después de 3 sigue fallando, escalá al usuario
 
-**Cuándo NO ejecutar E2E:**
+**Cuándo NO ejecutar E2E pre-release** (raro):
 
-- La feature no tiene componente visual
-- Cambio pequeño cubierto por unit/integration tests
-- Usuario explícitamente lo pide
+- El PR a main es solo configuración / docs (no hay cambios de código que afecten flujos de usuario)
+- El usuario explícitamente lo pide
 
 ## Detalle: orden de lotes cuando hay db-specialist
 
@@ -340,8 +343,8 @@ Sección de DESIGN.md correspondiente:
 <inline o path>
 
 Rules aplicables:
-- rules/<lenguaje>.md
-- rules/docker.md (si aplica)
+- ~/.claude/rules/<lenguaje>.md
+- ~/.claude/rules/docker.md (si aplica)
 
 Si no es el primer lote: leé `git log` y `.planning/STATE.md` antes de empezar.
 
@@ -359,7 +362,7 @@ Si last_batch=true: después de la última tarea, push + crear PR.
 | Dev reporta error de build/CI | `build-resolver` con error completo + branch + archivos. Max 3 fixes automáticos |
 | Reviewer reporta bloqueante | Asignar fix al dev del lote correspondiente en mismo branch. Re-lanzar solo el reviewer que reportó. Repetir hasta aprobación |
 | `gh pr merge` falla | Verificar las 3 condiciones de pre-merge. Reportar cuál bloquea |
-| Healthcheck Docker falla en Fase 2.5 | Escalar al dev del servicio fallando antes de continuar con E2E |
+| Healthcheck Docker falla antes de E2E pre-release | Escalar al dev del servicio fallando antes de lanzar `e2e-runner` Modo B |
 | Hotfix mergeado pero falló integración a dev | Conflicto manual. Escalar al usuario con detalles del conflicto |
 | Migración del db-specialist falla en CI | Asignar fix al db-specialist (no a backend-dev) — es su scope |
 | Backend-dev intenta crear migración compleja (no simple) | Devolver: "esto califica como complejo según criterios del orchestrator. Escalar al architect para que reasigne al db-specialist" |
