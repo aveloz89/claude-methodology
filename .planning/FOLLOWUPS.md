@@ -32,3 +32,14 @@ Origen: PR #24 review
 ### [2026-05-08] Deduplicar criterios de migración DB simple/complejo
 La lista de criterios "qué califica como migración compleja" está duplicada en `agents/orchestrator.md`, `agents/backend-dev.md` y mencionada brevemente en `rulebooks/orchestrator-runbook.md`. Tres copias que se van a desincronizar. Mover a fuente única — opciones: `rules/db.md` (no existe), `rulebooks/db-migration-policy.md` nuevo, o sección dedicada del runbook — y que los demás referencien.
 Origen: PR #24 review
+
+### [2026-05-08] Decidir cómo se carga la metodología globalmente vs por proyecto (CLAUDE.md)
+Los agentes referencian "CLAUDE.md raíz" sin prefix (queda relativo al CWD). Cuando un agente corre desde un proyecto del usuario (`~/Proyectos/miapp/`), `CLAUDE.md` resuelve al del proyecto del usuario, no al de la metodología. Eso significa que las reglas globales (gitflow, dual review, principio de Frontend delgado, etc.) no se aplican automáticamente — el usuario tendría que copiar/extender el CLAUDE.md de la metodología en cada proyecto.
+
+Opciones a evaluar:
+1. **Symlinkear el CLAUDE.md de la metodología a `~/.claude/CLAUDE.md`** (Claude Code lo auto-carga como instrucciones globales del usuario). Agregar al install.sh.
+2. **Documentar que cada proyecto debe `import` o copiar el CLAUDE.md** de la metodología.
+3. **Cambiar las referencias en los agentes** a path absoluto (`~/Proyectos/claude-methodology/CLAUDE.md`) — pero hardcodea ruta del autor, no portable.
+
+Probablemente opción 1, pero requiere revisar el orden de precedencia de Claude Code (¿qué pasa si el proyecto del usuario también tiene CLAUDE.md? ¿se mergean? ¿override?).
+Origen: PR #24 review (path style fix)
