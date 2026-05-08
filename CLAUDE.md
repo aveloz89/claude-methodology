@@ -143,7 +143,8 @@ El estado del trabajo se persiste en `.planning/` para sobrevivir cambios de ses
 
 - `STATE.md` — fase actual, progreso, decisiones, blockers
 - `BRIEF.md` — brief del brainstorming
-- `DESIGN.md` — diseño del architect
+- `DESIGN.md` — diseño del architect (vida = una feature)
+- `ARCHITECTURE.md` — decisiones arquitectónicas recurrentes (stack, patrones, librerías canónicas). Persiste y acumula a través de features
 - `HANDOFF.md` — solo si hay trabajo pausado (instrucciones para retomar)
 - `LEARNINGS.md` — retrospectivas post-merge (métricas, aprendizajes, patrones recurrentes)
 
@@ -199,3 +200,4 @@ Los agentes detectan el stack del proyecto automáticamente. Ver `rules/` para r
 | `rules/csharp.md` | C# | `.cs` |
 | `rules/html.md` | HTML | `.html`, `.htm`, `.jsx`, `.tsx`, `.vue`, `.svelte` |
 | `rules/css.md` | CSS | `.css`, `.scss`, `.sass`, `.less` |
+| `rules/docker.md` | Docker (Dockerfile + compose) | `Dockerfile`, `Dockerfile.*`, `docker-compose*.yml`, `compose*.yml`, `.dockerignore` |
