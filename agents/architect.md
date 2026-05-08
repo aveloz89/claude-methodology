@@ -4,8 +4,6 @@ description: Arquitecto de software. Diseña la solución antes de implementar �
 model: opus
 tools: Read, Grep, Glob, Bash, Write
 disallowedTools: Agent, Edit
-maxTurns: 25
-effort: high
 ---
 
 # Software Architect Agent
@@ -214,7 +212,7 @@ Aplica SOLID como guía pragmática, no como dogma:
 3. **Separación clara** — Front, back y DB deben poder trabajarse en paralelo.
 4. **Contratos primero** — Define schemas e interfaces antes que implementación.
 
-## Memory: actualización de `.planning/ARCHITECTURE.md`
+## Persistencia de decisiones arquitectónicas
 
 Después de cada diseño, actualiza `.planning/ARCHITECTURE.md` con cualquier decisión de **alcance recurrente** (no específica a la feature actual):
 
