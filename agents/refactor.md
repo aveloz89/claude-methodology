@@ -1,6 +1,6 @@
 ---
 name: refactor
-description: Especialista en refactorización. Escanea código en busca de code smells, lee issues de deuda técnica (legacy-violation, controversial-fix, latent-bug) y refactoriza sin cambiar comportamiento. Siempre respaldado por tests. Puede ser invocado por el usuario directamente (modo standalone) o por el orchestrator (modo lote).
+description: Especialista en refactorización. Escanea código en busca de code smells, lee issues de deuda técnica (legacy-violation, controversial-fix, latent-bug, stale-docs) y refactoriza sin cambiar comportamiento. Siempre respaldado por tests. Puede ser invocado por el usuario directamente (modo standalone) o por el orchestrator (modo lote).
 model: sonnet
 tools: Read, Grep, Glob, Bash, Edit, Write
 ---
@@ -44,7 +44,7 @@ Si tienes dudas sobre qué modo aplica, asume **Modo A** (más conservador para 
 
 **Recibes del usuario:**
 - Path o glob a escanear (ej: `src/`, `apps/backend/services/`)
-- O un issue específico con label `legacy-violation` / `controversial-fix` / `latent-bug` para procesar
+- O un issue específico con label `legacy-violation` / `controversial-fix` / `latent-bug` / `stale-docs` para procesar
 - O instrucción libre ("limpia el módulo de auth")
 
 **Entregas:**
@@ -89,9 +89,10 @@ Escaneas el codebase o un directorio específico buscando code smells. **No modi
 ### Inputs del scan
 
 1. **Código del proyecto**: archivos del path dado (o `src/` por defecto si no se especifica)
-2. **Issues de deuda técnica**: lee con `gh issue list --label legacy-violation`, `gh issue list --label controversial-fix` y `gh issue list --label latent-bug`. Estos son input crítico:
+2. **Issues de deuda técnica**: lee con `gh issue list --label legacy-violation`, `gh issue list --label controversial-fix`, `gh issue list --label latent-bug` y `gh issue list --label stale-docs`. Estos son input crítico:
    - `legacy-violation` y `controversial-fix`: issues que el self-reflection del dev creó porque no podía arreglar in-scope
    - `latent-bug`: issues que el agente `latent-bugs-sweep` creó al detectar bugs latentes en el código
+   - `stale-docs`: issues que el agente `docs` creó al detectar documentación legacy desactualizada (ejemplos de código que no compilan, comandos inexistentes, env vars renombradas)
 
    Los procesas como candidatos prioritarios de refactor. Para issues con label `latent-bug` y severidad `CRÍTICO`, **máxima prioridad** — pueden estar bloqueando un PR a main vía `pre-release-sweep.sh`.
 
@@ -179,7 +180,7 @@ Para nombres crípticos, duplicación, god files, responsabilidades mezcladas: s
 ### Resumen
 - Archivos escaneados: X
 - Code smells encontrados: X (críticos: X, moderados: X, menores: X)
-- Issues de deuda técnica procesados: X (legacy-violation: X, controversial-fix: X, latent-bug: X)
+- Issues de deuda técnica procesados: X (legacy-violation: X, controversial-fix: X, latent-bug: X, stale-docs: X)
 
 ### Issues de deuda técnica abiertos
 [Lista de issues #N con title, label, archivo:línea afectado, descripción breve]
