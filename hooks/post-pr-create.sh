@@ -27,7 +27,7 @@ if [ -n "$PR_URL" ]; then
   echo "   - security-reviewer (subagent_type=security-reviewer) — siempre"
   echo "   - qa-frontend (subagent_type=qa-frontend) — si el diff tiene archivos de UI"
   echo "   - qa-backend  (subagent_type=qa-backend)  — si el diff tiene archivos de servidor"
-  echo "Consulta agents/orchestrator.md (Fase 3) para la heurística de clasificación por extensión y ruta."
+  echo "Consulta rulebooks/orchestrator-runbook.md (sección 'Clasificación del diff por capa') para la heurística por extensión y ruta."
 else
   echo "WARNING: Se detectó 'gh pr create' pero no se pudo extraer la URL del PR del output."
   echo "Verifica manualmente si el PR fue creado y ejecuta el review (security-reviewer + qa-frontend/qa-backend según aplique)."

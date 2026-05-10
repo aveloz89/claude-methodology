@@ -30,7 +30,7 @@ Origen: PR #24 review
 Origen: PR #24 review
 
 ### [2026-05-08] Deduplicar criterios de migración DB simple/complejo
-La lista de criterios "qué califica como migración compleja" está duplicada en `agents/orchestrator.md`, `agents/backend-dev.md` y mencionada brevemente en `rulebooks/orchestrator-runbook.md`. Tres copias que se van a desincronizar. Mover a fuente única — opciones: `rules/db.md` (no existe), `rulebooks/db-migration-policy.md` nuevo, o sección dedicada del runbook — y que los demás referencien.
+La lista de criterios "qué califica como migración compleja" está duplicada en `agents/backend-dev.md` y `rulebooks/orchestrator-runbook.md` (esta última es ahora la fuente canónica desde que se eliminó `agents/orchestrator.md`). Falta colapsar `backend-dev.md` para que solo referencie al runbook en vez de repetir la lista.
 Origen: PR #24 review
 
 ### [2026-05-08] Decidir cómo se carga la metodología globalmente vs por proyecto (CLAUDE.md)
