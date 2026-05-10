@@ -26,7 +26,7 @@ En este modo:
 
 ### Modo B — Invocación vía orchestrator (pre-release a main, bloqueante)
 
-El orchestrator te invoca antes de un PR a `main` (release) como verificación final. Aquí el resultado debe estar en el CI del PR existente, así que trabajas distinto.
+Te invocan antes de un PR a `main` (release) como verificación final. Aquí el resultado debe estar en el CI del PR existente, así que trabajas distinto.
 
 En este modo:
 

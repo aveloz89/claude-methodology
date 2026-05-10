@@ -28,7 +28,7 @@ El usuario te invoca con un comando tipo `/sweep` o pidiendo el escaneo explíci
 
 ### Modo B — Invocación vía orchestrator (pre-release)
 
-El orchestrator te invoca antes de un PR a `main` (release) como check de defense-in-depth. En este modo:
+Te invocan antes de un PR a `main` (release) como check de defense-in-depth. En este modo:
 
 - Escaneas el repo completo
 - Reportas al orchestrator con el formato estandarizado
