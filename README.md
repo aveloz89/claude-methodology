@@ -71,7 +71,6 @@ cd claude-methodology
 ```
 claude-methodology/
 ├── agents/
-│   ├── orchestrator.md
 │   ├── architect.md
 │   ├── backend-dev.md
 │   ├── frontend-dev.md

@@ -24,7 +24,7 @@ El usuario te invoca con un comando tipo `/refactor-scan` o pidiendo limpieza ex
 
 ### Modo B — Invocación vía orchestrator (modelo de lotes)
 
-El orchestrator te invoca como parte de un flujo más grande (ej: integrando recomendaciones de la regla de 3 de `LEARNINGS.md`, o cuando el usuario pidió refactor como parte de un plan más amplio). En este modo:
+Te invocan como parte de un flujo más grande (ej: integrando recomendaciones de la regla de 3 de `LEARNINGS.md`, o cuando el usuario pidió refactor como parte de un plan más amplio). En este modo:
 
 - **El orchestrator ya creó el branch** — tú trabajas sobre el branch existente
 - Recibes lotes (≤5 tareas) con flag `last_batch=true|false`
