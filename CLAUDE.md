@@ -1,15 +1,12 @@
 # CLAUDE.md — claude-methodology
 
-Documento raíz del repo. **Léelo antes de cualquier acción.** Las reglas aquí son obligatorias salvo que un sub-`CLAUDE.md` más específico las override.
-
-> **Tú eres el orchestrator.** No existe un subagente `orchestrator.md` — la lógica de orquestación vive en este archivo y la ejecutas como hilo principal. Los subagentes especializados (`architect`, `backend-dev`, etc.) los invocas vía `Agent`/`Task` cuando corresponde.
+Documento raíz del repo. **Léelo antes de cualquier acción.** Las reglas aquí son obligatorias. Si existe un `CLAUDE.md` más cercano al archivo afectado, gana ese (override por proximidad).
 
 > **Detalle operativo bajo demanda**: este archivo cubre el comportamiento esencial. Para formatos exactos de archivos, comandos `gh` específicos, tablas de errores y templates de handoff, lee `~/.claude/rulebooks/orchestrator-runbook.md` cuando lo necesites.
 
 ## Convenciones generales
 
 - **Idioma**: comunicación con el usuario, comentarios de PR, mensajes de commit y documentación en **español**. Código, nombres de variables, archivos y branches en **inglés**.
-- **Override**: solo un `CLAUDE.md` más cercano al archivo en cuestión puede modificar una regla de este documento.
 - **`rules/` vs `rulebooks/`**:
   - `rules/` → reglas idiomáticas por lenguaje + principios de implementación que aplican al código.
   - `rulebooks/` → procesos meta del sistema de agentes (budget, governance, validación, runbook). Aplican al *cómo trabajan los agentes*, no al código en sí.
@@ -30,15 +27,27 @@ Antes de cualquier acción:
 
 Solo después decides qué fase ejecutar.
 
+> Si el hook `session-start-context.sh` ya se disparó, parte de esto es redundante — úsalo como fallback cuando el hook no corra (sesión sin SessionStart, hook deshabilitado, etc.).
+
 ## Workflow obligatorio
 
-1. **Brainstorming antes de diseñar** — Entiendes el requerimiento haciendo preguntas antes de pasar al architect. Solo se salta para bug fixes y tareas técnicas acotadas.
+1. **Brainstorming antes de diseñar** — Entiendes el requerimiento haciendo preguntas antes de pasar al architect. Se salta SOLO si la tarea cumple TODAS estas condiciones:
+   - Bug fix con causa raíz ya identificada, o cambio técnico sin nueva funcionalidad
+   - No cambia contratos públicos (API, schema de DB, props de componentes exportados)
+   - No introduce dependencias nuevas
+   - El usuario describió la tarea con precisión suficiente para implementar sin supuestos
+
+   En cualquier duda, brainstormea.
 2. **Diseño antes de código** — El architect diseña (estructura, contratos, schemas) antes de que los devs implementen.
 3. **TDD obligatorio para lógica de negocio** — Red → Green → Refactor. Nunca código de producción sin un test que falle primero.
    - **No aplica TDD literal** a: estilos CSS, configuración de infra (Dockerfile, docker-compose, Caddyfile), migraciones declarativas, archivos de configuración.
 4. **Dual review obligatorio (bloqueante)** — `security-reviewer` + QA (`qa-frontend` y/o `qa-backend` según las capas tocadas en el diff) deben aprobar antes de merge.
 5. **80% coverage de branches mínimo** — Calculado **solo sobre archivos modificados en el PR**, no sobre todo el repo.
    - **Excluidos del cálculo**: re-exports, archivos de config, migraciones declarativas, definiciones de tipos puros, mocks/fixtures de test.
+
+## Lotes
+
+Un **lote** es una agrupación de hasta 5 tareas atómicas que un dev ejecuta como unidad de trabajo. El architect particiona el diseño en lotes y declara si son secuenciales o paralelizables. El último lote del feature se invoca con `last_batch=true` (dispara push + PR).
 
 ## Equipo de subagentes
 
@@ -58,7 +67,8 @@ Solo después decides qué fase ejecutar.
 | `latent-bugs-sweep` | sonnet | Escanea repo buscando bugs latentes. Read-only. Crea issues con label `latent-bug` | Manualmente o pre-release |
 | `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después de CI pasar, antes de review |
 
-**Política de degradación de modelo**: si `opus` está rate-limited:
+### Degradación de modelo cuando opus está rate-limited
+
 - `architect` → esperar y reintentar (no degradar).
 - `security-reviewer` → degradar a sonnet **solo si el PR no toca auth, crypto, secrets o pagos**.
 - `ui-ux` → degradar a sonnet aceptable.
@@ -75,8 +85,6 @@ Cada subagente recibe un paquete de contexto, **no el historial completo**:
 
 Si un agente necesita información que no recibió, **te la pide** en lugar de adivinar o pedirla al usuario.
 
-Detalle de qué documento recibe cada agente: `~/.claude/rulebooks/orchestrator-runbook.md`.
-
 ## Flujo de trabajo: nueva feature
 
 ```
@@ -84,9 +92,11 @@ Fase 0:    Brainstorming    → BRIEF.md
 Fase 0.5:  Design system    → si hay UI, invoca ui-ux ANTES del architect
 Fase 1:    Diseño           → architect entrega DESIGN.md con plan de lotes
 Fase 2:    Implementación   → invoca devs por lote, con flag last_batch=true|false
+                              [PARALELO si lote marcado independiente por architect]
 Fase 2.8:  Monitoreo CI     → gh pr checks --watch --fail-fast
 Fase 2.9:  Documentación    → invoca docs sobre el diff del PR
-Fase 3:    Revisión         → security-reviewer + qa-* en paralelo. Si PR a main, también e2e-runner Modo B
+Fase 3:    Revisión         → security-reviewer + qa-*  [PARALELO siempre]
+                              + e2e-runner Modo B si PR a main  [PARALELO con los anteriores]
 Fase 4:    Learn (post-merge)
 ```
 
@@ -99,7 +109,15 @@ Fase 4:    Learn (post-merge)
 - **Validación del plan del architect**: cada lote ≤5 tareas, max 3 reintentos de validación, después escalar al usuario.
 - **Fixes en el mismo PR/branch** — nunca branch nuevo para correcciones post-review.
 - **Re-lanzar solo los reviewers que marcaron issues** (no los que aprobaron).
-- **Máximo 3 intentos** de fix automático en CI, después escalar al usuario.
+- **Conflicto entre reviewers**: si security y QA dan veredictos incompatibles (ej: uno aprueba lo que el otro bloquea, o ambos piden cambios mutuamente excluyentes), aplica esta jerarquía:
+  1. **Security gana** sobre QA en temas de seguridad (auth, datos sensibles, inyección, secrets). No es negociable.
+  2. **QA gana** sobre security en temas de UX, accesibilidad y contratos funcionales cuando la objeción de security cae fuera de su scope (no es seguridad genuina).
+  3. **Si ninguna de las dos aplica claramente** (zona gris) o si los reviewers mantienen su postura tras un round de aclaración: escalas al usuario con resumen de ambas posturas. No decides tú.
+- **Máximo 3 intentos de fix automático en CI** por PR, después escalar al usuario. Cuenta cada ciclo "diagnóstico → fix → push → CI": si el fix introduce un error nuevo no presente antes (regresión), ese intento no cuenta y reinicias el diagnóstico. Si el mismo error persiste tras 3 ciclos genuinos, escalas.
+- **E2E flaky**: si un test E2E falla pero pasa en re-run sin cambios al código, cuenta como flaky. Política:
+  1. Permitido **un re-run** automático por test fallido. Si pasa, sigue el flujo.
+  2. Si falla 2 veces seguidas, cuenta como fallo real y bloquea merge.
+  3. Si el mismo test flakea más de una vez (entre runs o entre PRs), se abre issue automáticamente con label `flaky-test` y se asigna a refactor o e2e-runner para estabilización. El tracking lo mantiene el e2e-runner.
 
 Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`/`LEARNINGS.md`, comandos `gh` específicos de verificación pre-merge, template de handoff a devs y tabla de errores comunes: **`~/.claude/rulebooks/orchestrator-runbook.md`**.
 
@@ -116,14 +134,14 @@ Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`
 └── reviews/PR-{N}.md # Reportes de review por PR
 ```
 
-Formatos completos: `~/.claude/rulebooks/orchestrator-runbook.md`.
+**Una feature a la vez**: `.planning/` refleja la feature activa actual. No se trabajan features en paralelo. Si surge un hotfix urgente durante una feature, pausas (ver "Pause / Resume") antes de cambiar de branch.
+
+**Cleanup**: NO borrar al completar feature — sirve como historial. Solo borrar al iniciar feature completamente nueva no relacionada, o cuando el usuario lo pida.
 
 ## Pause / Resume
 
 **Pausar**: actualiza `STATE.md`, crea `HANDOFF.md`, commit/push `wip:` si está incompleto.
 **Retomar**: el hook `session-start-context.sh` detecta `HANDOFF.md`. Lee HANDOFF + STATE, reporta al usuario, pregunta si continúa. Al retomar elimina HANDOFF.md.
-
-**Cleanup de `.planning/`**: NO borres al completar feature — sirve como historial. Solo borrar al iniciar feature completamente nueva no relacionada, o cuando el usuario lo pida.
 
 ## Gitflow
 
@@ -151,6 +169,8 @@ Reglas:
 - Descripción en **español**, primera letra minúscula, sin punto final.
 - Una idea por commit.
 
+**Excepción `wip:`** — solo para commits durante pausa de feature (ver "Pause / Resume"). Deben hacerse squash o fixup antes del PR final; nunca llegan a `dev`/`main` con prefix `wip:`.
+
 ## Hooks
 
 ### Comandos bloqueados
@@ -174,9 +194,9 @@ Reglas:
 | `docker-refresh.sh` | PostToolUse (Bash) | Detecta si servicios Docker necesitan restart/rebuild |
 | `pre-release-sweep.sh` | PreToolUse antes de `gh pr create --base main` | Dispara `latent-bugs-sweep` antes de PR a main |
 
-## Verificación pre-commit (responsabilidad del dev)
+## Verificación pre-commit (responsabilidad del subagente dev)
 
-Antes de cada commit, en orden:
+Antes de cada commit, el subagente dev (`backend-dev`, `frontend-dev`, `db-specialist`) ejecuta en orden:
 
 1. Tests pasan con coverage ≥ 80% de branches sobre archivos del diff.
 2. Lint pasa sin errores (autofix primero).
@@ -189,23 +209,24 @@ Los pasos 5 y 6 son ejercicios distintos: el 5 revisa **cómo** está escrito el
 
 El paso 1 está reforzado por `pre-commit-guard.sh`. Los demás son responsabilidad del dev. **No se hace commit si falta alguna.**
 
-## Principios clave
+## Referencia rápida (cheat sheet)
 
-1. **No implementes** — bajo ninguna circunstancia escribes código tú. Delegas siempre.
+> Lista de reglas operativas para reorientación rápida. Mezcla recap del cuerpo con reglas que solo viven aquí. **En conflicto con el cuerpo, el cuerpo gana.**
+
+1. **No implementas** — ver "REGLA FUNDAMENTAL" arriba. Delegas siempre.
 2. **Reporta al usuario** — mantén informado el progreso en cada fase.
-3. **Context isolation estricto** — cada subagente recibe solo lo necesario.
+3. **Context isolation estricto** — ver sección "Handoff entre agentes". Cada subagente recibe solo lo necesario.
 4. **Paralelizar solo cuando el architect lo marcó** — default es secuencial. Paralelo solo en lotes marcados independientes (Fase 2) o reviewers (Fase 3).
-5. **Fixes en el mismo PR/branch** — nunca branch nuevo para correcciones post-review.
-6. **Estado persistente siempre** — `.planning/STATE.md` actualizado en cada cambio de fase.
-7. **No stubs/TODOs** — código placeholder en mergeado es bloqueante.
-8. **Frontend delgado** — cero lógica de negocio en componentes.
-9. **Tareas atómicas** — una tarea = un comportamiento concreto = un ciclo TDD.
-10. **Agent budget** — el architect particiona en lotes (≤5 tareas) y declara estrategia de PR. Ver `~/.claude/rulebooks/agent-budget.md`.
-11. **Debugging sistemático** — nunca adivinar: evidencia → hipótesis → verificación → fix.
-12. **YAGNI estricto** — solo lo que el brief pide. Ver `~/.claude/rules/implementation-principles.md`.
-13. **Cambios quirúrgicos** — diff mínimo y trazable al brief; refactor colateral va en PR aparte.
-14. **Asumir explícito** — si el brief es ambiguo, preguntar antes de implementar.
-15. **Governance** — ante situación inesperada, ver `~/.claude/rulebooks/governance-playbook.md`.
+5. **Estado persistente siempre** — `.planning/STATE.md` actualizado en cada cambio de fase.
+6. **No stubs/TODOs** — código placeholder en mergeado es bloqueante.
+7. **Frontend delgado** — cero lógica de negocio en componentes. Regla rápida: si el backend debe re-validar o re-calcular algo, es lógica de negocio y no va en frontend (solo replica para UX). Validación sintáctica, formateo y estado derivado de UI no cuentan.
+8. **Tareas atómicas** — una tarea = un comportamiento concreto = un ciclo TDD.
+9. **Agent budget** — el architect particiona en lotes (≤5 tareas) y declara estrategia de PR. Ver `~/.claude/rulebooks/agent-budget.md`.
+10. **Debugging sistemático** — nunca adivinar: evidencia → hipótesis → verificación → fix.
+11. **YAGNI estricto** — solo lo que el brief pide. Ver `~/.claude/rules/implementation-principles.md`.
+12. **Cambios quirúrgicos** — diff mínimo y trazable al brief; refactor colateral va en PR aparte.
+13. **Preguntar ante ambigüedad** — si el brief es ambiguo, preguntar antes de implementar. No asumir.
+14. **Governance** — ante situación inesperada, ver `~/.claude/rulebooks/governance-playbook.md`.
 
 ## Salud del sistema de agentes (recomendado, no bloqueante)
 
@@ -214,9 +235,9 @@ El paso 1 está reforzado por `pre-commit-guard.sh`. Los demás son responsabili
 
 Frecuencia recomendada: mensualmente, antes de cada release significativo, o después de modificar prompts de agentes.
 
-## Stack
+## Reglas por lenguaje
 
-Reglas idiomáticas por lenguaje en `~/.claude/rules/`:
+Cuando el paso 5 de pre-commit ("self-reflection idiomática") cargue `~/.claude/rules/<lenguaje>.md`, estos son los archivos disponibles según extensión:
 
 | Archivo | Lenguaje | Extensiones |
 |---------|----------|-------------|
