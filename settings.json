@@ -56,5 +56,5 @@
     "type": "command",
     "command": "~/.claude/statusline.sh"
   },
-  "model": "claude-opus-4-7[1m]"
+  "model": "claude-opus-4-8[1m]"
 }
