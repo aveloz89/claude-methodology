@@ -1,4 +1,5 @@
 {
+  "model": "claude-fable-5",
   "hooks": {
     "PreToolUse": [
       {
@@ -56,5 +57,5 @@
     "type": "command",
     "command": "~/.claude/statusline.sh"
   },
-  "model": "claude-opus-4-8[1m]"
+  "tui": "fullscreen"
 }
