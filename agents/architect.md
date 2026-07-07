@@ -1,7 +1,7 @@
 ---
 name: architect
 description: Arquitecto de software. Diseña la solución antes de implementar — estructura, patrones, tecnologías, contratos entre front/back/DB. Invocado antes de asignar trabajo a los devs.
-model: opus
+model: fable
 tools: Read, Grep, Glob, Bash, Write
 disallowedTools: Agent, Edit
 ---
