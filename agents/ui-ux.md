@@ -270,6 +270,8 @@ El resto de tus responsabilidades son reactivas a un brief: si nadie escribe un 
 
 **Cuándo se invoca:** por el usuario u orchestrator, sin brief. Cadencia recomendada: antes de cada release a main, o cada ~10 features mergeadas. No corre por PR — eso es scope de `qa-frontend`.
 
+**Modelo:** corre con el modelo del agente (opus). Para auditorías pre-release importantes, el orchestrator puede invocarlo con override a `fable` (mayor profundidad de juicio a ~2× el costo); para el resto de las corridas el default basta.
+
 **Qué recibes:** path al repo, y opcionalmente un scope (área/flujo concreto) y URL de un stack corriendo (dev o E2E). Sin scope, auditas el producto completo.
 
 **Proceso:**
