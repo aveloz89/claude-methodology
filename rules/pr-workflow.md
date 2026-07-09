@@ -30,6 +30,25 @@ Después de crear cada PR, lanzar **security-reviewer + qa** (qa-frontend y/o qa
 - Re-correr el agent relevante para validar el fix
 - Continuar solo cuando todo verde
 
+**Sugerencias no bloqueantes: aplicarlas en el mismo PR antes de pedir merge.**
+Cuando un reviewer marca sugerencias (no bloqueantes) que son baratas, sin riesgo y trazables al scope del PR, aplicarlas en el MISMO branch antes de informar "PR listo para tu review" — no diferirlas ni solo anotarlas. Las que cambien comportamiento, requieran decisión de diseño, o sean scope de otra fase, NO se aplican: se anotan como issue o handoff en `.planning/STATE.md`. Después de aplicar, re-correr solo el reviewer que las marcó (o los tests si es cambio menor).
+
+**Por qué:** el patrón "aplicar sugerencias en el mismo PR" apareció en 4 PRs consecutivos como decisión manual del usuario. Formalizarlo evita el ida-y-vuelta de pedir permiso para cada mejora obvia. El usuario sigue siendo el checkpoint del **merge** (regla 3), no de cada pulido.
+
+### Verificación E2E real obligatoria en PRs de frontend
+
+Antes de aprobar el merge de un PR que toca UI (componentes, páginas, flujos de usuario), **ejecutar el flujo real en un navegador contra el backend levantado** — no basta con tests unitarios ni con verificación por `curl`.
+
+**Por qué es obligatorio:** los tests de frontend mockean `fetch` y corren en jsdom, que NO renderiza CSS, NO aplica `@media`/`@page`, NO ejecuta las reglas nativas de `<dialog>`/top-layer, y NO negocia `Content-Type` real con el servidor. La "verificación en vivo por `curl`" ejercita la API pero nunca la UI. En una sola fase (catálogos) se escaparon a review 3 bugs que ningún test veía: un modal que no cerraba en desktop (CSS sin scope a `[open]`), archivado completamente roto (`Content-Type: application/json` en POST sin body → Fastify lo rechazaba), y un falso positivo de test que afirmaba renderizar un botón que en el DOM real no estaba.
+
+**Cómo aplicar:**
+- **Preferente:** invocar `e2e-runner` sobre el flujo del PR (crea/corre tests Playwright contra los servicios en Docker). Bloqueante si falla.
+- **Mínimo:** manejar el flujo en un navegador real (extensión de browser o Playwright manual) contra `docker compose up` — ejercitar happy path + las mutaciones (crear, editar, archivar/deshacer) y confirmar en el DOM real, no solo en screenshot.
+- **Distinguir bug de código vs bundle stale:** si algo no se ve/comporta como el código fuente dice, reiniciar el contenedor de frontend (HMR + service worker de PWA pueden servir módulos viejos tras muchos pushes) y re-verificar ANTES de escalar al dev. No mandar a "arreglar" código correcto.
+- Restaurar datos de seed (`db:seed`) si la verificación ensució el entorno de dev.
+
+**Qué NO requiere E2E real:** PRs sin superficie de UI (backend puro, migraciones, docs, config). Ahí basta con tests + la verificación en vivo por `curl`/API que ya hacen los devs.
+
 ### Checklist obligatorio para security-reviewer
 
 El security-reviewer DEBE verificar estos puntos además de OWASP Top 10:
