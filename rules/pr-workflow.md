@@ -35,9 +35,15 @@ Cuando un reviewer marca sugerencias (no bloqueantes) que son baratas, sin riesg
 
 **Por qué:** el patrón "aplicar sugerencias en el mismo PR" apareció en 4 PRs consecutivos como decisión manual del usuario. Formalizarlo evita el ida-y-vuelta de pedir permiso para cada mejora obvia. El usuario sigue siendo el checkpoint del **merge** (regla 3), no de cada pulido.
 
-### Verificación E2E real obligatoria en PRs de frontend
+### Verificación E2E real obligatoria en PRs a main (pre-release)
 
-Antes de aprobar el merge de un PR que toca UI (componentes, páginas, flujos de usuario), **ejecutar el flujo real en un navegador contra el backend levantado** — no basta con tests unitarios ni con verificación por `curl`.
+**Decisión del usuario 2026-07-19:** la verificación E2E completa (suite Playwright + flujos en navegador real) es obligatoria y bloqueante **solo en PRs a `main`** (pre-release). En PRs de feature a `dev` NO se corre E2E por default — basta con security + qa + tests unitarios + build. Razón: el ciclo dev es más ágil sin el gate más caro; la suite E2E se actualiza y corre una sola vez por release, contra el acumulado.
+
+Consecuencia aceptada: la suite `e2e/` puede quedar temporalmente desactualizada respecto a `dev` entre releases; ponerla al día es parte del PR a `main` (lote del e2e-runner, bloqueante ahí). El usuario puede seguir invocando E2E puntual en dev cuando lo pida explícitamente.
+
+Para el PR a main, la regla original aplica íntegra:
+
+Antes de aprobar el merge a main de cambios que tocan UI (componentes, páginas, flujos de usuario), **ejecutar el flujo real en un navegador contra el backend levantado** — no basta con tests unitarios ni con verificación por `curl`.
 
 **Por qué es obligatorio:** los tests de frontend mockean `fetch` y corren en jsdom, que NO renderiza CSS, NO aplica `@media`/`@page`, NO ejecuta las reglas nativas de `<dialog>`/top-layer, y NO negocia `Content-Type` real con el servidor. La "verificación en vivo por `curl`" ejercita la API pero nunca la UI. En una sola fase (catálogos) se escaparon a review 3 bugs que ningún test veía: un modal que no cerraba en desktop (CSS sin scope a `[open]`), archivado completamente roto (`Content-Type: application/json` en POST sin body → Fastify lo rechazaba), y un falso positivo de test que afirmaba renderizar un botón que en el DOM real no estaba.
 
