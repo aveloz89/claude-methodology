@@ -60,12 +60,22 @@ Crea un CLAUDE.md con:
 
 ### 4. Generar GitHub Actions
 
-**ci.yml** — Trigger en push a dev y PRs a main/dev:
-- Checkout → Setup runtime → Install deps → Lint → Tests
+> **Presupuesto de CI** (ver `~/.claude/rules/pr-workflow.md` regla 5): los repos privados tienen minutos contados. Todo workflow lleva `concurrency` con `cancel-in-progress`, `timeout-minutes` por job, cache de dependencias y runners `ubuntu-latest` (macOS cuesta 10×).
 
-**security.yml** — Trigger en PRs a main:
+**ci.yml** — Trigger en push a dev y PRs a main/dev:
+- Checkout → Setup runtime (con cache de deps) → Install → Lint → Tests
+- `timeout-minutes: 10` por job (ajustar si el proyecto lo justifica)
+
+```yaml
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+```
+
+**security.yml** — Trigger en PRs a main + schedule semanal (`cron`) sobre dev. **NUNCA en push/PRs a dev**:
 - Semgrep CE scan
 - Dependency audit (npm audit / pip audit)
+- CodeQL si el stack lo amerita (es el job más caro — solo pre-release + schedule)
 
 ### 5. Generar .gitignore
 
@@ -146,6 +156,8 @@ Pregunta al usuario si quiere el repo público o privado antes de crearlo.
 
 ```bash
 gh api repos/{owner}/$1/branches/main/protection -X PUT -f ...
+gh api repos/{owner}/$1/branches/dev/protection -X PUT -f ...
 ```
 
-Requiere: PR para merge a main, status checks pasados.
+- **`main`**: PR obligatorio + status checks pasados + **branch up to date estricto** (`strict: true`). Es el gate de release.
+- **`dev`**: status checks pasados, **SIN** up-to-date (`strict: false`) — mergear un PR no invalida los demás en cola ni fuerza re-runs de CI (presupuesto de CI, ver `~/.claude/rules/pr-workflow.md` regla 5.6).

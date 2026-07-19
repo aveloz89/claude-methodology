@@ -106,7 +106,7 @@ Todos los lotes corren sobre el mismo branch; un único PR al final.
    - Por cada lote, invoca al dev correspondiente con context isolation y flag **`last_batch=false`**
    - El dev hace commit por tarea y termina sin push ni PR
    - Esperas el reporte del dev antes de pasar al siguiente lote
-2. **El último lote** se invoca con flag **`last_batch=true`**: el dev hace push y crea el PR
+2. **El último lote** se invoca con flag **`last_batch=true`**: el dev cierra la implementación con la verificación final completa y termina **sin push ni PR** — después vienen docs (Fase 2.5) y push + PR (Fase 2.7, los haces tú)
 3. **Orden esperado cuando hay db-specialist**:
    - `db-specialist` primero (siempre): schema, migraciones, queries, tests de DB
    - `backend-dev` después (necesita el schema)
@@ -123,7 +123,7 @@ Cada grupo de lotes (con su propio `**PR:**` declarado) corre sobre branch propi
 
 1. Crear branch desde dev
 2. Invocar lotes del grupo (último con `last_batch=true`)
-3. Cuando se cree el PR → Fase 2.8 → 2.9 → Fase 3 → merge
+3. Fase 2.5 (docs) → Fase 2.7 (push + PR) → Fase 2.8 (CI) → Fase 3 → merge
 4. Pasar al siguiente grupo
 
 #### Si un dev reporta `BUDGET LIMIT — ver HANDOFF.md`
@@ -138,6 +138,23 @@ El plan del architect debió evitar esto. Si pasa:
 
 Invoca `build-resolver` con: error completo, branch, archivos afectados. Resuelve en el mismo branch y reporta qué hizo.
 
+### Fase 2.5: Documentación (pre-push)
+
+Cuando el último lote reporta completado, invoca `docs` con: branch, base branch y la instrucción de leer el diff local (`git diff <base>...HEAD`). El `docs` genera/actualiza docs y **commitea al branch SIN pushear** — su commit viaja en el push inicial (presupuesto de CI: evita un run de Actions solo por docs).
+
+Si reporta "sin cambios necesarios", avanza directo a Fase 2.7.
+
+### Fase 2.7: Push + PR
+
+Lo haces tú (es orquestación git, no código):
+
+```bash
+git push -u origin <branch>
+gh pr create --base dev --title "<título>" --body "<resumen de lotes + decisiones>"
+```
+
+El body del PR lo armas desde `.planning/` (BRIEF/DESIGN) y los reportes de los devs: qué se implementó, decisiones ambiguas resueltas durante los lotes, y sección `## Self-reflection — pendientes` si algún dev la reportó.
+
 ### Fase 2.8: Monitoreo de CI
 
 Después de que se crea el PR:
@@ -146,24 +163,18 @@ Después de que se crea el PR:
 gh pr checks <number> --watch --fail-fast
 ```
 
-- Si todos pasan → Fase 2.9
+- Si todos pasan → Fase 3
 - Si falla algún check:
   - Lee logs: `gh run view <run-id> --log-failed`
   - Asigna el fix:
     - Build/compilación/dependencias → `build-resolver`
     - Tests o lint → dev que creó el PR
     - Tests de DB que fallan por schema/migración → `db-specialist`
-  - El agente corrige en el **mismo branch del PR**
+  - El agente corrige en el **mismo branch del PR**. **Antes de pushear, debe reproducir el check fallido localmente y verlo pasar** (presupuesto de CI: un run fallido cuesta lo mismo que uno verde)
   - Vuelve a monitorear
 - **Máximo 3 intentos de fix automático.** Después de 3, escala al usuario con contexto completo
 
 **Cuándo NO monitorear CI**: el proyecto no tiene GitHub Actions, o el usuario lo pide explícitamente.
-
-### Fase 2.9: Documentación
-
-Después de CI verde, invoca `docs` con número de PR y branch. El `docs` lee el diff (`gh pr diff <number>`), genera/actualiza docs, commitea al mismo branch.
-
-Si reporta "sin cambios necesarios", avanza directo a Fase 3.
 
 ### Fase 3: Revisión
 
@@ -176,6 +187,7 @@ Si reporta "sin cambios necesarios", avanza directo a Fase 3.
 4. Consolida hallazgos
 5. Si hay bloqueantes:
    - Asigna fixes al dev correspondiente (mismo branch del PR). Si el bloqueante es de schema/migración/query optimizada, va al `db-specialist`
+   - **Un push por ronda**: los devs commitean sin pushear; cuando todos los fixes de la ronda (blockers + sugerencias auto-aplicadas de todos los reviewers) están commiteados, pusheas una sola vez (presupuesto de CI)
    - Re-lanza **solo los reviewers que marcaron issues** (no los que aprobaron)
    - Repite hasta que todos aprueben
 6. **Si el PR es a `main` (release)**: invoca `e2e-runner` en Modo B antes de la verificación pre-merge (ver sección "Pre-release E2E" más abajo)
@@ -289,7 +301,8 @@ Rules aplicables:
 Si no es el primer lote: lee `git log` y `.planning/STATE.md` antes de empezar.
 
 Si last_batch=false: NO push, NO PR. Reporta completado.
-Si last_batch=true: después de la última tarea, push + crear PR.
+Si last_batch=true: verificación final completa del branch y reporta listo.
+NO push ni PR en ningún caso — el orchestrator corre docs y hace push + PR.
 ```
 
 ---

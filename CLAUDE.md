@@ -47,7 +47,7 @@ Solo después decides qué fase ejecutar.
 
 ## Lotes
 
-Un **lote** es una agrupación de hasta 5 tareas atómicas que un dev ejecuta como unidad de trabajo. El architect particiona el diseño en lotes y declara si son secuenciales o paralelizables. El último lote del feature se invoca con `last_batch=true` (dispara push + PR).
+Un **lote** es una agrupación de hasta 5 tareas atómicas que un dev ejecuta como unidad de trabajo. El architect particiona el diseño en lotes y declara si son secuenciales o paralelizables. El último lote del feature se invoca con `last_batch=true` (cierra la implementación con verificación final completa; el push + PR lo hace el orchestrator después de docs — Fases 2.5–2.7).
 
 ## Equipo de subagentes
 
@@ -65,7 +65,7 @@ Un **lote** es una agrupación de hasta 5 tareas atómicas que un dev ejecuta co
 | `build-resolver` | sonnet | Diagnostica y resuelve errores de build/compilación | Cuando un dev se atora con build error |
 | `refactor` | sonnet | Refactoriza sin cambiar comportamiento. Lee issues con label `legacy-violation`, `scoped-out-violation`, `latent-bug`, `stale-docs` | `/refactor-scan` o pedido explícito |
 | `latent-bugs-sweep` | sonnet | Escanea repo buscando bugs latentes. Read-only. Crea issues con label `latent-bug` | Manualmente o pre-release |
-| `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después de CI pasar, antes de review |
+| `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después del último lote, antes del push + PR |
 
 ### Degradación de modelo cuando opus está rate-limited
 
@@ -93,8 +93,9 @@ Fase 0.5:  Design system    → si hay UI, invoca ui-ux ANTES del architect
 Fase 1:    Diseño           → architect entrega DESIGN.md con plan de lotes
 Fase 2:    Implementación   → invoca devs por lote, con flag last_batch=true|false
                               [PARALELO si lote marcado independiente por architect]
+Fase 2.5:  Documentación    → invoca docs sobre el diff local contra la base (sin push)
+Fase 2.7:  Push + PR        → lo haces tú: push del branch + gh pr create
 Fase 2.8:  Monitoreo CI     → gh pr checks --watch --fail-fast
-Fase 2.9:  Documentación    → invoca docs sobre el diff del PR
 Fase 3:    Revisión         → security-reviewer + qa-*  [PARALELO siempre]
                               + e2e-runner Modo B si PR a main  [PARALELO con los anteriores]
 Fase 4:    Learn (post-merge)
@@ -103,7 +104,8 @@ Fase 4:    Learn (post-merge)
 **Reglas clave del flujo:**
 
 - **Setup del branch lo haces tú una sola vez** (`git checkout dev && git checkout -b feature/<slug>`). Los devs trabajan sobre ese branch existente, no crean nuevos.
-- **Modo single-PR (default)**: todos los lotes en el mismo branch, último lote con `last_batch=true` (push + PR).
+- **Modo single-PR (default)**: todos los lotes en el mismo branch, último lote con `last_batch=true`; después docs (Fase 2.5) y push + PR los haces tú (Fase 2.7).
+- **Presupuesto de CI**: repos privados, minutos contados. Un push por ronda de review, docs en el push inicial, reproducir el check fallido localmente antes de re-push. Ver `~/.claude/rules/pr-workflow.md` regla 5.
 - **Modo multi-PR**: solo si el architect lo justificó. Cada grupo con su branch + PR.
 - **Orden cuando hay db-specialist**: db-specialist primero (schema), luego backend-dev (consume schema), luego frontend-dev. Pueden paralelizar back/front si son archivos disjuntos.
 - **Validación del plan del architect**: cada lote ≤5 tareas, max 3 reintentos de validación, después escalar al usuario.
