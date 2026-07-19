@@ -75,7 +75,7 @@ Aunque CI esté verde y los reviewers aprueben sin blockers, **no ejecutar `gh p
 **Cómo aplicar:**
 - Cuando CI pasa y reviewers aprueban, informar al usuario "PR listo para tu review" + link
 - Esperar respuesta explícita antes de mergear
-- Si el usuario dice "mergea X y Y", validar uno a la vez (cada merge invalida los otros PRs por branch protection)
+- Si el usuario dice "mergea X y Y", validar uno a la vez. En PRs a `main` cada merge invalida los demás (branch protection estricta); en PRs a `dev` no, porque `dev` no exige branch up-to-date (ver regla 5)
 
 ## 4. NUNCA mergear con CI en rojo
 
@@ -89,8 +89,61 @@ Si algún CI workflow falla (lint, test, security scan, codeql, semgrep, depende
 3. Falso positivo → suprimir formalmente + re-correr CI
 4. Solo después de todo verde, mergear (con aprobación del usuario per regla 3)
 
+## 5. Presupuesto de CI (repos privados)
+
+**Decisión del usuario 2026-07-19:** los repos son privados y los minutos de GitHub Actions se agotaron en 15 días (3000 min/mes del plan Pro). Cada push a un PR cuesta un run completo de CI, así que el workflow minimiza runs sin sacrificar los gates de calidad. Se descartó el self-hosted runner — la estrategia es optimizar consumo en runners de GitHub.
+
+### 5.1 Docs viaja en el push inicial
+
+El agente `docs` se invoca **después del último lote y ANTES del push + PR** (Fase 2.5 del flujo). Lee el diff local contra la base (`git diff <base>...HEAD`), commitea al branch y NO pushea. Su commit sale en el push inicial que abre el PR.
+
+**Por qué:** el orden anterior (docs después de CI verde) generaba un push extra → un run completo de CI solo por documentación, en cada PR.
+
+### 5.2 Un push por ronda de review, nunca por fix
+
+Al cerrar una ronda de review, consolidar en un **solo push**: fixes de blockers de todos los reviewers + sugerencias no bloqueantes auto-aplicadas (regla 2). Nunca pushear fix por fix ni reviewer por reviewer — el orchestrator acumula los commits de los devs y pushea una vez cuando la ronda está completa.
+
+### 5.3 Reproducir localmente antes de re-push en ciclos de fix de CI
+
+Cuando CI falla, el dev (o `build-resolver`) debe **reproducir el check fallido localmente y verlo pasar** antes de pushear el fix. Un run fallido cuesta los mismos minutos que uno verde; CI verifica, no descubre.
+
+**Alcance de la excepción de push directo:** el dev solo pushea directo dentro del ciclo de fix de CI (Fase 2.8). En rondas de review (Fase 3) nunca — ahí siempre consolida el orchestrator (regla 5.2).
+
+### 5.4 Scans pesados solo en pre-release + schedule
+
+CodeQL, Semgrep y dependency-audit **NO corren en PRs a `dev`** — ahí solo lint + tests + build. Corren en:
+
+- **PRs a `main`** (pre-release) — bloqueantes, como siempre. **Bloqueante de verdad**: los jobs de `security.yml` deben estar enumerados en `required_status_checks.contexts` de la protection de `main` — un scan que corre pero no está listado es informativo y no impide el merge
+- **Schedule semanal** (cron) sobre `dev` — con checkout `ref: dev` explícito (los crons corren sobre el default branch)
+
+**Cobertura que se mantiene:** el `security-reviewer` (agente) sigue revisando cada PR con su checklist (regla 2), así que ningún PR entra a `dev` sin revisión de seguridad — solo se mueve el scan automatizado caro al punto de release.
+
+**Respuesta a hallazgos del scan semanal** (un scan cuya salida nadie procesa no acota ninguna ventana):
+
+- Finding HIGH/CRITICAL → crear issue de inmediato (label `security`) y tratarlo como trabajo prioritario de la siguiente sesión
+- Mientras exista un HIGH/CRITICAL abierto proveniente del scan, **el próximo PR a `main` está bloqueado** hasta resolverlo o suprimirlo formalmente como falso positivo
+- Findings menores → issue de triage agrupado, se procesan como deuda
+
+### 5.5 Workflows eficientes (obligatorio en todos los repos)
+
+Todo workflow de Actions debe tener:
+
+- **`concurrency` por ref con `cancel-in-progress: true`** — un push nuevo al PR cancela el run anterior obsoleto
+- **`timeout-minutes`** explícito en cada job — un job colgado no quema la bolsa de minutos
+- **Cache de dependencias** (`actions/setup-node` con `cache`, `actions/cache` para pip, etc.)
+- Runners `ubuntu-latest` — macOS cuesta 10× minutos, Windows 2×
+
+### 5.6 Branch protection: `dev` sin up-to-date, `main` estricto
+
+- **`dev`**: status checks obligatorios, **SIN** "require branches to be up to date". Mergear un PR no invalida los demás en cola → desaparece el loop `update-branch → CI re-run` por PR.
+- **`main`**: estricto completo (checks + up-to-date). Los PRs a `main` son releases: ahí la combinación exacta sí se testea antes de mergear, y son pocos.
+
+**Mitigación del riesgo en `dev`:** un conflicto semántico entre dos PRs (cada uno verde por separado, rotos combinados) se detecta minutos después del merge porque `ci.yml` también corre en push a `dev`. `dev` es rama de integración — romperla un rato es tolerable y el fix es barato.
+
 ## Trade-offs aceptados
 
 - **PRs pequeños generan más reviews.** Vale la pena: cada review es rápido (~5 min) y atrapa errores antes de que el usuario los vea.
-- **Auto-merge no se usa.** Branch protection requires up-to-date branches; cada merge invalida los demás. Loop manual de `update-branch + CI wait + merge` por PR.
+- **Auto-merge no se usa.** El usuario aprueba cada merge (regla 3). En PRs a `main` aplica además el loop `update-branch + CI wait + merge` por la protection estricta; en `dev` ya no (regla 5.6).
 - **El usuario es el checkpoint final.** Significa fricción mínima entre "listo" y "merged", pero garantiza que nada se mergea sin su mirada.
+- **La combinación post-merge en `dev` se testea después del merge, no antes.** Costo aceptado a cambio de eliminar el re-run de CI por cada PR en cola (regla 5.6).
+- **Vulnerabilidades detectables por scanner pueden vivir en `dev` hasta una semana.** El security-reviewer por PR + scan semanal + scan bloqueante pre-release acotan la ventana; nada llega a `main` sin scan completo (regla 5.4). Incluye a las CVEs de dependencias: en PRs a `dev` el audit lo corre el security-reviewer como check best-effort (no bloqueante); el gate duro de dependencias es el scan semanal y el pre-release.

@@ -19,13 +19,13 @@ Eres un desarrollador frontend senior. Creas interfaces limpias, accesibles y bi
 - `~/.claude/rules/<lenguaje>.md` aplicable (típicamente `typescript.md`, `html.md`, `css.md`)
 - `~/.claude/rules/docker.md` si el lote toca tu Dockerfile
 - Path al `design-system/<NombreProyecto>/` si existe (constraints visuales)
-- Flag explícito: **`last_batch=true|false`** — define si haces push+PR al terminar o solo commits locales
+- Flag explícito: **`last_batch=true|false`** — define si cierras la implementación del feature (verificación final completa) o si vienen más lotes. **Nunca haces push ni PR** — eso es del orchestrator (después de docs)
 
 **Si te falta información** (incluyendo env vars no declaradas, schemas insuficientes, design system ambiguo), pregunta al orchestrator. **Nunca adivines, nunca preguntes al usuario directamente.**
 
 **Entregas:**
 
-- Si `last_batch=true` → branch pusheado + PR abierto + reporte con URL del PR
+- Si `last_batch=true` → verificación final completa + commits locales + reporte "listo para docs + push + PR" (el orchestrator los hace)
 - Si `last_batch=false` → commits locales + reporte de tareas completadas + `.planning/STATE.md` actualizado
 
 ## Reglas heredadas (no reimplementar acá)
@@ -171,26 +171,22 @@ Antes de cerrar el lote, muestra evidencia concreta:
 
 Si falta alguno (excepto Docker cuando no hay compose), el lote NO está listo.
 
-### 7. Push + PR (condicional según `last_batch`)
+### 7. Cierre de lote (según `last_batch`)
+
+**En NINGÚN caso haces push ni creas PR** — el orchestrator invoca al agente `docs` sobre el diff local y después hace él el push + PR (presupuesto de CI: un solo push inicial que ya incluye docs).
 
 **Si `last_batch=true`** (último lote del PR):
 
-```bash
-git push -u origin <branch>
-gh pr create --base dev --title "..." --body "..."
-```
-
-Reporta:
+Verificación final completa del branch (todos los lotes integrados) y reporta:
 
 ```
-PR CREADO: <url del PR>
-LISTO PARA REVIEW — el orchestrator debe lanzar security-reviewer
-y qa-frontend/qa-backend (según capas del diff) en paralelo.
+IMPLEMENTACIÓN COMPLETA — <Y> commits locales en branch <nombre>.
+LISTO PARA DOCS + PUSH + PR (los hace el orchestrator).
 ```
 
 **Si `last_batch=false`** (modo single-PR con más lotes pendientes):
 
-NO push, NO PR. Reporta:
+Reporta:
 
 ```
 LOTE N COMPLETADO — <X> tareas commiteadas localmente en branch <nombre>.
@@ -262,7 +258,7 @@ Cuando el orchestrator o un reviewer te pide corregir algo en un PR existente:
 2. `git checkout <branch-del-pr>`
 3. Aplica las correcciones solicitadas (siguiendo TDD si tocan lógica/interacción)
 4. Verificación pre-commit completa (tests + coverage + lint + build)
-5. Commit y push al mismo branch — el PR se actualiza automáticamente
+5. Commit al mismo branch **SIN push** — el orchestrator consolida todos los fixes de la ronda de review en un solo push (presupuesto de CI). **Excepción:** si te invocaron por un check de CI fallido, reproduce el check localmente, confírmalo verde, y ahí sí pushea directo
 6. Reporta que las correcciones están listas para re-review
 
 ## Budget agotado a mitad de lote
