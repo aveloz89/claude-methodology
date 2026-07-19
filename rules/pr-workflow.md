@@ -107,14 +107,22 @@ Al cerrar una ronda de review, consolidar en un **solo push**: fixes de blockers
 
 Cuando CI falla, el dev (o `build-resolver`) debe **reproducir el check fallido localmente y verlo pasar** antes de pushear el fix. Un run fallido cuesta los mismos minutos que uno verde; CI verifica, no descubre.
 
+**Alcance de la excepción de push directo:** el dev solo pushea directo dentro del ciclo de fix de CI (Fase 2.8). En rondas de review (Fase 3) nunca — ahí siempre consolida el orchestrator (regla 5.2).
+
 ### 5.4 Scans pesados solo en pre-release + schedule
 
 CodeQL, Semgrep y dependency-audit **NO corren en PRs a `dev`** — ahí solo lint + tests + build. Corren en:
 
-- **PRs a `main`** (pre-release) — bloqueantes, como siempre
-- **Schedule semanal** (cron) sobre `dev`
+- **PRs a `main`** (pre-release) — bloqueantes, como siempre. **Bloqueante de verdad**: los jobs de `security.yml` deben estar enumerados en `required_status_checks.contexts` de la protection de `main` — un scan que corre pero no está listado es informativo y no impide el merge
+- **Schedule semanal** (cron) sobre `dev` — con checkout `ref: dev` explícito (los crons corren sobre el default branch)
 
 **Cobertura que se mantiene:** el `security-reviewer` (agente) sigue revisando cada PR con su checklist (regla 2), así que ningún PR entra a `dev` sin revisión de seguridad — solo se mueve el scan automatizado caro al punto de release.
+
+**Respuesta a hallazgos del scan semanal** (un scan cuya salida nadie procesa no acota ninguna ventana):
+
+- Finding HIGH/CRITICAL → crear issue de inmediato (label `security`) y tratarlo como trabajo prioritario de la siguiente sesión
+- Mientras exista un HIGH/CRITICAL abierto proveniente del scan, **el próximo PR a `main` está bloqueado** hasta resolverlo o suprimirlo formalmente como falso positivo
+- Findings menores → issue de triage agrupado, se procesan como deuda
 
 ### 5.5 Workflows eficientes (obligatorio en todos los repos)
 
@@ -138,4 +146,4 @@ Todo workflow de Actions debe tener:
 - **Auto-merge no se usa.** El usuario aprueba cada merge (regla 3). En PRs a `main` aplica además el loop `update-branch + CI wait + merge` por la protection estricta; en `dev` ya no (regla 5.6).
 - **El usuario es el checkpoint final.** Significa fricción mínima entre "listo" y "merged", pero garantiza que nada se mergea sin su mirada.
 - **La combinación post-merge en `dev` se testea después del merge, no antes.** Costo aceptado a cambio de eliminar el re-run de CI por cada PR en cola (regla 5.6).
-- **Vulnerabilidades detectables por scanner pueden vivir en `dev` hasta una semana.** El security-reviewer por PR + scan semanal + scan bloqueante pre-release acotan la ventana; nada llega a `main` sin scan completo (regla 5.4).
+- **Vulnerabilidades detectables por scanner pueden vivir en `dev` hasta una semana.** El security-reviewer por PR + scan semanal + scan bloqueante pre-release acotan la ventana; nada llega a `main` sin scan completo (regla 5.4). Incluye a las CVEs de dependencias: en PRs a `dev` el audit lo corre el security-reviewer como check best-effort (no bloqueante); el gate duro de dependencias es el scan semanal y el pre-release.

@@ -76,6 +76,7 @@ concurrency:
 - Semgrep CE scan
 - Dependency audit (npm audit / pip audit)
 - CodeQL si el stack lo amerita (es el job más caro — solo pre-release + schedule)
+- **El run por `schedule` debe hacer checkout con `ref: dev` explícito** — los crons corren sobre el default branch (`main`); sin ese `ref`, el scan semanal escanea la rama equivocada y la ventana de exposición de `dev` queda sin cubrir silenciosamente
 
 ### 5. Generar .gitignore
 
@@ -159,5 +160,5 @@ gh api repos/{owner}/$1/branches/main/protection -X PUT -f ...
 gh api repos/{owner}/$1/branches/dev/protection -X PUT -f ...
 ```
 
-- **`main`**: PR obligatorio + status checks pasados + **branch up to date estricto** (`strict: true`). Es el gate de release.
-- **`dev`**: status checks pasados, **SIN** up-to-date (`strict: false`) — mergear un PR no invalida los demás en cola ni fuerza re-runs de CI (presupuesto de CI, ver `~/.claude/rules/pr-workflow.md` regla 5.6).
+- **`main`**: PR obligatorio + **branch up to date estricto** (`strict: true`) + `required_status_checks.contexts` enumerando **por nombre TODOS los jobs de `ci.yml` Y de `security.yml`**. Es el gate de release. **Crítico:** un workflow que corre en el PR pero cuyo job no está listado en `contexts` es informativo, no bloqueante — sin esto, un CRITICAL de CodeQL no impediría el merge a `main`.
+- **`dev`**: `strict: false` (sin up-to-date — mergear un PR no invalida los demás en cola ni fuerza re-runs de CI, ver `~/.claude/rules/pr-workflow.md` regla 5.6) + `contexts` con **SOLO los jobs de `ci.yml`**. **NUNCA listar jobs de `security.yml` en `dev`**: no corren en PRs a `dev`, y un context requerido que nunca reporta deja el merge colgado esperando indefinidamente.
