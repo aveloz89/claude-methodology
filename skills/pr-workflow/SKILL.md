@@ -1,10 +1,20 @@
+---
+name: pr-workflow
+description: Proceso de creación, review y merge de pull requests — presupuesto de CI, review dual obligatorio, verificación E2E pre-release, branch protection y verificación pre-merge. Invocar al llegar a Fase 2.7 (push + PR) o al revisar/mergear un PR existente.
+user-invocable: true
+allowed-tools: Read, Grep, Glob, Bash, Agent(security-reviewer), Agent(qa-frontend), Agent(qa-backend), Agent(e2e-runner), Agent(build-resolver)
+argument-hint: "[número de PR, si es sobre uno existente]"
+---
+
 # PR Workflow
 
-Reglas de proceso para crear, reviewear y mergear pull requests. Aplican a TODOS los proyectos.
+Proceso para crear, reviewear y mergear pull requests. Aplica a TODOS los proyectos.
+
+Las cuatro reglas invariantes (una fase = un PR, review dual bloqueante, nunca mergear sin aprobación explícita, nunca mergear con CI en rojo) viven en `CLAUDE.md` porque no pueden llegar tarde. Este documento tiene el detalle operativo.
 
 ## 1. Una fase = un PR separado
 
-Cada fase de implementación (refactor, feature nueva, bugfix, doc audit) debe ir en su propio branch + PR. No acumular múltiples fases en un solo branch.
+Cada fase de implementación (refactor, feature nueva, bugfix, doc audit) va en su propio branch + PR. No acumular múltiples fases en un solo branch.
 
 **Por qué:** PRs incrementales son más fáciles de reviewear, revertir y trazar. Un mega-PR con 5 cambios distintos toma 10× más tiempo de review y si algo se rompe es imposible bisectar.
 
@@ -35,6 +45,8 @@ Cuando un reviewer marca sugerencias (no bloqueantes) que son baratas, sin riesg
 
 **Por qué:** el patrón "aplicar sugerencias en el mismo PR" apareció en 4 PRs consecutivos como decisión manual del usuario. Formalizarlo evita el ida-y-vuelta de pedir permiso para cada mejora obvia. El usuario sigue siendo el checkpoint del **merge** (regla 3), no de cada pulido.
 
+El checklist de infraestructura que el security-reviewer debe correr (rate limiting, shell injection, prototype pollution, reflected input) vive en `agents/security-reviewer.md`, en el prompt del agente que lo ejecuta.
+
 ### Verificación E2E real obligatoria en PRs a main (pre-release)
 
 **Decisión del usuario 2026-07-19:** la verificación E2E completa (suite Playwright + flujos en navegador real) es obligatoria y bloqueante **solo en PRs a `main`** (pre-release). En PRs de feature a `dev` NO se corre E2E por default — basta con security + qa + tests unitarios + build. Razón: el ciclo dev es más ágil sin el gate más caro; la suite E2E se actualiza y corre una sola vez por release, contra el acumulado.
@@ -54,10 +66,6 @@ Antes de aprobar el merge a main de cambios que tocan UI (componentes, páginas,
 - Restaurar datos de seed (`db:seed`) si la verificación ensució el entorno de dev.
 
 **Qué NO requiere E2E real:** PRs sin superficie de UI (backend puro, migraciones, docs, config). Ahí basta con tests + la verificación en vivo por `curl`/API que ya hacen los devs.
-
-### Checklist de infraestructura del security-reviewer
-
-Vive en `agents/security-reviewer.md`, sección "Checklist de infraestructura". La instrucción va en el prompt del agente que la ejecuta, no en este documento de proceso.
 
 ## 3. NUNCA mergear sin aprobación explícita del usuario
 
@@ -100,7 +108,7 @@ Al cerrar una ronda de review, consolidar en un **solo push**: fixes de blockers
 
 Cuando CI falla, el dev (o `build-resolver`) debe **reproducir el check fallido localmente y verlo pasar** antes de pushear el fix. Un run fallido cuesta los mismos minutos que uno verde; CI verifica, no descubre.
 
-**Alcance de la excepción de push directo:** el dev solo pushea directo dentro del ciclo de fix de CI (Fase 2.8). En rondas de review (Fase 3) nunca — ahí siempre consolida el orchestrator (regla 5.2).
+**Alcance de la excepción de push directo:** el dev solo pushea directo dentro del ciclo de fix de CI (Fase 2.8). En rondas de review (Fase 3) nunca — ahí siempre consolida el orchestrator (regla 5.2). La otra excepción de push del dev es el fallback de budget agotado (ver `rulebooks/agent-budget.md`).
 
 ### 5.4 Scans pesados solo en pre-release + schedule
 
@@ -132,6 +140,10 @@ Todo workflow de Actions debe tener:
 - **`main`**: estricto completo (checks + up-to-date). Los PRs a `main` son releases: ahí la combinación exacta sí se testea antes de mergear, y son pocos.
 
 **Mitigación del riesgo en `dev`:** un conflicto semántico entre dos PRs (cada uno verde por separado, rotos combinados) se detecta minutos después del merge porque `ci.yml` también corre en push a `dev`. `dev` es rama de integración — romperla un rato es tolerable y el fix es barato.
+
+## Verificación pre-merge
+
+Los 3 comandos `gh` obligatorios antes de cada merge, y el comando de merge según el tipo de branch, están en `rulebooks/orchestrator-runbook.md`, sección "Comandos `gh` específicos".
 
 ## Trade-offs aceptados
 

@@ -60,7 +60,7 @@ Crea un CLAUDE.md con:
 
 ### 4. Generar GitHub Actions
 
-> **Presupuesto de CI** (ver `~/.claude/rules/pr-workflow.md` regla 5): los repos privados tienen minutos contados. Todo workflow lleva `concurrency` con `cancel-in-progress`, `timeout-minutes` por job, cache de dependencias y runners `ubuntu-latest` (macOS cuesta 10×).
+> **Presupuesto de CI** (ver la skill `pr-workflow`, regla 5): los repos privados tienen minutos contados. Todo workflow lleva `concurrency` con `cancel-in-progress`, `timeout-minutes` por job, cache de dependencias y runners `ubuntu-latest` (macOS cuesta 10×).
 
 **ci.yml** — Trigger en push a dev y PRs a main/dev:
 - Checkout → Setup runtime (con cache de deps) → Install → Lint → Tests
@@ -161,4 +161,4 @@ gh api repos/{owner}/$1/branches/dev/protection -X PUT -f ...
 ```
 
 - **`main`**: PR obligatorio + **branch up to date estricto** (`strict: true`) + `required_status_checks.contexts` enumerando **por nombre TODOS los jobs de `ci.yml` Y de `security.yml`**. Es el gate de release. **Crítico:** un workflow que corre en el PR pero cuyo job no está listado en `contexts` es informativo, no bloqueante — sin esto, un CRITICAL de CodeQL no impediría el merge a `main`.
-- **`dev`**: `strict: false` (sin up-to-date — mergear un PR no invalida los demás en cola ni fuerza re-runs de CI, ver `~/.claude/rules/pr-workflow.md` regla 5.6) + `contexts` con **SOLO los jobs de `ci.yml`**. **NUNCA listar jobs de `security.yml` en `dev`**: no corren en PRs a `dev`, y un context requerido que nunca reporta deja el merge colgado esperando indefinidamente.
+- **`dev`**: `strict: false` (sin up-to-date — mergear un PR no invalida los demás en cola ni fuerza re-runs de CI, ver la skill `pr-workflow`, regla 5.6) + `contexts` con **SOLO los jobs de `ci.yml`**. **NUNCA listar jobs de `security.yml` en `dev`**: no corren en PRs a `dev`, y un context requerido que nunca reporta deja el merge colgado esperando indefinidamente.

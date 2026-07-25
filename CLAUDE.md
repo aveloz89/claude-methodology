@@ -43,7 +43,7 @@ Solo después decides qué fase ejecutar.
 2. **Diseño antes de código** — El architect diseña (estructura, contratos, schemas) antes de que los devs implementen.
 3. **TDD obligatorio para lógica de negocio** — Red → Green → Refactor. Nunca código de producción sin un test que falle primero.
    - **No aplica TDD literal** a: estilos CSS, configuración de infra (Dockerfile, docker-compose, Caddyfile), migraciones declarativas, archivos de configuración.
-4. **Dual review obligatorio (bloqueante)** — `security-reviewer` + QA (`qa-frontend` y/o `qa-backend` según las capas tocadas en el diff) deben aprobar antes de merge.
+4. **Dual review obligatorio (bloqueante)** — `security-reviewer` + QA (`qa-frontend` y/o `qa-backend` según las capas tocadas en el diff) deben aprobar antes de merge. Se lanzan en paralelo, automáticamente, sin pedir confirmación.
 5. **80% coverage de branches mínimo** — Calculado **solo sobre archivos modificados en el PR**, no sobre todo el repo.
    - **Excluidos del cálculo**: re-exports, archivos de config, migraciones declarativas, definiciones de tipos puros, mocks/fixtures de test.
 
@@ -108,7 +108,7 @@ Fase 4:    Learn (post-merge)
 
 - **Setup del branch lo haces tú una sola vez** (`git checkout dev && git checkout -b feature/<slug>`). Los devs trabajan sobre ese branch existente, no crean nuevos.
 - **Modo single-PR (default)**: todos los lotes en el mismo branch, último lote con `last_batch=true`; después docs (Fase 2.5) y push + PR los haces tú (Fase 2.7).
-- **Presupuesto de CI**: repos privados, minutos contados. Un push por ronda de review, docs en el push inicial, reproducir el check fallido localmente antes de re-push. Ver `~/.claude/rules/pr-workflow.md` regla 5.
+- **Presupuesto de CI**: repos privados, minutos contados. Un push por ronda de review, docs en el push inicial, reproducir el check fallido localmente antes de re-push. Detalle en la skill `pr-workflow`, regla 5.
 - **Modo multi-PR**: solo si el architect lo justificó. Cada grupo con su branch + PR.
 - **Orden cuando hay db-specialist**: db-specialist primero (schema), luego backend-dev (consume schema), luego frontend-dev. Pueden paralelizar back/front si son archivos disjuntos.
 - **Validación del plan del architect**: cada lote ≤5 tareas, max 3 reintentos de validación, después escalar al usuario.
@@ -147,6 +147,15 @@ Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`
 
 **Pausar**: actualiza `STATE.md`, crea `HANDOFF.md`, commit/push `wip:` si está incompleto.
 **Retomar**: el hook `session-start-context.sh` detecta `HANDOFF.md`. Lee HANDOFF + STATE, reporta al usuario, pregunta si continúa. Al retomar elimina HANDOFF.md.
+
+## PR y merge (invariantes)
+
+Cuatro reglas que no pueden llegar tarde. El resto del proceso — presupuesto de CI, E2E pre-release, branch protection, verificación pre-merge — vive en la skill **`pr-workflow`**, que invocas al llegar a Fase 2.7 o al trabajar sobre un PR existente.
+
+1. **Una fase = un PR.** No acumules fases distintas en un branch.
+2. **Review dual bloqueante** antes de cualquier merge (ver "Workflow obligatorio" #4).
+3. **NUNCA mergees sin aprobación explícita del usuario**, aunque CI esté verde y los reviewers aprueben sin blockers. El usuario es el checkpoint final del merge; no se infiere del estado de CI.
+4. **NUNCA mergees con CI en rojo**, aunque el finding parezca preexistente o falso positivo. Si es falso positivo legítimo, suprimirlo formalmente y esperar que CI pase — nunca `--admin`.
 
 ## Gitflow
 
