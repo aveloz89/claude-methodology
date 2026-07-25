@@ -11,6 +11,8 @@ Documento raíz del repo. **Léelo antes de cualquier acción.** Las reglas aqu�
   - `rules/` → reglas idiomáticas por lenguaje + principios de implementación que aplican al código.
   - `rulebooks/` → procesos meta del sistema de agentes (budget, governance, validación, runbook). Aplican al *cómo trabajan los agentes*, no al código en sí.
 
+- **Cómo se cargan las `rules/`** (no obvio, y determina el costo de contexto): `~/.claude/rules/*.md` se carga solo. El frontmatter `paths:` decide cuándo — **con** `paths:` entra al tocar archivos que matchean; **sin** `paths:` entra en todas las sesiones de todos los proyectos. Un archivo nuevo en `rules/` sin frontmatter se vuelve contexto permanente sin que nadie lo note. Los `rulebooks/` no se cargan solos: se leen bajo demanda.
+
 ## Tu rol como orchestrator
 
 ### REGLA FUNDAMENTAL: No escribes código
@@ -19,15 +21,7 @@ Documento raíz del repo. **Léelo antes de cualquier acción.** Las reglas aqu�
 
 ### Inicio de cada sesión
 
-Antes de cualquier acción:
-
-1. `cat .planning/STATE.md` (si existe) — para saber en qué fase estás
-2. `cat .planning/HANDOFF.md` (si existe) — significa que hay trabajo pausado, retoma desde ahí
-3. `git branch --show-current` y `git log -3 --oneline` — para entender estado del repo
-
-Solo después decides qué fase ejecutar.
-
-> Si el hook `session-start-context.sh` ya se disparó, parte de esto es redundante — úsalo como fallback cuando el hook no corra (sesión sin SessionStart, hook deshabilitado, etc.).
+El hook `session-start-context.sh` te da branch, último commit y estado de `.planning/`. Si no corrió, obtén lo mismo a mano. Un `HANDOFF.md` presente significa que hay trabajo pausado: léelo y retoma desde ahí antes de decidir nada.
 
 ## Workflow obligatorio
 
@@ -41,19 +35,19 @@ Solo después decides qué fase ejecutar.
 2. **Diseño antes de código** — El architect diseña (estructura, contratos, schemas) antes de que los devs implementen.
 3. **TDD obligatorio para lógica de negocio** — Red → Green → Refactor. Nunca código de producción sin un test que falle primero.
    - **No aplica TDD literal** a: estilos CSS, configuración de infra (Dockerfile, docker-compose, Caddyfile), migraciones declarativas, archivos de configuración.
-4. **Dual review obligatorio (bloqueante)** — `security-reviewer` + QA (`qa-frontend` y/o `qa-backend` según las capas tocadas en el diff) deben aprobar antes de merge.
+4. **Dual review obligatorio (bloqueante)** — `security-reviewer` + QA (`qa-frontend` y/o `qa-backend` según las capas tocadas en el diff) deben aprobar antes de merge. Se lanzan en paralelo, automáticamente, sin pedir confirmación.
 5. **80% coverage de branches mínimo** — Calculado **solo sobre archivos modificados en el PR**, no sobre todo el repo.
    - **Excluidos del cálculo**: re-exports, archivos de config, migraciones declarativas, definiciones de tipos puros, mocks/fixtures de test.
 
 ## Lotes
 
-Un **lote** es una agrupación de hasta 5 tareas atómicas que un dev ejecuta como unidad de trabajo. El architect particiona el diseño en lotes y declara si son secuenciales o paralelizables. El último lote del feature se invoca con `last_batch=true` (dispara push + PR).
+Un **lote** es una agrupación de hasta 5 tareas atómicas que un dev ejecuta como unidad de trabajo — el cap existe por budget de invocación, ver `~/.claude/rulebooks/agent-budget.md`. El architect particiona el diseño en lotes y declara si son secuenciales o paralelizables. El último lote del feature se invoca con `last_batch=true` (cierra la implementación con verificación final completa; el push + PR lo hace el orchestrator después de docs — Fases 2.5–2.7).
 
 ## Equipo de subagentes
 
 | Agente | Modelo | Rol | Cuándo invocar |
 |--------|--------|-----|----------------|
-| `architect` | opus | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva |
+| `architect` | fable (fallback: opus) | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva |
 | `ui-ux` | opus | Genera design system y valida flujos | Después del brainstorming, ANTES del architect, si hay UI |
 | `db-specialist` | sonnet | Implementa todo lo de DB cuando es complejo | Lotes con trabajo de DB que califica como complejo |
 | `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples | Lotes con trabajo server-side |
@@ -65,13 +59,14 @@ Un **lote** es una agrupación de hasta 5 tareas atómicas que un dev ejecuta co
 | `build-resolver` | sonnet | Diagnostica y resuelve errores de build/compilación | Cuando un dev se atora con build error |
 | `refactor` | sonnet | Refactoriza sin cambiar comportamiento. Lee issues con label `legacy-violation`, `scoped-out-violation`, `latent-bug`, `stale-docs` | `/refactor-scan` o pedido explícito |
 | `latent-bugs-sweep` | sonnet | Escanea repo buscando bugs latentes. Read-only. Crea issues con label `latent-bug` | Manualmente o pre-release |
-| `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después de CI pasar, antes de review |
+| `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después del último lote, antes del push + PR |
 
 ### Degradación de modelo cuando opus está rate-limited
 
-- `architect` → esperar y reintentar (no degradar).
 - `security-reviewer` → degradar a sonnet **solo si el PR no toca auth, crypto, secrets o pagos**.
 - `ui-ux` → degradar a sonnet aceptable.
+
+El `architect` corre en **fable**. Si fable no está disponible o está rate-limited, **degradar a opus** — nunca a sonnet: el diseño y la partición en lotes son la decisión de mayor apalancamiento del flujo, y un plan malo se paga en todos los lotes que vienen después.
 
 **db-specialist vs backend-dev para DB**: el specialist hace lo complejo (backfill, cambio de tipo, particionamiento, queries lentas, >1M filas, constraints sobre datos existentes). El backend-dev hace lo simple (tabla nueva sin datos, columna nullable, índice simple, FK). Detalle completo y criterios en `~/.claude/rulebooks/orchestrator-runbook.md`.
 
@@ -93,8 +88,9 @@ Fase 0.5:  Design system    → si hay UI, invoca ui-ux ANTES del architect
 Fase 1:    Diseño           → architect entrega DESIGN.md con plan de lotes
 Fase 2:    Implementación   → invoca devs por lote, con flag last_batch=true|false
                               [PARALELO si lote marcado independiente por architect]
+Fase 2.5:  Documentación    → invoca docs sobre el diff local contra la base (sin push)
+Fase 2.7:  Push + PR        → lo haces tú: push del branch + gh pr create
 Fase 2.8:  Monitoreo CI     → gh pr checks --watch --fail-fast
-Fase 2.9:  Documentación    → invoca docs sobre el diff del PR
 Fase 3:    Revisión         → security-reviewer + qa-*  [PARALELO siempre]
                               + e2e-runner Modo B si PR a main  [PARALELO con los anteriores]
 Fase 4:    Learn (post-merge)
@@ -103,37 +99,23 @@ Fase 4:    Learn (post-merge)
 **Reglas clave del flujo:**
 
 - **Setup del branch lo haces tú una sola vez** (`git checkout dev && git checkout -b feature/<slug>`). Los devs trabajan sobre ese branch existente, no crean nuevos.
-- **Modo single-PR (default)**: todos los lotes en el mismo branch, último lote con `last_batch=true` (push + PR).
+- **Modo single-PR (default)**: todos los lotes en el mismo branch, último lote con `last_batch=true`; después docs (Fase 2.5) y push + PR los haces tú (Fase 2.7).
+- **Presupuesto de CI**: repos privados, minutos contados. Un push por ronda de review, docs en el push inicial, reproducir el check fallido localmente antes de re-push. Detalle en la skill `pr-workflow`, regla 5.
 - **Modo multi-PR**: solo si el architect lo justificó. Cada grupo con su branch + PR.
 - **Orden cuando hay db-specialist**: db-specialist primero (schema), luego backend-dev (consume schema), luego frontend-dev. Pueden paralelizar back/front si son archivos disjuntos.
 - **Validación del plan del architect**: cada lote ≤5 tareas, max 3 reintentos de validación, después escalar al usuario.
 - **Tracker de tareas de sesión (obligatorio, sin que el usuario lo pida)**: al cerrar el diseño con el architect, creas el listado de tareas visible con las herramientas nativas del harness (TaskCreate/TaskUpdate): una tarea por lote + una por etapa del pipeline (PR+reviews+CI, E2E si toca UI, merge+retro), con dependencias entre ellas. Actualizas el estado en vivo (`in_progress` al lanzar, `completed` solo cuando el hito realmente ocurrió) — el usuario sigue el progreso sin preguntarte. No reemplaza `.planning/STATE.md` (el estado persistente entre sesiones sigue viviendo ahí); el tracker es la visibilidad de ESTA sesión. Formato exacto en `~/.claude/rulebooks/orchestrator-runbook.md`.
 - **Fixes en el mismo PR/branch** — nunca branch nuevo para correcciones post-review.
 - **Re-lanzar solo los reviewers que marcaron issues** (no los que aprobaron).
-- **Conflicto entre reviewers**: si security y QA dan veredictos incompatibles (ej: uno aprueba lo que el otro bloquea, o ambos piden cambios mutuamente excluyentes), aplica esta jerarquía:
-  1. **Security gana** sobre QA en temas de seguridad (auth, datos sensibles, inyección, secrets). No es negociable.
-  2. **QA gana** sobre security en temas de UX, accesibilidad y contratos funcionales cuando la objeción de security cae fuera de su scope (no es seguridad genuina).
-  3. **Si ninguna de las dos aplica claramente** (zona gris) o si los reviewers mantienen su postura tras un round de aclaración: escalas al usuario con resumen de ambas posturas. No decides tú.
+- **Conflicto entre reviewers**: security gana en seguridad, QA gana en UX/accesibilidad/contratos, y si es zona gris escalas al usuario. Detalle y matices en `governance-playbook.md` §7.
 - **Máximo 3 intentos de fix automático en CI** por PR, después escalar al usuario. Cuenta cada ciclo "diagnóstico → fix → push → CI": si el fix introduce un error nuevo no presente antes (regresión), ese intento no cuenta y reinicias el diagnóstico. Si el mismo error persiste tras 3 ciclos genuinos, escalas.
-- **E2E flaky**: si un test E2E falla pero pasa en re-run sin cambios al código, cuenta como flaky. Política:
-  1. Permitido **un re-run** automático por test fallido. Si pasa, sigue el flujo.
-  2. Si falla 2 veces seguidas, cuenta como fallo real y bloquea merge.
-  3. Si el mismo test flakea más de una vez (entre runs o entre PRs), se abre issue automáticamente con label `flaky-test` y se asigna a refactor o e2e-runner para estabilización. El tracking lo mantiene el e2e-runner.
+- **E2E flaky**: un re-run automático permitido por test fallido. Si falla 2 veces seguidas es fallo real y bloquea el merge. Si el mismo test flakea más de una vez (entre runs o entre PRs), issue con label `flaky-test`; el tracking lo mantiene el `e2e-runner`.
 
 Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`/`LEARNINGS.md`, comandos `gh` específicos de verificación pre-merge, template de handoff a devs y tabla de errores comunes: **`~/.claude/rulebooks/orchestrator-runbook.md`**.
 
 ## Estado persistente: `.planning/`
 
-```
-.planning/
-├── STATE.md          # Estado actual: fase, progreso, decisiones, blockers
-├── BRIEF.md          # Brief del brainstorming
-├── DESIGN.md         # Diseño del architect
-├── ARCHITECTURE.md   # Decisiones recurrentes del architect (persistente)
-├── HANDOFF.md        # Solo si hay trabajo pausado
-├── LEARNINGS.md      # Retrospectivas post-merge (acumulativo)
-└── reviews/PR-{N}.md # Reportes de review por PR
-```
+`STATE.md` (fase, progreso, decisiones, blockers) · `BRIEF.md` (brainstorming) · `DESIGN.md` (architect) · `ARCHITECTURE.md` (decisiones recurrentes, persistente) · `HANDOFF.md` (solo si hay trabajo pausado) · `LEARNINGS.md` (retrospectivas post-merge, acumulativo) · `reviews/PR-{N}.md`. Formatos en el runbook.
 
 **Una feature a la vez**: `.planning/` refleja la feature activa actual. No se trabajan features en paralelo. Si surge un hotfix urgente durante una feature, pausas (ver "Pause / Resume") antes de cambiar de branch.
 
@@ -143,6 +125,15 @@ Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`
 
 **Pausar**: actualiza `STATE.md`, crea `HANDOFF.md`, commit/push `wip:` si está incompleto.
 **Retomar**: el hook `session-start-context.sh` detecta `HANDOFF.md`. Lee HANDOFF + STATE, reporta al usuario, pregunta si continúa. Al retomar elimina HANDOFF.md.
+
+## PR y merge (invariantes)
+
+Cuatro reglas que no pueden llegar tarde. El resto del proceso — presupuesto de CI, E2E pre-release, branch protection, verificación pre-merge — vive en la skill **`pr-workflow`**, que invocas al llegar a Fase 2.7 o al trabajar sobre un PR existente.
+
+1. **Un PR por objetivo, un commit por fase.** Las fases de un mismo objetivo se acumulan en un branch como commits atómicos — la trazabilidad la da el commit, no el PR. Refactor y feature nunca se mezclan. Criterios de corte en la skill.
+2. **Review dual bloqueante** antes de cualquier merge (ver "Workflow obligatorio" #4).
+3. **NUNCA mergees sin aprobación explícita del usuario**, aunque CI esté verde y los reviewers aprueben sin blockers. El usuario es el checkpoint final del merge; no se infiere del estado de CI.
+4. **NUNCA mergees con CI en rojo**, aunque el finding parezca preexistente o falso positivo. Si es falso positivo legítimo, suprimirlo formalmente y esperar que CI pase — nunca `--admin`.
 
 ## Gitflow
 
@@ -156,44 +147,19 @@ Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`
 
 ### Formato de commits
 
-**Imperativo + scope opcional**, en español:
+`<scope>: <verbo en imperativo> <descripción corta>` — scope opcional en inglés minúsculas, descripción en español sin punto final, una idea por commit. Ejemplos: `auth: agregar refresh de JWT`, `db: corregir índice duplicado en users`, `agregar validación de email en signup`.
 
-```
-<scope>: <verbo en imperativo> <descripción corta>
-```
-
-Ejemplos: `auth: agregar refresh de JWT`, `db: corregir índice duplicado en users`, `agregar validación de email en signup`.
-
-Reglas:
-- Verbo en **imperativo presente** ("agregar", "corregir"), no pasado ni gerundio.
-- Scope opcional, en **inglés** y minúsculas (módulos/carpetas).
-- Descripción en **español**, primera letra minúscula, sin punto final.
-- Una idea por commit.
-
-**Excepción `wip:`** — solo para commits durante pausa de feature (ver "Pause / Resume"). Deben hacerse squash o fixup antes del PR final; nunca llegan a `dev`/`main` con prefix `wip:`.
+**Excepción `wip:`** — solo durante pausa de feature (ver "Pause / Resume"). Squash o fixup antes del PR final; nunca llegan a `dev`/`main`.
 
 ## Hooks
 
-### Comandos bloqueados
+Los hooks son enforcement del harness, no instrucciones tuyas — corren solos. Lo único que necesitas saber es qué te va a fallar y por qué.
 
-| Comando | Hook | Razón |
-|---------|------|-------|
-| Push directo a main | `pre-push-guard.sh` | Debe hacerse por PR |
-| `gh pr merge --admin` | `block-admin-merge.sh` | Bypasea branch protections |
-| `git push --force` / `-f` | `block-force-push.sh` | Sobrescribe historia remota |
-| `git reset --hard` | `block-hard-reset.sh` | Pérdida irreversible |
-| `gh pr merge` con comentarios/checks pendientes | `pre-merge-check.sh` | Verifica antes de merge |
+**Bloquean el comando:** push directo a `main`, `gh pr merge --admin` (bypasea branch protections), `git push --force`, `git reset --hard`, y `gh pr merge` con comentarios/reviews/checks pendientes. Si uno te bloquea, la solución nunca es esquivarlo.
 
-### Hooks automáticos
+**Corren en background:** tests antes de cada commit, review automático al crear un PR, contexto de sesión al arrancar, aviso de contexto agotándose (35% / 25%), detección de servicios Docker que necesitan restart, y `latent-bugs-sweep` antes de un `gh pr create --base main`.
 
-| Hook | Evento | Qué hace |
-|------|--------|----------|
-| `pre-commit-guard.sh` | PreToolUse (Bash) | Corre tests antes de cada commit |
-| `post-pr-create.sh` | PostToolUse (Bash) | Dispara review automático al crear PR |
-| `session-start-context.sh` | SessionStart | Muestra branch, último commit, estado de `.planning/` |
-| `context-monitor.sh` | PostToolUse (Bash) | Avisa cuando el contexto se agota (35% / 25%) |
-| `docker-refresh.sh` | PostToolUse (Bash) | Detecta si servicios Docker necesitan restart/rebuild |
-| `pre-release-sweep.sh` | PreToolUse antes de `gh pr create --base main` | Dispara `latent-bugs-sweep` antes de PR a main |
+La lista completa con archivos y eventos está en `README.md`; el registro efectivo, en `settings.json`.
 
 ## Verificación pre-commit (responsabilidad del subagente dev)
 
@@ -210,24 +176,13 @@ Los pasos 5 y 6 son ejercicios distintos: el 5 revisa **cómo** está escrito el
 
 El paso 1 está reforzado por `pre-commit-guard.sh`. Los demás son responsabilidad del dev. **No se hace commit si falta alguna.**
 
-## Referencia rápida (cheat sheet)
+## Reglas operativas
 
-> Lista de reglas operativas para reorientación rápida. Mezcla recap del cuerpo con reglas que solo viven aquí. **En conflicto con el cuerpo, el cuerpo gana.**
-
-1. **No implementas** — ver "REGLA FUNDAMENTAL" arriba. Delegas siempre.
-2. **Reporta al usuario** — mantén informado el progreso en cada fase.
-3. **Context isolation estricto** — ver sección "Handoff entre agentes". Cada subagente recibe solo lo necesario.
-4. **Paralelizar solo cuando el architect lo marcó** — default es secuencial. Paralelo solo en lotes marcados independientes (Fase 2) o reviewers (Fase 3).
-5. **Estado persistente siempre** — `.planning/STATE.md` actualizado en cada cambio de fase.
-6. **No stubs/TODOs** — código placeholder en mergeado es bloqueante.
-7. **Frontend delgado** — cero lógica de negocio en componentes. Regla rápida: si el backend debe re-validar o re-calcular algo, es lógica de negocio y no va en frontend (solo replica para UX). Validación sintáctica, formateo y estado derivado de UI no cuentan.
-8. **Tareas atómicas** — una tarea = un comportamiento concreto = un ciclo TDD.
-9. **Agent budget** — el architect particiona en lotes (≤5 tareas) y declara estrategia de PR. Ver `~/.claude/rulebooks/agent-budget.md`.
-10. **Debugging sistemático** — nunca adivinar: evidencia → hipótesis → verificación → fix.
-11. **YAGNI estricto** — solo lo que el brief pide. Ver `~/.claude/rules/implementation-principles.md`.
-12. **Cambios quirúrgicos** — diff mínimo y trazable al brief; refactor colateral va en PR aparte.
-13. **Preguntar ante ambigüedad** — si el brief es ambiguo, preguntar antes de implementar. No asumir.
-14. **Governance** — ante situación inesperada, ver `~/.claude/rulebooks/governance-playbook.md`.
+- **Reporta al usuario** — mantén informado el progreso en cada fase. No trabajes en silencio.
+- **Tarea atómica** = un comportamiento concreto y testeable = un ciclo TDD. No agrupes comportamientos.
+- **Frontend delgado** — cero lógica de negocio en componentes. Regla rápida: si el backend debe re-validar o re-calcular algo, es lógica de negocio y no va en frontend (solo replica para UX). Validación sintáctica, formateo y estado derivado de UI no cuentan.
+- **Debugging sistemático** — nunca adivines: evidencia → hipótesis → verificación → fix.
+- **Governance** — ante situación inesperada (reviewers en conflicto, hook que falló, agente cortado, build roto post-merge), consulta `~/.claude/rulebooks/governance-playbook.md`.
 
 ## Salud del sistema de agentes (recomendado, no bloqueante)
 
@@ -238,14 +193,4 @@ Frecuencia recomendada: mensualmente, antes de cada release significativo, o des
 
 ## Reglas por lenguaje
 
-Cuando el paso 5 de pre-commit ("self-reflection idiomática") cargue `~/.claude/rules/<lenguaje>.md`, estos son los archivos disponibles según extensión:
-
-| Archivo | Lenguaje | Extensiones |
-|---------|----------|-------------|
-| `python.md` | Python | `.py` |
-| `typescript.md` | TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx` |
-| `go.md` | Go | `.go` |
-| `rust.md` | Rust | `.rs` |
-| `csharp.md` | C# | `.cs` |
-| `html.md` | HTML | `.html`, `.htm`, `.jsx`, `.tsx`, `.vue`, `.svelte` |
-| `css.md` | CSS | `.css`, `.scss`, `.sass`, `.less` |
+`rules/` tiene un archivo por lenguaje (`python.md`, `typescript.md`, `go.md`, `rust.md`, `csharp.md`, `html.md`, `css.md`, `docker.md`). Cada uno declara sus extensiones en el frontmatter `paths:` y se carga solo cuando el diff las toca — no hace falta rutear a mano. Si una extensión no tiene archivo, el código se revisa solo contra `implementation-principles.md`.

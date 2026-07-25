@@ -60,12 +60,35 @@ Crea un CLAUDE.md con:
 
 ### 4. Generar GitHub Actions
 
-**ci.yml** — Trigger en push a dev y PRs a main/dev:
-- Checkout → Setup runtime → Install deps → Lint → Tests
+> **Presupuesto de CI** (ver la skill `pr-workflow`, regla 5): los repos privados tienen minutos contados. Todo workflow lleva `concurrency` con `cancel-in-progress`, `timeout-minutes` por job, cache de dependencias y runners `ubuntu-latest` (macOS cuesta 10×).
 
-**security.yml** — Trigger en PRs a main:
+> **Actions factura cada job redondeando hacia arriba al minuto.** Un job de 12 segundos cuesta lo mismo que uno de 55. Consecuencias de diseño, contraintuitivas:
+> - **Menos jobs, no más.** Partir un job en varios paralelos acelera el wall-clock pero **encarece la factura**: cada uno paga su minuto mínimo más el overhead de arranque. Solo separar cuando el job tarda lo suficiente para que la paralelización valga el costo, o cuando necesitás el check por separado en las branch protections.
+> - **Un job barato que corre siempre cuesta 1 minuto por run.** Si tenés dos (ej: un gate de docs-only y un escaneo de secretos), fusionalos: hacen el mismo checkout y pagan un solo minuto.
+
+**ci.yml** — Trigger en push a dev y PRs a main/dev. Tres jobs:
+
+1. **Gate (que corre siempre)** — hace el escaneo de secretos *y* decide si el resto del pipeline corre. Si el diff solo toca `*.md` / `.planning/**`, exporta `run_pipeline=false` y lo caro se saltea. El escaneo de secretos va acá y no en el job de tests justamente porque este corre siempre: un secreto puede estar en un `.md`.
+2. **lint-and-test** — `needs` + `if` sobre el gate. Checkout → setup runtime con cache → install → lint → typecheck → tests.
+3. **build/imagen** (si el proyecto tiene Docker) — valida que la imagen de producción buildee. **Solo en push a `dev` y en PRs a `main`**, nunca en PRs a `dev`: es el evento más frecuente y el más caro. Un break de imagen se detecta en el run de push a `dev`, minutos después del merge — mismo trade-off que la regla 5.6.
+
+`timeout-minutes` explícito en cada job.
+
+> **Trampa crítica con jobs salteados y matrices.** Cuando un job con `strategy.matrix` se saltea por `if:`, GitHub reporta **un solo check con el nombre del job** (`docker-build`), no las patas (`docker-build (api)`, `docker-build (web)`). Si las patas están en `required_status_checks`, esos contexts **nunca reportan y el PR queda `BLOCKED` para siempre**. Nunca listes las patas de una matriz que puede saltearse — listá solo checks que reporten en todos los caminos.
+
+> **Renombrar un job rompe los merges.** El nombre del job *es* el context de la branch protection. Si lo cambiás, actualizá `required_status_checks` en el mismo movimiento, o todos los PRs abiertos quedan colgados esperando un check que ya no existe.
+
+```yaml
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+```
+
+**security.yml** — Trigger en PRs a main + schedule semanal (`cron`) sobre dev. **NUNCA en push/PRs a dev**:
 - Semgrep CE scan
 - Dependency audit (npm audit / pip audit)
+- CodeQL si el stack lo amerita (es el job más caro — solo pre-release + schedule)
+- **El run por `schedule` debe hacer checkout con `ref: dev` explícito** — los crons corren sobre el default branch (`main`); sin ese `ref`, el scan semanal escanea la rama equivocada y la ventana de exposición de `dev` queda sin cubrir silenciosamente
 
 ### 5. Generar .gitignore
 
@@ -146,6 +169,8 @@ Pregunta al usuario si quiere el repo público o privado antes de crearlo.
 
 ```bash
 gh api repos/{owner}/$1/branches/main/protection -X PUT -f ...
+gh api repos/{owner}/$1/branches/dev/protection -X PUT -f ...
 ```
 
-Requiere: PR para merge a main, status checks pasados.
+- **`main`**: PR obligatorio + **branch up to date estricto** (`strict: true`) + `required_status_checks.contexts` enumerando **por nombre TODOS los jobs de `ci.yml` Y de `security.yml`**. Es el gate de release. **Crítico:** un workflow que corre en el PR pero cuyo job no está listado en `contexts` es informativo, no bloqueante — sin esto, un CRITICAL de CodeQL no impediría el merge a `main`.
+- **`dev`**: `strict: false` (sin up-to-date — mergear un PR no invalida los demás en cola ni fuerza re-runs de CI, ver la skill `pr-workflow`, regla 5.6) + `contexts` con **SOLO los jobs de `ci.yml`**. **NUNCA listar jobs de `security.yml` en `dev`**: no corren en PRs a `dev`, y un context requerido que nunca reporta deja el merge colgado esperando indefinidamente.

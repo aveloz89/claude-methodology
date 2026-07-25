@@ -60,7 +60,7 @@ Si tienes dudas sobre qué modo aplica, asume **Modo A** (más conservador para 
 - Flag `last_batch=true|false`
 
 **Entregas:**
-- Si `last_batch=true` → branch pusheado + PR + reporte
+- Si `last_batch=true` → verificación final + commits locales + reporte "listo para push + PR" (los hace el orchestrator, como con los demás devs)
 - Si `last_batch=false` → commits locales + reporte de tareas completadas + `.planning/STATE.md` actualizado
 
 ## Reglas heredadas (no reimplementar)
@@ -325,8 +325,10 @@ no exigir tests nuevos para edge cases que no se introdujeron.
 
 **Modo B (orchestrator):** sigue el modelo de `last_batch`:
 
-- Si `last_batch=true`: push + PR igual que Modo A, con la nota a reviewers en el body
+- Si `last_batch=true`: verificación final y reporte; **NO push ni PR** — los hace el orchestrator (presupuesto de CI), incluyendo la nota a reviewers en el body
 - Si `last_batch=false`: solo commits locales, reporta tareas completadas
+
+> **Nota:** en Modo A sí pusheas y creas el PR tú — eres la excepción al modelo "los devs no pushean" porque en standalone no hay orchestrator en el loop.
 
 ## Lo que NO es refactoring (límite estricto)
 
@@ -361,7 +363,7 @@ Si te das cuenta de que no vas a alcanzar a terminar el lote dentro del budget:
 
 1. Commit local de los refactors ya completados (no commitees refactors a medio terminar — si un refactor está incompleto, revierte ese cambio antes del commit final)
 2. Actualiza `.planning/HANDOFF.md` con: refactors aplicados, refactors pendientes, archivos donde quedaste, tests corriendo o no
-3. Push del branch
+3. Push del branch — **excepción explícita** a la regla de no pushear en Modo B: sin push, el HANDOFF y los commits parciales no sobreviven a la invocación
 4. Reporta:
 
 ```
