@@ -4,19 +4,26 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 
 ## Qué incluye
 
-### Agentes (8)
+El **orchestrator** no es un subagente: es el Claude de la sesión principal, definido en `CLAUDE.md`. Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 13 agentes:
+
+### Agentes (13)
 | Agente | Modelo | Rol |
 |--------|--------|-----|
-| **orchestrator** | opus | Coordina todo el flujo: brainstorming → diseño → implementación → review → merge |
-| **architect** | opus | Diseña soluciones, define contratos/schemas, descompone en tareas atómicas |
+| **architect** | fable | Diseña soluciones, define contratos/schemas, descompone en tareas atómicas |
+| **ui-ux** | opus | Genera el design system y valida flujos antes de que el frontend implemente |
 | **backend-dev** | sonnet | Implementa backend con TDD, gitflow, verificación pre-commit |
 | **frontend-dev** | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) |
-| **db-specialist** | sonnet | Diseño de esquemas, migraciones, optimización de queries |
+| **db-specialist** | sonnet | Esquemas complejos, migraciones con backfill, optimización de queries |
 | **security-reviewer** | opus | Auditoría OWASP Top 10, secrets, dependencias (read-only) |
 | **qa-frontend** | sonnet | UX, accesibilidad, componentes, estado UI, tests frontend, coverage ≥ 80% |
 | **qa-backend** | sonnet | Contratos de API, lógica de negocio, datos, tests backend, coverage ≥ 80% |
+| **e2e-runner** | sonnet | Tests E2E con Playwright. Bloqueante en pre-release a `main` |
+| **build-resolver** | sonnet | Diagnostica y resuelve errores de build, compilación y dependencias |
+| **refactor** | sonnet | Refactoriza sin cambiar comportamiento. Consume issues de deuda técnica |
+| **latent-bugs-sweep** | sonnet | Escanea el repo buscando bugs latentes (read-only). Crea issues |
+| **docs** | sonnet | Genera/actualiza documentación a partir del diff, antes del push |
 
-### Hooks (10)
+### Hooks (11)
 | Hook | Evento | Qué hace |
 |------|--------|----------|
 | **pre-commit-guard** | PreToolUse (Bash) | Corre tests antes de cada commit. Detecta pnpm/yarn/npm/pytest |
@@ -25,15 +32,17 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 | **block-force-push** | PreToolUse (Bash) | Bloquea `git push --force` / `-f` |
 | **block-hard-reset** | PreToolUse (Bash) | Bloquea `git reset --hard` |
 | **pre-merge-check** | PreToolUse (Bash) | Bloquea `gh pr merge` si hay comentarios, reviews o checks pendientes |
+| **pre-release-sweep** | PreToolUse (Bash) | Dispara `latent-bugs-sweep` antes de un `gh pr create --base main` |
 | **post-pr-create** | PostToolUse (Bash) | Instruye al orquestador para disparar security-reviewer + qa-frontend/qa-backend (según capas del diff) al crear un PR |
 | **session-start-context** | SessionStart | Muestra branch, último commit, estado de .planning/ |
 | **context-monitor** | PostToolUse (Bash) | Avisa cuando el contexto se está agotando (35% warning, 25% critical) |
 | **docker-refresh** | PostToolUse (Bash) | Detecta si servicios Docker necesitan restart/rebuild después de push o PR. Respeta hot reload |
 
-### Skills (1)
+### Skills (2)
 | Skill | Qué hace |
 |-------|----------|
 | **/new-project** | Scaffold de proyecto con gitflow, GitHub Actions CI/CD, CLAUDE.md |
+| **/refactor-scan** | Escanea el codebase buscando code smells y genera un reporte priorizado |
 
 ## Workflow
 

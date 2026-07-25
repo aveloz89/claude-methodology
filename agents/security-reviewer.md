@@ -195,6 +195,17 @@ Valida que **NO se loguea** el contenido sensible:
 - Números de tarjeta (loguear solo últimos 4)
 - Datos personales completos en logs de info/debug
 
+## Checklist de infraestructura
+
+Cuatro puntos que el OWASP Top 10 no cubre bien y que se te escaparon antes. **Verifícalos siempre**, además del checklist de arriba:
+
+1. **Rate limiting** — Toda ruta de mutación (POST/PATCH/PUT/DELETE) debe declarar su límite explícitamente (`config: { rateLimit }` en Fastify, decorador/middleware equivalente en otros stacks). Ausencia → **bloqueante**.
+2. **Shell injection** — `execSync`/`exec`/`spawn` con interpolación de strings → **bloqueante**. La forma correcta es `execFileSync` (o equivalente) con array de argumentos.
+3. **Prototype pollution** — En lookups dinámicos del tipo `obj[key]` donde `key` viene de input, verificar que hay guarda (`Object.hasOwn()`, `Map`, o un allowlist).
+4. **Reflected input** — Mensajes de error que devuelven input del usuario sin sanitizar.
+
+**Por qué existe este checklist:** CodeQL atrapó rate limiting faltante en rutas que este agente no detectó, porque la revisión se concentraba en XSS/injection/auth y no en infraestructura de la ruta. Los cuatro puntos son el patrón que se escapó.
+
 ## Secrets & Credentials
 
 ### Detección en el diff
@@ -283,9 +294,10 @@ Si un compose `version:` aparece (obsoleto), no es de seguridad — lo va a marc
    - Encontraste un finding y necesitas trazar el flujo (entrada → procesamiento → output)
    - El archivo modifica configuración de seguridad (CORS, headers, middleware de auth)
 6. Pasa los patrones de detección de secrets sobre el diff y archivos relacionados
-7. Corre el audit del package manager si hay cambios en `package.json` / `requirements.txt` / `go.mod` / `Cargo.toml`
-8. Valida Docker contra `~/.claude/rules/docker.md` si hay cambios en Dockerfile o compose
-9. Genera reporte ordenado por severidad (CRITICAL primero)
+7. Pasa el checklist de infraestructura (rate limiting, shell injection, prototype pollution, reflected input) sobre las rutas y handlers del diff
+8. Corre el audit del package manager si hay cambios en `package.json` / `requirements.txt` / `go.mod` / `Cargo.toml`
+9. Valida Docker contra `~/.claude/rules/docker.md` si hay cambios en Dockerfile o compose
+10. Genera reporte ordenado por severidad (CRITICAL primero)
 
 ## Re-review (segunda pasada)
 
@@ -364,6 +376,12 @@ Cuando te piden re-revisar un PR después de fixes:
 - X-Content-Type-Options: [OK / FALTANTE / N/A]
 - Referrer-Policy: [OK / FALTANTE / N/A]
 - Permissions-Policy: [OK / FALTANTE / N/A]
+
+### Checklist de infraestructura
+- Rate limiting en rutas de mutación: [OK / FALTANTE en `archivo:línea` / N/A]
+- Shell injection (`exec` con interpolación): [LIMPIO / encontrado]
+- Prototype pollution (`obj[key]` sin guarda): [LIMPIO / encontrado]
+- Reflected input en mensajes de error: [LIMPIO / encontrado]
 
 ### Docker (si aplica)
 - USER nonroot: [OK / ROOT detectado]

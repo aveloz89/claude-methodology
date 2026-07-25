@@ -48,7 +48,9 @@ RED → GREEN → REFACTOR → COMMIT → siguiente tarea
 
 **Anti-patrón:** "implementá las 5 tareas y al final commiteá todo." Si se corta en la tarea 4, las tareas 1-3 también se pierden porque nunca se commitearon.
 
-Lint, build, self-review y push final ocurren al cierre de la invocación, después de todos los commits per-tarea. Si self-review encuentra violaciones, se corrigen en commits adicionales antes del push.
+Lint, build y self-review ocurren al cierre de la invocación, después de todos los commits per-tarea. Si self-review encuentra violaciones, se corrigen en commits adicionales.
+
+**El dev no pushea ni abre PR.** Al terminar el último lote, el orchestrator invoca `docs` sobre el diff local y recién ahí hace push + PR. Ver `rulebooks/orchestrator-runbook.md`, Fases 2.5–2.7.
 
 ### 3. STATE.md actualizado entre tareas
 
@@ -58,14 +60,16 @@ El dev actualiza `.planning/STATE.md` con la tarea en curso *antes* de empezarla
 
 Cada invocación tiene un DoD explícito:
 
-> **Done = todos los commits per-tarea hechos + push + PR (o reporte de avance) + reporte estructurado entregado.**
+> **Done = todos los commits per-tarea hechos (locales, sin push) + reporte estructurado entregado.**
 >
 > **Si sentís que se acaba el budget antes de terminar:**
 > 1. Parar de implementar nuevas tareas
-> 2. Si hay código a medio escribir, commitearlo con prefijo `WIP:`
+> 2. Si hay código a medio escribir, commitearlo con prefijo `wip:`
 > 3. Escribir `.planning/HANDOFF.md` con: tarea en curso, qué falta, decisiones tomadas
-> 4. Push de todo
+> 4. **Push del branch** — es la única situación en que el dev pushea. Sin push, el HANDOFF y los commits parciales viven solo en el working tree local y una invocación nueva no los ve
 > 5. Reportar al orchestrator: `BUDGET LIMIT — N de M tareas completadas, ver HANDOFF.md`
+
+El paso 4 es la excepción explícita a "el dev no pushea": el costo de un run de CI extra es menor que el de perder el trabajo del lote.
 
 El fallback es frágil (requiere que el agente monitoree su propio progreso) pero garantiza salida ordenada en vez de corte abrupto.
 

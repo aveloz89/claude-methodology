@@ -55,16 +55,9 @@ Antes de aprobar el merge a main de cambios que tocan UI (componentes, páginas,
 
 **Qué NO requiere E2E real:** PRs sin superficie de UI (backend puro, migraciones, docs, config). Ahí basta con tests + la verificación en vivo por `curl`/API que ya hacen los devs.
 
-### Checklist obligatorio para security-reviewer
+### Checklist de infraestructura del security-reviewer
 
-El security-reviewer DEBE verificar estos puntos además de OWASP Top 10:
-
-1. **Rate limiting** — Toda ruta de mutación (POST/PATCH/PUT/DELETE) debe tener `config: { rateLimit }` explícito. Si no, es bloqueante.
-2. **Shell injection** — Si hay `execSync`/`exec` con interpolación de strings, flag como bloqueante. Usar `execFileSync` con array de args.
-3. **Prototype pollution** — En lookups con `obj[key]`, verificar `Object.hasOwn()`.
-4. **Reflected input** — Mensajes de error no deben incluir input del usuario sin sanitizar.
-
-**Por qué este checklist:** CodeQL atrapó missing rate limiting en rutas que el security-reviewer no detectó porque solo buscaba XSS/injection/auth, no infraestructura.
+Vive en `agents/security-reviewer.md`, sección "Checklist de infraestructura". La instrucción va en el prompt del agente que la ejecuta, no en este documento de proceso.
 
 ## 3. NUNCA mergear sin aprobación explícita del usuario
 

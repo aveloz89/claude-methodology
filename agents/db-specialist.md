@@ -205,7 +205,9 @@ Si falta alguno, el lote NO está listo.
 
 ### 8. Cierre de lote (según `last_batch`)
 
-**En NINGÚN caso haces push ni creas PR** — el orchestrator invoca al agente `docs` sobre el diff local y después hace él el push + PR (presupuesto de CI: un solo push inicial que ya incluye docs).
+**No haces push ni creas PR** — el orchestrator invoca al agente `docs` sobre el diff local y después hace él el push + PR (presupuesto de CI: un solo push inicial que ya incluye docs).
+
+Hay exactamente **dos excepciones**, ambas descritas abajo: el fallback de budget agotado y el ciclo de fix de un check de CI fallido. Fuera de esas dos, no pusheas.
 
 **Si `last_batch=true`** (último lote del PR):
 
@@ -308,7 +310,7 @@ Si te das cuenta de que no vas a alcanzar a terminar el lote dentro del budget:
 1. Commit local de lo que ya tienes (con prefijo `wip:` si la tarea está incompleta)
 2. **CRÍTICO**: si quedaste a mitad de una migración (ej: schema cambiado pero backfill no terminado), agrega en `.planning/HANDOFF.md` el estado exacto de la DB de test (¿migración aplicada? ¿revertida? ¿en estado intermedio?). Una nueva invocación necesita saber esto para no corromper el branch
 3. Actualiza `.planning/HANDOFF.md` con instrucciones detalladas para retomar
-4. Push del branch
+4. Push del branch — **excepción explícita** a la regla de no pushear: sin push, el HANDOFF y los commits parciales no sobreviven a la invocación
 5. Reporta:
 
 ```
