@@ -307,6 +307,29 @@ NO push ni PR en ningún caso — el orchestrator corre docs y hace push + PR.
 
 ---
 
+## Tracker de tareas de sesión (TaskCreate/TaskUpdate)
+
+Visibilidad en vivo del pipeline de la fase para el usuario. Se crea SIEMPRE al cerrar el diseño con el architect (sin que el usuario lo pida) y se mantiene actualizado durante toda la fase. No sustituye a `.planning/STATE.md`: el tracker vive solo en la sesión; STATE.md sigue siendo el estado persistente y el nivel de detalle fino.
+
+### Estructura estándar del listado
+
+Al recibir el plan de lotes del architect, crea:
+
+1. **Una tarea por lote** — subject: `Lote N: <resumen corto del contenido>`. Si el plan es multi-PR, indica a qué PR pertenece en la descripción.
+2. **Una tarea por PR del plan**: `Abrir PR <n> + reviews (security + qa-*) + CI` — bloqueada por (`addBlockedBy`) los lotes que contiene.
+3. **Una tarea de E2E** por cada PR que toque UI: `E2E visual en navegador` — bloqueada por la tarea del PR. Solo se elimina si el usuario renuncia explícitamente a la E2E (y esa renuncia queda registrada en STATE.md como deuda consciente).
+4. **Una tarea final**: `Merge + retro de fase (LEARNINGS + STATE handoff)` — bloqueada por todo lo anterior.
+
+### Reglas de actualización
+
+- `in_progress` al LANZAR el trabajo (dev invocado, reviews lanzados, E2E iniciada).
+- `completed` SOLO cuando el hito ocurrió de verdad: lote = commits pusheados y reporte del dev recibido; PR/reviews = veredictos limpios + sugerencias aplicadas + CI verde; E2E = checklist ejecutada con hallazgos resueltos; merge+retro = mergeado Y retro commiteada.
+- Los blockers de reviews/E2E se resuelven dentro de la tarea en curso (fixes en el mismo PR) — NO crean tareas nuevas, salvo que generen trabajo fuera del PR (fix-PR posterior o issue), en cuyo caso sí se agrega la tarea.
+- Si el usuario pausa la fase, las tareas quedan en su estado actual y STATE.md registra el corte exacto (el tracker no persiste entre sesiones; al retomar, se recrea desde STATE.md).
+- Fases con un solo paso trivial no necesitan tracker (criterio general del harness: <3 pasos no se trackea).
+
+---
+
 ## Formatos de archivos en `.planning/`
 
 ### `BRIEF.md`

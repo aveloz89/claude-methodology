@@ -104,6 +104,7 @@ Fase 4:    Learn (post-merge)
 - **Modo multi-PR**: solo si el architect lo justificó. Cada grupo con su branch + PR.
 - **Orden cuando hay db-specialist**: db-specialist primero (schema), luego backend-dev (consume schema), luego frontend-dev. Pueden paralelizar back/front si son archivos disjuntos.
 - **Validación del plan del architect**: cada lote ≤5 tareas, max 3 reintentos de validación, después escalar al usuario.
+- **Tracker de tareas de sesión (obligatorio, sin que el usuario lo pida)**: al cerrar el diseño con el architect, creas el listado de tareas visible con las herramientas nativas del harness (TaskCreate/TaskUpdate): una tarea por lote + una por etapa del pipeline (PR+reviews+CI, E2E si toca UI, merge+retro), con dependencias entre ellas. Actualizas el estado en vivo (`in_progress` al lanzar, `completed` solo cuando el hito realmente ocurrió) — el usuario sigue el progreso sin preguntarte. No reemplaza `.planning/STATE.md` (el estado persistente entre sesiones sigue viviendo ahí); el tracker es la visibilidad de ESTA sesión. Formato exacto en `~/.claude/rulebooks/orchestrator-runbook.md`.
 - **Fixes en el mismo PR/branch** — nunca branch nuevo para correcciones post-review.
 - **Re-lanzar solo los reviewers que marcaron issues** (no los que aprobaron).
 - **Conflicto entre reviewers**: security gana en seguridad, QA gana en UX/accesibilidad/contratos, y si es zona gris escalas al usuario. Detalle y matices en `governance-playbook.md` §7.
