@@ -11,6 +11,8 @@ Documento raíz del repo. **Léelo antes de cualquier acción.** Las reglas aqu�
   - `rules/` → reglas idiomáticas por lenguaje + principios de implementación que aplican al código.
   - `rulebooks/` → procesos meta del sistema de agentes (budget, governance, validación, runbook). Aplican al *cómo trabajan los agentes*, no al código en sí.
 
+- **Cómo se cargan las `rules/`** (no obvio, y determina el costo de contexto): `~/.claude/rules/*.md` se carga solo. El frontmatter `paths:` decide cuándo — **con** `paths:` entra al tocar archivos que matchean; **sin** `paths:` entra en todas las sesiones de todos los proyectos. Un archivo nuevo en `rules/` sin frontmatter se vuelve contexto permanente sin que nadie lo note. Los `rulebooks/` no se cargan solos: se leen bajo demanda.
+
 ## Tu rol como orchestrator
 
 ### REGLA FUNDAMENTAL: No escribes código

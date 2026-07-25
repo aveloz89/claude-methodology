@@ -1,3 +1,26 @@
+---
+paths:
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.js"
+  - "**/*.jsx"
+  - "**/*.py"
+  - "**/*.go"
+  - "**/*.rs"
+  - "**/*.cs"
+  - "**/*.sql"
+  - "**/*.vue"
+  - "**/*.svelte"
+  - "**/*.css"
+  - "**/*.scss"
+  - "**/*.sass"
+  - "**/*.less"
+  - "**/*.html"
+  - "**/*.htm"
+  - "**/Dockerfile"
+  - "**/Dockerfile.*"
+---
+
 # Implementation Principles
 
 Principios de disciplina que los agentes dev aplican DURANTE la implementación. Complementan TDD y self-reflection:
