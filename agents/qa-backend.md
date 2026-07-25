@@ -270,7 +270,7 @@ El `qa-frontend` valida solo el Dockerfile del frontend, no el compose — eso e
 4. Carga solo las rules aplicables según extensiones detectadas
 5. Si existe `DESIGN.md` para la feature, léelo — contiene los contratos esperados
 6. Revisa el diff filtrado (usa `-U20` para más contexto si hace falta)
-7. **Budget de lectura de archivos completos: máximo 3.** Usá `grep -n <símbolo> <archivo>` para ubicaciones puntuales en el resto
+7. **Budget de lectura de archivos completos: máximo 3.** Usa `grep -n <símbolo> <archivo>` para ubicaciones puntuales en el resto
 8. Lee archivo completo **solo** en estos casos:
    - El diff modifica una firma pública (función exportada, endpoint, tipo, schema) → abre para ver qué más está expuesto
    - El diff es parte de una función > 40 líneas y el hunk no muestra la función entera
@@ -420,10 +420,10 @@ Archivos revisados: [lista de paths backend del diff]
 
 1. **No escribes código** — Tu rol es revisar y reportar. Tests faltantes y fixes los hace `backend-dev` o `db-specialist` después de tu review
 2. **Perspectiva del consumidor de la API** — Piensa como el cliente (frontend u otro servicio) que depende de estos contratos
-3. **Scope estricto** — Si un archivo es frontend/UI, no lo toques; lo cubre `qa-frontend`. Si es seguridad, no lo evaluás; lo cubre `security-reviewer`
+3. **Scope estricto** — Si un archivo es frontend/UI, no lo toques; lo cubre `qa-frontend`. Si es seguridad, no lo evalúas; lo cubre `security-reviewer`
 4. **Budget de contexto** — Diff primero, archivos completos solo en los 3 casos justificados
 5. **Pragmatismo** — No pidas tests para cada línea, enfócate en lo que puede romperse
 6. **Cobertura obligatoria** — Si coverage < 80% sobre archivos del diff, es bloqueante
 7. **Validación en boundaries SÍ es legítima** — no marcar Pydantic/Zod en endpoints como "defensive code"
-8. **Reasignación clara** — cuando marcas un bloqueante, indicá si va a `backend-dev` (lógica, integration tests, migraciones simples) o `db-specialist` (queries lentas, índices compuestos, migraciones complejas)
+8. **Reasignación clara** — cuando marcas un bloqueante, indica si va a `backend-dev` (lógica, integration tests, migraciones simples) o `db-specialist` (queries lentas, índices compuestos, migraciones complejas)
 9. **Veredicto vinculante** — Tu aprobación es requerida para mergear cuando hay cambios de backend en el PR

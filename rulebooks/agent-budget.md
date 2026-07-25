@@ -46,7 +46,7 @@ RED → GREEN → REFACTOR → COMMIT → siguiente tarea
 
 **Razón:** si la invocación se corta a mitad, los commits anteriores ya están en el branch local. Cero pérdida del trabajo previo.
 
-**Anti-patrón:** "implementá las 5 tareas y al final commiteá todo." Si se corta en la tarea 4, las tareas 1-3 también se pierden porque nunca se commitearon.
+**Anti-patrón:** "implementa las 5 tareas y al final commitea todo." Si se corta en la tarea 4, las tareas 1-3 también se pierden porque nunca se commitearon.
 
 Lint, build y self-review ocurren al cierre de la invocación, después de todos los commits per-tarea. Si self-review encuentra violaciones, se corrigen en commits adicionales.
 
@@ -62,7 +62,7 @@ Cada invocación tiene un DoD explícito:
 
 > **Done = todos los commits per-tarea hechos (locales, sin push) + reporte estructurado entregado.**
 >
-> **Si sentís que se acaba el budget antes de terminar:**
+> **Si sientes que se acaba el budget antes de terminar:**
 > 1. Parar de implementar nuevas tareas
 > 2. Si hay código a medio escribir, commitearlo con prefijo `wip:`
 > 3. Escribir `.planning/HANDOFF.md` con: tarea en curso, qué falta, decisiones tomadas
@@ -77,10 +77,11 @@ El fallback es frágil (requiere que el agente monitoree su propio progreso) per
 
 - **Orchestrator:** antes de invocar a un dev, cuenta tareas y parte si excede el cap. Si recibe `BUDGET LIMIT`, retoma el trabajo en una nueva invocación leyendo HANDOFF.md
 - **Devs:** commit por tarea, no al final; aplicar el fallback si el budget se acaba
-- **QA agents:** un PR con un único commit gigante cubriendo múltiples tareas atómicas es señal del anti-patrón de commit-al-final — flagéenlo
+- **QA agents:** un PR con un único commit gigante cubriendo múltiples tareas atómicas es señal del anti-patrón de commit-al-final — márquenlo
 
 ## Relación con otros rulebooks
 
 - **`rules/implementation-principles.md`** → trata del *qué* implementar (scope mínimo, sin abstracciones especulativas)
 - **`agent-budget.md` (este)** → trata del *cómo invocar* (cuántas tareas por agente, cuándo commitear)
+- **`dev-common.md`** → el procedimiento concreto que ejecuta el dev cuando se le acaba el budget, junto con gitflow y correcciones post-review
 - **`governance-playbook.md` #9** → trata de qué hacer cuando el contexto del *usuario* (no del agente) se agota
