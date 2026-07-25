@@ -47,7 +47,7 @@ Un **lote** es una agrupación de hasta 5 tareas atómicas que un dev ejecuta co
 
 | Agente | Modelo | Rol | Cuándo invocar |
 |--------|--------|-----|----------------|
-| `architect` | fable | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva |
+| `architect` | fable (fallback: opus) | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva |
 | `ui-ux` | opus | Genera design system y valida flujos | Después del brainstorming, ANTES del architect, si hay UI |
 | `db-specialist` | sonnet | Implementa todo lo de DB cuando es complejo | Lotes con trabajo de DB que califica como complejo |
 | `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples | Lotes con trabajo server-side |
@@ -66,7 +66,7 @@ Un **lote** es una agrupación de hasta 5 tareas atómicas que un dev ejecuta co
 - `security-reviewer` → degradar a sonnet **solo si el PR no toca auth, crypto, secrets o pagos**.
 - `ui-ux` → degradar a sonnet aceptable.
 
-El `architect` corre en fable, así que el rate limit de opus no lo afecta. Si es fable el que está limitado, esperar y reintentar — no degradar.
+El `architect` corre en **fable**. Si fable no está disponible o está rate-limited, **degradar a opus** — nunca a sonnet: el diseño y la partición en lotes son la decisión de mayor apalancamiento del flujo, y un plan malo se paga en todos los lotes que vienen después.
 
 **db-specialist vs backend-dev para DB**: el specialist hace lo complejo (backfill, cambio de tipo, particionamiento, queries lentas, >1M filas, constraints sobre datos existentes). El backend-dev hace lo simple (tabla nueva sin datos, columna nullable, índice simple, FK). Detalle completo y criterios en `~/.claude/rulebooks/orchestrator-runbook.md`.
 
@@ -129,7 +129,7 @@ Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`
 
 Cuatro reglas que no pueden llegar tarde. El resto del proceso — presupuesto de CI, E2E pre-release, branch protection, verificación pre-merge — vive en la skill **`pr-workflow`**, que invocas al llegar a Fase 2.7 o al trabajar sobre un PR existente.
 
-1. **Una fase = un PR.** No acumules fases distintas en un branch.
+1. **Un PR por objetivo, un commit por fase.** Las fases de un mismo objetivo se acumulan en un branch como commits atómicos — la trazabilidad la da el commit, no el PR. Refactor y feature nunca se mezclan. Criterios de corte en la skill.
 2. **Review dual bloqueante** antes de cualquier merge (ver "Workflow obligatorio" #4).
 3. **NUNCA mergees sin aprobación explícita del usuario**, aunque CI esté verde y los reviewers aprueben sin blockers. El usuario es el checkpoint final del merge; no se infiere del estado de CI.
 4. **NUNCA mergees con CI en rojo**, aunque el finding parezca preexistente o falso positivo. Si es falso positivo legítimo, suprimirlo formalmente y esperar que CI pase — nunca `--admin`.
