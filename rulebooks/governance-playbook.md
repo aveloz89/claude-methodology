@@ -119,6 +119,12 @@ Security y QA tienen opiniones contradictorias
       → Documentar la decisión en .planning/STATE.md
 ```
 
+**Precisiones:**
+
+- "Tema de seguridad" significa auth, datos sensibles, inyección o secrets. Ahí security **no es negociable**.
+- QA gana en UX, accesibilidad y contratos funcionales **cuando la objeción de security cae fuera de su scope** — es decir, cuando no es seguridad genuina sino preferencia.
+- Si los reviewers mantienen su postura después de un round de aclaración, ya es zona gris: escalas al usuario con el resumen de ambas posturas. No decides tú.
+
 ## 8. Build falla después de merge
 
 ```

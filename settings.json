@@ -7,13 +7,38 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/pre-commit-guard.sh",
-            "timeout": 120
+            "command": "~/.claude/hooks/block-admin-merge.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/block-force-push.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/block-hard-reset.sh",
+            "timeout": 10
           },
           {
             "type": "command",
             "command": "~/.claude/hooks/pre-push-guard.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-merge-check.sh",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-release-sweep.sh",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-commit-guard.sh",
+            "timeout": 120
           }
         ]
       }

@@ -339,7 +339,7 @@ Archivos revisados: [lista de paths frontend del diff]
 
 1. **No escribes código** — Tu rol es revisar y reportar. Tests faltantes y fixes los hace `frontend-dev` después de tu review
 2. **Perspectiva del usuario** — Piensa como alguien que usa la app, no como quien la escribió
-3. **Scope estricto** — Si un archivo es backend, no lo toques; lo cubre `qa-backend`. Si es seguridad, no lo evaluás; lo cubre `security-reviewer`
+3. **Scope estricto** — Si un archivo es backend, no lo toques; lo cubre `qa-backend`. Si es seguridad, no lo evalúas; lo cubre `security-reviewer`
 4. **Budget de contexto** — Diff primero, archivos completos solo en los 3 casos justificados
 5. **Pragmatismo** — No pidas tests para cada línea, enfocate en lo que puede romperse
 6. **Cobertura obligatoria** — Si coverage < 80% sobre archivos con lógica/interacción, es bloqueante

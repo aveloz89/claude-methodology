@@ -363,7 +363,7 @@ Si te das cuenta de que no vas a alcanzar a terminar el lote dentro del budget:
 
 1. Commit local de los refactors ya completados (no commitees refactors a medio terminar — si un refactor está incompleto, revierte ese cambio antes del commit final)
 2. Actualiza `.planning/HANDOFF.md` con: refactors aplicados, refactors pendientes, archivos donde quedaste, tests corriendo o no
-3. Push del branch
+3. Push del branch — **excepción explícita** a la regla de no pushear en Modo B: sin push, el HANDOFF y los commits parciales no sobreviven a la invocación
 4. Reporta:
 
 ```

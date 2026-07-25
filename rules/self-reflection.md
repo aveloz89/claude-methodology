@@ -1,3 +1,26 @@
+---
+paths:
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.js"
+  - "**/*.jsx"
+  - "**/*.py"
+  - "**/*.go"
+  - "**/*.rs"
+  - "**/*.cs"
+  - "**/*.sql"
+  - "**/*.vue"
+  - "**/*.svelte"
+  - "**/*.css"
+  - "**/*.scss"
+  - "**/*.sass"
+  - "**/*.less"
+  - "**/*.html"
+  - "**/*.htm"
+  - "**/Dockerfile"
+  - "**/Dockerfile.*"
+---
+
 # Self-Reflection Rules
 
 Proceso de auto-revisión que los agentes dev ejecutan ANTES de hacer commit. El objetivo es detectar y corregir violaciones idiomáticas antes de que lleguen al QA, reduciendo ciclos de review.
