@@ -471,6 +471,48 @@ assert_pre_merge_continue "No CI checks configured does not block" "gh pr merge 
 # checks") — sigue bloqueando fail-closed.
 assert_pre_merge_blocked "Genuine CI checks query failure still blocks" "gh pr merge 45" "no pude consultar los CI checks" "checks_fail"
 
+# Caso 6: fail-closed sin dependencias (#50) — antes, si faltaba perl o jq,
+# la sustitución/parseo devolvía vacío, el grep no matcheaba, y el hook
+# emitía {"continue":true}: cualquier gh pr merge pasaba sin verificar. El
+# bloqueo se emite con printf, sin depender de jq (la propia herramienta
+# que puede faltar).
+assert_pre_merge_missing_dep_blocks() {
+  local test_name="$1" restricted_path="$2"
+  TOTAL=$((TOTAL + 1))
+  local output
+  output=$(echo '{"tool_input":{"command":"gh pr merge 5"}}' | PATH="$restricted_path" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  if [ "$output" = '{"decision":"block","reason":"pre-merge-check no operativo: falta perl o jq"}' ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# PATH sin perl: bash (necesario para poder invocar el hook — bash
+# resuelve el propio comando "bash" contra el PATH reasignado) + jq, sin
+# perl.
+NO_PERL_PMC_BIN=$(mktemp -d)
+for cmd in bash jq; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_PERL_PMC_BIN/$cmd"
+done
+assert_pre_merge_missing_dep_blocks "pre-merge-check bloquea fail-closed sin perl en PATH (#50)" "$NO_PERL_PMC_BIN"
+rm -rf "$NO_PERL_PMC_BIN"
+
+# PATH sin jq: bash + perl, sin jq.
+NO_JQ_PMC_BIN=$(mktemp -d)
+for cmd in bash perl; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_PMC_BIN/$cmd"
+done
+assert_pre_merge_missing_dep_blocks "pre-merge-check bloquea fail-closed sin jq en PATH (#50)" "$NO_JQ_PMC_BIN"
+rm -rf "$NO_JQ_PMC_BIN"
+
+# Con ambos disponibles (PATH normal): comportamiento intacto.
+assert_pre_merge_continue "pre-merge-check con perl y jq disponibles: comportamiento normal intacto (#50)" "git status"
+
 rm -rf "$FAKE_GH_DIR"
 
 echo ""

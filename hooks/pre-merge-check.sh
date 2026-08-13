@@ -39,6 +39,20 @@
 #      aceptada: si gh cambia ese texto en una versión futura, este caso
 #      vuelve a fail-closed (bloquea) en vez de pasar — es el fallback
 #      seguro.
+#
+# Endurecido 2026-08-13 (fail-closed sin dependencias, #50):
+#   5. Todo lo anterior depende de perl (saneo del comando) y jq (parseo del
+#      JSON de entrada y de las respuestas de gh). Antes, si faltaba
+#      cualquiera de los dos, la sustitución/parseo devolvía vacío, el grep
+#      no matcheaba, y el hook emitía {"continue":true} en silencio:
+#      cualquier gh pr merge pasaba sin verificar — justo lo contrario del
+#      diseño fail-closed que este header declara. Ahora se verifica al
+#      inicio, antes de leer stdin, y se bloquea sin depender de jq (la
+#      propia herramienta que puede faltar).
+if ! command -v perl > /dev/null 2>&1 || ! command -v jq > /dev/null 2>&1; then
+  printf '{"decision":"block","reason":"pre-merge-check no operativo: falta perl o jq"}\n'
+  exit 0
+fi
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
