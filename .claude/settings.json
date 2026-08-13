@@ -76,6 +76,16 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash hooks/pre-compact-snapshot.sh"
+          }
+        ]
+      }
     ]
   }
 }
