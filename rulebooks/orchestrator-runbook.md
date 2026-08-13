@@ -461,6 +461,18 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 1. [instrucción paso a paso de cómo continuar]
 ```
 
+### Retomar (resume)
+
+Pasos exactos cuando el hook `session-start-context.sh` detecta `HANDOFF.md` (ver "Pause / Resume" en `CLAUDE.md` raíz para el resumen):
+
+1. **Leer** `HANDOFF.md` + `STATE.md` + `state.json` — el HANDOFF da el corte exacto, `STATE.md` las decisiones, `state.json` la fase y el lote activos.
+2. **Smoke test ANTES de tocar código.** Misma detección de runner que `hooks/pre-commit-guard.sh`:
+   - Node: si hay `package.json` con `scripts.test` no vacío, corre con el gestor que indica el lockfile (`pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, si no → npm).
+   - Python: si hay `pytest.ini`, `pyproject.toml` o `setup.py` y `pytest` está en PATH, corre `pytest`.
+   - **Sin runner detectado** → se omite explícitamente y se anota en el reporte al usuario (no es un fallo, es contexto ausente).
+   - **Rojo** → diagnosticar ANTES de retomar la tarea pendiente. El rojo puede ser el bug no documentado que cortó la sesión anterior, no una regresión de este momento.
+3. **Eliminar `HANDOFF.md`** solo una vez confirmado el estado (verde, o sin runner y anotado) — recién ahí retomar la tarea marcada como `current_task` en `state.json`.
+
 ### `LEARNINGS.md` (acumulativo)
 
 **Prepend** una entrada por cada merge exitoso (más reciente arriba):
@@ -664,6 +676,7 @@ Después:
 | Hotfix mergeado pero falló integración a dev | Conflicto manual. Escalar al usuario con detalles del conflicto |
 | Migración del db-specialist falla en CI | Asignar fix al db-specialist (no a backend-dev) — es su scope |
 | Backend-dev intenta crear migración compleja (no simple) | Devolver: "esto califica como complejo según los criterios. Reasignar al db-specialist" |
+| Estado de `.planning/` corrupto o inconsistente post-compact | Restaurar desde el snapshot más reciente en `~/.claude/methodology/snapshots/<slug>/` (los crea el hook `PreCompact`) |
 
 ---
 
