@@ -105,7 +105,9 @@ claude-methodology/
 │   ├── docker-refresh.sh
 │   ├── pre-compact-snapshot.sh
 │   ├── subagent-stop-log.sh
-│   └── session-end-check.sh
+│   ├── session-end-check.sh
+│   └── lib/
+│       └── guard-matching.sh
 ├── skills/
 │   └── new-project/
 │       └── SKILL.md

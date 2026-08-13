@@ -6,7 +6,7 @@ Tests que validan que la metodología misma funciona correctamente.
 
 | Archivo | Qué valida |
 |---------|-----------|
-| `test-hooks.sh` | Los hooks de Claude Code bloquean comandos peligrosos, y los hooks de observabilidad (`pre-compact-snapshot`, `subagent-stop-log`, `session-end-check`) producen el efecto esperado en filesystem sin bloquear el evento |
+| `test-hooks.sh` | Los hooks de Claude Code bloquean comandos peligrosos — incluye regresión del matching compartido en `hooks/lib/guard-matching.sh` (comandos compuestos, menciones quoted/heredoc, fallback sin `perl`/`jq`) —, los hooks de observabilidad (`pre-compact-snapshot`, `subagent-stop-log`, `session-end-check`) producen el efecto esperado en filesystem sin bloquear el evento, `session-start-context.sh` sanitiza datos de terceros (títulos de issues), y `.gitignore` cubre los patrones de secrets defensivos |
 | `test-qa-detection.md` | Los QA agents (qa-frontend / qa-backend) detectan code smells, stubs y red flags en su capa |
 | `test-security-detection.md` | El security-reviewer detecta vulnerabilidades conocidas |
 
