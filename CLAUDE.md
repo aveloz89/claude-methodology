@@ -157,7 +157,7 @@ Los hooks son enforcement del harness, no instrucciones tuyas — corren solos. 
 
 **Bloquean el comando:** push directo a `main`, `gh pr merge --admin` (bypasea branch protections), `git push --force`, `git reset --hard`, y `gh pr merge` sin número de PR explícito, con threads de review sin resolver, o con reviews/checks pendientes (fail-closed si no puede verificar). Si uno te bloquea, la solución nunca es esquivarlo.
 
-**Corren en background:** tests antes de cada commit, review automático al crear un PR, contexto de sesión al arrancar, aviso de contexto agotándose (35% / 25%), detección de servicios Docker que necesitan restart, y `latent-bugs-sweep` antes de un `gh pr create --base main`.
+**Corren en background:** tests antes de cada commit, review automático al crear un PR, contexto de sesión al arrancar, aviso de contexto agotándose (35% / 25%), detección de servicios Docker que necesitan restart, `latent-bugs-sweep` antes de un `gh pr create --base main`, snapshot de `.planning/` antes de compactar, log de invocaciones de subagentes, y verificación de STATE desactualizado al cerrar sesión.
 
 La lista completa con archivos y eventos está en `README.md`; el registro efectivo, en `settings.json`.
 
