@@ -13,33 +13,9 @@ Origen: [conversación / PR #N / sweep / QA review]
 
 ## Pendientes
 
-### [2026-08-13] Smoke test al retomar sesión (Pause/Resume)
-La secuencia oficial de inicialización de Anthropic (effective harnesses, nov-2025) incluye correr un test básico antes de tocar código, para cazar bugs no documentados por la sesión anterior. Nuestro flujo de resume (hook + HANDOFF) lee estado pero no verifica. Añadir el paso al runbook, sección Pause/Resume.
-Origen: AUDIT-memory-agents-2026-08.md, plan de acción #2
-
-### [2026-08-13] Migrar el estado mutable de STATE.md a JSON
-Hallazgo de Anthropic (nov-2025): los modelos corrompen/sobrescriben menos JSON que markdown al mutar estado. Aplica al checklist de lotes/fases con pass-fail (bloque fenced o `state.json`); la prosa (BRIEF, DESIGN, LEARNINGS) sigue en markdown. Definir formato en el runbook.
-Origen: AUDIT-memory-agents-2026-08.md, plan de acción #3
-
-### [2026-08-13] Explotar eventos de hook nuevos: PreCompact, SubagentStop, SessionEnd
-Hoy usamos 3 eventos, existen ~20. Candidatos con caso de uso claro: `PreCompact` → snapshot de STATE/HANDOFF antes de compactar (protege pause/resume); `SubagentStop` → log de invocaciones para hacer medible el budget de `agent-budget.md`; `SessionEnd` → recordatorio de STATE.md desactualizado.
-Origen: AUDIT-memory-agents-2026-08.md, plan de acción #4
-
-### [2026-08-13] Piloto de `memory: true` en e2e-runner
-El frontmatter `memory: true` da memoria persistente propia por agente. El e2e-runner es el candidato ideal: el tracking de flaky tests entre sesiones es su responsabilidad y hoy no tiene mecanismo persistente propio. Evaluar con cuidado antes de extender a otros agentes (fragmenta la memoria); architect sería el segundo candidato.
-Origen: AUDIT-memory-agents-2026-08.md, plan de acción #5
-
-### [2026-08-13] Regla anti-drift: DoD de cambios de proceso incluye reconciliar documentos
-El spec drift es el modo de fallo #1 de las metodologías con documentos (caso spec-kit), y ya nos pasó: las 7 contradicciones de la auditoría de julio venían todas del PR #44 (cambió el flujo sin actualizar lo que lo describía). Regla para el runbook: todo PR que cambie el flujo incluye grep + actualización de los documentos que lo describen.
-Origen: AUDIT-memory-agents-2026-08.md, plan de acción #6
-
 ### [2026-08-13] Evaluar empaquetar la metodología como plugin de Claude Code
 Los plugins empaquetan skills + agents + hooks + settings en un bundle instalable con marketplace — el mecanismo nativo 2026 para distribuir exactamente lo que hoy reparte `install.sh` con symlinks. Resolvería el follow-up del 2026-05-08 (carga global vs por proyecto) y eliminaría la clase de bug C5 de la auditoría de julio (hooks documentados pero no instalados). Esfuerzo alto: proyecto propio.
 Origen: AUDIT-memory-agents-2026-08.md, plan de acción #7
-
-### [2026-08-13] Stress-test trimestral de supuestos del harness
-Anthropic (mar-2026): "cada componente de un harness codifica una suposición sobre lo que el modelo no puede hacer solo, y esas suposiciones caducan". En un branch, quitar una pieza de andamiaje (template de reporte, detalle de debugging) y correr `tests/adversarial/` para ver si el modelo actual la necesita; lo que sobrevive sin la pieza, se poda. Encaja con la frecuencia ya recomendada en `validation-schedule.md`.
-Origen: AUDIT-memory-agents-2026-08.md, plan de acción #8
 
 ### [2026-08-13] Vigilar Agent Teams (no adoptar mientras sea experimental)
 Anthropic nativizó nuestro patrón orchestrator+workers como feature experimental (flag `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`). Limitaciones actuales: sin `/resume`, task status con lag, reportes de mensajes perdidos entre teammates. Reevaluar cuando salga de experimental — parte del valor del runbook casero podría migrar al harness.
