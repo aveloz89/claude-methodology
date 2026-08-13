@@ -664,6 +664,60 @@ sandbox_cleanup
 
 echo ""
 
+# --- session-start-context.sh (consumo del marker de SessionEnd + render de state.json) ---
+echo "--- session-start-context.sh ---"
+
+# session-start-context.sh no lee stdin y su salida SÍ importa (a diferencia
+# de los hooks no-bloqueantes anteriores), así que estos casos no usan
+# assert_exit0 (descarta stdout) sino asserts inline sobre el output capturado.
+
+# Caso: sin marker y sin state.json, el output no cambia (no rompe el
+# comportamiento actual del hook).
+sandbox_create
+OUTPUT_PLAIN=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+TOTAL=$((TOTAL + 1))
+if echo "$OUTPUT_PLAIN" | grep -q "=== Session Context ===" && ! echo "$OUTPUT_PLAIN" | grep -q "sesión anterior cerró"; then
+  echo -e "${GREEN}PASS${NC}: SessionStart sin marker ni state.json mantiene el output actual"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart sin marker ni state.json mantiene el output actual"
+  FAIL=$((FAIL + 1))
+fi
+sandbox_cleanup
+
+# Caso: con marker presente, la primera invocación avisa con las señales y
+# borra el marker (consume-once); la segunda invocación ya no avisa.
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
+mkdir -p "$MARKER_DIR"
+jq -n '{ts:"2026-08-13T00:00:00Z", reason:"other", branch:"feature/x", head:"abc1234", signals:["commits_after_state","dirty_files_after_state"]}' \
+  > "$MARKER_DIR/$SLUG.json"
+
+OUTPUT_FIRST=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+TOTAL=$((TOTAL + 1))
+EXPECTED_WARNING="⚠️ La sesión anterior cerró con STATE posiblemente desactualizado (señales: commits_after_state, dirty_files_after_state). Verifica .planning/STATE.md y state.json antes de continuar."
+if echo "$OUTPUT_FIRST" | grep -qF "$EXPECTED_WARNING" && [ ! -f "$MARKER_DIR/$SLUG.json" ]; then
+  echo -e "${GREEN}PASS${NC}: SessionStart primera invocación avisa del marker y lo borra"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart primera invocación avisa del marker y lo borra"
+  FAIL=$((FAIL + 1))
+fi
+
+OUTPUT_SECOND=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+TOTAL=$((TOTAL + 1))
+if ! echo "$OUTPUT_SECOND" | grep -q "sesión anterior cerró"; then
+  echo -e "${GREEN}PASS${NC}: SessionStart segunda invocación ya no avisa (consume-once)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart segunda invocación ya no avisa (consume-once)"
+  FAIL=$((FAIL + 1))
+fi
+sandbox_cleanup
+
+echo ""
+
 # --- Resumen ---
 echo "=== Results ==="
 echo -e "Total: $TOTAL | ${GREEN}Pass: $PASS${NC} | ${RED}Fail: $FAIL${NC}"

@@ -29,6 +29,22 @@ if command -v gh > /dev/null 2>&1; then
   fi
 fi
 
+# Marker de SessionEnd: aviso consume-once de STATE posiblemente
+# desactualizado, dejado por la sesión anterior (session-end-check.sh).
+if command -v jq > /dev/null 2>&1; then
+  TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
+  if [ -n "$TOPLEVEL" ]; then
+    SLUG=$(echo "$TOPLEVEL" | tr '/' '-')
+    MARKER_FILE="$HOME/.claude/methodology/session-end/$SLUG.json"
+    if [ -f "$MARKER_FILE" ]; then
+      SIGNALS=$(jq -r '.signals // [] | join(", ")' "$MARKER_FILE" 2>/dev/null)
+      echo ""
+      echo "⚠️ La sesión anterior cerró con STATE posiblemente desactualizado (señales: $SIGNALS). Verifica .planning/STATE.md y state.json antes de continuar."
+      rm -f "$MARKER_FILE" 2>/dev/null
+    fi
+  fi
+fi
+
 # Planning state
 if [ -d ".planning" ]; then
   echo ""
