@@ -98,6 +98,17 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-end-check.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "statusLine": {

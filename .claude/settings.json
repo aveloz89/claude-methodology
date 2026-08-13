@@ -96,6 +96,16 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash hooks/session-end-check.sh"
+          }
+        ]
+      }
     ]
   }
 }
