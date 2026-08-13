@@ -15,8 +15,9 @@ Detalle operativo del flujo de orchestration. **Lectura bajo demanda**: el compo
 7. [Comandos `gh` específicos](#comandos-gh-específicos)
 8. [Formato de reporte de review](#formato-de-reporte-de-review)
 9. [Pre-release E2E (Modo B del e2e-runner)](#pre-release-e2e-modo-b-del-e2e-runner)
-10. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
-11. [Flujo: revisar PR existente sin pasar por el flow completo](#flujo-revisar-pr-existente-sin-pasar-por-el-flow-completo)
+10. [Anti-drift: DoD de cambios de proceso](#anti-drift-dod-de-cambios-de-proceso)
+11. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
+12. [Flujo: revisar PR existente sin pasar por el flow completo](#flujo-revisar-pr-existente-sin-pasar-por-el-flow-completo)
 
 ---
 
@@ -659,6 +660,17 @@ Después:
 
 - El PR a main es solo configuración / docs (no hay cambios de código que afecten flujos de usuario)
 - El usuario explícitamente lo pide
+
+---
+
+## Anti-drift: DoD de cambios de proceso
+
+Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planning/`, reglas de agentes) incluye, como parte de su Definition of Done, antes de pedir review:
+
+1. **Grep de los términos afectados** en `CLAUDE.md`, `README.md`, `rulebooks/`, `agents/` y `skills/` — cualquier mención del comportamiento viejo es candidata a quedar desactualizada.
+2. **Reconciliar todo documento que describa el comportamiento cambiado.** No basta con documentar el cambio en un solo archivo — el mismo hecho (p. ej. "el dev actualiza X entre tareas") suele estar descrito en más de un rulebook o en `CLAUDE.md` raíz.
+
+Este paso no es opcional ni cosmético: las 7 contradicciones de la auditoría de julio (ver `.planning/AUDIT-context-engineering.md`) eran todas de esta clase — un cambio de proceso documentado en un archivo y olvidado en otro.
 
 ---
 

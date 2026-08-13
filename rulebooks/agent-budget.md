@@ -52,9 +52,9 @@ Lint, build y self-review ocurren al cierre de la invocación, después de todos
 
 **El dev no pushea ni abre PR.** Al terminar el último lote, el orchestrator invoca `docs` sobre el diff local y recién ahí hace push + PR. Ver `rulebooks/orchestrator-runbook.md`, Fases 2.5–2.7.
 
-### 3. STATE.md actualizado entre tareas
+### 3. state.json actualizado entre tareas
 
-El dev actualiza `.planning/STATE.md` con la tarea en curso *antes* de empezarla. Si la invocación se corta a mitad, la próxima sabe exactamente dónde quedó.
+El dev actualiza `.planning/state.json` (`tasks_done` y `current_task` de **su** batch) *antes* de empezar cada tarea. Si la invocación se corta a mitad, la próxima sabe exactamente dónde quedó. `STATE.md` queda para prosa (decisiones, blockers) — no lo toca el dev entre tareas. Detalle del schema y del reparto en `rulebooks/orchestrator-runbook.md`, sección "STATE.md + state.json".
 
 ### 4. Definition of done con fallback de budget
 
