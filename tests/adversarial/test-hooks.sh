@@ -144,11 +144,12 @@ assert_blocked_cmd() {
   local hook="$2"
   local command="$3"
   local run_path="${4:-$PATH}"
+  local run_cwd="${5:-$PWD}"
   TOTAL=$((TOTAL + 1))
 
   local json exit_code=0
   json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
-  echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/$hook" > /dev/null 2>&1 || exit_code=$?
+  (cd "$run_cwd" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/$hook" > /dev/null 2>&1) || exit_code=$?
 
   if [ "$exit_code" -eq 2 ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (blocked as expected)"
@@ -164,11 +165,12 @@ assert_allowed_cmd() {
   local hook="$2"
   local command="$3"
   local run_path="${4:-$PATH}"
+  local run_cwd="${5:-$PWD}"
   TOTAL=$((TOTAL + 1))
 
   local json exit_code=0
   json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
-  echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/$hook" > /dev/null 2>&1 || exit_code=$?
+  (cd "$run_cwd" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/$hook" > /dev/null 2>&1) || exit_code=$?
 
   if [ "$exit_code" -eq 0 ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (allowed as expected)"
@@ -295,6 +297,50 @@ assert_allowed "Git diff passes through" "pre-commit-guard.sh" "git diff"
 # en el proyecto. En este repo (methodology) no hay package.json ni pytest,
 # así que el hook permite el commit (no encuentra test runner).
 assert_allowed "Commit in repo without test runner passes through" "pre-commit-guard.sh" "git commit -m 'test'"
+
+# Regression #47: mismo matching frágil que pre-merge-check.sh tenía antes
+# de su endurecimiento. El comando vigilado de este guard es "git commit";
+# para que el falso negativo/positivo sea observable (más allá del match en
+# sí) se corre en un directorio con un test runner detectable (pyproject.toml)
+# y un "pytest" fake que siempre falla — así, si el guard SÍ intercepta,
+# bloquea (exit 2); si no intercepta, pasa (exit 0) sin correr nada.
+PCG_TEST_DIR=$(mktemp -d)
+touch "$PCG_TEST_DIR/pyproject.toml"
+FAKE_PYTEST_DIR=$(mktemp -d)
+cat > "$FAKE_PYTEST_DIR/pytest" <<'FAKE_PYTEST_EOF'
+#!/bin/bash
+# Fake pytest: siempre "falla" (simula tests rotos), sin ejecutar nada real.
+exit 1
+FAKE_PYTEST_EOF
+chmod +x "$FAKE_PYTEST_DIR/pytest"
+
+# (a) Falso negativo: invocación real de "git commit" dentro de un comando
+# compuesto en una sola línea (después de &&) no matcheaba el ancla ^\s*
+# del hook actual (solo mira el inicio del string completo) → el guard no
+# interceptaba, el fake pytest (fallando) nunca corría, y el commit pasaba
+# sin verificar.
+assert_blocked_cmd "pre-commit-guard: real git commit after && is intercepted (blocks on failing tests)" \
+  "pre-commit-guard.sh" \
+  "git add -A && git commit -m 'wip'" \
+  "$FAKE_PYTEST_DIR:$PATH" \
+  "$PCG_TEST_DIR"
+
+# (b) Falso positivo: mención de "git commit" al inicio de una línea dentro
+# de un heredoc (contenido literal escrito a un archivo, no una invocación
+# real — el comando real es "cat") no debe disparar el guard.
+HEREDOC_MENTION_PCG=$(cat <<'CMD_EOF'
+cat <<'NOTE_EOF' > notes.txt
+git commit -m "reminder text" (do this later)
+NOTE_EOF
+CMD_EOF
+)
+assert_allowed_cmd "pre-commit-guard: heredoc mentioning git commit is not a real invocation (allowed)" \
+  "pre-commit-guard.sh" \
+  "$HEREDOC_MENTION_PCG" \
+  "$FAKE_PYTEST_DIR:$PATH" \
+  "$PCG_TEST_DIR"
+
+rm -rf "$PCG_TEST_DIR" "$FAKE_PYTEST_DIR"
 
 echo ""
 
