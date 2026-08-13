@@ -6,6 +6,10 @@
 # exige repo git ni .planning/: loguea siempre, con repo/branch en null si no
 # hay repo (D2).
 
+# Los artefactos bajo ~/.claude/methodology/ contienen session ids: nunca
+# legibles por otros usuarios de la máquina.
+umask 077
+
 INPUT=$(cat 2>/dev/null)
 
 # Sin jq no hay forma segura de parsear el stdin ni de serializar la línea.

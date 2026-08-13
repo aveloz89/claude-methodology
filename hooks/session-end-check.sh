@@ -5,6 +5,10 @@
 # session-start-context.sh consume (aviso consume-once) en la siguiente
 # sesión.
 
+# Los artefactos bajo ~/.claude/methodology/ contienen planificación y
+# session ids: nunca legibles por otros usuarios de la máquina.
+umask 077
+
 INPUT=$(cat 2>/dev/null)
 
 # Sin jq no hay forma segura de construir el marker JSON.
@@ -75,13 +79,21 @@ mkdir -p "$MARKER_DIR" 2>/dev/null
 SIGNALS_JSON=$(printf '%s\n' "${SIGNALS[@]}" | jq -R . | jq -s . 2>/dev/null)
 
 # Sobrescribe siempre (>, nunca >>): solo importa el último cierre de sesión.
-jq -n \
+# Escritura atómica: si jq falla a mitad de camino, el redirect ya truncó
+# el archivo destino a 0 bytes. Se escribe primero a un .tmp.$$ y se mueve
+# solo si jq tuvo éxito, para nunca dejar el marker truncado.
+MARKER_TMP="$MARKER_DIR/$SLUG.json.tmp.$$"
+if jq -n \
   --arg ts "$NOW" \
   --arg reason "$REASON" \
   --arg branch "$BRANCH" \
   --arg head "$HEAD" \
   --argjson signals "$SIGNALS_JSON" \
   '{ts: $ts, reason: $reason, branch: $branch, head: $head, signals: $signals}' \
-  > "$MARKER_DIR/$SLUG.json" 2>/dev/null
+  > "$MARKER_TMP" 2>/dev/null; then
+  mv -f "$MARKER_TMP" "$MARKER_DIR/$SLUG.json"
+else
+  rm -f "$MARKER_TMP"
+fi
 
 exit 0

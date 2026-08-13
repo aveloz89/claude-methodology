@@ -341,6 +341,13 @@ snapshot_dir_for() {
   find "$1/.claude/methodology/snapshots/$2" -maxdepth 1 -type d -name "$3" 2>/dev/null | head -1
 }
 
+# perm_of: permisos octales de un archivo/dir, portable BSD (stat -f%Lp) /
+# GNU (stat -c%a) — mismo patrón dual que mtime_of en session-end-check.sh.
+# Usado en checks de umask (eval'd, por eso vive como función global).
+perm_of() {
+  stat -f%Lp "$1" 2>/dev/null || stat -c%a "$1" 2>/dev/null
+}
+
 # Caso: happy path — snapshot completo de .planning/ con meta.json correcto.
 sandbox_create
 SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
@@ -352,6 +359,19 @@ assert_exit0 "PreCompact crea snapshot de .planning/ con meta.json" \
   'DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$SLUG" "*-auto") && [ -n "$DIR" ] && [ -f "$DIR/STATE.md" ] && [ -f "$DIR/DESIGN.md" ] && [ -f "$DIR/reviews/PR-1.md" ] && [ -f "$DIR/meta.json" ] && [ "$(jq -r .trigger "$DIR/meta.json")" = "auto" ] && [ "$(jq -r .repo "$DIR/meta.json")" = "$SANDBOX_REPO" ] && [ "$(jq -r .branch "$DIR/meta.json")" != "null" ] && [ "$(jq -r .head "$DIR/meta.json")" != "null" ]'
 sandbox_cleanup
 
+# Caso: umask 077 — el snapshot dir y meta.json quedan sin permisos de
+# grupo/otros (planificación y session ids no deben ser legibles por otros
+# usuarios de la máquina).
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+assert_exit0 "PreCompact crea snapshot y meta.json sin permisos de grupo/otros (umask 077)" \
+  "$HOOKS_DIR/pre-compact-snapshot.sh" \
+  '{"trigger":"auto"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$SLUG" "*-auto") && [ -n "$DIR" ] && [ "$(perm_of "$DIR")" = "700" ] && [ "$(perm_of "$DIR/meta.json")" = "600" ]'
+sandbox_cleanup
+
 # Caso: JSON válido sin campo trigger — cae al fallback "unknown" (D4).
 sandbox_create
 SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
@@ -361,6 +381,21 @@ assert_exit0 "PreCompact usa trigger=unknown si el campo no viene en el stdin" \
   "$SANDBOX_REPO" \
   "$SANDBOX_HOME" \
   'DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$SLUG" "*-unknown") && [ -n "$DIR" ] && [ "$(jq -r .trigger "$DIR/meta.json")" = "unknown" ]'
+sandbox_cleanup
+
+# Caso: TRIGGER con espacios, comillas y ; se reduce a la allowlist
+# alfanumérica — antes solo se traducía "/" a "-", dejando pasar cualquier
+# otro caracter que pudiera romper el word splitting del `ls | xargs rm -rf`
+# de retención más abajo si se cuela en el nombre del directorio.
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+DANGEROUS_TRIGGER_JSON=$(jq -n --arg trigger 'weird value/with spaces "and quotes" and;semicolons$(danger)' '{trigger: $trigger}')
+assert_exit0 "PreCompact reduce TRIGGER a allowlist alfanumérica (a-zA-Z0-9_-)" \
+  "$HOOKS_DIR/pre-compact-snapshot.sh" \
+  "$DANGEROUS_TRIGGER_JSON" \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'ROOT="$SANDBOX_HOME/.claude/methodology/snapshots/$SLUG"; DIR=$(find "$ROOT" -maxdepth 1 -type d ! -path "$ROOT" 2>/dev/null | head -1); [ -n "$DIR" ] && TRIGGER_PART=$(basename "$DIR" | sed -E "s/^[0-9]{8}-[0-9]{6}-//") && [ -n "$TRIGGER_PART" ] && [ -z "$(echo "$TRIGGER_PART" | tr -d "A-Za-z0-9_-")" ]'
 sandbox_cleanup
 
 # Caso: no-op limpio — sin .planning/ en un repo git válido. No debe crear
@@ -429,6 +464,33 @@ assert_exit0 "PreCompact retención conserva solo los 5 snapshots más recientes
   '[ "$(ls -1 "$RETENTION_ROOT" | wc -l | tr -d " ")" = "5" ] && [ ! -d "$RETENTION_ROOT/20260101-000000-manual" ] && [ ! -d "$RETENTION_ROOT/20260102-000000-manual" ] && [ -d "$RETENTION_ROOT/20260103-000000-manual" ] && [ -d "$RETENTION_ROOT/20260106-000000-manual" ] && [ -n "$(snapshot_dir_for "$SANDBOX_HOME" "$SLUG" "*-auto")" ]'
 sandbox_cleanup
 
+# Caso: escritura atómica — si el jq que arma meta.json falla, el archivo
+# destino nunca queda truncado a 0 bytes (se escribe primero a
+# meta.json.tmp.$$ y se mueve solo si jq tuvo éxito). Fake jq que intercepta
+# específicamente las invocaciones "-n" (la del meta.json final) y deja
+# pasar todo lo demás al jq real, para no romper el resto del hook.
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+FAKE_JQ_DIR=$(mktemp -d)
+REAL_JQ=$(command -v jq)
+cat > "$FAKE_JQ_DIR/jq" <<FAKE_JQ_EOF
+#!/bin/bash
+if [ "\$1" = "-n" ]; then
+  exit 1
+fi
+exec "$REAL_JQ" "\$@"
+FAKE_JQ_EOF
+chmod +x "$FAKE_JQ_DIR/jq"
+assert_exit0 "PreCompact no deja meta.json truncado si jq falla al escribir (atomic write)" \
+  "$HOOKS_DIR/pre-compact-snapshot.sh" \
+  '{"trigger":"auto"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$SLUG" "*-auto"); [ -n "$DIR" ] && [ ! -f "$DIR/meta.json" ] && [ -z "$(find "$DIR" -maxdepth 1 -name "meta.json.tmp.*")" ]' \
+  "$FAKE_JQ_DIR:$PATH"
+rm -rf "$FAKE_JQ_DIR"
+sandbox_cleanup
+
 # Caso: jq ausente en PATH — exit 0, sin crear ningún snapshot. Mismo patrón
 # que el de subagent-stop-log.sh: PATH restringido a symlinks de los binarios
 # que el hook necesita salvo jq, para que la ausencia sea real y no un efecto
@@ -462,6 +524,17 @@ assert_exit0 "SubagentStop appendea línea JSONL con los campos del contrato" \
   "$SANDBOX_REPO" \
   "$SANDBOX_HOME" \
   'LOG="$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl"; [ -f "$LOG" ] && [ "$(jq -r .agent "$LOG")" = "backend-dev" ] && [ "$(jq -r .session "$LOG")" = "sess-1" ] && [ "$(jq -r .repo "$LOG")" = "$SANDBOX_REPO" ] && [ "$(jq -r .branch "$LOG")" != "null" ] && [ "$(jq -r .transcript "$LOG")" = "/tmp/transcript.jsonl" ] && [ "$(jq -r .ts "$LOG")" != "null" ]'
+sandbox_cleanup
+
+# Caso: umask 077 — el log JSONL (session ids, transcripts) queda sin
+# permisos de grupo/otros.
+sandbox_create
+assert_exit0 "SubagentStop crea el log sin permisos de grupo/otros (umask 077)" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  '{"agent_type":"backend-dev","session_id":"sess-1"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ "$(perm_of "$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl")" = "600" ]'
 sandbox_cleanup
 
 # Caso: agent_type ausente — cae al fallback .subagent_type.
@@ -576,6 +649,58 @@ assert_exit0 "SessionEnd S1: commit posterior a STATE.md escribe marker" \
   "$SANDBOX_REPO" \
   "$SANDBOX_HOME" \
   'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ -f "$MARKER" ] && [ "$(jq -c .signals "$MARKER")" = "[\"commits_after_state\"]" ] && [ "$(jq -r .branch "$MARKER")" != "null" ] && [ "$(jq -r .head "$MARKER")" != "null" ] && [ "$(jq -r .reason "$MARKER")" = "other" ] && [ "$(jq -r .ts "$MARKER")" != "null" ]'
+sandbox_cleanup
+
+# Caso: umask 077 — el marker (branch, head, señales) queda sin permisos de
+# grupo/otros.
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+(
+  cd "$SANDBOX_REPO" || exit 1
+  touch -t 202001010000 .planning/STATE.md
+  echo "new work" > new-file.txt
+  git add new-file.txt
+  git commit -q -m "commit after state"
+) > /dev/null 2>&1
+assert_exit0 "SessionEnd crea el marker sin permisos de grupo/otros (umask 077)" \
+  "$HOOKS_DIR/session-end-check.sh" \
+  '{"reason":"other"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ "$(perm_of "$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json")" = "600" ]'
+sandbox_cleanup
+
+# Caso: escritura atómica — si el jq que arma el marker falla, el archivo
+# destino nunca queda truncado a 0 bytes. Mismo fake jq de PreCompact:
+# intercepta solo "-n" (la del marker final), deja pasar el resto al jq
+# real para no romper el resto del hook (jq -R/-s de SIGNALS_JSON).
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+(
+  cd "$SANDBOX_REPO" || exit 1
+  touch -t 202001010000 .planning/STATE.md
+  echo "new work" > new-file.txt
+  git add new-file.txt
+  git commit -q -m "commit after state"
+) > /dev/null 2>&1
+FAKE_JQ_DIR=$(mktemp -d)
+REAL_JQ=$(command -v jq)
+cat > "$FAKE_JQ_DIR/jq" <<FAKE_JQ_EOF
+#!/bin/bash
+if [ "\$1" = "-n" ]; then
+  exit 1
+fi
+exec "$REAL_JQ" "\$@"
+FAKE_JQ_EOF
+chmod +x "$FAKE_JQ_DIR/jq"
+assert_exit0 "SessionEnd no deja marker truncado si jq falla al escribir (atomic write)" \
+  "$HOOKS_DIR/session-end-check.sh" \
+  '{"reason":"other"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"; [ ! -f "$MARKER_DIR/$SLUG.json" ] && [ -z "$(find "$MARKER_DIR" -maxdepth 1 -name "$SLUG.json.tmp.*" 2>/dev/null)" ]' \
+  "$FAKE_JQ_DIR:$PATH"
+rm -rf "$FAKE_JQ_DIR"
 sandbox_cleanup
 
 # Caso: señal S2 — archivo dirty (sin commitear) fuera de .planning/ con
