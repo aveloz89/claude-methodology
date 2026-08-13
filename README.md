@@ -41,6 +41,8 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal, de
 | **subagent-stop-log** | SubagentStop | Appendea una línea JSONL por invocación de subagente, para medir el budget de `agent-budget.md` |
 | **session-end-check** | SessionEnd | Detecta STATE.md desactualizado (commits o archivos dirty posteriores) y deja un marker que avisa en la próxima sesión |
 
+Los tres hooks de observabilidad (`pre-compact-snapshot`, `subagent-stop-log`, `session-end-check`) escriben sus artefactos bajo `~/.claude/methodology/` (`snapshots/`, `logs/`, `session-end/`, uno por repo vía slug) con retención acotada (5 snapshots más recientes por repo, log rotado a `.old` al superar 1 MB, marker de sesión sobrescrito en cada cierre); el directorio entero se puede borrar sin riesgo — se regenera solo en la siguiente invocación de cada hook.
+
 ### Skills (2)
 | Skill | Qué hace |
 |-------|----------|

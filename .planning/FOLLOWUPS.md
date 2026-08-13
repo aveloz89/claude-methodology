@@ -13,6 +13,10 @@ Origen: [conversación / PR #N / sweep / QA review]
 
 ## Pendientes
 
+### [2026-08-13] Sufijar slug de artefactos de hooks con hash del toplevel
+`tr '/' '-'` no es inyectivo: dos repos distintos pueden generar el mismo slug (ej. `/a/b-c` y `/a-b/c` colisionan en `-a-b-c`) y pisarse snapshots/markers entre sí bajo `~/.claude/methodology/`. Cambiar la convención requiere tocar `session-start-context.sh`, `pre-compact-snapshot.sh`, `subagent-stop-log.sh` y `session-end-check.sh` a la vez (todos derivan el mismo slug del toplevel) y actualizar la convención documentada en ARCHITECTURE.md — por eso se difiere en vez de auto-aplicarse en el fix puntual que lo detectó.
+Origen: security review PR #49
+
 ### [2026-08-13] Evaluar empaquetar la metodología como plugin de Claude Code
 Los plugins empaquetan skills + agents + hooks + settings en un bundle instalable con marketplace — el mecanismo nativo 2026 para distribuir exactamente lo que hoy reparte `install.sh` con symlinks. Resolvería el follow-up del 2026-05-08 (carga global vs por proyecto) y eliminaría la clase de bug C5 de la auditoría de julio (hooks documentados pero no instalados). Esfuerzo alto: proyecto propio.
 Origen: AUDIT-memory-agents-2026-08.md, plan de acción #7
