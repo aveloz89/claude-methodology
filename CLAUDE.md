@@ -115,7 +115,7 @@ Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`
 
 ## Estado persistente: `.planning/`
 
-`STATE.md` (fase, progreso, decisiones, blockers) · `BRIEF.md` (brainstorming) · `DESIGN.md` (architect) · `ARCHITECTURE.md` (decisiones recurrentes, persistente) · `HANDOFF.md` (solo si hay trabajo pausado) · `LEARNINGS.md` (retrospectivas post-merge, acumulativo) · `reviews/PR-{N}.md`. Formatos en el runbook.
+`STATE.md` (decisiones, blockers, prosa libre) · `state.json` (estado mutable enumerable: fase, lotes, progreso — ver runbook) · `BRIEF.md` (brainstorming) · `DESIGN.md` (architect) · `ARCHITECTURE.md` (decisiones recurrentes, persistente) · `HANDOFF.md` (solo si hay trabajo pausado) · `LEARNINGS.md` (retrospectivas post-merge, acumulativo) · `reviews/PR-{N}.md`. Formatos en el runbook.
 
 **Una feature a la vez**: `.planning/` refleja la feature activa actual. No se trabajan features en paralelo. Si surge un hotfix urgente durante una feature, pausas (ver "Pause / Resume") antes de cambiar de branch.
 
@@ -124,7 +124,7 @@ Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`
 ## Pause / Resume
 
 **Pausar**: actualiza `STATE.md`, crea `HANDOFF.md`, commit/push `wip:` si está incompleto.
-**Retomar**: el hook `session-start-context.sh` detecta `HANDOFF.md`. Lee HANDOFF + STATE, reporta al usuario, pregunta si continúa. Al retomar elimina HANDOFF.md.
+**Retomar**: el hook `session-start-context.sh` detecta `HANDOFF.md`. Lee HANDOFF + STATE + `state.json`, corre el smoke test del proyecto (detalle en el runbook), reporta al usuario, pregunta si continúa. Al retomar elimina HANDOFF.md.
 
 ## PR y merge (invariantes)
 
