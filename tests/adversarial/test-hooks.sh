@@ -328,6 +328,29 @@ sandbox_cleanup
 
 echo ""
 
+# --- pre-compact-snapshot.sh ---
+echo "--- pre-compact-snapshot.sh ---"
+
+# snapshot_dir_for: encuentra el (único) directorio de snapshot que matchea
+# un sufijo de trigger dado, bajo el slug del sandbox. Usado dentro de los
+# check_cmd de assert_exit0 (eval'd, por eso vive como función global).
+snapshot_dir_for() {
+  find "$1/.claude/methodology/snapshots/$2" -maxdepth 1 -type d -name "$3" 2>/dev/null | head -1
+}
+
+# Caso: happy path — snapshot completo de .planning/ con meta.json correcto.
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+assert_exit0 "PreCompact crea snapshot de .planning/ con meta.json" \
+  "$HOOKS_DIR/pre-compact-snapshot.sh" \
+  '{"trigger":"auto"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$SLUG" "*-auto") && [ -n "$DIR" ] && [ -f "$DIR/STATE.md" ] && [ -f "$DIR/DESIGN.md" ] && [ -f "$DIR/reviews/PR-1.md" ] && [ -f "$DIR/meta.json" ] && [ "$(jq -r .trigger "$DIR/meta.json")" = "auto" ] && [ "$(jq -r .repo "$DIR/meta.json")" = "$SANDBOX_REPO" ] && [ "$(jq -r .branch "$DIR/meta.json")" != "null" ] && [ "$(jq -r .head "$DIR/meta.json")" != "null" ]'
+sandbox_cleanup
+
+echo ""
+
 # --- Resumen ---
 echo "=== Results ==="
 echo -e "Total: $TOTAL | ${GREEN}Pass: $PASS${NC} | ${RED}Fail: $FAIL${NC}"
