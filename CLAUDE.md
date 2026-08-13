@@ -155,7 +155,7 @@ Cuatro reglas que no pueden llegar tarde. El resto del proceso — presupuesto d
 
 Los hooks son enforcement del harness, no instrucciones tuyas — corren solos. Lo único que necesitas saber es qué te va a fallar y por qué.
 
-**Bloquean el comando:** push directo a `main`, `gh pr merge --admin` (bypasea branch protections), `git push --force`, `git reset --hard`, y `gh pr merge` con comentarios/reviews/checks pendientes. Si uno te bloquea, la solución nunca es esquivarlo.
+**Bloquean el comando:** push directo a `main`, `gh pr merge --admin` (bypasea branch protections), `git push --force`, `git reset --hard`, y `gh pr merge` sin número de PR explícito, con threads de review sin resolver, o con reviews/checks pendientes (fail-closed si no puede verificar). Si uno te bloquea, la solución nunca es esquivarlo.
 
 **Corren en background:** tests antes de cada commit, review automático al crear un PR, contexto de sesión al arrancar, aviso de contexto agotándose (35% / 25%), detección de servicios Docker que necesitan restart, y `latent-bugs-sweep` antes de un `gh pr create --base main`.
 
