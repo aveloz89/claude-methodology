@@ -197,7 +197,7 @@ gh pr checks <number> --watch --fail-fast
    - `feature/*` o `hotfix/*` → `gh pr merge <number> --merge --delete-branch`
    - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `CLAUDE.md`)
 9. Si era hotfix (PR a main), después del merge integra a dev (procedimiento más abajo)
-10. Actualiza `.planning/STATE.md` con resultado
+10. Actualiza `.planning/state.json` (`phases.merge` a `done`) y `.planning/STATE.md` si hay una decisión o aprendizaje que registrar
 
 ### Fase 4: Learn (post-merge)
 
@@ -261,7 +261,7 @@ Cada subagente recibe un paquete de contexto, **no el historial completo**:
 - **Sección de DESIGN.md** correspondiente al lote (no DESIGN completo)
 - **Branch en el que trabajar** (sin `git checkout` desde cero)
 - **Flag `last_batch=true|false`** explícito
-- **Si no es el primer lote**: instrucción de leer `git log` y `.planning/STATE.md` para entender qué hay
+- **Si no es el primer lote**: instrucción de leer `git log`, `.planning/STATE.md` y `.planning/state.json` para entender qué hay
 - `rules/<lenguaje>.md` aplicable
 
 **NO incluyas:**
@@ -299,7 +299,7 @@ Rules aplicables:
 - ~/.claude/rules/<lenguaje>.md
 - ~/.claude/rules/docker.md (si aplica)
 
-Si no es el primer lote: lee `git log` y `.planning/STATE.md` antes de empezar.
+Si no es el primer lote: lee `git log`, `.planning/STATE.md` y `.planning/state.json` antes de empezar.
 
 Si last_batch=false: NO push, NO PR. Reporta completado.
 Si last_batch=true: verificación final completa del branch y reporta listo.
@@ -310,7 +310,7 @@ NO push ni PR en ningún caso — el orchestrator corre docs y hace push + PR.
 
 ## Tracker de tareas de sesión (TaskCreate/TaskUpdate)
 
-Visibilidad en vivo del pipeline de la fase para el usuario. Se crea SIEMPRE al cerrar el diseño con el architect (sin que el usuario lo pida) y se mantiene actualizado durante toda la fase. No sustituye a `.planning/STATE.md`: el tracker vive solo en la sesión; STATE.md sigue siendo el estado persistente y el nivel de detalle fino.
+Visibilidad en vivo del pipeline de la fase para el usuario. Se crea SIEMPRE al cerrar el diseño con el architect (sin que el usuario lo pida) y se mantiene actualizado durante toda la fase. No sustituye a `.planning/STATE.md` ni a `.planning/state.json`: el tracker vive solo en la sesión; STATE.md (decisiones, blockers) y state.json (fase, lotes, progreso) siguen siendo el estado persistente entre sesiones.
 
 ### Estructura estándar del listado
 
@@ -326,7 +326,7 @@ Al recibir el plan de lotes del architect, crea:
 - `in_progress` al LANZAR el trabajo (dev invocado, reviews lanzados, E2E iniciada).
 - `completed` SOLO cuando el hito ocurrió de verdad: lote = commits pusheados y reporte del dev recibido; PR/reviews = veredictos limpios + sugerencias aplicadas + CI verde; E2E = checklist ejecutada con hallazgos resueltos; merge+retro = mergeado Y retro commiteada.
 - Los blockers de reviews/E2E se resuelven dentro de la tarea en curso (fixes en el mismo PR) — NO crean tareas nuevas, salvo que generen trabajo fuera del PR (fix-PR posterior o issue), en cuyo caso sí se agrega la tarea.
-- Si el usuario pausa la fase, las tareas quedan en su estado actual y STATE.md registra el corte exacto (el tracker no persiste entre sesiones; al retomar, se recrea desde STATE.md).
+- Si el usuario pausa la fase, las tareas quedan en su estado actual y HANDOFF.md/state.json registran el corte exacto (el tracker no persiste entre sesiones; al retomar, se recrea desde HANDOFF.md + STATE.md + state.json).
 - Fases con un solo paso trivial no necesitan tracker (criterio general del harness: <3 pasos no se trackea).
 
 ---
