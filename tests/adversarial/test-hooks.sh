@@ -396,6 +396,25 @@ assert_exit0 "PreCompact no-op con stdin malformado" \
   '[ ! -e "$SANDBOX_HOME/.claude" ]'
 sandbox_cleanup
 
+# Caso: retención — con 6 snapshots preexistentes para el slug, tras invocar
+# (que crea uno nuevo, el 7mo) quedan exactamente los 5 más recientes:
+# el nuevo + los 4 más recientes de los 6 preexistentes.
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+RETENTION_ROOT="$SANDBOX_HOME/.claude/methodology/snapshots/$SLUG"
+mkdir -p "$RETENTION_ROOT"
+for n in 1 2 3 4 5 6; do
+  mkdir -p "$RETENTION_ROOT/2026010${n}-000000-manual"
+  echo '{}' > "$RETENTION_ROOT/2026010${n}-000000-manual/meta.json"
+done
+assert_exit0 "PreCompact retención conserva solo los 5 snapshots más recientes" \
+  "$HOOKS_DIR/pre-compact-snapshot.sh" \
+  '{"trigger":"auto"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ "$(ls -1 "$RETENTION_ROOT" | wc -l | tr -d " ")" = "5" ] && [ ! -d "$RETENTION_ROOT/20260101-000000-manual" ] && [ ! -d "$RETENTION_ROOT/20260102-000000-manual" ] && [ -d "$RETENTION_ROOT/20260103-000000-manual" ] && [ -d "$RETENTION_ROOT/20260106-000000-manual" ] && [ -n "$(snapshot_dir_for "$SANDBOX_HOME" "$SLUG" "*-auto")" ]'
+sandbox_cleanup
+
 echo ""
 
 # --- Resumen ---
