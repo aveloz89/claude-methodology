@@ -522,6 +522,29 @@ sandbox_cleanup
 
 echo ""
 
+# --- session-end-check.sh ---
+echo "--- session-end-check.sh ---"
+
+# Caso: señal S1 — commit posterior a STATE.md con mtime viejo (touch -t).
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+(
+  cd "$SANDBOX_REPO" || exit 1
+  touch -t 202001010000 .planning/STATE.md
+  echo "new work" > new-file.txt
+  git add new-file.txt
+  git commit -q -m "commit after state"
+) > /dev/null 2>&1
+assert_exit0 "SessionEnd S1: commit posterior a STATE.md escribe marker" \
+  "$HOOKS_DIR/session-end-check.sh" \
+  '{"reason":"other"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ -f "$MARKER" ] && [ "$(jq -c .signals "$MARKER")" = "[\"commits_after_state\"]" ] && [ "$(jq -r .branch "$MARKER")" != "null" ] && [ "$(jq -r .head "$MARKER")" != "null" ] && [ "$(jq -r .reason "$MARKER")" = "other" ] && [ "$(jq -r .ts "$MARKER")" != "null" ]'
+sandbox_cleanup
+
+echo ""
+
 # --- Resumen ---
 echo "=== Results ==="
 echo -e "Total: $TOTAL | ${GREEN}Pass: $PASS${NC} | ${RED}Fail: $FAIL${NC}"

@@ -1,0 +1,67 @@
+#!/bin/bash
+# Session end check: heurística de staleness de STATE.md/state.json al
+# cerrar sesión (evento SessionEnd). No bloqueante — la sesión ya terminó,
+# no hay modelo que lea la salida; el efecto es un marker que
+# session-start-context.sh consume (aviso consume-once) en la siguiente
+# sesión.
+
+INPUT=$(cat 2>/dev/null)
+
+# Sin jq no hay forma segura de construir el marker JSON.
+command -v jq > /dev/null 2>&1 || exit 0
+
+TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+STATE_FILE="$TOPLEVEL/.planning/STATE.md"
+[ -f "$STATE_FILE" ] || exit 0
+
+# mtime portable: stat -f %m (BSD/macOS) con fallback stat -c %Y (GNU/Linux).
+mtime_of() {
+  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null
+}
+
+STATE_MTIME=$(mtime_of "$STATE_FILE")
+[ -n "$STATE_MTIME" ] || exit 0
+
+# STATE_MTIME = max(mtime de STATE.md, mtime de state.json si existe).
+STATE_JSON="$TOPLEVEL/.planning/state.json"
+if [ -f "$STATE_JSON" ]; then
+  JSON_MTIME=$(mtime_of "$STATE_JSON")
+  if [ -n "$JSON_MTIME" ] && [ "$JSON_MTIME" -gt "$STATE_MTIME" ] 2>/dev/null; then
+    STATE_MTIME="$JSON_MTIME"
+  fi
+fi
+
+SIGNALS=()
+
+# S1: hubo commits después de la última actualización de estado.
+LAST_COMMIT_TS=$(cd "$TOPLEVEL" && git log -1 --format=%ct 2>/dev/null)
+if [ -n "$LAST_COMMIT_TS" ] && [ "$LAST_COMMIT_TS" -gt "$STATE_MTIME" ] 2>/dev/null; then
+  SIGNALS+=("commits_after_state")
+fi
+
+[ "${#SIGNALS[@]}" -gt 0 ] || exit 0
+
+REASON=$(echo "$INPUT" | jq -r '.reason // "other"' 2>/dev/null)
+[ -n "$REASON" ] && [ "$REASON" != "null" ] || REASON="other"
+
+BRANCH=$(cd "$TOPLEVEL" && git branch --show-current 2>/dev/null)
+HEAD=$(cd "$TOPLEVEL" && git rev-parse --short HEAD 2>/dev/null)
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+SLUG=$(echo "$TOPLEVEL" | tr '/' '-')
+
+MARKER_DIR="$HOME/.claude/methodology/session-end"
+mkdir -p "$MARKER_DIR" 2>/dev/null
+
+SIGNALS_JSON=$(printf '%s\n' "${SIGNALS[@]}" | jq -R . | jq -s . 2>/dev/null)
+
+# Sobrescribe siempre (>, nunca >>): solo importa el último cierre de sesión.
+jq -n \
+  --arg ts "$NOW" \
+  --arg reason "$REASON" \
+  --arg branch "$BRANCH" \
+  --arg head "$HEAD" \
+  --argjson signals "$SIGNALS_JSON" \
+  '{ts: $ts, reason: $reason, branch: $branch, head: $head, signals: $signals}' \
+  > "$MARKER_DIR/$SLUG.json" 2>/dev/null
+
+exit 0
