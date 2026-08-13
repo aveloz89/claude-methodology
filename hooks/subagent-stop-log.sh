@@ -62,6 +62,16 @@ LINE=$(jq -nc \
     transcript: (if $transcript == "" then null else $transcript end)
   }' 2>/dev/null)
 
-[ -n "$LINE" ] && echo "$LINE" >> "$LOG_FILE" 2>/dev/null
+# Dedupe: si la línea candidata es exactamente igual a la última ya
+# escrita, no se re-appendea. Cubre el doble disparo del hook (registrado
+# en user-scope y project-scope a la vez, cada uno logueando el mismo
+# evento) cuando ambos caen dentro del mismo segundo (mismo ts) —
+# limitación aceptada: si los dos disparos cruzan un límite de segundo, el
+# dedupe no los atrapa.
+LAST_LINE=""
+[ -f "$LOG_FILE" ] && LAST_LINE=$(tail -n 1 "$LOG_FILE" 2>/dev/null)
+if [ -n "$LINE" ] && [ "$LINE" != "$LAST_LINE" ]; then
+  echo "$LINE" >> "$LOG_FILE" 2>/dev/null
+fi
 
 exit 0

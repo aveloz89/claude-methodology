@@ -628,6 +628,51 @@ assert_exit0 "SubagentStop rota el log a .old al superar 1MB" \
   'LOG="$ROTATION_LOG_DIR/subagent-invocations.jsonl"; OLD="$LOG.old"; [ -f "$OLD" ] && grep -q "MARKER_FOR_OLD" "$OLD" && ! grep -q "PREVIOUS_OLD_MARKER" "$OLD" && [ "$(wc -l < "$LOG" | tr -d " ")" = "1" ] && [ "$(jq -r .agent "$LOG")" = "backend-dev" ]'
 sandbox_cleanup
 
+# Caso: dedupe del doble disparo — dos invocaciones con stdin idéntico y el
+# mismo ts (date fijado con un fake determinístico, para no depender de que
+# ambas caigan por suerte en el mismo segundo real) escriben una sola línea.
+# Cubre el registro duplicado del hook estando en user-scope y project-scope
+# a la vez. Una tercera invocación con stdin distinto sí se appendea — el
+# dedupe no bloquea eventos legítimamente distintos.
+sandbox_create
+FAKE_DATE_DIR=$(mktemp -d)
+REAL_DATE=$(command -v date)
+cat > "$FAKE_DATE_DIR/date" <<FAKE_DATE_EOF
+#!/bin/bash
+if [ "\$1" = "-u" ] && [ "\$2" = "+%Y-%m-%dT%H:%M:%SZ" ]; then
+  echo "2026-08-13T00:00:00Z"
+  exit 0
+fi
+exec "$REAL_DATE" "\$@"
+FAKE_DATE_EOF
+chmod +x "$FAKE_DATE_DIR/date"
+# shellcheck disable=SC2034 # usado dentro de check_cmd, eval'd más abajo
+DEDUPE_LOG="$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl"
+STDIN_DEDUPE='{"agent_type":"backend-dev","session_id":"sess-dedupe"}'
+assert_exit0 "SubagentStop dedupe paso 1: primera invocación appendea" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  "$STDIN_DEDUPE" \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ "$(wc -l < "$DEDUPE_LOG" | tr -d " ")" = "1" ]' \
+  "$FAKE_DATE_DIR:$PATH"
+assert_exit0 "SubagentStop dedupe paso 2: invocación idéntica no duplica la línea" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  "$STDIN_DEDUPE" \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ "$(wc -l < "$DEDUPE_LOG" | tr -d " ")" = "1" ]' \
+  "$FAKE_DATE_DIR:$PATH"
+assert_exit0 "SubagentStop dedupe paso 3: stdin distinto sí se appendea" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  '{"agent_type":"qa-backend","session_id":"sess-dedupe-2"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ "$(wc -l < "$DEDUPE_LOG" | tr -d " ")" = "2" ]' \
+  "$FAKE_DATE_DIR:$PATH"
+rm -rf "$FAKE_DATE_DIR"
+sandbox_cleanup
+
 echo ""
 
 # --- session-end-check.sh ---
