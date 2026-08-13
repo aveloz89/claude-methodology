@@ -78,6 +78,33 @@ El fallback es frágil (requiere que el agente monitoree su propio progreso) per
 - **Orchestrator:** antes de invocar a un dev, cuenta tareas y parte si excede el cap. Si recibe `BUDGET LIMIT`, retoma el trabajo en una nueva invocación leyendo HANDOFF.md
 - **Devs:** commit por tarea, no al final; aplicar el fallback si el budget se acaba
 - **QA agents:** un PR con un único commit gigante cubriendo múltiples tareas atómicas es señal del anti-patrón de commit-al-final — márquenlo
+- **Cómo medir invocaciones reales** (lotes ejecutados, devs involucrados): ver "Cómo se mide" abajo — el log de `SubagentStop` es la fuente de datos para la retro de Fase 4.
+
+## Cómo se mide
+
+Cada invocación de un subagente que termina dispara el hook `hooks/subagent-stop-log.sh` (evento `SubagentStop`), que appendea una línea JSONL a un log global — no scoped a un repo ni a una feature, así que sirve para medir el budget en cualquier proyecto donde se use la metodología.
+
+- **Ubicación:** `~/.claude/methodology/logs/subagent-invocations.jsonl` (rota a `subagent-invocations.jsonl.old` al superar ~1MB, pisando el `.old` anterior — techo duro de ~2MB totales).
+- **Schema por línea:**
+
+```json
+{"ts":"2026-08-13T18:30:00Z","agent":"backend-dev","session":"abc-123","repo":"/Users/alas/Proyectos/miapp","branch":"feature/x","transcript":"/path/al/transcript.jsonl"}
+```
+
+| Campo | Contenido | Puede ser `null` |
+|---|---|---|
+| `ts` | Timestamp UTC ISO-8601 del cierre del subagente | no |
+| `agent` | Tipo de agente invocado (`backend-dev`, `qa-backend`, etc.) | no — fallback `"unknown"` |
+| `session` | ID de sesión del harness | sí |
+| `repo` | Toplevel del repo git donde corrió el subagente | sí (si no había repo git) |
+| `branch` | Branch activo al momento de la invocación | sí |
+| `transcript` | Path al transcript del subagente (útil para post-mortem de cortes `BUDGET LIMIT`) | sí |
+
+- **Query de ejemplo** (invocaciones por agente en el repo actual, para llenar las métricas de `LEARNINGS.md` en la retro de Fase 4):
+
+```bash
+jq -s '[.[] | select(.repo == "'"$(git rev-parse --show-toplevel)"'")] | group_by(.agent) | map({agent: .[0].agent, invocaciones: length})' ~/.claude/methodology/logs/subagent-invocations.jsonl
+```
 
 ## Relación con otros rulebooks
 
