@@ -10,7 +10,12 @@
 
 set -e
 
-HOOKS_DIR="hooks"
+# Ruta absoluta a hooks/, calculada desde la ubicación del script: los tests
+# de sandbox hacen `cd` a repos git temporales, así que una ruta relativa
+# como "hooks" dejaría de resolver en cuanto cambia el cwd.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+HOOKS_DIR="$REPO_ROOT/hooks"
 PASS=0
 FAIL=0
 TOTAL=0
@@ -19,6 +24,73 @@ TOTAL=0
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m'
+
+# --- Infraestructura de sandbox para hooks no-bloqueantes ---
+# (PreCompact, SubagentStop, SessionEnd: no interceptan comandos, reaccionan
+# a eventos del ciclo de vida y escriben artefactos bajo $HOME/.claude/.)
+#
+# sandbox_create: crea un repo git temporal con .planning/ poblado
+# (SANDBOX_REPO) y un HOME aislado (SANDBOX_HOME) para que los hooks nunca
+# toquen ~/.claude/methodology/ real durante los tests. Variables globales
+# (no locales) para que assert_exit0 y los checks de cada test las lean.
+sandbox_create() {
+  # pwd -P resuelve symlinks (en macOS mktemp -d devuelve /var/folders/...
+  # pero /var es symlink a /private/var; git rev-parse --show-toplevel
+  # normaliza al path real). Sin esto, comparar SANDBOX_REPO contra lo que
+  # el hook resuelve internamente falla por un prefijo distinto.
+  SANDBOX_REPO=$(mktemp -d)
+  SANDBOX_REPO=$(cd "$SANDBOX_REPO" && pwd -P)
+  SANDBOX_HOME=$(mktemp -d)
+  SANDBOX_HOME=$(cd "$SANDBOX_HOME" && pwd -P)
+  (
+    cd "$SANDBOX_REPO" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p .planning/reviews
+    echo "# STATE" > .planning/STATE.md
+    echo "# DESIGN" > .planning/DESIGN.md
+    echo "# Review" > .planning/reviews/PR-1.md
+    git add -A
+    git commit -q -m "initial commit"
+  ) > /dev/null 2>&1
+}
+
+sandbox_cleanup() {
+  rm -rf "$SANDBOX_REPO" "$SANDBOX_HOME"
+}
+
+# assert_exit0: corre un hook no-bloqueante dentro del sandbox (cwd=run_cwd,
+# HOME=run_home) con el stdin dado, y verifica exit 0 + un efecto esperado
+# (o su ausencia) en filesystem. check_cmd es una expresión shell que se
+# evalúa con `eval`; debe referenciar variables globales (no locales de otra
+# función) para que siga resuelta en el momento del eval.
+assert_exit0() {
+  local test_name="$1"
+  local hook_path="$2"
+  local stdin_json="$3"
+  local run_cwd="$4"
+  local run_home="$5"
+  local check_cmd="$6"
+  TOTAL=$((TOTAL + 1))
+
+  local exit_code=0
+  (cd "$run_cwd" 2>/dev/null && printf '%s' "$stdin_json" | HOME="$run_home" bash "$hook_path" > /dev/null 2>&1) || exit_code=$?
+
+  if [ "$exit_code" -ne 0 ]; then
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 0)"
+    FAIL=$((FAIL + 1))
+    return
+  fi
+
+  if eval "$check_cmd"; then
+    echo -e "${GREEN}PASS${NC}: $test_name"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit 0 pero el efecto esperado en filesystem no se cumple)"
+    FAIL=$((FAIL + 1))
+  fi
+}
 
 assert_blocked() {
   local test_name="$1"
@@ -235,6 +307,24 @@ assert_pre_merge_continue "No CI checks configured does not block" "gh pr merge 
 assert_pre_merge_blocked "Genuine CI checks query failure still blocks" "gh pr merge 45" "no pude consultar los CI checks" "checks_fail"
 
 rm -rf "$FAKE_GH_DIR"
+
+echo ""
+
+# --- Sandbox infra para hooks no-bloqueantes (PreCompact, SubagentStop, SessionEnd) ---
+echo "--- sandbox infra ---"
+
+# Caso trivial: usa sandbox_create/sandbox_cleanup + assert_exit0 con un hook
+# ya existente (context-monitor.sh, siempre exit 0 y sin efectos en
+# filesystem) para probar la infraestructura de sandbox en sí misma, sin
+# depender de un hook todavía no implementado.
+sandbox_create
+assert_exit0 "Sandbox trivial: context-monitor.sh no crea nada en el sandbox" \
+  "$HOOKS_DIR/context-monitor.sh" \
+  '{}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude" ]'
+sandbox_cleanup
 
 echo ""
 
