@@ -972,6 +972,47 @@ else
 fi
 sandbox_cleanup
 
+# Caso: sanitización — un elemento de "signals" del marker de SessionEnd con
+# caracteres de control y un salto de línea, muy por encima de la ventana de
+# truncado (~80 chars), no debe llegar crudo al output del aviso: se trunca,
+# no filtra el caracter de control y no rompe el aviso en múltiples líneas.
+# Comparación contra un marker con un signal corto y "limpio" (misma
+# estructura) para verificar que el conteo de líneas no varía por los bytes
+# de control embebidos.
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
+mkdir -p "$MARKER_DIR"
+RAW_SIGNAL=$(printf 'SIGSTART\x01\nMIDDLE_%sZZZ_SIGEND' "$(printf 'A%.0s' $(seq 1 470))")
+jq -n --arg sig "$RAW_SIGNAL" \
+  '{ts:"2026-08-13T00:00:00Z", reason:"other", branch:"feature/x", head:"abc1234", signals: [$sig]}' \
+  > "$MARKER_DIR/$SLUG.json"
+OUTPUT_SIGNAL_MALICIOUS=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+LINES_SIGNAL_MALICIOUS=$(echo "$OUTPUT_SIGNAL_MALICIOUS" | wc -l | tr -d ' ')
+sandbox_cleanup
+
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
+mkdir -p "$MARKER_DIR"
+jq -n '{ts:"2026-08-13T00:00:00Z", reason:"other", branch:"feature/x", head:"abc1234", signals: ["safe_signal"]}' \
+  > "$MARKER_DIR/$SLUG.json"
+OUTPUT_SIGNAL_SAFE=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+LINES_SIGNAL_SAFE=$(echo "$OUTPUT_SIGNAL_SAFE" | wc -l | tr -d ' ')
+sandbox_cleanup
+
+TOTAL=$((TOTAL + 1))
+if [ "$LINES_SIGNAL_MALICIOUS" = "$LINES_SIGNAL_SAFE" ] \
+  && echo "$OUTPUT_SIGNAL_MALICIOUS" | grep -qF "SIGSTART" \
+  && ! echo "$OUTPUT_SIGNAL_MALICIOUS" | grep -qF "ZZZ_SIGEND" \
+  && ! printf '%s' "$OUTPUT_SIGNAL_MALICIOUS" | LC_ALL=C grep -qF "$(printf '\x01')"; then
+  echo -e "${GREEN}PASS${NC}: SessionStart sanitiza signals del marker de SessionEnd (trunca ~80 chars, sin control chars ni multilínea)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart sanitiza signals del marker de SessionEnd (trunca ~80 chars, sin control chars ni multilínea)"
+  FAIL=$((FAIL + 1))
+fi
+
 # Caso: con .planning/state.json presente (schema D3), el output incluye la
 # fase activa y una línea por batch con status y progreso.
 sandbox_create
