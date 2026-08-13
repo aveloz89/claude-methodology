@@ -3,7 +3,7 @@
 ## Estado actual
 
 - **Feature:** Modernización 2026 de memoria y agentes (+ hardening pre-merge ya commiteado en el mismo branch)
-- **Fase:** implementación (Lote 1 de 5)
+- **Fase:** review (implementación ✅ 5/5 lotes + docs; suite 40/40; 32 commits sobre dev)
 - **Branch:** feature/harden-pre-merge-check
 - **PR:** (pendiente — único PR a dev con hardening + modernización)
 - **Última actualización:** 2026-08-13
@@ -15,8 +15,8 @@
 - [x] Brainstorming: saltado con justificación (ver BRIEF.md)
 - [x] BRIEF.md escrito
 - [x] DESIGN.md del architect validado (5 lotes × 5 tareas, secuenciales, todos backend-dev)
-- [ ] Lotes implementados
-- [ ] Documentación (Fase 2.5)
+- [x] Lotes implementados (5/5, TDD, suite adversarial 40/40)
+- [x] Documentación (Fase 2.5 — 1 commit: tests/adversarial/README.md)
 - [ ] Push + PR (Fase 2.7)
 - [ ] CI verde
 - [ ] Review dual aprobado (security + qa-backend)
