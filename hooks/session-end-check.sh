@@ -14,9 +14,12 @@ TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 STATE_FILE="$TOPLEVEL/.planning/STATE.md"
 [ -f "$STATE_FILE" ] || exit 0
 
-# mtime portable: stat -f %m (BSD/macOS) con fallback stat -c %Y (GNU/Linux).
+# mtime portable: stat -f%m (BSD/macOS) con fallback stat -c%Y (GNU/Linux).
+# Forma pegada (sin espacio tras -f): en GNU coreutils, "-f" con espacio es
+# --file-system y devuelve info multilínea del filesystem en vez del mtime,
+# lo que rompe las comparaciones -gt en silencio en Linux.
 mtime_of() {
-  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null
+  stat -f%m "$1" 2>/dev/null || stat -c%Y "$1" 2>/dev/null
 }
 
 STATE_MTIME=$(mtime_of "$STATE_FILE")
