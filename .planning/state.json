@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "feature": "fix-open-issues",
+  "branch": "feature/fix-open-issues",
+  "pr": null,
+  "updated": "2026-08-13T21:55:00Z",
+  "phases": {
+    "brainstorming": "skipped",
+    "design": "skipped",
+    "implementation": "pending",
+    "docs": "pending",
+    "pr": "pending",
+    "ci": "pending",
+    "review": "pending",
+    "e2e": "skipped",
+    "merge": "pending"
+  },
+  "batches": [
+    {
+      "id": 1,
+      "name": "fix-open-issues",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 5,
+      "current_task": null
+    }
+  ]
+}
