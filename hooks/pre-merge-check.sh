@@ -10,18 +10,57 @@
 #      via GraphQL isResolved). Los comentarios generales del PR no tienen
 #      estado de resolución y son conversación legítima (resúmenes de ronda,
 #      contexto) — contarlos todos obligaba a borrarlos para poder mergear.
+#
+# Endurecido 2026-08-13 (matching quirúrgico + CI sin checks configurados):
+#   3. MATCHING: el gate ya no hace grep sobre el string crudo del comando.
+#      Antes, un git commit con un heredoc que mencionaba la frase de merge
+#      en su mensaje disparaba el gate como si fuera una invocación real
+#      (falso positivo bloqueante), y si esa mención traía un número, el
+#      guard terminaba validando un PR sin relación con el comando real
+#      (falso positivo con blast radius). En sentido contrario, un merge
+#      real dentro de un comando compuesto (cmd && gh pr merge N) pasaba
+#      sin validar porque el gate solo miraba el inicio del string completo
+#      (falso negativo). Ahora se sanean spans quoted ('...' y "...") y
+#      cuerpos de heredoc antes de matchear, y el match se ancla a posición
+#      de comando (inicio de string/línea, o justo después de &&, ||, ;, |,
+#      $(). Limitación aceptada: es saneo heurístico de texto, no un parser
+#      de shell real — un wrapper como bash -c "..." no se detecta porque
+#      el comando real queda dentro de una string que este hook sanitiza.
+#      Aceptable: el hook protege errores honestos del orchestrator, no
+#      evasión adversarial.
+#   4. CI SIN CHECKS CONFIGURADOS: en un repo sin ningún check (gh pr checks
+#      no reporta nada para esa PR), el guard bloqueaba con el mismo mensaje
+#      que usa para un fallo real de la consulta. "Sin checks" es un pass
+#      legítimo (0 fallando, 0 pendientes); ahora se distingue por el texto
+#      que gh manda a stderr ("no checks reported"), el único indicador
+#      disponible — no hay una salida --json para este caso. Limitación
+#      aceptada: si gh cambia ese texto en una versión futura, este caso
+#      vuelve a fail-closed (bloquea) en vez de pasar — es el fallback
+#      seguro.
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-# Solo interceptar comandos gh pr merge
-if ! echo "$COMMAND" | grep -qE '^\s*gh\s+pr\s+merge\b'; then
+# Antes de matchear, sacamos del texto los spans quoted ('...'/"...") y los
+# cuerpos de heredoc: son contenido literal (ej. un mensaje de commit) que
+# puede mencionar la frase de merge sin ser una invocación real. El match
+# además se ancla a posición de comando (inicio de string/línea, o justo
+# después de &&, ||, ;, |, $() para no perder invocaciones reales dentro de
+# comandos compuestos.
+SANITIZED_COMMAND=$(echo "$COMMAND" | perl -0777 -pe '
+  s/<<-?[\x27"]?(\w+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1$).*\n?)*[ \t]*\1(?:\n|$)/\n/gsm;
+  s/\x27[^\x27]*\x27/ /g;
+  s/"(?:[^"\\]|\\.)*"/ /g;
+')
+
+# Solo interceptar invocaciones reales de gh pr merge
+if ! echo "$SANITIZED_COMMAND" | grep -qE '(^|&&|\|\||;|\||\$\()\s*gh\s+pr\s+merge\b'; then
   echo '{"continue":true}'
   exit 0
 fi
 
-# Extraer el número de PR del comando
-PR_NUMBER=$(echo "$COMMAND" | grep -oE 'gh\s+pr\s+merge\s+([0-9]+)' | grep -oE '[0-9]+')
+# Extraer el número de PR de la invocación real (ya sin quotes/heredocs)
+PR_NUMBER=$(echo "$SANITIZED_COMMAND" | grep -oE 'gh\s+pr\s+merge\s+([0-9]+)' | grep -oE '[0-9]+')
 
 if [ -z "$PR_NUMBER" ]; then
   # Sin número explícito no podemos verificar el PR correcto → fail-closed
@@ -68,10 +107,18 @@ if [ "${UNRESOLVED:-0}" -gt 0 ]; then
   ERRORS="${ERRORS}  - Hay ${UNRESOLVED} thread(s) de review sin resolver. Resuélvelos o respóndelos antes de mergear\n"
 fi
 
-# 3. CI checks — gh pr checks sale con rc!=0 tanto si hay checks fallando
-# como si la llamada falla; distinguimos por si hubo output.
-CHECKS_OUTPUT=$(gh pr checks "$PR_NUMBER" 2>/dev/null)
-if [ -z "$CHECKS_OUTPUT" ]; then
+# 3. CI checks — gh pr checks sale con rc!=0 tanto si hay checks fallando,
+# si la llamada falla, o si el repo no tiene ningún check configurado (caso
+# legítimo: 0 fallando, 0 pendientes). Distinguimos "sin checks" de "la
+# consulta falló de verdad" por el texto de stderr ("no checks reported"),
+# el único indicador que expone gh para este caso.
+CHECKS_STDERR_FILE=$(mktemp)
+CHECKS_OUTPUT=$(gh pr checks "$PR_NUMBER" 2>"$CHECKS_STDERR_FILE")
+NO_CHECKS_CONFIGURED=false
+grep -qi 'no checks reported' "$CHECKS_STDERR_FILE" && NO_CHECKS_CONFIGURED=true
+rm -f "$CHECKS_STDERR_FILE"
+
+if [ -z "$CHECKS_OUTPUT" ] && [ "$NO_CHECKS_CONFIGURED" = false ]; then
   block "Blocked: no pude consultar los CI checks del PR #${PR_NUMBER}. Reintenta — el guard no verifica a ciegas."
 fi
 FAILED_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -cE '\bfail\b|\berror\b' || true)
