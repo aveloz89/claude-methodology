@@ -349,6 +349,53 @@ assert_exit0 "PreCompact crea snapshot de .planning/ con meta.json" \
   'DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$SLUG" "*-auto") && [ -n "$DIR" ] && [ -f "$DIR/STATE.md" ] && [ -f "$DIR/DESIGN.md" ] && [ -f "$DIR/reviews/PR-1.md" ] && [ -f "$DIR/meta.json" ] && [ "$(jq -r .trigger "$DIR/meta.json")" = "auto" ] && [ "$(jq -r .repo "$DIR/meta.json")" = "$SANDBOX_REPO" ] && [ "$(jq -r .branch "$DIR/meta.json")" != "null" ] && [ "$(jq -r .head "$DIR/meta.json")" != "null" ]'
 sandbox_cleanup
 
+# Caso: no-op limpio — sin .planning/ en un repo git válido. No debe crear
+# ningún artefacto bajo ~/.claude/methodology/.
+sandbox_create
+rm -rf "$SANDBOX_REPO/.planning"
+assert_exit0 "PreCompact no-op sin .planning/" \
+  "$HOOKS_DIR/pre-compact-snapshot.sh" \
+  '{"trigger":"auto"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude" ]'
+sandbox_cleanup
+
+# Caso: no-op limpio — fuera de cualquier repo git.
+NO_GIT_DIR=$(mktemp -d)
+NO_GIT_DIR=$(cd "$NO_GIT_DIR" && pwd -P)
+NO_GIT_HOME=$(mktemp -d)
+NO_GIT_HOME=$(cd "$NO_GIT_HOME" && pwd -P)
+mkdir -p "$NO_GIT_DIR/.planning"
+echo "# STATE" > "$NO_GIT_DIR/.planning/STATE.md"
+assert_exit0 "PreCompact no-op fuera de repo git" \
+  "$HOOKS_DIR/pre-compact-snapshot.sh" \
+  '{"trigger":"auto"}' \
+  "$NO_GIT_DIR" \
+  "$NO_GIT_HOME" \
+  '[ ! -e "$NO_GIT_HOME/.claude" ]'
+rm -rf "$NO_GIT_DIR" "$NO_GIT_HOME"
+
+# Caso: no-op limpio — stdin vacío.
+sandbox_create
+assert_exit0 "PreCompact no-op con stdin vacío" \
+  "$HOOKS_DIR/pre-compact-snapshot.sh" \
+  '' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude" ]'
+sandbox_cleanup
+
+# Caso: no-op limpio — stdin con JSON malformado.
+sandbox_create
+assert_exit0 "PreCompact no-op con stdin malformado" \
+  "$HOOKS_DIR/pre-compact-snapshot.sh" \
+  '{not valid json' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude" ]'
+sandbox_cleanup
+
 echo ""
 
 # --- Resumen ---

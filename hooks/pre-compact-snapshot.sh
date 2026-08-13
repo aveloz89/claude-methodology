@@ -6,7 +6,14 @@
 
 INPUT=$(cat 2>/dev/null)
 
-TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
+# stdin vacío o JSON malformado: no-op limpio. Sin un payload confiable no
+# hay trigger del que fiarse, así que no se crea ningún snapshot.
+[ -n "$INPUT" ] || exit 0
+echo "$INPUT" | jq empty > /dev/null 2>&1 || exit 0
+
+TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+[ -d "$TOPLEVEL/.planning" ] || exit 0
+
 TRIGGER=$(echo "$INPUT" | jq -r '.trigger // "unknown"' 2>/dev/null)
 [ -n "$TRIGGER" ] && [ "$TRIGGER" != "null" ] || TRIGGER="unknown"
 
