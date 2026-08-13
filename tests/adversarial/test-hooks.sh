@@ -429,6 +429,26 @@ assert_exit0 "PreCompact retención conserva solo los 5 snapshots más recientes
   '[ "$(ls -1 "$RETENTION_ROOT" | wc -l | tr -d " ")" = "5" ] && [ ! -d "$RETENTION_ROOT/20260101-000000-manual" ] && [ ! -d "$RETENTION_ROOT/20260102-000000-manual" ] && [ -d "$RETENTION_ROOT/20260103-000000-manual" ] && [ -d "$RETENTION_ROOT/20260106-000000-manual" ] && [ -n "$(snapshot_dir_for "$SANDBOX_HOME" "$SLUG" "*-auto")" ]'
 sandbox_cleanup
 
+# Caso: jq ausente en PATH — exit 0, sin crear ningún snapshot. Mismo patrón
+# que el de subagent-stop-log.sh: PATH restringido a symlinks de los binarios
+# que el hook necesita salvo jq, para que la ausencia sea real y no un efecto
+# colateral de romper otra dependencia.
+sandbox_create
+NO_JQ_BIN=$(mktemp -d)
+for cmd in bash cat git tr date mkdir cp ls sort tail xargs rm; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_BIN/$cmd"
+done
+assert_exit0 "PreCompact exit 0 sin jq en PATH (sin crear snapshot)" \
+  "$HOOKS_DIR/pre-compact-snapshot.sh" \
+  '{"trigger":"auto"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude" ]' \
+  "$NO_JQ_BIN"
+rm -rf "$NO_JQ_BIN"
+sandbox_cleanup
+
 echo ""
 
 # --- subagent-stop-log.sh ---
@@ -483,6 +503,21 @@ assert_exit0 "SubagentStop no-op con stdin vacío" \
   "$SANDBOX_HOME" \
   '[ ! -e "$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl" ]'
 sandbox_cleanup
+
+# Caso: invocado fuera de cualquier repo git — a diferencia de PreCompact y
+# SessionEnd, este hook no exige repo (D2): loguea igual, con repo y branch
+# en null.
+NO_GIT_DIR=$(mktemp -d)
+NO_GIT_DIR=$(cd "$NO_GIT_DIR" && pwd -P)
+NO_GIT_HOME=$(mktemp -d)
+NO_GIT_HOME=$(cd "$NO_GIT_HOME" && pwd -P)
+assert_exit0 "SubagentStop fuera de repo git loguea repo:null y branch:null (D2)" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  '{"agent_type":"backend-dev","session_id":"sess-3"}' \
+  "$NO_GIT_DIR" \
+  "$NO_GIT_HOME" \
+  'LOG="$NO_GIT_HOME/.claude/methodology/logs/subagent-invocations.jsonl"; [ -f "$LOG" ] && [ "$(jq -r .repo "$LOG")" = "null" ] && [ "$(jq -r .branch "$LOG")" = "null" ] && [ "$(jq -r .agent "$LOG")" = "backend-dev" ]'
+rm -rf "$NO_GIT_DIR" "$NO_GIT_HOME"
 
 # Caso: jq ausente en PATH — exit 0, sin appendear nada. PATH restringido a
 # un directorio con symlinks solo a los binarios que el hook necesita además
@@ -660,6 +695,34 @@ assert_exit0 "SessionEnd overwrite paso 2: marker se sobrescribe, no acumula" \
   "$SANDBOX_REPO" \
   "$SANDBOX_HOME" \
   'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ "$(jq -c .signals "$MARKER")" = "[\"dirty_files_after_state\"]" ]'
+sandbox_cleanup
+
+# Caso: jq ausente en PATH — exit 0, sin escribir marker. Señal S1 forzada
+# (commit posterior a STATE.md) para garantizar que, de estar jq disponible,
+# SÍ se escribiría un marker — así la ausencia de marker se debe realmente a
+# la falta de jq, no a la falta de señales.
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+(
+  cd "$SANDBOX_REPO" || exit 1
+  touch -t 202001010000 .planning/STATE.md
+  echo "new work" > new-file.txt
+  git add new-file.txt
+  git commit -q -m "commit after state"
+) > /dev/null 2>&1
+NO_JQ_BIN=$(mktemp -d)
+for cmd in bash cat git stat date tr mkdir; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_BIN/$cmd"
+done
+assert_exit0 "SessionEnd exit 0 sin jq en PATH (sin escribir marker)" \
+  "$HOOKS_DIR/session-end-check.sh" \
+  '{"reason":"other"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude" ]' \
+  "$NO_JQ_BIN"
+rm -rf "$NO_JQ_BIN"
 sandbox_cleanup
 
 echo ""
