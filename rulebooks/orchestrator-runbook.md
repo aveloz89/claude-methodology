@@ -510,10 +510,10 @@ gh run view <run-id> --log-failed
 ### Verificación pre-merge (OBLIGATORIO antes de cada merge)
 
 ```bash
-# 1. Comentarios sin resolver
-gh api repos/{owner}/{repo}/pulls/<number>/comments \
-  --jq '[.[] | select(.in_reply_to_id == null)] | length'
-# Si > 0, revisar si están resueltos
+# 1. Threads de review sin resolver (inline; los comentarios generales del PR no bloquean)
+gh api graphql -f query='query { repository(owner: "{owner}", name: "{repo}") { pullRequest(number: <number>) { reviewThreads(first: 100) { nodes { isResolved } } } } }' \
+  --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length'
+# Si > 0, resolver o responder los threads antes de mergear
 
 # 2. Reviews bloqueantes
 gh pr view <number> --json reviewDecision --jq '.reviewDecision'
