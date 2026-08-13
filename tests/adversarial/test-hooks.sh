@@ -349,6 +349,17 @@ assert_exit0 "PreCompact crea snapshot de .planning/ con meta.json" \
   'DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$SLUG" "*-auto") && [ -n "$DIR" ] && [ -f "$DIR/STATE.md" ] && [ -f "$DIR/DESIGN.md" ] && [ -f "$DIR/reviews/PR-1.md" ] && [ -f "$DIR/meta.json" ] && [ "$(jq -r .trigger "$DIR/meta.json")" = "auto" ] && [ "$(jq -r .repo "$DIR/meta.json")" = "$SANDBOX_REPO" ] && [ "$(jq -r .branch "$DIR/meta.json")" != "null" ] && [ "$(jq -r .head "$DIR/meta.json")" != "null" ]'
 sandbox_cleanup
 
+# Caso: JSON válido sin campo trigger — cae al fallback "unknown" (D4).
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+assert_exit0 "PreCompact usa trigger=unknown si el campo no viene en el stdin" \
+  "$HOOKS_DIR/pre-compact-snapshot.sh" \
+  '{}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$SLUG" "*-unknown") && [ -n "$DIR" ] && [ "$(jq -r .trigger "$DIR/meta.json")" = "unknown" ]'
+sandbox_cleanup
+
 # Caso: no-op limpio — sin .planning/ en un repo git válido. No debe crear
 # ningún artefacto bajo ~/.claude/methodology/.
 sandbox_create
