@@ -1,2 +1,9 @@
 *.bak
 .DS_Store
+
+# Secrets (defensivo, #52)
+.env
+.env.*
+*.pem
+*.key
+credentials.*
