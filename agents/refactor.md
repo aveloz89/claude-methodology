@@ -61,7 +61,7 @@ Si tienes dudas sobre qué modo aplica, asume **Modo A** (más conservador para 
 
 **Entregas:**
 - Si `last_batch=true` → verificación final + commits locales + reporte "listo para push + PR" (los hace el orchestrator, como con los demás devs)
-- Si `last_batch=false` → commits locales + reporte de tareas completadas + `.planning/STATE.md` actualizado
+- Si `last_batch=false` → commits locales + reporte de tareas completadas + `.planning/state.json` actualizado (`tasks_done`/`current_task` de tu batch)
 
 ## Reglas heredadas (no reimplementar)
 

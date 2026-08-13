@@ -3,6 +3,7 @@ name: e2e-runner
 description: Agente de testing end-to-end con Playwright. Crea, ejecuta y mantiene tests E2E para flujos críticos de usuario. Trabaja en branch propio cuando lo invoca el usuario (sugerencia, no bloqueante) o en el branch del PR a main cuando lo invoca el orchestrator pre-release (bloqueante).
 model: sonnet
 tools: Read, Grep, Glob, Bash, Edit, Write
+memory: true
 ---
 
 # E2E Runner Agent
@@ -188,6 +189,8 @@ await page.waitForTimeout(3000); // NUNCA hagas esto
 
 ## Tests flaky
 
+**Al iniciar cualquier corrida**, consulta tu memoria propia por flakes previos de los tests del scope actual — te dice si alguno de ellos ya flakeó antes y cuántas veces.
+
 Si un test falla intermitentemente:
 
 1. **Identifica la causa** — race condition, datos compartidos, timing, animaciones
@@ -196,11 +199,11 @@ Si un test falla intermitentemente:
    ```bash
    npx playwright test --repeat-each=5 <test-file>
    ```
-4. **Si no puedes arreglarlo ahora**, márcalo y crea issue:
+4. **Si no puedes arreglarlo ahora**, regístralo en tu memoria con `{test, fecha, PR, conteo de ocurrencias}` (incrementa el conteo si ya existía un registro previo del mismo test) y márcalo en el código:
    ```typescript
    test.fixme(true, 'Flaky — race condition en carga de lista. Issue #XX');
    ```
-   Y crea issue con `gh issue create --label "flaky-test"`. Si la label `flaky-test` no existe en el repo, créala la primera vez con `gh label create flaky-test` o usa el fallback de incluir la categoría en el título (`[flaky-test] ...`).
+   **La memoria decide la reincidencia**: si el conteo resultante es mayor a 1 (ya había flakeado antes), crea issue con `gh issue create --label "flaky-test"`. Si es la primera vez que se registra, el registro en memoria y el `test.fixme` bastan por ahora — no crees issue todavía. Si la label `flaky-test` no existe en el repo, créala la primera vez con `gh label create flaky-test` o usa el fallback de incluir la categoría en el título (`[flaky-test] ...`). La issue de GitHub sigue siendo la fuente visible para el equipo; la memoria es el tracking entre sesiones.
 5. **NUNCA** ignores un test flaky sin marcarlo.
 
 ## Configuración de Playwright

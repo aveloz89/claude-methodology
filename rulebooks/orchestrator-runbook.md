@@ -15,8 +15,9 @@ Detalle operativo del flujo de orchestration. **Lectura bajo demanda**: el compo
 7. [Comandos `gh` específicos](#comandos-gh-específicos)
 8. [Formato de reporte de review](#formato-de-reporte-de-review)
 9. [Pre-release E2E (Modo B del e2e-runner)](#pre-release-e2e-modo-b-del-e2e-runner)
-10. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
-11. [Flujo: revisar PR existente sin pasar por el flow completo](#flujo-revisar-pr-existente-sin-pasar-por-el-flow-completo)
+10. [Anti-drift: DoD de cambios de proceso](#anti-drift-dod-de-cambios-de-proceso)
+11. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
+12. [Flujo: revisar PR existente sin pasar por el flow completo](#flujo-revisar-pr-existente-sin-pasar-por-el-flow-completo)
 
 ---
 
@@ -196,7 +197,7 @@ gh pr checks <number> --watch --fail-fast
    - `feature/*` o `hotfix/*` → `gh pr merge <number> --merge --delete-branch`
    - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `CLAUDE.md`)
 9. Si era hotfix (PR a main), después del merge integra a dev (procedimiento más abajo)
-10. Actualiza `.planning/STATE.md` con resultado
+10. Actualiza `.planning/state.json` (`phases.merge` a `done`) y `.planning/STATE.md` si hay una decisión o aprendizaje que registrar
 
 ### Fase 4: Learn (post-merge)
 
@@ -260,7 +261,7 @@ Cada subagente recibe un paquete de contexto, **no el historial completo**:
 - **Sección de DESIGN.md** correspondiente al lote (no DESIGN completo)
 - **Branch en el que trabajar** (sin `git checkout` desde cero)
 - **Flag `last_batch=true|false`** explícito
-- **Si no es el primer lote**: instrucción de leer `git log` y `.planning/STATE.md` para entender qué hay
+- **Si no es el primer lote**: instrucción de leer `git log`, `.planning/STATE.md` y `.planning/state.json` para entender qué hay
 - `rules/<lenguaje>.md` aplicable
 
 **NO incluyas:**
@@ -298,7 +299,7 @@ Rules aplicables:
 - ~/.claude/rules/<lenguaje>.md
 - ~/.claude/rules/docker.md (si aplica)
 
-Si no es el primer lote: lee `git log` y `.planning/STATE.md` antes de empezar.
+Si no es el primer lote: lee `git log`, `.planning/STATE.md` y `.planning/state.json` antes de empezar.
 
 Si last_batch=false: NO push, NO PR. Reporta completado.
 Si last_batch=true: verificación final completa del branch y reporta listo.
@@ -309,7 +310,7 @@ NO push ni PR en ningún caso — el orchestrator corre docs y hace push + PR.
 
 ## Tracker de tareas de sesión (TaskCreate/TaskUpdate)
 
-Visibilidad en vivo del pipeline de la fase para el usuario. Se crea SIEMPRE al cerrar el diseño con el architect (sin que el usuario lo pida) y se mantiene actualizado durante toda la fase. No sustituye a `.planning/STATE.md`: el tracker vive solo en la sesión; STATE.md sigue siendo el estado persistente y el nivel de detalle fino.
+Visibilidad en vivo del pipeline de la fase para el usuario. Se crea SIEMPRE al cerrar el diseño con el architect (sin que el usuario lo pida) y se mantiene actualizado durante toda la fase. No sustituye a `.planning/STATE.md` ni a `.planning/state.json`: el tracker vive solo en la sesión; STATE.md (decisiones, blockers) y state.json (fase, lotes, progreso) siguen siendo el estado persistente entre sesiones.
 
 ### Estructura estándar del listado
 
@@ -325,7 +326,7 @@ Al recibir el plan de lotes del architect, crea:
 - `in_progress` al LANZAR el trabajo (dev invocado, reviews lanzados, E2E iniciada).
 - `completed` SOLO cuando el hito ocurrió de verdad: lote = commits pusheados y reporte del dev recibido; PR/reviews = veredictos limpios + sugerencias aplicadas + CI verde; E2E = checklist ejecutada con hallazgos resueltos; merge+retro = mergeado Y retro commiteada.
 - Los blockers de reviews/E2E se resuelven dentro de la tarea en curso (fixes en el mismo PR) — NO crean tareas nuevas, salvo que generen trabajo fuera del PR (fix-PR posterior o issue), en cuyo caso sí se agrega la tarea.
-- Si el usuario pausa la fase, las tareas quedan en su estado actual y STATE.md registra el corte exacto (el tracker no persiste entre sesiones; al retomar, se recrea desde STATE.md).
+- Si el usuario pausa la fase, las tareas quedan en su estado actual y HANDOFF.md/state.json registran el corte exacto (el tracker no persiste entre sesiones; al retomar, se recrea desde HANDOFF.md + STATE.md + state.json).
 - Fases con un solo paso trivial no necesitan tracker (criterio general del harness: <3 pasos no se trackea).
 
 ---
@@ -367,43 +368,79 @@ Al recibir el plan de lotes del architect, crea:
 [Si no se generó, omitir esta sección]
 ```
 
-### `STATE.md`
+### `STATE.md` + `state.json`
+
+**Regla de reparto:** prosa en `STATE.md`, estado enumerable en `state.json`. Si un dato tiene un valor de un enum cerrado o se usa para calcular progreso (fase, status de un lote, contador de tareas), va en `state.json`; si es texto libre que explica un porqué (una decisión, un blocker), va en `STATE.md`.
+
+`STATE.md` pierde las secciones "Estado actual" y "Progreso" (migran al JSON) y gana una línea de puntero:
 
 ```markdown
-## Estado actual
-
-- **Feature:** [nombre]
-- **Fase:** [brainstorming | diseño | implementación | review | completado]
-- **Branch:** [nombre del branch activo]
-- **PR:** [número si existe]
-- **Última actualización:** [timestamp]
-
-## Progreso
-- [x] Brainstorming completado
-- [x] Diseño aprobado
-- [ ] DB implementada (si aplica db-specialist)
-- [ ] Backend implementado
-- [ ] Frontend implementado
-- [ ] PR creado
-- [ ] CI verde
-- [ ] Documentación actualizada
-- [ ] Review aprobado
-- [ ] Mergeado
-
 ## Decisiones
 - [D-01] [decisión tomada durante brainstorming/diseño]
 - [D-02] ...
 
 ## Blockers
 - [ninguno | descripción del blocker]
+
+---
+El estado mutable (fase, lotes, progreso) vive en `state.json`.
 ```
 
-**Cuándo actualizar:**
-- Al completar cada fase
-- Al crear un PR
-- Al recibir resultados de review
-- Al encontrar un blocker
+**Schema de `state.json` (contrato — versión 1):**
+
+```json
+{
+  "schema": 1,
+  "feature": "slug-corto-de-la-feature",
+  "branch": "feature/slug",
+  "pr": null,
+  "updated": "2026-08-13T18:30:00Z",
+  "phases": {
+    "brainstorming": "done",
+    "design": "in_progress",
+    "implementation": "pending",
+    "docs": "pending",
+    "pr": "pending",
+    "ci": "pending",
+    "review": "pending",
+    "e2e": "skipped",
+    "merge": "pending"
+  },
+  "batches": [
+    {
+      "id": 1,
+      "name": "pre-compact-snapshot",
+      "agent": "backend-dev",
+      "status": "in_progress",
+      "tasks_done": 2,
+      "tasks_total": 5,
+      "current_task": "3: no-op limpio sin .planning"
+    }
+  ]
+}
+```
+
+- **Enum de status** (`phases.*` y `batches[].status`): `pending | in_progress | done | failed | skipped`. Ningún otro valor.
+- `phases` es un objeto de **claves fijas** — siempre las 9 de arriba, presentes todas (`skipped` para las que no aplican, p. ej. `e2e` sin UI). Claves fijas = mutación mínima ("cambiar un valor"), menos corruptible que un array.
+- `batches` refleja el plan del architect: `id`/`name`/`agent` los siembra el orchestrator al cerrar el diseño; `status`/`tasks_done`/`current_task` mutan durante la ejecución.
+
+**Quién escribe qué:**
+
+| Campo | Quién escribe | Cuándo |
+|---|---|---|
+| Archivo completo (creación) | Orchestrator | Al cerrar el diseño (fin de Fase 1) |
+| `phases.*` | Orchestrator | En cada transición de fase del pipeline |
+| `batches[].status` | Orchestrator | Al invocar / al cerrar cada lote |
+| `batches[].tasks_done` y `current_task` de **su** batch | Dev que ejecuta el lote | Antes de empezar cada tarea atómica (reemplaza la regla 3 de `agent-budget.md` de "STATE.md actualizado entre tareas") |
+| `pr` | Orchestrator | Fase 2.7 (al crear el PR) |
+| `updated` | Quien haga la escritura | En toda escritura al archivo |
+
+**Cuándo actualizar `STATE.md`:**
+- Al tomar una decisión nueva (`[D-NN]`)
+- Al encontrar o resolver un blocker
 - Al pausar o retomar
+
+**Cuándo actualizar `state.json`:** ver tabla de arriba — cada transición de fase o lote, y entre cada tarea atómica del dev activo.
 
 ### `HANDOFF.md`
 
@@ -424,6 +461,18 @@ Al recibir el plan de lotes del architect, crea:
 ### Para retomar
 1. [instrucción paso a paso de cómo continuar]
 ```
+
+### Retomar (resume)
+
+Pasos exactos cuando el hook `session-start-context.sh` detecta `HANDOFF.md` (ver "Pause / Resume" en `CLAUDE.md` raíz para el resumen):
+
+1. **Leer** `HANDOFF.md` + `STATE.md` + `state.json` — el HANDOFF da el corte exacto, `STATE.md` las decisiones, `state.json` la fase y el lote activos.
+2. **Smoke test ANTES de tocar código.** Misma detección de runner que `hooks/pre-commit-guard.sh`:
+   - Node: si hay `package.json` con `scripts.test` no vacío, corre con el gestor que indica el lockfile (`pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, si no → npm).
+   - Python: si hay `pytest.ini`, `pyproject.toml` o `setup.py` y `pytest` está en PATH, corre `pytest`.
+   - **Sin runner detectado** → se omite explícitamente y se anota en el reporte al usuario (no es un fallo, es contexto ausente).
+   - **Rojo** → diagnosticar ANTES de retomar la tarea pendiente. El rojo puede ser el bug no documentado que cortó la sesión anterior, no una regresión de este momento.
+3. **Eliminar `HANDOFF.md`** solo una vez confirmado el estado (verde, o sin runner y anotado) — recién ahí retomar la tarea marcada como `current_task` en `state.json`.
 
 ### `LEARNINGS.md` (acumulativo)
 
@@ -614,6 +663,17 @@ Después:
 
 ---
 
+## Anti-drift: DoD de cambios de proceso
+
+Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planning/`, reglas de agentes) incluye, como parte de su Definition of Done, antes de pedir review:
+
+1. **Grep de los términos afectados** en `CLAUDE.md`, `README.md`, `rulebooks/`, `agents/` y `skills/` — cualquier mención del comportamiento viejo es candidata a quedar desactualizada.
+2. **Reconciliar todo documento que describa el comportamiento cambiado.** No basta con documentar el cambio en un solo archivo — el mismo hecho (p. ej. "el dev actualiza X entre tareas") suele estar descrito en más de un rulebook o en `CLAUDE.md` raíz.
+
+Este paso no es opcional ni cosmético: las 7 contradicciones de la auditoría de julio (ver `.planning/AUDIT-context-engineering.md`) eran todas de esta clase — un cambio de proceso documentado en un archivo y olvidado en otro.
+
+---
+
 ## Errores comunes y cómo manejarlos
 
 | Situación | Acción |
@@ -628,6 +688,7 @@ Después:
 | Hotfix mergeado pero falló integración a dev | Conflicto manual. Escalar al usuario con detalles del conflicto |
 | Migración del db-specialist falla en CI | Asignar fix al db-specialist (no a backend-dev) — es su scope |
 | Backend-dev intenta crear migración compleja (no simple) | Devolver: "esto califica como complejo según los criterios. Reasignar al db-specialist" |
+| Estado de `.planning/` corrupto o inconsistente post-compact | Restaurar desde el snapshot más reciente en `~/.claude/methodology/snapshots/<slug>/` (los crea el hook `PreCompact`) |
 
 ---
 

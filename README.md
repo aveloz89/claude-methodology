@@ -23,7 +23,7 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal, de
 | **latent-bugs-sweep** | sonnet | Escanea el repo buscando bugs latentes (read-only). Crea issues |
 | **docs** | sonnet | Genera/actualiza documentación a partir del diff, antes del push |
 
-### Hooks (11)
+### Hooks (14)
 | Hook | Evento | Qué hace |
 |------|--------|----------|
 | **pre-commit-guard** | PreToolUse (Bash) | Corre tests antes de cada commit. Detecta pnpm/yarn/npm/pytest |
@@ -34,9 +34,14 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal, de
 | **pre-merge-check** | PreToolUse (Bash) | Bloquea `gh pr merge` sin número de PR explícito, con threads de review sin resolver o reviews/checks pendientes (fail-closed si no puede verificar) |
 | **pre-release-sweep** | PreToolUse (Bash) | Dispara `latent-bugs-sweep` antes de un `gh pr create --base main` |
 | **post-pr-create** | PostToolUse (Bash) | Instruye al orquestador para disparar security-reviewer + qa-frontend/qa-backend (según capas del diff) al crear un PR |
-| **session-start-context** | SessionStart | Muestra branch, último commit, estado de .planning/ |
+| **session-start-context** | SessionStart | Muestra branch, último commit, estado de .planning/, marker de SessionEnd y resumen de state.json |
 | **context-monitor** | PostToolUse (Bash) | Avisa cuando el contexto se está agotando (35% warning, 25% critical) |
 | **docker-refresh** | PostToolUse (Bash) | Detecta si servicios Docker necesitan restart/rebuild después de push o PR. Respeta hot reload |
+| **pre-compact-snapshot** | PreCompact | Guarda un snapshot de `.planning/` antes de compactar el contexto, para restaurar si el compact deja el estado inconsistente |
+| **subagent-stop-log** | SubagentStop | Appendea una línea JSONL por invocación de subagente, para medir el budget de `agent-budget.md` |
+| **session-end-check** | SessionEnd | Detecta STATE.md desactualizado (commits o archivos dirty posteriores) y deja un marker que avisa en la próxima sesión |
+
+Los tres hooks de observabilidad (`pre-compact-snapshot`, `subagent-stop-log`, `session-end-check`) escriben sus artefactos bajo `~/.claude/methodology/` (`snapshots/`, `logs/`, `session-end/`, uno por repo vía slug) con retención acotada (5 snapshots más recientes por repo, log rotado a `.old` al superar 1 MB, marker de sesión sobrescrito en cada cierre); el directorio entero se puede borrar sin riesgo — se regenera solo en la siguiente invocación de cada hook.
 
 ### Skills (2)
 | Skill | Qué hace |
@@ -97,7 +102,10 @@ claude-methodology/
 │   ├── post-pr-create.sh
 │   ├── session-start-context.sh
 │   ├── context-monitor.sh
-│   └── docker-refresh.sh
+│   ├── docker-refresh.sh
+│   ├── pre-compact-snapshot.sh
+│   ├── subagent-stop-log.sh
+│   └── session-end-check.sh
 ├── skills/
 │   └── new-project/
 │       └── SKILL.md
