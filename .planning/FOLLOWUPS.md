@@ -25,6 +25,10 @@ Origen: AUDIT-memory-agents-2026-08.md, plan de acción #7
 Anthropic nativizó nuestro patrón orchestrator+workers como feature experimental (flag `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`). Limitaciones actuales: sin `/resume`, task status con lag, reportes de mensajes perdidos entre teammates. Reevaluar cuando salga de experimental — parte del valor del runbook casero podría migrar al harness.
 Origen: AUDIT-memory-agents-2026-08.md, plan de acción #9
 
+### [2026-08-13] Sandboxear los tests de guards de la suite adversarial
+`test-hooks.sh` hace `git stash` + `git checkout main` sobre el repo REAL para testear `pre-push-guard`; durante el re-review de QA del PR #49 (bind mount en Docker) el checkout de vuelta falló dentro del contenedor y dejó el repo host en `main` con el trabajo en stash (restaurado sin pérdida). Los tests de los hooks de observabilidad ya usan sandbox (repo git temporal + HOME override) — migrar los tests de guards al mismo patrón.
+Origen: re-review qa-backend PR #49
+
 ### [2026-04-06] Evaluar skill /review-pr para re-reviews manuales
 Actualmente el dual review (QA + security) se dispara automáticamente al crear PR via hook. No hay forma de re-dispararlo manualmente sin pasar por el orchestrator.
 Origen: conversación durante implementación del latent-bugs-sweep
