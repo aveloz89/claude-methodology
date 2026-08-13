@@ -43,11 +43,12 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal, de
 
 Los tres hooks de observabilidad (`pre-compact-snapshot`, `subagent-stop-log`, `session-end-check`) escriben sus artefactos bajo `~/.claude/methodology/` (`snapshots/`, `logs/`, `session-end/`, uno por repo vía slug) con retención acotada (5 snapshots más recientes por repo, log rotado a `.old` al superar 1 MB, marker de sesión sobrescrito en cada cierre); el directorio entero se puede borrar sin riesgo — se regenera solo en la siguiente invocación de cada hook.
 
-### Skills (2)
+### Skills (3)
 | Skill | Qué hace |
 |-------|----------|
 | **/new-project** | Scaffold de proyecto con gitflow, GitHub Actions CI/CD, CLAUDE.md |
 | **/refactor-scan** | Escanea el codebase buscando code smells y genera un reporte priorizado |
+| **/pr-workflow** | Presupuesto de CI, E2E pre-release, branch protection y verificación pre-merge — se invoca en Fase 2.7 o al trabajar sobre un PR existente |
 
 ## Workflow
 
@@ -87,29 +88,57 @@ claude-methodology/
 ├── agents/
 │   ├── architect.md
 │   ├── backend-dev.md
-│   ├── frontend-dev.md
+│   ├── build-resolver.md
 │   ├── db-specialist.md
-│   ├── qa-frontend.md
+│   ├── docs.md
+│   ├── e2e-runner.md
+│   ├── frontend-dev.md
+│   ├── latent-bugs-sweep.md
 │   ├── qa-backend.md
-│   └── security-reviewer.md
+│   ├── qa-frontend.md
+│   ├── refactor.md
+│   ├── security-reviewer.md
+│   └── ui-ux.md
 ├── hooks/
-│   ├── pre-commit-guard.sh
-│   ├── pre-push-guard.sh
 │   ├── block-admin-merge.sh
 │   ├── block-force-push.sh
 │   ├── block-hard-reset.sh
-│   ├── pre-merge-check.sh
-│   ├── post-pr-create.sh
-│   ├── session-start-context.sh
 │   ├── context-monitor.sh
 │   ├── docker-refresh.sh
+│   ├── lib/
+│   │   └── guard-matching.sh
+│   ├── post-pr-create.sh
+│   ├── pre-commit-guard.sh
 │   ├── pre-compact-snapshot.sh
-│   ├── subagent-stop-log.sh
+│   ├── pre-merge-check.sh
+│   ├── pre-push-guard.sh
+│   ├── pre-release-sweep.sh
 │   ├── session-end-check.sh
-│   └── lib/
-│       └── guard-matching.sh
+│   ├── session-start-context.sh
+│   └── subagent-stop-log.sh
+├── rules/
+│   ├── csharp.md
+│   ├── css.md
+│   ├── docker.md
+│   ├── go.md
+│   ├── html.md
+│   ├── implementation-principles.md
+│   ├── python.md
+│   ├── rust.md
+│   ├── self-reflection.md
+│   └── typescript.md
+├── rulebooks/
+│   ├── agent-budget.md
+│   ├── dev-common.md
+│   ├── governance-playbook.md
+│   ├── orchestrator-runbook.md
+│   └── validation-schedule.md
 ├── skills/
-│   └── new-project/
+│   ├── new-project/
+│   │   └── SKILL.md
+│   ├── pr-workflow/
+│   │   └── SKILL.md
+│   └── refactor-scan/
 │       └── SKILL.md
 ├── settings.json
 ├── install.sh
