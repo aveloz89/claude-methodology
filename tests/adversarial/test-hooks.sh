@@ -428,6 +428,21 @@ sandbox_cleanup
 
 echo ""
 
+# --- subagent-stop-log.sh ---
+echo "--- subagent-stop-log.sh ---"
+
+# Caso: happy path — línea JSONL válida con los 6 campos del contrato D2.
+sandbox_create
+assert_exit0 "SubagentStop appendea línea JSONL con los campos del contrato" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  '{"agent_type":"backend-dev","session_id":"sess-1","agent_transcript_path":"/tmp/transcript.jsonl"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'LOG="$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl"; [ -f "$LOG" ] && [ "$(jq -r .agent "$LOG")" = "backend-dev" ] && [ "$(jq -r .session "$LOG")" = "sess-1" ] && [ "$(jq -r .repo "$LOG")" = "$SANDBOX_REPO" ] && [ "$(jq -r .branch "$LOG")" != "null" ] && [ "$(jq -r .transcript "$LOG")" = "/tmp/transcript.jsonl" ] && [ "$(jq -r .ts "$LOG")" != "null" ]'
+sandbox_cleanup
+
+echo ""
+
 # --- Resumen ---
 echo "=== Results ==="
 echo -e "Total: $TOTAL | ${GREEN}Pass: $PASS${NC} | ${RED}Fail: $FAIL${NC}"
