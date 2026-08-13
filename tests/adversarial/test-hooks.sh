@@ -820,6 +820,44 @@ else
 fi
 sandbox_cleanup
 
+# Caso: sanitización — un name de batch con caracteres de control y un
+# salto de línea, bien dentro de la ventana de truncado (~80 chars), no debe
+# llegar crudo al output: se trunca y no genera líneas extra. Comparación
+# contra un name corto y "limpio" (misma estructura de sandbox) para
+# verificar que el conteo de líneas no varía por los bytes de control.
+sandbox_create
+RAW_NAME=$(printf 'NAMESTART\x01\nMIDDLE_%sZZZ_NAMEEND' "$(printf 'A%.0s' $(seq 1 470))")
+jq -n --arg name "$RAW_NAME" '{
+    schema: 1, feature: "x", branch: "x", pr: null, updated: "2026-08-13T00:00:00Z",
+    phases: {brainstorming:"done",design:"done",implementation:"in_progress",docs:"pending",pr:"pending",ci:"pending",review:"pending",e2e:"skipped",merge:"pending"},
+    batches: [{id: 99, name: $name, agent: "backend-dev", status: "in_progress", tasks_done: 1, tasks_total: 2, current_task: null}]
+  }' > "$SANDBOX_REPO/.planning/state.json"
+OUTPUT_MALICIOUS=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+LINES_MALICIOUS=$(echo "$OUTPUT_MALICIOUS" | wc -l | tr -d ' ')
+sandbox_cleanup
+
+sandbox_create
+jq -n '{
+    schema: 1, feature: "x", branch: "x", pr: null, updated: "2026-08-13T00:00:00Z",
+    phases: {brainstorming:"done",design:"done",implementation:"in_progress",docs:"pending",pr:"pending",ci:"pending",review:"pending",e2e:"skipped",merge:"pending"},
+    batches: [{id: 99, name: "safe-name", agent: "backend-dev", status: "in_progress", tasks_done: 1, tasks_total: 2, current_task: null}]
+  }' > "$SANDBOX_REPO/.planning/state.json"
+OUTPUT_SAFE=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+LINES_SAFE=$(echo "$OUTPUT_SAFE" | wc -l | tr -d ' ')
+sandbox_cleanup
+
+TOTAL=$((TOTAL + 1))
+if [ "$LINES_MALICIOUS" = "$LINES_SAFE" ] \
+  && echo "$OUTPUT_MALICIOUS" | grep -qF "NAMESTART" \
+  && ! echo "$OUTPUT_MALICIOUS" | grep -qF "ZZZ_NAMEEND" \
+  && ! printf '%s' "$OUTPUT_MALICIOUS" | LC_ALL=C grep -qF "$(printf '\x01')"; then
+  echo -e "${GREEN}PASS${NC}: SessionStart sanitiza name de batch (trunca ~80 chars, sin control chars ni multilínea)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart sanitiza name de batch (trunca ~80 chars, sin control chars ni multilínea)"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 
 # --- Resumen ---
