@@ -64,7 +64,9 @@ sandbox_cleanup() {
 # HOME=run_home) con el stdin dado, y verifica exit 0 + un efecto esperado
 # (o su ausencia) en filesystem. check_cmd es una expresión shell que se
 # evalúa con `eval`; debe referenciar variables globales (no locales de otra
-# función) para que siga resuelta en el momento del eval.
+# función) para que siga resuelta en el momento del eval. run_path (opcional)
+# override de PATH — usado para simular ausencia de un binario (p. ej. jq);
+# si no se pasa, usa el PATH actual (sin cambio de comportamiento).
 assert_exit0() {
   local test_name="$1"
   local hook_path="$2"
@@ -72,10 +74,11 @@ assert_exit0() {
   local run_cwd="$4"
   local run_home="$5"
   local check_cmd="$6"
+  local run_path="${7:-$PATH}"
   TOTAL=$((TOTAL + 1))
 
   local exit_code=0
-  (cd "$run_cwd" 2>/dev/null && printf '%s' "$stdin_json" | HOME="$run_home" bash "$hook_path" > /dev/null 2>&1) || exit_code=$?
+  (cd "$run_cwd" 2>/dev/null && printf '%s' "$stdin_json" | HOME="$run_home" PATH="$run_path" bash "$hook_path" > /dev/null 2>&1) || exit_code=$?
 
   if [ "$exit_code" -ne 0 ]; then
     echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 0)"
@@ -439,6 +442,66 @@ assert_exit0 "SubagentStop appendea línea JSONL con los campos del contrato" \
   "$SANDBOX_REPO" \
   "$SANDBOX_HOME" \
   'LOG="$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl"; [ -f "$LOG" ] && [ "$(jq -r .agent "$LOG")" = "backend-dev" ] && [ "$(jq -r .session "$LOG")" = "sess-1" ] && [ "$(jq -r .repo "$LOG")" = "$SANDBOX_REPO" ] && [ "$(jq -r .branch "$LOG")" != "null" ] && [ "$(jq -r .transcript "$LOG")" = "/tmp/transcript.jsonl" ] && [ "$(jq -r .ts "$LOG")" != "null" ]'
+sandbox_cleanup
+
+# Caso: agent_type ausente — cae al fallback .subagent_type.
+sandbox_create
+assert_exit0 "SubagentStop usa subagent_type si agent_type no viene" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  '{"subagent_type":"qa-backend"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ "$(jq -r .agent "$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl")" = "qa-backend" ]'
+sandbox_cleanup
+
+# Caso: ni agent_type ni subagent_type — cae a "unknown".
+sandbox_create
+assert_exit0 "SubagentStop usa agent=unknown si no viene ningún campo" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  '{"session_id":"sess-2"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ "$(jq -r .agent "$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl")" = "unknown" ]'
+sandbox_cleanup
+
+# Caso: stdin malformado — exit 0 y NUNCA appendea una línea corrupta.
+sandbox_create
+assert_exit0 "SubagentStop no-op con stdin malformado (sin appendear nada)" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  '{not valid json' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl" ]'
+sandbox_cleanup
+
+# Caso: stdin vacío — mismo no-op limpio.
+sandbox_create
+assert_exit0 "SubagentStop no-op con stdin vacío" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  '' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl" ]'
+sandbox_cleanup
+
+# Caso: jq ausente en PATH — exit 0, sin appendear nada. PATH restringido a
+# un directorio con symlinks solo a los binarios que el hook necesita además
+# de jq (git, date, mkdir, stat, mv, cat), para que la ausencia sea real y no
+# un efecto colateral de romper otra dependencia.
+sandbox_create
+NO_JQ_BIN=$(mktemp -d)
+for cmd in bash git date mkdir stat mv cat; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_BIN/$cmd"
+done
+assert_exit0 "SubagentStop exit 0 sin jq en PATH (sin appendear nada)" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  '{"agent_type":"backend-dev"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl" ]' \
+  "$NO_JQ_BIN"
+rm -rf "$NO_JQ_BIN"
 sandbox_cleanup
 
 echo ""

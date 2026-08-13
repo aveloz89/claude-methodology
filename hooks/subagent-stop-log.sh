@@ -8,6 +8,14 @@
 
 INPUT=$(cat 2>/dev/null)
 
+# Sin jq no hay forma segura de parsear el stdin ni de serializar la línea.
+command -v jq > /dev/null 2>&1 || exit 0
+
+# stdin vacío o JSON malformado: no-op limpio. Nunca appendear una línea
+# corrupta al log.
+[ -n "$INPUT" ] || exit 0
+echo "$INPUT" | jq empty > /dev/null 2>&1 || exit 0
+
 AGENT=$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // "unknown"' 2>/dev/null)
 [ -n "$AGENT" ] && [ "$AGENT" != "null" ] || AGENT="unknown"
 
