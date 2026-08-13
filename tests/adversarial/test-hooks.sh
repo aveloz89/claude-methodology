@@ -133,6 +133,52 @@ assert_allowed() {
   fi
 }
 
+# assert_blocked_cmd / assert_allowed_cmd: variantes de assert_blocked /
+# assert_allowed que arman el JSON con jq -n (--arg escapa el comando
+# correctamente) en vez de interpolación de string cruda. Necesarias para
+# comandos con comillas embebidas (regression tests de #47: una mención
+# quoted del comando vigilado no debe romper el JSON de entrada ni,
+# por construcción incorrecta, esconder un falso positivo/negativo real).
+assert_blocked_cmd() {
+  local test_name="$1"
+  local hook="$2"
+  local command="$3"
+  local run_path="${4:-$PATH}"
+  TOTAL=$((TOTAL + 1))
+
+  local json exit_code=0
+  json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/$hook" > /dev/null 2>&1 || exit_code=$?
+
+  if [ "$exit_code" -eq 2 ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 2)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_allowed_cmd() {
+  local test_name="$1"
+  local hook="$2"
+  local command="$3"
+  local run_path="${4:-$PATH}"
+  TOTAL=$((TOTAL + 1))
+
+  local json exit_code=0
+  json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/$hook" > /dev/null 2>&1 || exit_code=$?
+
+  if [ "$exit_code" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (allowed as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 0)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 echo "=== Adversarial Hook Tests ==="
 echo ""
 
@@ -165,6 +211,76 @@ if git stash --include-untracked -q 2>/dev/null; then
   git checkout "$ORIGINAL_BRANCH" -q 2>/dev/null
   git stash pop -q 2>/dev/null || true
 fi
+
+echo ""
+
+# --- block-admin-merge.sh ---
+echo "--- block-admin-merge.sh ---"
+
+# block-admin-merge.sh responde con {"decision":"block",...} o
+# {"continue":true} en el JSON de stdout (siempre exit 0), igual que
+# pre-merge-check.sh — no exit code 2 como pre-commit-guard.sh/
+# pre-push-guard.sh, por eso usa asserts sobre el JSON en vez de
+# assert_blocked_cmd/assert_allowed_cmd (exit-code based).
+assert_bam_blocked() {
+  local test_name="$1" cmd="$2" run_path="${3:-$PATH}"
+  TOTAL=$((TOTAL + 1))
+  local json output
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/block-admin-merge.sh" 2>/dev/null)
+  if echo "$output" | grep -q '"decision":"block"'; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_bam_continue() {
+  local test_name="$1" cmd="$2" run_path="${3:-$PATH}"
+  TOTAL=$((TOTAL + 1))
+  local json output
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/block-admin-merge.sh" 2>/dev/null)
+  if echo "$output" | grep -q '"continue":true'; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# Regression #47: mismo matching frágil que pre-merge-check.sh tenía antes
+# de su endurecimiento (branch feature/harden-pre-merge-check).
+
+# (a) Falso negativo: invocación real de "gh pr merge --admin" dentro de un
+# comando compuesto en una sola línea (después de &&) no matcheaba el ancla
+# ^\s* del hook actual (solo mira el inicio del string completo) → el guard
+# no interceptaba y el merge admin pasaba sin bloquear.
+assert_bam_blocked "block-admin-merge: gh pr merge --admin after && is blocked (compound command)" \
+  "git fetch && gh pr merge 5 --admin"
+
+# (b) Falso positivo: mención quoted de la frase vigilada dentro de un
+# mensaje de commit (contenido literal, no una invocación real) no debe
+# disparar el guard.
+assert_bam_continue "block-admin-merge: quoted mention in commit message is not a real invocation" \
+  'git commit -m "docs: explica gh pr merge --admin"'
+
+# (c) Defensivo (más allá de #47): si falta perl en PATH, guard_sanitize()
+# cae a devolver el comando sin sanear (ver hooks/lib/guard-matching.sh) —
+# el guard sigue bloqueando una invocación real, en vez de fallar abierto
+# por una dependencia ausente que este hook no tenía antes del refactor.
+NO_PERL_BAM_BIN=$(mktemp -d)
+for cmd in bash cat jq grep dirname; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_PERL_BAM_BIN/$cmd"
+done
+assert_bam_blocked "block-admin-merge: sigue bloqueando sin perl en PATH (fallback sin saneo)" \
+  "gh pr merge 5 --admin" \
+  "$NO_PERL_BAM_BIN"
+rm -rf "$NO_PERL_BAM_BIN"
 
 echo ""
 
