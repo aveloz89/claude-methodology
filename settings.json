@@ -87,6 +87,17 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/subagent-stop-log.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "statusLine": {

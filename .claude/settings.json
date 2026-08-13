@@ -86,6 +86,16 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash hooks/subagent-stop-log.sh"
+          }
+        ]
+      }
     ]
   }
 }
