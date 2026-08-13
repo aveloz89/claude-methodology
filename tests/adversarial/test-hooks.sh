@@ -504,6 +504,22 @@ assert_exit0 "SubagentStop exit 0 sin jq en PATH (sin appendear nada)" \
 rm -rf "$NO_JQ_BIN"
 sandbox_cleanup
 
+# Caso: rotación — un log preexistente >1MB se archiva a .old (pisando el
+# .old anterior) y la línea nueva queda en un archivo fresco.
+sandbox_create
+ROTATION_LOG_DIR="$SANDBOX_HOME/.claude/methodology/logs"
+mkdir -p "$ROTATION_LOG_DIR"
+head -c 1100000 /dev/zero | tr '\0' 'x' > "$ROTATION_LOG_DIR/subagent-invocations.jsonl"
+echo "MARKER_FOR_OLD" >> "$ROTATION_LOG_DIR/subagent-invocations.jsonl"
+echo "PREVIOUS_OLD_MARKER" > "$ROTATION_LOG_DIR/subagent-invocations.jsonl.old"
+assert_exit0 "SubagentStop rota el log a .old al superar 1MB" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  '{"agent_type":"backend-dev"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'LOG="$ROTATION_LOG_DIR/subagent-invocations.jsonl"; OLD="$LOG.old"; [ -f "$OLD" ] && grep -q "MARKER_FOR_OLD" "$OLD" && ! grep -q "PREVIOUS_OLD_MARKER" "$OLD" && [ "$(wc -l < "$LOG" | tr -d " ")" = "1" ] && [ "$(jq -r .agent "$LOG")" = "backend-dev" ]'
+sandbox_cleanup
+
 echo ""
 
 # --- Resumen ---

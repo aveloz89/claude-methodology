@@ -33,7 +33,16 @@ LOG_DIR="$HOME/.claude/methodology/logs"
 LOG_FILE="$LOG_DIR/subagent-invocations.jsonl"
 mkdir -p "$LOG_DIR" 2>/dev/null
 
-LINE=$(jq -n \
+# Rotación: si el log ya supera ~1MB, se archiva a .old (pisando el .old
+# anterior) antes de appendear la línea nueva a un archivo fresco.
+if [ -f "$LOG_FILE" ]; then
+  SIZE=$(stat -f%z "$LOG_FILE" 2>/dev/null || stat -c%s "$LOG_FILE" 2>/dev/null)
+  if [ -n "$SIZE" ] && [ "$SIZE" -gt 1048576 ] 2>/dev/null; then
+    mv -f "$LOG_FILE" "$LOG_FILE.old" 2>/dev/null
+  fi
+fi
+
+LINE=$(jq -nc \
   --arg ts "$NOW" \
   --arg agent "$AGENT" \
   --arg session "$SESSION" \
