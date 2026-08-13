@@ -367,43 +367,79 @@ Al recibir el plan de lotes del architect, crea:
 [Si no se generó, omitir esta sección]
 ```
 
-### `STATE.md`
+### `STATE.md` + `state.json`
+
+**Regla de reparto:** prosa en `STATE.md`, estado enumerable en `state.json`. Si un dato tiene un valor de un enum cerrado o se usa para calcular progreso (fase, status de un lote, contador de tareas), va en `state.json`; si es texto libre que explica un porqué (una decisión, un blocker), va en `STATE.md`.
+
+`STATE.md` pierde las secciones "Estado actual" y "Progreso" (migran al JSON) y gana una línea de puntero:
 
 ```markdown
-## Estado actual
-
-- **Feature:** [nombre]
-- **Fase:** [brainstorming | diseño | implementación | review | completado]
-- **Branch:** [nombre del branch activo]
-- **PR:** [número si existe]
-- **Última actualización:** [timestamp]
-
-## Progreso
-- [x] Brainstorming completado
-- [x] Diseño aprobado
-- [ ] DB implementada (si aplica db-specialist)
-- [ ] Backend implementado
-- [ ] Frontend implementado
-- [ ] PR creado
-- [ ] CI verde
-- [ ] Documentación actualizada
-- [ ] Review aprobado
-- [ ] Mergeado
-
 ## Decisiones
 - [D-01] [decisión tomada durante brainstorming/diseño]
 - [D-02] ...
 
 ## Blockers
 - [ninguno | descripción del blocker]
+
+---
+El estado mutable (fase, lotes, progreso) vive en `state.json`.
 ```
 
-**Cuándo actualizar:**
-- Al completar cada fase
-- Al crear un PR
-- Al recibir resultados de review
-- Al encontrar un blocker
+**Schema de `state.json` (contrato — versión 1):**
+
+```json
+{
+  "schema": 1,
+  "feature": "slug-corto-de-la-feature",
+  "branch": "feature/slug",
+  "pr": null,
+  "updated": "2026-08-13T18:30:00Z",
+  "phases": {
+    "brainstorming": "done",
+    "design": "in_progress",
+    "implementation": "pending",
+    "docs": "pending",
+    "pr": "pending",
+    "ci": "pending",
+    "review": "pending",
+    "e2e": "skipped",
+    "merge": "pending"
+  },
+  "batches": [
+    {
+      "id": 1,
+      "name": "pre-compact-snapshot",
+      "agent": "backend-dev",
+      "status": "in_progress",
+      "tasks_done": 2,
+      "tasks_total": 5,
+      "current_task": "3: no-op limpio sin .planning"
+    }
+  ]
+}
+```
+
+- **Enum de status** (`phases.*` y `batches[].status`): `pending | in_progress | done | failed | skipped`. Ningún otro valor.
+- `phases` es un objeto de **claves fijas** — siempre las 9 de arriba, presentes todas (`skipped` para las que no aplican, p. ej. `e2e` sin UI). Claves fijas = mutación mínima ("cambiar un valor"), menos corruptible que un array.
+- `batches` refleja el plan del architect: `id`/`name`/`agent` los siembra el orchestrator al cerrar el diseño; `status`/`tasks_done`/`current_task` mutan durante la ejecución.
+
+**Quién escribe qué:**
+
+| Campo | Quién escribe | Cuándo |
+|---|---|---|
+| Archivo completo (creación) | Orchestrator | Al cerrar el diseño (fin de Fase 1) |
+| `phases.*` | Orchestrator | En cada transición de fase del pipeline |
+| `batches[].status` | Orchestrator | Al invocar / al cerrar cada lote |
+| `batches[].tasks_done` y `current_task` de **su** batch | Dev que ejecuta el lote | Antes de empezar cada tarea atómica (reemplaza la regla 3 de `agent-budget.md` de "STATE.md actualizado entre tareas") |
+| `pr` | Orchestrator | Fase 2.7 (al crear el PR) |
+| `updated` | Quien haga la escritura | En toda escritura al archivo |
+
+**Cuándo actualizar `STATE.md`:**
+- Al tomar una decisión nueva (`[D-NN]`)
+- Al encontrar o resolver un blocker
 - Al pausar o retomar
+
+**Cuándo actualizar `state.json`:** ver tabla de arriba — cada transición de fase o lote, y entre cada tarea atómica del dev activo.
 
 ### `HANDOFF.md`
 
