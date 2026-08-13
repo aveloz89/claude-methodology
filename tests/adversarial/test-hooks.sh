@@ -716,6 +716,47 @@ else
 fi
 sandbox_cleanup
 
+# Caso: con .planning/state.json presente (schema D3), el output incluye la
+# fase activa y una línea por batch con status y progreso.
+sandbox_create
+cat > "$SANDBOX_REPO/.planning/state.json" <<'STATE_JSON_EOF'
+{
+  "schema": 1,
+  "feature": "harden-pre-merge-check",
+  "branch": "feature/harden-pre-merge-check",
+  "pr": null,
+  "updated": "2026-08-13T18:30:00Z",
+  "phases": {
+    "brainstorming": "done",
+    "design": "done",
+    "implementation": "in_progress",
+    "docs": "pending",
+    "pr": "pending",
+    "ci": "pending",
+    "review": "pending",
+    "e2e": "skipped",
+    "merge": "pending"
+  },
+  "batches": [
+    {"id": 1, "name": "pre-compact-snapshot", "agent": "backend-dev", "status": "done", "tasks_done": 5, "tasks_total": 5, "current_task": null},
+    {"id": 2, "name": "subagent-stop-log", "agent": "backend-dev", "status": "done", "tasks_done": 5, "tasks_total": 5, "current_task": null},
+    {"id": 3, "name": "session-end-check", "agent": "backend-dev", "status": "in_progress", "tasks_done": 3, "tasks_total": 5, "current_task": "4: render de state.json"}
+  ]
+}
+STATE_JSON_EOF
+OUTPUT_STATE_JSON=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+TOTAL=$((TOTAL + 1))
+if echo "$OUTPUT_STATE_JSON" | grep -q "Fase activa: implementation" \
+  && echo "$OUTPUT_STATE_JSON" | grep -qF "[done] 1 pre-compact-snapshot — 5/5" \
+  && echo "$OUTPUT_STATE_JSON" | grep -qF "[in_progress] 3 session-end-check — 3/5"; then
+  echo -e "${GREEN}PASS${NC}: SessionStart renderiza fase activa y batches de state.json"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart renderiza fase activa y batches de state.json"
+  FAIL=$((FAIL + 1))
+fi
+sandbox_cleanup
+
 echo ""
 
 # --- Resumen ---

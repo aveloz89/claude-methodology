@@ -57,6 +57,19 @@ if [ -d ".planning" ]; then
     echo "---"
   fi
 
+  if [ -f ".planning/state.json" ] && command -v jq > /dev/null 2>&1; then
+    echo ""
+    echo "=== state.json ==="
+    STATE_JSON_PHASES_ORDER='["brainstorming","design","implementation","docs","pr","ci","review","e2e","merge"]'
+    ACTIVE_PHASE=$(jq -r --argjson order "$STATE_JSON_PHASES_ORDER" '
+      .phases as $p |
+      ($order | map(select($p[.] != "done" and $p[.] != "skipped")) | .[0]) // "ninguna"
+    ' .planning/state.json 2>/dev/null)
+    ACTIVE_STATUS=$(jq -r --arg ph "$ACTIVE_PHASE" '.phases[$ph] // "n/a"' .planning/state.json 2>/dev/null)
+    echo "Fase activa: $ACTIVE_PHASE ($ACTIVE_STATUS)"
+    jq -r '.batches[]? | "[\(.status)] \(.id) \(.name) — \(.tasks_done)/\(.tasks_total)"' .planning/state.json 2>/dev/null
+  fi
+
   if [ -f ".planning/HANDOFF.md" ]; then
     echo ""
     echo "⚠️ HANDOFF encontrado — hay trabajo pausado. Lee .planning/HANDOFF.md para retomar."
