@@ -27,7 +27,9 @@
 #      de shell real — un wrapper como bash -c "..." no se detecta porque
 #      el comando real queda dentro de una string que este hook sanitiza.
 #      Aceptable: el hook protege errores honestos del orchestrator, no
-#      evasión adversarial.
+#      evasión adversarial. El saneo + ancla vive en hooks/lib/guard-
+#      matching.sh — compartido con block-admin-merge.sh y pre-commit-
+#      guard.sh, que tenían el mismo matching frágil (#47).
 #   4. CI SIN CHECKS CONFIGURADOS: en un repo sin ningún check (gh pr checks
 #      no reporta nada para esa PR), el guard bloqueaba con el mismo mensaje
 #      que usa para un fallo real de la consulta. "Sin checks" es un pass
@@ -41,20 +43,13 @@
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-# Antes de matchear, sacamos del texto los spans quoted ('...'/"...") y los
-# cuerpos de heredoc: son contenido literal (ej. un mensaje de commit) que
-# puede mencionar la frase de merge sin ser una invocación real. El match
-# además se ancla a posición de comando (inicio de string/línea, o justo
-# después de &&, ||, ;, |, $() para no perder invocaciones reales dentro de
-# comandos compuestos.
-SANITIZED_COMMAND=$(echo "$COMMAND" | perl -0777 -pe '
-  s/<<-?[\x27"]?(\w+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1$).*\n?)*[ \t]*\1(?:\n|$)/\n/gsm;
-  s/\x27[^\x27]*\x27/ /g;
-  s/"(?:[^"\\]|\\.)*"/ /g;
-')
+# shellcheck source=lib/guard-matching.sh
+source "$(dirname "$0")/lib/guard-matching.sh"
+
+SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
 # Solo interceptar invocaciones reales de gh pr merge
-if ! echo "$SANITIZED_COMMAND" | grep -qE '(^|&&|\|\||;|\||\$\()\s*gh\s+pr\s+merge\b'; then
+if ! echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}gh\s+pr\s+merge\b"; then
   echo '{"continue":true}'
   exit 0
 fi
