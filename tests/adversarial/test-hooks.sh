@@ -543,6 +543,125 @@ assert_exit0 "SessionEnd S1: commit posterior a STATE.md escribe marker" \
   'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ -f "$MARKER" ] && [ "$(jq -c .signals "$MARKER")" = "[\"commits_after_state\"]" ] && [ "$(jq -r .branch "$MARKER")" != "null" ] && [ "$(jq -r .head "$MARKER")" != "null" ] && [ "$(jq -r .reason "$MARKER")" = "other" ] && [ "$(jq -r .ts "$MARKER")" != "null" ]'
 sandbox_cleanup
 
+# Caso: señal S2 — archivo dirty (sin commitear) fuera de .planning/ con
+# mtime posterior a STATE.md. STATE.md se toca a "ahora" (después del commit
+# inicial del sandbox, para no disparar S1 también) y el archivo dirty se
+# crea tras un sleep para garantizar mtime estrictamente posterior.
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+(
+  cd "$SANDBOX_REPO" || exit 1
+  touch .planning/STATE.md
+) > /dev/null 2>&1
+sleep 1
+(
+  cd "$SANDBOX_REPO" || exit 1
+  echo "dirty" > dirty-file.txt
+) > /dev/null 2>&1
+assert_exit0 "SessionEnd S2: archivo dirty posterior a STATE.md escribe marker" \
+  "$HOOKS_DIR/session-end-check.sh" \
+  '{}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ -f "$MARKER" ] && [ "$(jq -c .signals "$MARKER")" = "[\"dirty_files_after_state\"]" ] && [ "$(jq -r .reason "$MARKER")" = "other" ]'
+sandbox_cleanup
+
+# Caso: archivos dirty DENTRO de .planning/ no cuentan para S2 (solo fuera).
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+(
+  cd "$SANDBOX_REPO" || exit 1
+  touch .planning/STATE.md
+) > /dev/null 2>&1
+sleep 1
+(
+  cd "$SANDBOX_REPO" || exit 1
+  echo "more design" >> .planning/DESIGN.md
+) > /dev/null 2>&1
+assert_exit0 "SessionEnd ignora archivos dirty dentro de .planning/" \
+  "$HOOKS_DIR/session-end-check.sh" \
+  '{}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -f "$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json" ]'
+sandbox_cleanup
+
+# Caso: STATE.md más reciente que todo (commits y archivos dirty) — no se
+# escribe marker.
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+(
+  cd "$SANDBOX_REPO" || exit 1
+  touch .planning/STATE.md
+) > /dev/null 2>&1
+assert_exit0 "SessionEnd sin señales: STATE.md fresco no escribe marker" \
+  "$HOOKS_DIR/session-end-check.sh" \
+  '{}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -f "$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json" ]'
+sandbox_cleanup
+
+# Caso: sin .planning/STATE.md — exit 0 sin efectos.
+sandbox_create
+rm -f "$SANDBOX_REPO/.planning/STATE.md"
+assert_exit0 "SessionEnd no-op sin .planning/STATE.md" \
+  "$HOOKS_DIR/session-end-check.sh" \
+  '{}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude" ]'
+sandbox_cleanup
+
+# Caso: fuera de repo git — exit 0 sin efectos.
+NO_GIT_DIR=$(mktemp -d)
+NO_GIT_DIR=$(cd "$NO_GIT_DIR" && pwd -P)
+NO_GIT_HOME=$(mktemp -d)
+NO_GIT_HOME=$(cd "$NO_GIT_HOME" && pwd -P)
+mkdir -p "$NO_GIT_DIR/.planning"
+echo "# STATE" > "$NO_GIT_DIR/.planning/STATE.md"
+assert_exit0 "SessionEnd no-op fuera de repo git" \
+  "$HOOKS_DIR/session-end-check.sh" \
+  '{}' \
+  "$NO_GIT_DIR" \
+  "$NO_GIT_HOME" \
+  '[ ! -e "$NO_GIT_HOME/.claude" ]'
+rm -rf "$NO_GIT_DIR" "$NO_GIT_HOME"
+
+# Caso: el marker se SOBRESCRIBE entre invocaciones sucesivas, nunca acumula
+# señales de invocaciones anteriores.
+sandbox_create
+SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+(
+  cd "$SANDBOX_REPO" || exit 1
+  touch -t 202001010000 .planning/STATE.md
+  echo "new work" > new-file.txt
+  git add new-file.txt
+  git commit -q -m "commit after state"
+) > /dev/null 2>&1
+assert_exit0 "SessionEnd overwrite paso 1: marker con commits_after_state" \
+  "$HOOKS_DIR/session-end-check.sh" \
+  '{}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ "$(jq -c .signals "$MARKER")" = "[\"commits_after_state\"]" ]'
+(
+  cd "$SANDBOX_REPO" || exit 1
+  touch .planning/STATE.md
+) > /dev/null 2>&1
+sleep 1
+(
+  cd "$SANDBOX_REPO" || exit 1
+  echo "dirty" > dirty-file.txt
+) > /dev/null 2>&1
+assert_exit0 "SessionEnd overwrite paso 2: marker se sobrescribe, no acumula" \
+  "$HOOKS_DIR/session-end-check.sh" \
+  '{}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ "$(jq -c .signals "$MARKER")" = "[\"dirty_files_after_state\"]" ]'
+sandbox_cleanup
+
 echo ""
 
 # --- Resumen ---

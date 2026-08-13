@@ -39,6 +39,23 @@ if [ -n "$LAST_COMMIT_TS" ] && [ "$LAST_COMMIT_TS" -gt "$STATE_MTIME" ] 2>/dev/n
   SIGNALS+=("commits_after_state")
 fi
 
+# S2: hubo trabajo sin commitear (fuera de .planning/) posterior al STATE.
+while IFS= read -r LINE; do
+  [ -n "$LINE" ] || continue
+  DIRTY_PATH="${LINE:3}"
+  case "$DIRTY_PATH" in
+    *" -> "*) DIRTY_PATH="${DIRTY_PATH#*-> }" ;;
+  esac
+  case "$DIRTY_PATH" in
+    .planning/*) continue ;;
+  esac
+  DIRTY_MTIME=$(mtime_of "$TOPLEVEL/$DIRTY_PATH")
+  if [ -n "$DIRTY_MTIME" ] && [ "$DIRTY_MTIME" -gt "$STATE_MTIME" ] 2>/dev/null; then
+    SIGNALS+=("dirty_files_after_state")
+    break
+  fi
+done < <(cd "$TOPLEVEL" && git status --porcelain 2>/dev/null)
+
 [ "${#SIGNALS[@]}" -gt 0 ] || exit 0
 
 REASON=$(echo "$INPUT" | jq -r '.reason // "other"' 2>/dev/null)
