@@ -673,6 +673,29 @@ assert_exit0 "SubagentStop dedupe paso 3: stdin distinto sí se appendea" \
 rm -rf "$FAKE_DATE_DIR"
 sandbox_cleanup
 
+# Caso: auto-diagnóstico del caso unknown — cuando el agente resuelve a
+# "unknown", la línea incluye raw_keys con los nombres (nunca los valores)
+# de los campos top-level del stdin, para poder identificar payloads de
+# subagentes anidados sin exponer contenido potencialmente sensible.
+sandbox_create
+assert_exit0 "SubagentStop agrega raw_keys cuando agent es unknown" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  '{"foo":1,"bar":2}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'LOG="$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl"; [ "$(jq -r .agent "$LOG")" = "unknown" ] && [ "$(jq -c .raw_keys "$LOG")" = "[\"bar\",\"foo\"]" ]'
+sandbox_cleanup
+
+# Caso: con payload conocido, la línea no trae raw_keys (igual que hoy).
+sandbox_create
+assert_exit0 "SubagentStop no agrega raw_keys cuando el agente es conocido" \
+  "$HOOKS_DIR/subagent-stop-log.sh" \
+  '{"agent_type":"backend-dev","session_id":"sess-1"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  'LOG="$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl"; [ "$(jq -r .agent "$LOG")" = "backend-dev" ] && [ "$(jq "has(\"raw_keys\")" "$LOG")" = "false" ]'
+sandbox_cleanup
+
 echo ""
 
 # --- session-end-check.sh ---

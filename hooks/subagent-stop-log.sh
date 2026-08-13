@@ -23,6 +23,16 @@ echo "$INPUT" | jq empty > /dev/null 2>&1 || exit 0
 AGENT=$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // "unknown"' 2>/dev/null)
 [ -n "$AGENT" ] && [ "$AGENT" != "null" ] || AGENT="unknown"
 
+# Auto-diagnóstico: si el agente no se pudo resolver, guardar los nombres
+# (nunca los valores) de los campos top-level del payload — típico de
+# subagentes anidados (lanzados por otro subagente) cuyo payload no trae
+# agent_type ni subagent_type y no sabemos qué forma tiene.
+RAW_KEYS="null"
+if [ "$AGENT" = "unknown" ]; then
+  KEYS=$(echo "$INPUT" | jq -c 'keys' 2>/dev/null)
+  [ -n "$KEYS" ] && RAW_KEYS="$KEYS"
+fi
+
 SESSION=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 TRANSCRIPT=$(echo "$INPUT" | jq -r '.agent_transcript_path // .transcript_path // empty' 2>/dev/null)
 
@@ -53,6 +63,7 @@ LINE=$(jq -nc \
   --arg repo "$TOPLEVEL" \
   --arg branch "$BRANCH" \
   --arg transcript "$TRANSCRIPT" \
+  --argjson raw_keys "$RAW_KEYS" \
   '{
     ts: $ts,
     agent: $agent,
@@ -60,7 +71,7 @@ LINE=$(jq -nc \
     repo: (if $repo == "" then null else $repo end),
     branch: (if $branch == "" then null else $branch end),
     transcript: (if $transcript == "" then null else $transcript end)
-  }' 2>/dev/null)
+  } + (if $agent == "unknown" then {raw_keys: $raw_keys} else {} end)' 2>/dev/null)
 
 # Dedupe: si la línea candidata es exactamente igual a la última ya
 # escrita, no se re-appendea. Cubre el doble disparo del hook (registrado
