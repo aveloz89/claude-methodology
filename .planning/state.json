@@ -3,14 +3,14 @@
   "feature": "align-atomic-commits",
   "branch": "feature/align-atomic-commits",
   "pr": null,
-  "updated": "2026-08-14T14:40:00Z",
+  "updated": "2026-08-14T15:20:00Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
     "implementation": "done",
     "docs": "skipped",
-    "review": "in_progress",
-    "pr": "pending",
+    "review": "done",
+    "pr": "in_progress",
     "ci": "pending",
     "e2e": "skipped",
     "merge": "pending"
@@ -26,5 +26,5 @@
       "current_task": null
     }
   ],
-  "review_sha": null
+  "review_sha": "f9c4168f864c9cb96fe43f0ac0b1ec8c9ea88b93"
 }

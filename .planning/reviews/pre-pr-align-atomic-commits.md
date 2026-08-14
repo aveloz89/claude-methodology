@@ -1,0 +1,15 @@
+# Review dual pre-push — feature/align-atomic-commits (Fase 2.6)
+
+**Branch:** feature/align-atomic-commits · **Base:** dev · **SHA revisado:** `f9c4168` · **Fecha:** 2026-08-14 · Presupuesto: ~5 min/reviewer (diff +30/−56, 100% docs)
+
+## security-reviewer (remoto) — APROBADO
+
+0 CRITICAL/HIGH/MEDIUM. Verificado: la redacción nueva ENDURECE la granularidad (no la relaja), invariantes textualmente conservados ("un PR por objetivo", "trazabilidad la da el commit", "refactor y feature nunca se mezclan"), gates intactos, enmienda histórica honesta (registro verbatim + blockquote fechado). 1 LOW: la heurística nueva pierde el gatillo por tamaño puro — un diff enorme pero homogéneo ya no obliga a evaluar corte. **Elevado al usuario como decisión de política** (roza su preferencia explícita de PRs grandes); no aplicado de oficio.
+
+## qa-backend (remoto) — APROBADO
+
+0 bloqueantes. Coherencia "commit por tarea" en todos los puntos normativos; heurística idéntica palabra por palabra en pr-workflow y architect; grep `commit por fase|15 commits` → único hit legítimo (decisión histórica enmendada); cero residuos contradictorios en archivos no tocados (runbook/dev-common/README ya usaban o delegaban la unidad nueva). 1 nit de puntuación **no aplicado con razón**: el punto final ausente en `architect.md:318` es estilo correcto de ítem de lista (vs prosa en pr-workflow).
+
+## Cierre
+
+Sin ronda de fixes (cero hallazgos aplicables). `review_sha` = `f9c4168`. Registro reconciliable a `PR-<N>.md` en Fase 2.7.
