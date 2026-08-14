@@ -3,14 +3,14 @@
   "feature": "pre-pr-reviews",
   "branch": "feature/pre-pr-reviews",
   "pr": null,
-  "updated": "2026-08-14T12:15:00Z",
+  "updated": "2026-08-14T12:30:00Z",
   "phases": {
     "brainstorming": "done",
     "design": "done",
     "implementation": "done",
     "docs": "done",
-    "review": "in_progress",
-    "pr": "pending",
+    "review": "done",
+    "pr": "in_progress",
     "ci": "pending",
     "e2e": "skipped",
     "merge": "pending"
@@ -52,5 +52,6 @@
       "tasks_total": 5,
       "current_task": null
     }
-  ]
+  ],
+  "review_sha": "b22c664d924845427f8b813e7125ec609d210142"
 }
