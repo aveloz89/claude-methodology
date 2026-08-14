@@ -62,10 +62,17 @@ fi
 # desactualizado, dejado por la sesión anterior (session-end-check.sh).
 if command -v jq > /dev/null 2>&1; then
   TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
-  if [ -n "$TOPLEVEL" ]; then
+  # Modo degradado: sin hooks/lib/slug.sh o sin ninguna herramienta de hash
+  # disponible, se omite SOLO esta sección (el resto del contexto se
+  # imprime igual) — SLUG queda vacío y el "if -n" de abajo la salta.
+  SLUG=""
+  LIB="${0%/*}/lib/slug.sh"
+  if [ -n "$TOPLEVEL" ] && [ -r "$LIB" ]; then
     # shellcheck source=lib/slug.sh
-    source "${0%/*}/lib/slug.sh"
-    SLUG=$(repo_slug "$TOPLEVEL")
+    source "$LIB"
+    SLUG=$(repo_slug "$TOPLEVEL") || SLUG=""
+  fi
+  if [ -n "$SLUG" ]; then
     MARKER_FILE="$HOME/.claude/methodology/session-end/$SLUG.json"
     if [ -f "$MARKER_FILE" ]; then
       SIGNALS=$(jq -r '.signals // [] | join(", ")' "$MARKER_FILE" 2>/dev/null)

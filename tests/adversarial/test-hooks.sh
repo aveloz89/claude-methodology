@@ -1810,6 +1810,62 @@ fi
 
 echo ""
 
+# --- Modo degradado: hooks/lib/slug.sh ausente ---
+echo "--- modo degradado: hooks/lib/slug.sh ausente ---"
+
+# Copia de hooks/ con lib/slug.sh renombrado (nunca se toca el hooks/ real,
+# que sí lo tiene). pre-compact-snapshot.sh y session-end-check.sh son
+# observabilidad (PreCompact/SessionEnd): sin el lib, el contrato es no-op
+# limpio (exit 0, sin artefactos), nunca bloquean. session-start-context.sh
+# es lector con salida visible: sin el lib, imprime el resto del contexto
+# normal y solo omite la sección del marker.
+DEGRADED_HOOKS_DIR=$(mktemp -d)
+cp -R "$HOOKS_DIR/." "$DEGRADED_HOOKS_DIR/"
+mv "$DEGRADED_HOOKS_DIR/lib/slug.sh" "$DEGRADED_HOOKS_DIR/lib/slug.sh.disabled"
+
+sandbox_create
+assert_exit0 "PreCompact modo degradado: exit 0 sin snapshot si falta hooks/lib/slug.sh" \
+  "$DEGRADED_HOOKS_DIR/pre-compact-snapshot.sh" \
+  '{"trigger":"auto"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude" ]'
+sandbox_cleanup
+
+sandbox_create
+(
+  cd "$SANDBOX_REPO" || exit 1
+  touch -t 202001010000 .planning/STATE.md
+  echo "new work" > new-file.txt
+  git add new-file.txt
+  git commit -q -m "commit after state"
+) > /dev/null 2>&1
+assert_exit0 "SessionEnd modo degradado: exit 0 sin marker si falta hooks/lib/slug.sh (con señal S1 forzada)" \
+  "$DEGRADED_HOOKS_DIR/session-end-check.sh" \
+  '{"reason":"other"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude" ]'
+sandbox_cleanup
+
+sandbox_create
+OUTPUT_DEGRADED=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$DEGRADED_HOOKS_DIR/session-start-context.sh" 2>&1)
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if echo "$OUTPUT_DEGRADED" | grep -q "=== Session Context ===" \
+  && ! echo "$OUTPUT_DEGRADED" | grep -q "sesión anterior cerró" \
+  && ! echo "$OUTPUT_DEGRADED" | grep -qiE "no such file|command not found|slug\.sh"; then
+  echo -e "${GREEN}PASS${NC}: SessionStart modo degradado: imprime contexto normal sin sección de marker si falta hooks/lib/slug.sh"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart modo degradado: imprime contexto normal sin sección de marker si falta hooks/lib/slug.sh (output: $OUTPUT_DEGRADED)"
+  FAIL=$((FAIL + 1))
+fi
+
+rm -rf "$DEGRADED_HOOKS_DIR"
+
+echo ""
+
 # --- .gitignore (#52) ---
 echo "--- .gitignore ---"
 

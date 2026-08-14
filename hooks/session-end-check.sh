@@ -71,9 +71,13 @@ REASON=$(echo "$INPUT" | jq -r '.reason // "other"' 2>/dev/null)
 BRANCH=$(cd "$TOPLEVEL" && git branch --show-current 2>/dev/null)
 HEAD=$(cd "$TOPLEVEL" && git rev-parse --short HEAD 2>/dev/null)
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+# Modo degradado: sin hooks/lib/slug.sh o sin ninguna herramienta de hash
+# disponible, no-op limpio — SessionEnd es observabilidad, nunca bloquea.
+LIB="${0%/*}/lib/slug.sh"
+[ -r "$LIB" ] || exit 0
 # shellcheck source=lib/slug.sh
-source "${0%/*}/lib/slug.sh"
-SLUG=$(repo_slug "$TOPLEVEL")
+source "$LIB"
+SLUG=$(repo_slug "$TOPLEVEL") || exit 0
 
 MARKER_DIR="$HOME/.claude/methodology/session-end"
 mkdir -p "$MARKER_DIR" 2>/dev/null

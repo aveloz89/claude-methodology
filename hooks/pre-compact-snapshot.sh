@@ -26,9 +26,13 @@ TRIGGER=$(echo "$INPUT" | jq -r '.trigger // "unknown"' 2>/dev/null)
 TRIGGER=$(echo "$TRIGGER" | tr -cd 'A-Za-z0-9_-')
 [ -n "$TRIGGER" ] || TRIGGER="unknown"
 
+# Modo degradado: sin hooks/lib/slug.sh o sin ninguna herramienta de hash
+# disponible, no-op limpio — PreCompact es observabilidad, nunca bloquea.
+LIB="${0%/*}/lib/slug.sh"
+[ -r "$LIB" ] || exit 0
 # shellcheck source=lib/slug.sh
-source "${0%/*}/lib/slug.sh"
-SLUG=$(repo_slug "$TOPLEVEL")
+source "$LIB"
+SLUG=$(repo_slug "$TOPLEVEL") || exit 0
 TS=$(date -u +%Y%m%d-%H%M%S)
 SNAPSHOT_DIR="$HOME/.claude/methodology/snapshots/$SLUG/${TS}-${TRIGGER}"
 
