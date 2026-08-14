@@ -21,9 +21,9 @@
       "name": "hook-checkpoint-v2",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 1,
+      "tasks_done": 2,
       "tasks_total": 5,
-      "current_task": "2: CASO B por ausencia de state.json"
+      "current_task": "3: CASO B por estado — review pendiente o branch distinto"
     },
     {
       "id": 2,

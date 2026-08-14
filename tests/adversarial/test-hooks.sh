@@ -1995,6 +1995,26 @@ assert_postpr_caso_b "post-pr-create CASO B: sin state.json → diagnóstico + A
   "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
 sandbox_cleanup
 
+# Caso: CASO B por estado — state.json presente y legible pero
+# phases.review != "done" (el review pre-push no cerró): la sola presencia
+# del archivo NO es evidencia; falla hacia el review.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "pending" "feature/checkpoint-flow" "checkpoint-flow"
+assert_postpr_caso_b "post-pr-create CASO B: state.json con review=pending → falla hacia el review" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
+sandbox_cleanup
+
+# Caso: CASO B por estado — review=done pero el branch de state.json es de
+# OTRA feature (el PR actual no es el que se revisó): las dos señales
+# (fase Y branch) son obligatorias para CASO A.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/otra-feature" "otra-feature"
+assert_postpr_caso_b "post-pr-create CASO B: review=done pero branch de otra feature → falla hacia el review" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
+sandbox_cleanup
+
 echo ""
 
 # --- .gitignore (#52) ---

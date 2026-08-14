@@ -28,9 +28,16 @@ PR_URL=$(echo "$INPUT" | jq -r '.stdout // empty' | grep -oE 'https://github.com
 if [ -n "$PR_URL" ]; then
   TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
   STATE_FILE="$TOPLEVEL/.planning/state.json"
+  CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
+  REVIEW_PHASE=""
+  STATE_BRANCH=""
   if [ -n "$TOPLEVEL" ] && [ -f "$STATE_FILE" ]; then
-    # CASO A: PR del flujo, ya revisado en Fase 2.6
-    CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
+    REVIEW_PHASE=$(jq -r '.phases.review // empty' "$STATE_FILE")
+    STATE_BRANCH=$(jq -r '.branch // empty' "$STATE_FILE")
+  fi
+  if [ "$REVIEW_PHASE" = "done" ] && [ -n "$CURRENT_BRANCH" ] && [ "$STATE_BRANCH" = "$CURRENT_BRANCH" ]; then
+    # CASO A: PR del flujo, ya revisado en Fase 2.6 (exige las dos señales:
+    # fase Y branch — cualquier otra combinación cae a CASO B)
     PR_NUMBER=${PR_URL##*/}
     FEATURE_SLUG=$(jq -r '.feature // empty' "$STATE_FILE")
     echo "PR creado: $PR_URL"
