@@ -10,26 +10,28 @@ argument-hint: "[número de PR, si es sobre uno existente]"
 
 Proceso para crear, reviewear y mergear pull requests. Aplica a TODOS los proyectos.
 
-Las cuatro reglas invariantes (un PR por objetivo con un commit por fase, review dual bloqueante, nunca mergear sin aprobación explícita, nunca mergear con CI en rojo) viven en `CLAUDE.md` porque no pueden llegar tarde. Este documento tiene el detalle operativo.
+Las cuatro reglas invariantes (un PR por objetivo con commits atómicos por tarea, review dual bloqueante, nunca mergear sin aprobación explícita, nunca mergear con CI en rojo) viven en `CLAUDE.md` porque no pueden llegar tarde. Este documento tiene el detalle operativo.
 
-## 1. Un PR por unidad coherente, un commit por fase
+## 1. Un PR por unidad coherente, commits atómicos por tarea
 
 **Decisión del usuario 2026-07-24 (reemplaza a "una fase = un PR"):** varias fases que persiguen el mismo objetivo viajan en **un solo PR**, con **un commit por fase**. La regla anterior multiplicaba los runs de CI sin comprar review de mejor calidad.
 
+> **Enmienda 2026-08-14:** la unidad del commit se precisó de **fase → tarea** — un comportamiento/una idea = un commit; una fase viaja como una serie de commits atómicos. Es la práctica real desde los PRs #49–#56. El espíritu no cambia: nunca un commit gigante.
+
 **Por qué el cambio:** cada PR cuesta como mínimo dos runs completos (el del PR + el del push a `dev` al mergear), más uno por ronda de review. Cinco fases como cinco PRs son ~15 runs; como un PR con cinco commits son ~3. Los minutos de Actions se agotaban en 15 días.
 
-**Por qué no se pierde nada:** lo que hacía valiosos a los PRs chicos era poder revisar y bisectar por unidad — y eso lo da el **commit**, no el PR. Un commit por fase, con mensaje que explique el porqué, deja el historial igual de navegable y `git bisect` igual de útil.
+**Por qué no se pierde nada:** lo que hacía valiosos a los PRs chicos era poder revisar y bisectar por unidad — y eso lo da el **commit**, no el PR. Un commit por tarea, con mensaje que explique el porqué, deja el historial igual de navegable y `git bisect` igual de útil.
 
 **Cómo aplicar:**
-- Un branch por objetivo, no por fase. Las fases se acumulan ahí como commits atómicos.
-- **Un commit por fase, siempre.** Nunca un commit gigante con todo: eso sí destruye la trazabilidad.
+- Un branch por objetivo, no por fase. Las fases se acumulan ahí como series de commits atómicos.
+- **Un commit por tarea, siempre** (un comportamiento/una idea = un commit). Nunca un commit gigante con todo: eso sí destruye la trazabilidad.
 - El PR body lista las fases con un párrafo cada una, para que el reviewer navegue commit por commit.
 
 **Cuándo SÍ separar en PRs distintos** (cualquiera de estas basta):
 
 - **Refactor y feature nunca se mezclan.** Sigue siendo intocable: un refactor colateral dentro de un PR de feature hace irrevisable el diff.
 - El trabajo es **genuinamente independiente y shippeable solo** — podría ir a `dev` sin lo demás.
-- El diff se vuelve irrevisable: heurística de **>1000 LoC o >15 commits**.
+- El diff se vuelve irrevisable: **>1000 LoC de naturaleza mixta que el PR body no logra agrupar de forma navegable**; el número de commits atómicos no es señal de corte.
 - Una fase **depende del review de la anterior** para decidir su alcance. Si el feedback puede cambiar lo que viene, no lo adelantes.
 - El riesgo de revert es asimétrico: una fase que quizás haya que revertir sola no debe arrastrar a las demás.
 
