@@ -1,57 +1,30 @@
 {
   "schema": 1,
-  "feature": "pre-pr-reviews",
-  "branch": "feature/pre-pr-reviews",
-  "pr": 56,
-  "updated": "2026-08-14T13:20:00Z",
+  "feature": "align-atomic-commits",
+  "branch": "feature/align-atomic-commits",
+  "pr": 57,
+  "updated": "2026-08-14T15:30:00Z",
   "phases": {
-    "brainstorming": "done",
-    "design": "done",
+    "brainstorming": "skipped",
+    "design": "skipped",
     "implementation": "done",
-    "docs": "done",
+    "docs": "skipped",
     "review": "done",
-    "pr": "done",
-    "ci": "skipped",
+    "pr": "in_progress",
+    "ci": "pending",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
       "id": 1,
-      "name": "hook-checkpoint-v2",
+      "name": "align-wording",
       "agent": "backend-dev",
       "status": "done",
-      "tasks_done": 5,
-      "tasks_total": 5,
-      "current_task": null
-    },
-    {
-      "id": 2,
-      "name": "docs-core-flujo",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 5,
-      "tasks_total": 5,
-      "current_task": null
-    },
-    {
-      "id": 3,
-      "name": "periferia-y-cierre",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 5,
-      "tasks_total": 5,
-      "current_task": null
-    },
-    {
-      "id": 4,
-      "name": "fixes-2.6",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 5,
-      "tasks_total": 5,
+      "tasks_done": 3,
+      "tasks_total": 3,
       "current_task": null
     }
   ],
-  "review_sha": "b22c664d924845427f8b813e7125ec609d210142"
+  "review_sha": "f9c4168f864c9cb96fe43f0ac0b1ec8c9ea88b93"
 }
