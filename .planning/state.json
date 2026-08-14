@@ -3,7 +3,7 @@
   "feature": "followups-sweep",
   "branch": "feature/followups-sweep",
   "pr": null,
-  "updated": "2026-08-14T03:50:00Z",
+  "updated": "2026-08-14T04:40:00Z",
   "phases": {
     "brainstorming": "done",
     "design": "done",
@@ -38,8 +38,8 @@
       "id": 3,
       "name": "plugin-manifests",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
+      "status": "done",
+      "tasks_done": 4,
       "tasks_total": 4,
       "current_task": null
     },
