@@ -128,7 +128,7 @@ Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`
 
 Cuatro reglas que no pueden llegar tarde. El resto del proceso — presupuesto de CI, E2E pre-release, branch protection, verificación pre-merge — vive en la skill **`pr-workflow`**, que invocas al llegar a Fase 2.6 o al trabajar sobre un PR existente.
 
-1. **Un PR por objetivo, un commit por fase.** Las fases de un mismo objetivo se acumulan en un branch como commits atómicos — la trazabilidad la da el commit, no el PR. Refactor y feature nunca se mezclan. Criterios de corte en la skill.
+1. **Un PR por objetivo, commits atómicos por tarea.** Las fases de un mismo objetivo se acumulan en un branch como series de commits atómicos — la trazabilidad la da el commit, no el PR. Refactor y feature nunca se mezclan. Criterios de corte en la skill.
 2. **Review dual bloqueante** antes de cualquier merge (ver "Workflow obligatorio" #4; el momento default: Fase 2.6, pre-push).
 3. **NUNCA mergees sin aprobación explícita del usuario**, aunque CI esté verde y los reviewers aprueben sin blockers. El usuario es el checkpoint final del merge; no se infiere del estado de CI.
 4. **NUNCA mergees con CI en rojo**, aunque el finding parezca preexistente o falso positivo. Si es falso positivo legítimo, suprimirlo formalmente y esperar que CI pase — nunca `--admin`.
