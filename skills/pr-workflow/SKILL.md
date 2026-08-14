@@ -156,7 +156,7 @@ Todo workflow de Actions debe tener:
 
 ## Verificación pre-merge
 
-Los 3 comandos `gh` obligatorios antes de cada merge, y el comando de merge según el tipo de branch, están en `rulebooks/orchestrator-runbook.md`, sección "Comandos `gh` específicos".
+Los 4 checks obligatorios antes de cada merge (threads, reviews, CI y evidencia del review dual pre-push), y el comando de merge según el tipo de branch, están en `rulebooks/orchestrator-runbook.md`, sección "Comandos `gh` específicos".
 
 ## Trade-offs aceptados
 

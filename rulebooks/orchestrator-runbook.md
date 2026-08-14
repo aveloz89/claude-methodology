@@ -206,7 +206,7 @@ El review dual ya ocurrió en Fase 2.6, antes del push: **el PR nació revisado*
 
 1. **Re-review condicional**: SOLO si la Fase 2.8 obligó fixes que cambian código ya revisado. Acotado al delta del fix, re-lanzando **solo los reviewers de la capa afectada**. Los fixes que salgan de esta ronda siguen la regla de un push por ronda (skill `pr-workflow`, regla 5.2). Append de la ronda al registro `.planning/reviews/PR-<N>.md`. Si CI pasó a la primera (caso normal), esta sub-fase es no-op
 2. **Si el PR es a `main` (release)**: invoca `e2e-runner` en Modo B antes de la verificación pre-merge (ver sección "Pre-release E2E" más abajo)
-3. Cuando no queda nada pendiente (re-reviews limpios si los hubo, `e2e-runner` si era PR a main), ejecuta la **verificación pre-merge** (3 comandos `gh` en sección "Comandos `gh` específicos")
+3. Cuando no queda nada pendiente (re-reviews limpios si los hubo, `e2e-runner` si era PR a main), ejecuta la **verificación pre-merge** (4 checks en sección "Comandos `gh` específicos")
 4. Solo si las verificaciones pasan, mergea con el comando apropiado según el tipo de branch:
    - `feature/*` o `hotfix/*` → `gh pr merge <number> --merge --delete-branch`
    - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `CLAUDE.md`)
@@ -593,11 +593,20 @@ gh pr view <number> --json reviewDecision --jq '.reviewDecision'
 # 3. CI checks
 gh pr checks <number>
 # Todos en ✓
+
+# 4. Evidencia del review dual pre-push (cierra los caminos de creación de PR
+#    que el checkpoint post-pr-create no ve: web UI, gh api)
+test -f .planning/reviews/PR-<number>.md
+jq -r '.phases.review' .planning/state.json   # debe ser "done"
+git merge-base --is-ancestor "$(jq -r '.review_sha // empty' .planning/state.json)" "$(git rev-parse <branch>)"
+# exit 0 = el SHA revisado es ancestro del HEAD del branch. Si falta el
+# registro, la fase no está en "done", o review_sha está ausente o no es
+# ancestro → NO mergear
 ```
 
-**Si cualquiera de las 3 falla, NO mergear.** Reportar al usuario qué bloquea.
+**Si cualquiera de las 4 falla, NO mergear.** Reportar al usuario qué bloquea.
 
-Solo si las 3 pasan, mergea según el tipo de branch:
+Solo si las 4 pasan, mergea según el tipo de branch:
 
 ```bash
 # feature/* o hotfix/* (branch desechable)
@@ -714,7 +723,7 @@ Este paso no es opcional ni cosmético: las 7 contradicciones de la auditoría d
 | Dev reporta error de build/CI | `build-resolver` con error completo + branch + archivos. Max 3 fixes automáticos |
 | Reviewer reporta bloqueante | Asignar fix al dev del lote correspondiente en mismo branch. Re-lanzar solo el reviewer que reportó. Repetir hasta aprobación |
 | PR creado sin review pre-push (el checkpoint del hook `post-pr-create` lo señala) | Tratarlo como PR fuera del flujo: skill `review-pr` sobre `gh pr diff` |
-| `gh pr merge` falla | Verificar las 3 condiciones de pre-merge. Reportar cuál bloquea |
+| `gh pr merge` falla | Verificar las 4 condiciones de pre-merge. Reportar cuál bloquea |
 | Healthcheck Docker falla antes de E2E pre-release | Escalar al dev del servicio fallando antes de lanzar `e2e-runner` Modo B |
 | Hotfix mergeado pero falló integración a dev | Conflicto manual. Escalar al usuario con detalles del conflicto |
 | Migración del db-specialist falla en CI | Asignar fix al db-specialist (no a backend-dev) — es su scope |
