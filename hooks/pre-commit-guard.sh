@@ -6,6 +6,15 @@
 # Matching endurecido (#47): el match se sanea (spans quoted/heredoc) y se
 # ancla a posición de comando en vez de al string completo — mismo helper
 # que usa pre-merge-check.sh. Ver hooks/lib/guard-matching.sh.
+#
+# Fail-closed sin jq (cierra #50 para este guard): sin jq, el parseo de
+# COMMAND más abajo devuelve vacío, el grep nunca matchea, y el guard
+# pasaba en silencio — un commit pasaba sin correr tests. CAMBIA el
+# contrato de este hook: antes, sin jq, pasaba.
+if ! command -v jq > /dev/null 2>&1; then
+  echo "BLOCKED: pre-commit-guard no operativo: falta jq" >&2
+  exit 2
+fi
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')

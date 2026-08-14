@@ -30,9 +30,9 @@
       "name": "review-round-2",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 2,
+      "tasks_done": 3,
       "tasks_total": 6,
-      "current_task": "3: fail-closed de jq en block-admin-merge.sh y pre-commit-guard.sh (#50)"
+      "current_task": "4: transparencia de guard_sanitize sin perl + join de continuaciones + GUARD_ANCHOR ampliado"
     }
   ]
 }

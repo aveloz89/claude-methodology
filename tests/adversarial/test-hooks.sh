@@ -294,6 +294,21 @@ rm -rf "$NO_PERL_BAM_BIN"
 assert_bam_blocked "block-admin-merge: apóstrofes en dos strings double-quoted distintos no se comen el comando real de en medio" \
   'git commit -m "it'"'"'s fine" && gh pr merge 5 --admin && echo "that'"'"'s all"'
 
+# (e) [ronda 2, tarea 3] Cierra #50 de verdad para este guard: hoy, sin jq
+# en PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, el
+# guard nunca detecta el --admin y pasa en silencio (fail-open). Este check
+# CAMBIA el contrato de este hook (antes: sin jq pasaba); ahora bloquea
+# igual que pre-merge-check.sh ante la misma dependencia ausente.
+NO_JQ_BAM_BIN=$(mktemp -d)
+for cmd in bash cat perl grep; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_BAM_BIN/$cmd"
+done
+assert_bam_blocked "block-admin-merge: bloquea fail-closed sin jq en PATH (#50)" \
+  "gh pr merge 5 --admin" \
+  "$NO_JQ_BAM_BIN"
+rm -rf "$NO_JQ_BAM_BIN"
+
 echo ""
 
 # --- pre-commit-guard.sh ---
@@ -351,6 +366,23 @@ assert_allowed_cmd "pre-commit-guard: heredoc mentioning git commit is not a rea
   "$PCG_TEST_DIR"
 
 rm -rf "$PCG_TEST_DIR" "$FAKE_PYTEST_DIR"
+
+# [ronda 2, tarea 3] Cierra #50 de verdad para este guard: hoy, sin jq en
+# PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, el guard
+# nunca detecta el "git commit" y pasa en silencio (fail-open, exit 0) sin
+# correr tests. Este check CAMBIA el contrato de este hook (antes: sin jq
+# pasaba); ahora bloquea (exit 2) igual que pre-merge-check.sh ante la
+# misma dependencia ausente.
+NO_JQ_PCG_BIN=$(mktemp -d)
+for cmd in bash cat perl grep; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_PCG_BIN/$cmd"
+done
+assert_blocked_cmd "pre-commit-guard: bloquea fail-closed (exit 2) sin jq en PATH (#50)" \
+  "pre-commit-guard.sh" \
+  "git commit -m 'test'" \
+  "$NO_JQ_PCG_BIN"
+rm -rf "$NO_JQ_PCG_BIN"
 
 echo ""
 
