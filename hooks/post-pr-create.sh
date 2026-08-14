@@ -1,8 +1,16 @@
 #!/bin/bash
-# Post PR create: Detecta cuando se crea un PR e instruye al orquestador
-# para que dispare review automático con security-reviewer y los QAs aplicables
-# (qa-frontend y/o qa-backend según las capas tocadas por el diff).
+# Post PR create (v2): checkpoint de respaldo al detectar `gh pr create`.
+# El review dual ocurre ANTES del push (Fase 2.6), así que este hook ya no
+# instruye lanzarlo por default — verifica evidencia en .planning/state.json:
+#   CASO A — PR del flujo, ya revisado (phases.review=done y branch igual al
+#     actual): solo recuerda confirmar la reconciliación del registro
+#     (.planning/reviews/PR-<N>.md, Fase 2.7). No se relanzan reviewers.
+#   CASO B — sin evidencia de review pre-push (todo lo demás): PR fuera del
+#     flujo — instruye lanzar el review dual (comportamiento v1 conservado).
+# Ante cualquier ambigüedad falla hacia CASO B (el costo del falso negativo
+# es un review redundante; el del falso positivo sería un PR sin review).
 # Recibe JSON en stdin con tool_input y stdout del comando ejecutado.
+# Siempre exit 0 (checkpoint, no guard).
 # NOTA: Este hook NO ejecuta agentes directamente — emite instrucciones en stdout
 # que el agente orquestador lee y actúa en consecuencia.
 
@@ -18,6 +26,23 @@ fi
 PR_URL=$(echo "$INPUT" | jq -r '.stdout // empty' | grep -oE 'https://github.com/[^ ]+/pull/[0-9]+')
 
 if [ -n "$PR_URL" ]; then
+  TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
+  STATE_FILE="$TOPLEVEL/.planning/state.json"
+  if [ -n "$TOPLEVEL" ] && [ -f "$STATE_FILE" ]; then
+    # CASO A: PR del flujo, ya revisado en Fase 2.6
+    CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
+    PR_NUMBER=${PR_URL##*/}
+    FEATURE_SLUG=$(jq -r '.feature // empty' "$STATE_FILE")
+    echo "PR creado: $PR_URL"
+    echo ""
+    echo "Review dual pre-push verificado (state.json: phases.review=done, branch $CURRENT_BRANCH)."
+    echo "CHECKPOINT: confirma la reconciliación — .planning/reviews/PR-$PR_NUMBER.md debe existir"
+    echo "(renombrado desde pre-pr-$FEATURE_SLUG.md). Si falta, ejecútala ahora (Fase 2.7)."
+    echo "No relances reviewers: el PR nació revisado. Re-review solo si CI obliga fixes"
+    echo "sobre código ya revisado (Fase 3)."
+    exit 0
+  fi
+  # CASO B: sin evidencia de review dual pre-push — PR fuera del flujo
   echo "PR creado: $PR_URL"
   echo ""
   echo "ACCIÓN REQUERIDA: Revisa este PR: $PR_URL"

@@ -20,10 +20,10 @@
       "id": 1,
       "name": "hook-checkpoint-v2",
       "agent": "backend-dev",
-      "status": "pending",
+      "status": "in_progress",
       "tasks_done": 0,
       "tasks_total": 5,
-      "current_task": null
+      "current_task": "1: CASO A — checkpoint PR del flujo ya revisado"
     },
     {
       "id": 2,

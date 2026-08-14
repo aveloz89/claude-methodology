@@ -1898,6 +1898,68 @@ rm -rf "$DEGRADED_HOOKS_DIR"
 
 echo ""
 
+# --- post-pr-create.sh (v2: checkpoint de respaldo) ---
+echo "--- post-pr-create.sh ---"
+
+# post-pr-create.sh es PostToolUse y siempre exit 0: lo que importa es su
+# salida — CASO A (checkpoint "PR del flujo ya revisado", sin instruir
+# review) vs CASO B (PR fuera del flujo: instruir review dual) — así que
+# los casos capturan el output inline (como session-start-context.sh) en
+# vez de usar assert_exit0. El stdin replica el JSON PostToolUse real:
+# tool_input.command + stdout del comando ejecutado.
+# Todos los casos corren en sandbox con branch explícito y state.json
+# sembrado EN el sandbox (decisión ARCHITECTURE 2026-08-14).
+
+# postpr_input: arma el JSON PostToolUse para el hook (comando + stdout).
+postpr_input() {
+  jq -n --arg cmd "$1" --arg out "$2" '{tool_input: {command: $cmd}, stdout: $out}'
+}
+
+# postpr_seed_state: escribe .planning/state.json en el sandbox con el
+# status de review, el branch y el slug de feature dados (schema 1 real).
+postpr_seed_state() {
+  local review_status="$1" state_branch="$2" feature_slug="$3"
+  jq -n --arg review "$review_status" --arg branch "$state_branch" --arg feature "$feature_slug" '{
+    schema: 1, feature: $feature, branch: $branch, pr: null,
+    updated: "2026-08-14T00:00:00Z",
+    phases: {brainstorming:"done", design:"done", implementation:"done",
+             docs:"done", review:$review, pr:"pending", ci:"pending",
+             e2e:"skipped", merge:"pending"},
+    batches: []
+  }' > "$SANDBOX_REPO/.planning/state.json"
+}
+
+POSTPR_URL="https://github.com/acme/widgets/pull/7"
+
+# Caso: CASO A — state.json legible en el toplevel, phases.review=done y
+# branch igual al actual → checkpoint "PR del flujo ya revisado" con la
+# verificación de reconciliación (PR-<N>.md con N de la URL, renombrado
+# desde pre-pr-<slug>.md con slug del campo feature) y SIN bloque
+# "ACCIÓN REQUERIDA" (no se relanzan reviewers: el PR nació revisado).
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow"
+POSTPR_EXIT_A=0
+POSTPR_OUTPUT_A=$(cd "$SANDBOX_REPO" && postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" \
+  | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_A=$?
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_A" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_A" | grep -qF "PR creado: $POSTPR_URL" \
+  && echo "$POSTPR_OUTPUT_A" | grep -qF "Review dual pre-push verificado (state.json: phases.review=done, branch feature/checkpoint-flow)." \
+  && echo "$POSTPR_OUTPUT_A" | grep -qF ".planning/reviews/PR-7.md" \
+  && echo "$POSTPR_OUTPUT_A" | grep -qF "pre-pr-checkpoint-flow.md" \
+  && echo "$POSTPR_OUTPUT_A" | grep -qF "No relances reviewers" \
+  && ! echo "$POSTPR_OUTPUT_A" | grep -qF "ACCIÓN REQUERIDA"; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create CASO A: review=done + branch coincide → checkpoint de PR revisado, sin ACCIÓN REQUERIDA"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create CASO A: review=done + branch coincide → checkpoint de PR revisado, sin ACCIÓN REQUERIDA (exit: $POSTPR_EXIT_A, output: $POSTPR_OUTPUT_A)"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
+
 # --- .gitignore (#52) ---
 echo "--- .gitignore ---"
 
