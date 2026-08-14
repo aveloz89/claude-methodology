@@ -11,7 +11,9 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# pwd -P: REPO_ROOT canónico (sin symlinks), para que el prefix-match de
+# is_symlink_into_repo compare canónico contra canónico.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 CLAUDE_DIR="$HOME/.claude"
 REPO_ROOT="$SCRIPT_DIR"
 
@@ -22,15 +24,29 @@ echo ""
 
 mkdir -p "$CLAUDE_DIR"
 
-# Resuelve el target de un symlink de un solo nivel a ruta absoluta.
+# Resuelve el target de un symlink a ruta absoluta CANÓNICA (cd -P / pwd -P).
+# Sin canonicalizar, un target como "$REPO_ROOT/../otro" pasaría el
+# prefix-match de is_symlink_into_repo por empezar con "$REPO_ROOT/" aunque
+# resuelve FUERA del repo. Return 1 si no se puede canonicalizar (el caller
+# lo trata como "no es del repo" → no se toca).
 resolve_symlink_target() {
   local link="$1"
-  local target
+  local target dir base
   target="$(readlink "$link")"
   case "$target" in
-    /*) printf '%s\n' "$target" ;;
-    *) (cd "$(dirname "$link")" && cd "$(dirname "$target")" 2>/dev/null && printf '%s/%s\n' "$(pwd)" "$(basename "$target")") ;;
+    /*) ;;
+    *) target="$(dirname "$link")/$target" ;;
   esac
+  if [ -d "$target" ]; then
+    (cd -P "$target" 2>/dev/null && pwd -P)
+  else
+    base="$(basename "$target")"
+    case "$base" in
+      . | ..) return 1 ;;
+    esac
+    dir="$(cd -P "$(dirname "$target")" 2>/dev/null && pwd -P)" || return 1
+    printf '%s/%s\n' "$dir" "$base"
+  fi
 }
 
 # True si $1 es un symlink cuyo target resuelve dentro de $REPO_ROOT.
@@ -38,7 +54,8 @@ is_symlink_into_repo() {
   local path="$1"
   [ -L "$path" ] || return 1
   local target
-  target="$(resolve_symlink_target "$path")"
+  target="$(resolve_symlink_target "$path")" || return 1
+  [ -n "$target" ] || return 1
   case "$target" in
     "$REPO_ROOT"|"$REPO_ROOT"/*) return 0 ;;
     *) return 1 ;;
@@ -112,6 +129,13 @@ link_into_home "$REPO_ROOT" "$SKILLS_DIR/methodology" "dev-loop skill"
 
 echo ""
 echo "Instalando global/CLAUDE.md -> ~/.claude/CLAUDE.md..."
+# Si ya existe como archivo real del usuario, link_into_home lo va a saltar
+# (regla dura: no se borra nada del usuario) — se registra acá para sugerir
+# la integración manual en el mensaje final.
+CLAUDE_MD_REAL_SKIPPED=false
+if [ -e "$CLAUDE_DIR/CLAUDE.md" ] && [ ! -L "$CLAUDE_DIR/CLAUDE.md" ]; then
+  CLAUDE_MD_REAL_SKIPPED=true
+fi
 link_into_home "$REPO_ROOT/global/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md" "CLAUDE.md global"
 
 echo ""
@@ -122,7 +146,12 @@ link_into_home "$REPO_ROOT/rulebooks" "$CLAUDE_DIR/rulebooks" "rulebooks"
 echo ""
 echo "Instalando statusline.sh..."
 link_into_home "$REPO_ROOT/statusline.sh" "$CLAUDE_DIR/statusline.sh" "statusline"
-[ -L "$CLAUDE_DIR/statusline.sh" ] && chmod +x "$CLAUDE_DIR/statusline.sh" 2>/dev/null || true
+# chmod SOLO si el path es nuestro (symlink al repo, o archivo recién
+# instalado — que hoy siempre es symlink al repo): chmod sigue symlinks, y a
+# través de uno ajeno mutaría el modo de un archivo que no es nuestro.
+if is_symlink_into_repo "$CLAUDE_DIR/statusline.sh"; then
+  chmod +x "$CLAUDE_DIR/statusline.sh" 2>/dev/null || true
+fi
 
 echo ""
 echo "Materializando settings.json (deja de distribuirse: solo se migra el symlink legacy si existe)..."
@@ -147,3 +176,8 @@ echo ""
 echo "Pasos restantes manuales:"
 echo "  - Reiniciá Claude Code para que los cambios tomen efecto."
 echo "  - Terceros (no-autor): 'claude plugin marketplace add <owner>/claude-methodology' + 'claude plugin install methodology@claude-methodology' para agents/hooks/skills."
+if [ "$CLAUDE_MD_REAL_SKIPPED" = true ]; then
+  echo "  - Tu ~/.claude/CLAUDE.md es un archivo propio y se dejó intacto. Para integrar la metodología,"
+  echo "    agregale una línea de import:  @$REPO_ROOT/global/CLAUDE.md"
+  echo "    o hacé un merge manual con ese archivo."
+fi
