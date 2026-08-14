@@ -923,6 +923,38 @@ else
 fi
 rm -rf "$RESTRICTED_NONE"
 
+# Caso: herramienta de hash PRESENTE pero que falla en runtime (exit != 0,
+# sin output) → return 1, nunca un slug truncado "<base>-". Distinto del
+# caso anterior: acá `command -v shasum` tiene éxito, el fallo es del
+# comando en sí — mismo patrón de fakes que los NO_JQ_BIN de otros hooks.
+SLUG_FAKE_BIN=$(mktemp -d)
+printf '#!/bin/bash\nexit 1\n' > "$SLUG_FAKE_BIN/shasum"
+chmod +x "$SLUG_FAKE_BIN/shasum"
+TOTAL=$((TOTAL + 1))
+SLUG_BROKEN_RC=0
+SLUG_BROKEN_OUT=$(PATH="$SLUG_FAKE_BIN:$PATH" repo_slug "/Users/alas/Proyectos/claude-methodology") || SLUG_BROKEN_RC=$?
+if [ "$SLUG_BROKEN_RC" -eq 1 ] && [ -z "$SLUG_BROKEN_OUT" ]; then
+  echo -e "${GREEN}PASS${NC}: repo_slug retorna 1 si la herramienta de hash existe pero falla en runtime"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug retorna 1 si la herramienta de hash existe pero falla en runtime (rc: $SLUG_BROKEN_RC, out: $SLUG_BROKEN_OUT)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: el consumidor hace no-op limpio ante ese fallo — pre-compact-snapshot
+# (el consumidor que escribe incondicionalmente en happy path, representativo
+# del contrato `repo_slug || exit 0` de los 3 hooks) no crea ningún artefacto.
+sandbox_create
+assert_exit0 "PreCompact hace no-op si la herramienta de hash falla en runtime" \
+  "$HOOKS_DIR/pre-compact-snapshot.sh" \
+  '{"trigger":"auto"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude/methodology" ]' \
+  "$SLUG_FAKE_BIN:$PATH"
+sandbox_cleanup
+rm -rf "$SLUG_FAKE_BIN"
+
 echo ""
 
 # --- pre-compact-snapshot.sh ---

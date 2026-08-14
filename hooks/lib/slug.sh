@@ -36,6 +36,9 @@ _slug_hash8() {
   else
     return 1
   fi
+  # Herramienta presente pero que falló en runtime (exit != 0 o sin output):
+  # return 1 igual que sin herramienta — nunca un slug truncado "<base>-".
+  [ -n "$hex" ] || return 1
   printf '%s' "${hex:0:8}"
 }
 
