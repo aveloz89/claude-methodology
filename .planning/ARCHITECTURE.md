@@ -38,6 +38,16 @@ A diferencia de `DESIGN.md` (que vive solo durante una feature), este archivo pe
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-08-14] Review dual pre-push (Fase 2.6): el PR nace revisado
+
+**Contexto:** el review dual corría después de crear el PR; cada ronda de fixes post-PR era un push extra = un run extra de GitHub Actions (minutos contados en repos privados). Los reviewers son subagentes locales (Read/Grep/Bash sobre el working tree) — nunca necesitaron el branch pusheado.
+
+**Decisión:** el review dual (security + qa-*) corre por default en la **Fase 2.6**, nueva entre docs (2.5) y push + PR (2.7), sobre el **diff local** (`git diff <base>...HEAD`); las rondas de fixes pre-PR no pushean nada. Sin renumerar fases existentes: 2.6 entra en el hueco y Fase 3 conserva número redefinida como post-PR (re-reviews condicionales, E2E Modo B, pre-merge, merge). Registro pre-PR en `.planning/reviews/pre-pr-<feature-slug>.md`, reconciliado a `PR-<N>.md` con `git mv` + commit + push inmediato al crear el PR. `post-pr-create.sh` queda como checkpoint de respaldo: distingue "PR del flujo ya revisado" (state.json con `phases.review=done` y `branch` actual) de "PR fuera del flujo" (instruye lanzar el review), fallando siempre hacia el review.
+
+**Justificación:** los fixes viajan en el push inicial → un solo run de CI por PR en el caso normal. El invariante "review dual bloqueante antes de merge" no cambia — solo se adelanta el momento. Evidencia del costo cero del caso remoto: el scaffold de `new-project` genera `ci.yml` con triggers `push: dev` + `pull_request: main/dev` y `security.yml` solo `pull_request: main` + cron, así que pushear `feature/*` sin PR no dispara workflows. La reconciliación inmediata cuesta neto un run gracias a `concurrency cancel-in-progress` (pr-workflow 5.5, obligatoria). Alternativas descartadas: dos convenciones permanentes de naming (fragmenta la historia de review de un PR entre dos archivos), predecir el número de PR vía API (racy), y diferir el rename a un push posterior (puede no existir; commit local se pierde al borrar el branch).
+
+**Implicación:** los reviewers reciben la **fuente del diff parametrizada** por el orchestrator (local: base+branch; PR: número) — todo agente reviewer futuro se escribe así, sin asumir `gh pr diff`. Reviewers remotos son excepción con condición verificable: push del branch sin PR solo si ningún workflow dispara `on: push` sobre `feature/*`/`hotfix/*` (grep de triggers antes del push). La regla "un push por ronda" aplica solo a rondas post-PR. `phases.review` de `state.json` transiciona a `done` antes que `pr`/`ci` (sin bump de schema).
+
 ### [2026-08-14] Distribución: plugin de Claude Code + install.sh residual (híbrido)
 
 **Contexto:** la metodología se distribuía con `install.sh` por symlinks de directorios a `~/.claude/`, con settings.json compartido (mezclaba prefs personales con registro de hooks) y sin resolver la carga global vs por proyecto de CLAUDE.md. Los plugins de Claude Code empaquetan skills+agents+hooks pero NO distribuyen CLAUDE.md, `rules/` ni `rulebooks/` (verificado contra CLI 2.1.232).

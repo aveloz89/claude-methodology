@@ -3,11 +3,11 @@
   "feature": "pre-pr-reviews",
   "branch": "feature/pre-pr-reviews",
   "pr": null,
-  "updated": "2026-08-14T08:20:00Z",
+  "updated": "2026-08-14T08:50:00Z",
   "phases": {
     "brainstorming": "done",
-    "design": "in_progress",
-    "implementation": "pending",
+    "design": "done",
+    "implementation": "in_progress",
     "docs": "pending",
     "review": "pending",
     "pr": "pending",
@@ -15,5 +15,33 @@
     "e2e": "skipped",
     "merge": "pending"
   },
-  "batches": []
+  "batches": [
+    {
+      "id": 1,
+      "name": "hook-checkpoint-v2",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 5,
+      "current_task": null
+    },
+    {
+      "id": 2,
+      "name": "docs-core-flujo",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 5,
+      "current_task": null
+    },
+    {
+      "id": 3,
+      "name": "periferia-y-cierre",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 5,
+      "current_task": null
+    }
+  ]
 }
