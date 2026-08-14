@@ -3,7 +3,7 @@
   "feature": "pre-pr-reviews",
   "branch": "feature/pre-pr-reviews",
   "pr": null,
-  "updated": "2026-08-14T08:03:03Z",
+  "updated": "2026-08-14T09:00:00Z",
   "phases": {
     "brainstorming": "done",
     "design": "done",
@@ -29,10 +29,10 @@
       "id": 2,
       "name": "docs-core-flujo",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
+      "status": "in_progress",
+      "tasks_done": 1,
       "tasks_total": 5,
-      "current_task": null
+      "current_task": "2: context isolation + tracker + transiciones de state.json"
     },
     {
       "id": 3,
