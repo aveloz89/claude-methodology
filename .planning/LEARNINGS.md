@@ -34,6 +34,30 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-08-14] PR #54 — Cierre de todos los issues abiertos: guards endurecidos, fail-closed y sanitización
+
+**Métricas:**
+- Review rounds: 3 (1 dual completa + 2 re-reviews acotados al delta)
+- Hallazgos security: 7 en ronda 1 (0 critical/high, 4 medium, 3 low) + 1 medium en re-review (regresión espejada) — todos corregidos, cero diferidos
+- Hallazgos qa-frontend: no aplica (sin UI)
+- Hallazgos qa-backend: 2 bloqueantes marginales (falso positivo silencioso sin perl; dependencia dirname fail-open) — ambos resueltos y verificados empíricamente
+- Errores de build/CI: 0 (repo sin CI; suite adversarial 91/91 verificada por dev, por QA en entorno aislado y por el orchestrator en el working tree real)
+- Self-reflection atrapó: el TDD del lote 1 destapó que la sanitización línea-por-línea de títulos dejaba pasar payloads con newline embebido (cambiado a iteración por-registro en base64 antes del review)
+- Lotes ejecutados: 1 de implementación (5 tareas) + 3 rondas de fixes (5+6+1) + docs (2 commits)
+- Devs involucrados: backend-dev, docs
+
+**Qué salió bien:**
+- El RED de TDD demostró los bugs reales antes de arreglarlos (el falso negativo de `git fetch && gh pr merge --admin`, el caso espejo de comillas) — evidencia, no suposición.
+- **Aislamiento remoto para reviewers**: la máquina del usuario entró en reposo repetidamente y mató 3 intentos del security local; relanzarlo con `isolation: remote` lo resolvió de raíz. Queda como respuesta estándar cuando la máquina puede dormirse.
+- Estreno de `state.json`: el orchestrator respondió "¿está haciendo algo el dev?" con datos en vivo (3/5 tareas, tarea actual) en vez de adivinar.
+- Directiva del usuario "follow-up = issue, se arregla ahora": las 3 rondas cerraron 13 hallazgos sin diferir ninguno — y el par review→re-review cazó que el primer fix de comillas espejaba el bug en vez de resolverlo.
+
+**Qué causó re-work:**
+- El fix de "invertir el orden" de las reglas de saneo de comillas espejó el falso negativo en vez de eliminarlo (1 ronda extra). Prevenible: cuando el fix propuesto es "cambiar el orden de dos reglas", sospechar que el problema es estructural (dos pasadas no modelan anidamiento) — la solución era una pasada con alternancia, como parsea el shell.
+- 3 muertes del security-reviewer local por reposo de la máquina (~30 min perdidos). Mitigaciones: `isolation: remote` para tareas largas en background, o `caffeinate` si el usuario se aleja.
+
+**Patrón potencial:** sí — "el reviewer valida al fixer": 2ª vez consecutiva (PR #49: QA cazó el stat GNU tras el fix del dev; PR #54: security cazó el espejo tras su propia sugerencia). El re-review acotado al delta post-fix se confirma como paso no negociable, ya codificado en la skill pr-workflow.
+
 ### [2026-08-13] PR #49 — Modernización 2026: hooks de observabilidad, state.json y anti-drift
 
 **Métricas:**
