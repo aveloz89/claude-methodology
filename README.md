@@ -74,12 +74,48 @@ Idea → Brainstorming (orchestrator pregunta) → Brief
 
 ## Instalación
 
+Este repo es **plugin y marketplace de Claude Code a la vez**: instala agents/, hooks/ (registrados en `hooks/hooks.json`) y skills/ (namespace `/methodology:<skill>`, ej. `/methodology:pr-workflow`) por el mecanismo nativo de plugins. Los plugins de Claude Code **no** cargan `CLAUDE.md`, `rules/` ni `rulebooks/` — para eso hace falta el `install.sh` residual del repo clonado.
+
+### Terceros
+
 ```bash
-git clone https://github.com/TU_USUARIO/claude-methodology.git
+claude plugin marketplace add aveloz89/claude-methodology
+claude plugin install methodology@claude-methodology   # agents, hooks, skills
+
+git clone https://github.com/aveloz89/claude-methodology.git
 cd claude-methodology
-./install.sh --symlink   # Symlinks (cambios en repo se reflejan)
-./install.sh --copy      # Copia independiente
+./install.sh                                            # residual: CLAUDE.md global, rules/, rulebooks/, statusline.sh
 ```
+
+`install.sh` es idempotente (correrlo N veces deja el mismo estado) y nunca sobreescribe un archivo o directorio real del usuario: si el destino ya existe y no es un symlink hacia este repo, avisa y lo deja intacto.
+
+### Autor (dev-loop)
+
+El autor no instala el plugin propio vía marketplace — duplicaría la carga. `install.sh` crea el symlink `~/.claude/skills/methodology` → raíz del repo, que Claude Code auto-carga en vivo como `methodology@skills-dir`: cualquier cambio en `agents/`, `hooks/` o `skills/` está disponible en la próxima sesión, sin reinstalar ni hacer version bump.
+
+```bash
+./install.sh
+```
+
+### Transición desde instalaciones por symlink (versiones anteriores)
+
+Antes del plugin, el repo se instalaba symlinkeando `agents/`, `hooks/`, `skills/` y `settings.json` completos a `~/.claude/`. `install.sh` migra esa instalación automáticamente la primera vez que se corre después de actualizar:
+
+- `~/.claude/agents` y `~/.claude/hooks`: si son symlinks a este repo, se eliminan (ahora los provee el plugin). Si son directorios reales, no se tocan — quedan para revisión manual.
+- `~/.claude/skills`: si es symlink al repo completo, se reemplaza por un directorio real con el symlink dev-loop `skills/methodology` adentro.
+- `~/.claude/settings.json`: si es symlink a este repo, se **materializa** como archivo real (copia del contenido vigente) para desacoplar la config viva del working tree. `settings.json` deja de distribuirse por `install.sh` — el registro de hooks vive en `hooks/hooks.json`.
+
+### Release (para el autor)
+
+1. Bump de `version` en `.claude-plugin/plugin.json`.
+2. `claude plugin tag` — valida consistencia `plugin.json` ↔ `marketplace.json` y crea el tag git `methodology--v<version>`.
+3. Push del tag.
+
+Terceros actualizan con `claude plugin marketplace update` + `claude plugin update methodology@claude-methodology` — el cache del plugin queda fijo en la versión instalada hasta ese punto.
+
+### Limpieza opcional de artefactos con slug viejo
+
+Los hooks de observabilidad `pre-compact-snapshot` y `session-end-check` escriben bajo `~/.claude/methodology/{snapshots,session-end}/<slug>/`, con `<slug>` = `basename-hash8` del path del repo (ver `hooks/lib/slug.sh`). Instalaciones de antes de este cambio de convención pueden tener artefactos huérfanos bajo el slug viejo (`tr '/' '-'` del path completo) — son inertes y se pueden borrar sin riesgo. `~/.claude/methodology/` completo también se puede borrar sin riesgo: se regenera solo en la siguiente invocación de cada hook.
 
 ## Estructura
 

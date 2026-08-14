@@ -48,9 +48,9 @@
       "name": "hybrid-installer",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 3,
+      "tasks_done": 5,
       "tasks_total": 6,
-      "current_task": "Tarea 4: quitar bloque hooks de settings.json + correr install.sh real"
+      "current_task": "Tarea 6: fix YAML frontmatter de agents/ui-ux.md"
     },
     {
       "id": 5,
