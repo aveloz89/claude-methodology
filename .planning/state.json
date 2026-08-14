@@ -33,6 +33,15 @@
       "tasks_done": 6,
       "tasks_total": 6,
       "current_task": null
+    },
+    {
+      "id": 3,
+      "name": "review-round-3",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 1,
+      "tasks_total": 1,
+      "current_task": null
     }
   ]
 }
