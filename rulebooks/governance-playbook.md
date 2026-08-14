@@ -8,9 +8,9 @@ Decision trees para escenarios de fallo. El orchestrator consulta este documento
 
 ```
 QA reporta stub/TODO
-  → BLOQUEANTE — PR no se puede mergear
+  → BLOQUEANTE — no se pushea (review pre-push, el default) / no se mergea (post-PR)
   → Orchestrator asigna fix al dev original
-  → Dev corrige en el MISMO branch del PR
+  → Dev corrige en el MISMO branch (el del feature/PR)
   → Re-review de QA
   → Si persisten stubs → repetir hasta que estén todos resueltos
 ```
@@ -22,9 +22,9 @@ QA reporta stub/TODO
 ```
 Security reporta vulnerabilidad
   ├─ Critical/High → BLOQUEANTE
-  │   → Dev corrige en el MISMO branch del PR
+  │   → Dev corrige en el MISMO branch (el del feature/PR)
   │   → Re-review de security
-  │   → No se mergea hasta que security apruebe
+  │   → No se pushea (pre-push) ni se mergea (post-PR) hasta que security apruebe
   │
   └─ Medium/Low → NO BLOQUEANTE (con condiciones)
       → Se puede mergear SI:
@@ -38,7 +38,7 @@ Security reporta vulnerabilidad
 
 ```
 QA reporta coverage < 80%
-  → BLOQUEANTE — PR no se puede mergear
+  → BLOQUEANTE — no se pushea (review pre-push, el default) / no se mergea (post-PR)
   → Dev agrega tests en el MISMO branch
   → Re-ejecuta coverage
   → Re-review de QA

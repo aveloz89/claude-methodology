@@ -248,11 +248,11 @@ git commit -m "docs: actualizar documentación de <feature>"
 
 ## Correcciones post-review
 
-Si el orchestrator o un reviewer pide cambios en la documentación (aquí el PR ya existe):
+Las correcciones de review pueden llegar en dos momentos: **pre-push** (Fase 2.6 — el review dual corre sobre el diff local, el PR no existe todavía) o **post-PR** (re-reviews sobre un PR existente). El procedimiento es el mismo en ambos:
 
-1. Verifica que estás en el mismo branch del PR: `git checkout <branch-del-pr>`
+1. Verifica que estás en el mismo branch (el del feature o el del PR): `git checkout <branch>`
 2. Aplica las correcciones solicitadas
-3. Commit al mismo branch **sin push** — el orchestrator consolida la ronda de review en un solo push
+3. Commit al mismo branch **sin push** — el orchestrator decide cuándo pushear (pre-push: tu fix viaja en el push inicial; post-PR: consolida la ronda en un solo push)
 4. Reporta al orchestrator que las correcciones están listas
 
 ## Cuándo NO crear ni actualizar docs

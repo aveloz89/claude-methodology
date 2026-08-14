@@ -554,9 +554,9 @@ O archivos `.ts` / `.js` bajo:
 - `models/`, `lib/`, `db/`, `migrations/`
 - `workers/`, `jobs/`
 
-### PR mixto
+### Diff mixto
 
-Si tiene archivos de ambas capas → lanzar **ambos QAs en paralelo**.
+Si el diff (local o de PR) tiene archivos de ambas capas → lanzar **ambos QAs en paralelo**.
 
 **Nota sobre DB**: archivos bajo `db/`, `migrations/`, `schema/` los revisa `qa-backend`. No hay un `qa-db` separado — el qa-backend valida que las migraciones del db-specialist sean consistentes con lo que el backend-dev consume.
 
