@@ -10,9 +10,12 @@
 # Ante cualquier ambigüedad falla hacia CASO B (el costo del falso negativo
 # es un review redundante; el del falso positivo sería un PR sin review).
 # Recibe JSON en stdin con tool_input y stdout del comando ejecutado.
-# Siempre exit 0 (checkpoint, no guard).
+# Siempre exit 0 (checkpoint, no guard). Sin jq en PATH: no-op limpio
+# (degradación estándar de hooks de observabilidad, ARCHITECTURE 2026-08-14).
 # NOTA: Este hook NO ejecuta agentes directamente — emite instrucciones en stdout
 # que el agente orquestador lee y actúa en consecuencia.
+
+command -v jq > /dev/null 2>&1 || exit 0
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
@@ -32,8 +35,10 @@ if [ -n "$PR_URL" ]; then
   REVIEW_PHASE=""
   STATE_BRANCH=""
   if [ -n "$TOPLEVEL" ] && [ -f "$STATE_FILE" ]; then
-    REVIEW_PHASE=$(jq -r '.phases.review // empty' "$STATE_FILE")
-    STATE_BRANCH=$(jq -r '.branch // empty' "$STATE_FILE")
+    # 2>/dev/null: un state.json malformado degrada a CASO B sin filtrar
+    # el error de parseo de jq al output del checkpoint.
+    REVIEW_PHASE=$(jq -r '.phases.review // empty' "$STATE_FILE" 2>/dev/null)
+    STATE_BRANCH=$(jq -r '.branch // empty' "$STATE_FILE" 2>/dev/null)
   fi
   if [ "$REVIEW_PHASE" = "done" ] && [ -n "$CURRENT_BRANCH" ] && [ "$STATE_BRANCH" = "$CURRENT_BRANCH" ]; then
     # CASO A: PR del flujo, ya revisado en Fase 2.6 (exige las dos señales:

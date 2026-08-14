@@ -1961,11 +1961,12 @@ fi
 # assert_postpr_caso_b: corre el hook en el sandbox con el input dado y
 # verifica el contrato completo de CASO B: exit 0, línea de diagnóstico
 # ("sin evidencia de review pre-push"), bloque ACCIÓN REQUERIDA conservado
-# de v1 (reviewers + referencia al runbook) y AUSENCIA del checkpoint de
-# CASO A. Reutilizado por los casos de ausencia, estado y degradación.
+# de v1 (reviewers + referencia al runbook), AUSENCIA del checkpoint de
+# CASO A y sin ruido de errores en el output (un state.json ilegible
+# degrada limpio, sin filtrar el stderr de jq al orchestrator).
+# Reutilizado por los casos de ausencia, estado y degradación.
 assert_postpr_caso_b() {
   local test_name="$1" stdin_json="$2"
-  local extra_check="${3:-true}"
   TOTAL=$((TOTAL + 1))
   local exit_code=0 output
   output=$(cd "$SANDBOX_REPO" && printf '%s' "$stdin_json" | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || exit_code=$?
@@ -1977,7 +1978,7 @@ assert_postpr_caso_b() {
     && echo "$output" | grep -qF "qa-backend" \
     && echo "$output" | grep -qF "Clasificación del diff por capa" \
     && ! echo "$output" | grep -qF "Review dual pre-push verificado" \
-    && eval "$extra_check"; then
+    && ! echo "$output" | grep -qi "error"; then
     echo -e "${GREEN}PASS${NC}: $test_name"
     PASS=$((PASS + 1))
   else
@@ -2014,6 +2015,44 @@ postpr_seed_state "done" "feature/otra-feature" "otra-feature"
 assert_postpr_caso_b "post-pr-create CASO B: review=done pero branch de otra feature → falla hacia el review" \
   "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
 sandbox_cleanup
+
+# Caso: degradación — state.json malformado (JSON inválido) → CASO B, y el
+# error de parseo de jq NO se filtra al output (el orchestrator recibe el
+# diagnóstico limpio, no un stack de jq).
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+printf '{ "schema": 1, "branch": ' > "$SANDBOX_REPO/.planning/state.json"
+assert_postpr_caso_b "post-pr-create CASO B: state.json malformado → falla hacia el review sin ruido de jq en el output" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
+sandbox_cleanup
+
+# Caso: degradación — sin jq en PATH el hook es no-op limpio (exit 0, sin
+# output, sin "command not found"): checkpoint de observabilidad, nunca
+# rompe el flujo por dependencia ausente (decisión ARCHITECTURE
+# 2026-08-14). El state.json sembrado es un CASO A válido adrede: si el
+# hook intentara continuar sin jq, cualquier output lo delataría.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow"
+NO_JQ_POSTPR_BIN=$(mktemp -d)
+for cmd in bash cat grep git; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_POSTPR_BIN/$cmd"
+done
+POSTPR_INPUT_NOJQ=$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")
+POSTPR_EXIT_NOJQ=0
+POSTPR_OUTPUT_NOJQ=$(cd "$SANDBOX_REPO" && printf '%s' "$POSTPR_INPUT_NOJQ" \
+  | PATH="$NO_JQ_POSTPR_BIN" bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_NOJQ=$?
+rm -rf "$NO_JQ_POSTPR_BIN"
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_NOJQ" -eq 0 ] && [ -z "$POSTPR_OUTPUT_NOJQ" ]; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create sin jq en PATH → no-op limpio (exit 0, sin output)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create sin jq en PATH → no-op limpio (exit 0, sin output) (exit: $POSTPR_EXIT_NOJQ, output: $POSTPR_OUTPUT_NOJQ)"
+  FAIL=$((FAIL + 1))
+fi
 
 echo ""
 
