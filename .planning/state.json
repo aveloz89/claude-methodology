@@ -30,9 +30,9 @@
       "name": "docs-core-flujo",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 3,
+      "tasks_done": 4,
       "tasks_total": 5,
-      "current_task": "4: pr-workflow SKILL (regla 2 + 5.1/5.2/5.3 + description)"
+      "current_task": "5: dev-common + agent-budget (touchpoints del mapa)"
     },
     {
       "id": 3,

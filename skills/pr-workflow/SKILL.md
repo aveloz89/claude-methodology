@@ -1,6 +1,6 @@
 ---
 name: pr-workflow
-description: Proceso de creación, review y merge de pull requests — presupuesto de CI, review dual obligatorio, verificación E2E pre-release, branch protection y verificación pre-merge. Invocar al llegar a Fase 2.7 (push + PR) o al revisar/mergear un PR existente.
+description: Proceso de review, creación y merge de pull requests — review dual local pre-push, presupuesto de CI, verificación E2E pre-release, branch protection y verificación pre-merge. Invocar al llegar a Fase 2.6 (review dual local, antes del push + PR) o al revisar/mergear un PR existente.
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Bash, Agent(security-reviewer), Agent(qa-frontend), Agent(qa-backend), Agent(e2e-runner), Agent(build-resolver)
 argument-hint: "[número de PR, si es sobre uno existente]"
@@ -35,26 +35,30 @@ Las cuatro reglas invariantes (un PR por objetivo con un commit por fase, review
 
 **Excepción legítima:** un refactor pequeño necesario para implementar la feature correctamente está dentro del scope. Documentarlo en el PR body.
 
-## 2. Review obligatorio antes de mergear
+## 2. Review dual local antes del push (Fase 2.6)
 
-Después de crear cada PR, lanzar **security-reviewer + qa** (qa-frontend y/o qa-backend según lo que toque) **en paralelo automáticamente, sin pedir confirmación al usuario**.
+Al terminar docs (Fase 2.5), lanzar **security-reviewer + qa** (qa-frontend y/o qa-backend según lo que toque el diff) **sobre el diff local (`git diff <base>...HEAD`), en paralelo automáticamente, sin pedir confirmación al usuario** — ANTES del push y de crear el PR. Las rondas de fixes ocurren sin pushear nada: **el PR nace revisado** y el caso normal cuesta un solo run de CI.
 
-**Cuándo lanzar:**
-- En el mismo turn donde creo el PR, lanzo los agents en paralelo (single message, multiple Agent calls)
-- Si el siguiente paso natural es rebuildear dev (Docker, etc.), lanzar el rebuild en paralelo con los reviewers — son independientes
-- Reportar findings al usuario después
+**Cuándo y cómo lanzar:**
+- En el mismo turn donde cierro Fase 2.5 (docs commiteado), lanzo los agents en paralelo (single message, multiple Agent calls)
+- Los reviewers son subagentes locales: leen el working tree con `git diff <base>...HEAD` — no necesitan el branch pusheado ni número de PR (no existe todavía)
+- Reportar findings al usuario después (detalle operativo de la fase — presupuesto, paquete de contexto, registro — en `rulebooks/orchestrator-runbook.md`, Fase 2.6)
 
 **Si hay blockers:**
-- Fixearlos en el MISMO branch/PR (no abrir uno nuevo)
-- Re-correr el agent relevante para validar el fix
-- Continuar solo cuando todo verde
+- Fixearlos en el MISMO branch, **sin push** (no hay nada pusheado que actualizar)
+- Re-correr SOLO los reviewers que marcaron issues, acotados al delta local, para validar el fix
+- Avanzar a Fase 2.7 (push + PR) solo cuando todo verde
 
-**Sugerencias no bloqueantes: aplicarlas en el mismo PR antes de pedir merge.**
-Cuando un reviewer marca sugerencias (no bloqueantes) que son baratas, sin riesgo y trazables al scope del PR, aplicarlas en el MISMO branch antes de informar "PR listo para tu review" — no diferirlas ni solo anotarlas. Las que cambien comportamiento, requieran decisión de diseño, o sean scope de otra fase, NO se aplican: se anotan como issue o handoff en `.planning/STATE.md`. Después de aplicar, re-correr solo el reviewer que las marcó (o los tests si es cambio menor).
+**Sugerencias no bloqueantes: aplicarlas antes del push.**
+Cuando un reviewer marca sugerencias (no bloqueantes) que son baratas, sin riesgo y trazables al scope del diff, aplicarlas en el MISMO branch antes del push inicial — no diferirlas ni solo anotarlas. Las que cambien comportamiento, requieran decisión de diseño, o sean scope de otra fase, NO se aplican: se anotan como issue o handoff en `.planning/STATE.md`. Después de aplicar, re-correr solo el reviewer que las marcó (o los tests si es cambio menor). Fixes, sugerencias aplicadas y registro del review viajan en el push inicial.
+
+**Post-PR solo hay re-reviews condicionales** (Fase 3): únicamente si CI obligó fixes que cambian código ya revisado — acotados al delta del fix, re-lanzando solo los reviewers de la capa afectada. Si CI pasó a la primera, no se relanza nada.
 
 **Por qué:** el patrón "aplicar sugerencias en el mismo PR" apareció en 4 PRs consecutivos como decisión manual del usuario. Formalizarlo evita el ida-y-vuelta de pedir permiso para cada mejora obvia. El usuario sigue siendo el checkpoint del **merge** (regla 3), no de cada pulido.
 
 El checklist de infraestructura que el security-reviewer debe correr (rate limiting, shell injection, prototype pollution, reflected input) vive en `agents/security-reviewer.md`, en el prompt del agente que lo ejecuta.
+
+**Caso remoto (excepción):** si un reviewer corre en un entorno cloud/aislado que necesita clonar el repo, está permitido pushear el branch **sin crear PR** antes del review, con esta **condición verificable**: ningún workflow del repo dispara con `on: push` sobre branches que matcheen `feature/*`/`hotfix/*` (verificar con grep de los triggers en `.github/workflows/*.yml` antes del push; bajo el scaffold de `new-project` se cumple siempre). Flujo: push del branch (0 runs) → review remoto → fixes locales → push de fixes (0 runs) → `gh pr create` (primer y único run). Si la condición NO se cumple: corregir el trigger (filtro de branches) o caer al modo local — nunca pagar runs por review. El default del flujo es siempre el modo local.
 
 ### Verificación E2E real obligatoria en PRs a main (pre-release)
 
@@ -105,19 +109,19 @@ Si algún CI workflow falla (lint, test, security scan, codeql, semgrep, depende
 
 ### 5.1 Docs viaja en el push inicial
 
-El agente `docs` se invoca **después del último lote y ANTES del push + PR** (Fase 2.5 del flujo). Lee el diff local contra la base (`git diff <base>...HEAD`), commitea al branch y NO pushea. Su commit sale en el push inicial que abre el PR.
+El agente `docs` se invoca **después del último lote y ANTES del push + PR** (Fase 2.5 del flujo). Lee el diff local contra la base (`git diff <base>...HEAD`), commitea al branch y NO pushea. Tras su commit viene el review dual local (Fase 2.6, regla 2) y recién entonces el push inicial que abre el PR — con docs, fixes del review y registro incluidos.
 
 **Por qué:** el orden anterior (docs después de CI verde) generaba un push extra → un run completo de CI solo por documentación, en cada PR.
 
-### 5.2 Un push por ronda de review, nunca por fix
+### 5.2 Un push por ronda de review post-PR, nunca por fix
 
-Al cerrar una ronda de review, consolidar en un **solo push**: fixes de blockers de todos los reviewers + sugerencias no bloqueantes auto-aplicadas (regla 2). Nunca pushear fix por fix ni reviewer por reviewer — el orchestrator acumula los commits de los devs y pushea una vez cuando la ronda está completa.
+Las rondas pre-PR (Fase 2.6) **no pushean nada**: los fixes quedan commiteados y viajan en el push inicial. Un-push-por-ronda aplica a las rondas **post-PR** (re-reviews de Fase 3 y reviews sobre PR existente): al cerrar una ronda, consolidar en un **solo push** fixes de blockers de todos los reviewers + sugerencias no bloqueantes auto-aplicadas (regla 2). Nunca pushear fix por fix ni reviewer por reviewer — el orchestrator acumula los commits de los devs y pushea una vez cuando la ronda está completa.
 
 ### 5.3 Reproducir localmente antes de re-push en ciclos de fix de CI
 
 Cuando CI falla, el dev (o `build-resolver`) debe **reproducir el check fallido localmente y verlo pasar** antes de pushear el fix. Un run fallido cuesta los mismos minutos que uno verde; CI verifica, no descubre.
 
-**Alcance de la excepción de push directo:** el dev solo pushea directo dentro del ciclo de fix de CI (Fase 2.8). En rondas de review (Fase 3) nunca — ahí siempre consolida el orchestrator (regla 5.2). La otra excepción de push del dev es el fallback de budget agotado (ver `rulebooks/agent-budget.md`).
+**Alcance de la excepción de push directo:** el dev solo pushea directo dentro del ciclo de fix de CI (Fase 2.8). En rondas de review post-PR nunca — ahí siempre consolida el orchestrator (regla 5.2) — y en las pre-PR (Fase 2.6) no pushea nadie. La otra excepción de push del dev es el fallback de budget agotado (ver `rulebooks/agent-budget.md`).
 
 ### 5.4 Scans pesados solo en pre-release + schedule
 
