@@ -66,28 +66,9 @@ Estos documentos son fuente de verdad. Aplícalos sin redactarlos de nuevo:
 
 ## Migraciones de DB: simple vs complejo
 
-**Tú haces (simple):**
+La línea divisoria completa entre migración simple (la haces tú) y compleja (va al `db-specialist`) vive en **`~/.claude/rulebooks/orchestrator-runbook.md`**, sección «Criterios completos: db-specialist vs backend-dev». Es la fuente canónica — consúltala ahí, no está duplicada acá.
 
-- Crear/borrar tabla nueva (sin datos previos a preservar)
-- Agregar columna **nullable** o **con default** (no requiere backfill)
-- Agregar/quitar índices
-- Renombrar columna sin uso en producción o detrás de feature flag
-- Agregar/modificar foreign key
-- Cambios en seeds/fixtures de desarrollo
-
-**NO haces — escala al orchestrator (lo asigna al `db-specialist`):**
-
-- Migraciones que requieren **backfill de datos** (script de transformación)
-- Cambio de tipo de columna con datos existentes (`varchar → text`, `int → bigint`, JSON → columnas tipadas)
-- Particionamiento o sharding
-- Migración de datos entre tablas (split/merge)
-- Estrategias zero-downtime (expand-contract)
-- Optimización de queries lentas (EXPLAIN, índices compuestos, materialización)
-- Constraints nuevos sobre datos existentes (`NOT NULL` en columna con NULLs)
-- Migraciones que afecten >1M de filas en producción
-- Schema con relaciones complejas, herencia, polimorfismo, requisitos de performance específicos
-
-**Regla rápida:** si la migración necesita un script que toque datos, o requiere análisis de performance, **no la hagas tú**. Escala al orchestrator con: *"Esta tarea califica como migración compleja según los criterios del agente. Reasignar al db-specialist."*
+**Regla rápida:** si la migración necesita un script que toque datos, o requiere análisis de performance, **no la hagas tú**. Escala al orchestrator con: *"Esta tarea califica como migración compleja según los criterios del runbook. Reasignar al db-specialist."*
 
 **Cuando un lote anterior fue del db-specialist** (ya pasó por el branch antes que tú), tu trabajo es **consumir el schema resultante** en tus endpoints, no modificarlo. Si necesitas un cambio en el schema, escala al orchestrator — no toques el archivo del schema.
 
