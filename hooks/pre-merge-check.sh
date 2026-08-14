@@ -57,8 +57,18 @@ fi
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
+# Resolución del path del lib sin depender de un binario externo (dirname):
+# "${0%/*}" es el idioma de shell para dirname cuando $0 trae al menos un
+# "/" — siempre el caso dado cómo el harness invoca los hooks. Ver #50: la
+# misma razón por la que el check de perl/jq de arriba no puede fallar
+# abierto, un `source` de un path que dirname no pudo resolver tampoco.
+LIB="${0%/*}/lib/guard-matching.sh"
+if [ ! -r "$LIB" ]; then
+  printf '{"decision":"block","reason":"pre-merge-check no operativo: falta hooks/lib/guard-matching.sh"}\n'
+  exit 0
+fi
 # shellcheck source=lib/guard-matching.sh
-source "$(dirname "$0")/lib/guard-matching.sh"
+source "$LIB"
 
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 

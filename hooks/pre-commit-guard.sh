@@ -10,8 +10,20 @@
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
+# Resolución del path del lib sin depender de un binario externo (dirname):
+# "${0%/*}" es el idioma de shell para dirname cuando $0 trae al menos un
+# "/" — siempre el caso dado cómo el harness invoca los hooks. Fail-closed si
+# el lib no existe o no es legible: un `source` fallido dejaría el resto
+# del script corriendo con guard_sanitize()/GUARD_ANCHOR indefinidos, y el
+# guard pasaría en silencio (mismo fail-open que #50). Mismo mecanismo de
+# bloqueo que usa este hook para tests fallando: stderr + exit 2.
+LIB="${0%/*}/lib/guard-matching.sh"
+if [ ! -r "$LIB" ]; then
+  echo "BLOCKED: pre-commit-guard no operativo: falta hooks/lib/guard-matching.sh" >&2
+  exit 2
+fi
 # shellcheck source=lib/guard-matching.sh
-source "$(dirname "$0")/lib/guard-matching.sh"
+source "$LIB"
 
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 

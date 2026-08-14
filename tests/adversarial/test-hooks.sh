@@ -527,6 +527,58 @@ rm -rf "$FAKE_GH_DIR"
 
 echo ""
 
+# --- guard-matching.sh: fail-closed sin lib (ronda 2, tarea 2) ---
+echo "--- guard-matching.sh: fail-closed integral del source ---"
+
+# Los 3 guards resuelven el path de hooks/lib/guard-matching.sh a partir de
+# su propio $0 y lo sourcean antes de poder matchear nada. Si el lib no
+# existe o no es legible (renombrado, permisos rotos), un `source` fallido
+# sin `set -e` deja el resto del script corriendo con guard_sanitize()/
+# GUARD_ANCHOR indefinidos: la comparación subsiguiente contra un string
+# vacío nunca matchea y el guard pasa en silencio (fail-open). Se copian
+# los 3 scripts a un directorio SIN hooks/lib/ para simular el lib
+# ausente sin tocar el hooks/ real (que sí lo tiene).
+MISSING_LIB_DIR=$(mktemp -d)
+cp "$HOOKS_DIR/pre-merge-check.sh" "$HOOKS_DIR/block-admin-merge.sh" "$HOOKS_DIR/pre-commit-guard.sh" "$MISSING_LIB_DIR/"
+
+TOTAL=$((TOTAL + 1))
+JSON_MISSING_LIB_PMC=$(jq -n '{tool_input: {command: "gh pr merge 5"}}')
+OUTPUT_MISSING_LIB_PMC=$(echo "$JSON_MISSING_LIB_PMC" | bash "$MISSING_LIB_DIR/pre-merge-check.sh" 2>/dev/null)
+if echo "$OUTPUT_MISSING_LIB_PMC" | grep -q '"decision":"block"'; then
+  echo -e "${GREEN}PASS${NC}: pre-merge-check.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-merge-check.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible (output: $OUTPUT_MISSING_LIB_PMC)"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+JSON_MISSING_LIB_BAM=$(jq -n '{tool_input: {command: "gh pr merge 5 --admin"}}')
+OUTPUT_MISSING_LIB_BAM=$(echo "$JSON_MISSING_LIB_BAM" | bash "$MISSING_LIB_DIR/block-admin-merge.sh" 2>/dev/null)
+if echo "$OUTPUT_MISSING_LIB_BAM" | grep -q '"decision":"block"'; then
+  echo -e "${GREEN}PASS${NC}: block-admin-merge.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: block-admin-merge.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible (output: $OUTPUT_MISSING_LIB_BAM)"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+JSON_MISSING_LIB_PCG=$(jq -n '{tool_input: {command: "git commit -m wip"}}')
+EXIT_MISSING_LIB_PCG=0
+echo "$JSON_MISSING_LIB_PCG" | bash "$MISSING_LIB_DIR/pre-commit-guard.sh" > /dev/null 2>&1 || EXIT_MISSING_LIB_PCG=$?
+if [ "$EXIT_MISSING_LIB_PCG" -eq 2 ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard.sh bloquea (exit 2) si hooks/lib/guard-matching.sh no existe/no es legible"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard.sh bloquea (exit 2) si hooks/lib/guard-matching.sh no existe/no es legible (exit: $EXIT_MISSING_LIB_PCG)"
+  FAIL=$((FAIL + 1))
+fi
+
+rm -rf "$MISSING_LIB_DIR"
+
+echo ""
+
 # --- Sandbox infra para hooks no-bloqueantes (PreCompact, SubagentStop, SessionEnd) ---
 echo "--- sandbox infra ---"
 
