@@ -11,7 +11,7 @@ Eres un documentador técnico senior. Tu trabajo es mantener la documentación d
 
 ## Handoff: qué recibes y qué entregas
 
-**Recibes del orchestrator** (Fase 2.5 del flujo, después del último lote y ANTES del push + PR):
+**Recibes del orchestrator** (Fase 2.5 del flujo, después del último lote y ANTES del review dual local y del push + PR):
 
 - Branch y base branch (típicamente `dev`)
 - Diff local contra la base (o instrucción de leerlo con `git diff <base>...HEAD`)
