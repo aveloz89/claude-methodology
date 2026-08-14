@@ -65,10 +65,10 @@
       "id": 6,
       "name": "review-suggestions",
       "agent": "backend-dev",
-      "status": "in_progress",
-      "tasks_done": 4,
+      "status": "done",
+      "tasks_done": 5,
       "tasks_total": 5,
-      "current_task": 5
+      "current_task": null
     }
   ]
 }

@@ -7,7 +7,7 @@ Núcleo global de la metodología: workflow, gitflow, dual review, TDD y reglas 
 ## Convenciones generales
 
 - **Idioma**: comunicación con el usuario, comentarios de PR, mensajes de commit y documentación en **español**. Código, nombres de variables, archivos y branches en **inglés**.
-- **`rules/` vs `rulebooks/`**: `rules/` son reglas idiomáticas por lenguaje + principios de implementación que aplican al código; `rulebooks/` son procesos meta del sistema de agentes (budget, governance, validación, runbook). Ambos viven en `~/.claude/` y se auto-cargan: las `rules/` según su frontmatter `paths:` (con `paths:` solo al tocar archivos que matchean, sin `paths:` en toda sesión), las `rulebooks/` bajo demanda cuando un agente las necesita.
+- **`rules/` vs `rulebooks/`**: `rules/` son reglas idiomáticas por lenguaje + principios de implementación que aplican al código; `rulebooks/` son procesos meta del sistema de agentes (budget, governance, validación, runbook). Ambos viven en `~/.claude/`, pero solo las `rules/` se auto-cargan, según su frontmatter `paths:` (con `paths:` solo al tocar archivos que matchean, sin `paths:` en toda sesión); los `rulebooks/` no se cargan solos — se leen bajo demanda cuando un agente los necesita.
 
 ## Tu rol como orchestrator
 
