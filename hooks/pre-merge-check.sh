@@ -27,7 +27,9 @@
 #      de shell real — un wrapper como bash -c "..." no se detecta porque
 #      el comando real queda dentro de una string que este hook sanitiza.
 #      Aceptable: el hook protege errores honestos del orchestrator, no
-#      evasión adversarial.
+#      evasión adversarial. El saneo + ancla vive en hooks/lib/guard-
+#      matching.sh — compartido con block-admin-merge.sh y pre-commit-
+#      guard.sh, que tenían el mismo matching frágil (#47).
 #   4. CI SIN CHECKS CONFIGURADOS: en un repo sin ningún check (gh pr checks
 #      no reporta nada para esa PR), el guard bloqueaba con el mismo mensaje
 #      que usa para un fallo real de la consulta. "Sin checks" es un pass
@@ -37,24 +39,41 @@
 #      aceptada: si gh cambia ese texto en una versión futura, este caso
 #      vuelve a fail-closed (bloquea) en vez de pasar — es el fallback
 #      seguro.
+#
+# Endurecido 2026-08-13 (fail-closed sin dependencias, #50):
+#   5. Todo lo anterior depende de perl (saneo del comando) y jq (parseo del
+#      JSON de entrada y de las respuestas de gh). Antes, si faltaba
+#      cualquiera de los dos, la sustitución/parseo devolvía vacío, el grep
+#      no matcheaba, y el hook emitía {"continue":true} en silencio:
+#      cualquier gh pr merge pasaba sin verificar — justo lo contrario del
+#      diseño fail-closed que este header declara. Ahora se verifica al
+#      inicio, antes de leer stdin, y se bloquea sin depender de jq (la
+#      propia herramienta que puede faltar).
+if ! command -v perl > /dev/null 2>&1 || ! command -v jq > /dev/null 2>&1; then
+  printf '{"decision":"block","reason":"pre-merge-check no operativo: falta perl o jq"}\n'
+  exit 0
+fi
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-# Antes de matchear, sacamos del texto los spans quoted ('...'/"...") y los
-# cuerpos de heredoc: son contenido literal (ej. un mensaje de commit) que
-# puede mencionar la frase de merge sin ser una invocación real. El match
-# además se ancla a posición de comando (inicio de string/línea, o justo
-# después de &&, ||, ;, |, $() para no perder invocaciones reales dentro de
-# comandos compuestos.
-SANITIZED_COMMAND=$(echo "$COMMAND" | perl -0777 -pe '
-  s/<<-?[\x27"]?(\w+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1$).*\n?)*[ \t]*\1(?:\n|$)/\n/gsm;
-  s/\x27[^\x27]*\x27/ /g;
-  s/"(?:[^"\\]|\\.)*"/ /g;
-')
+# Resolución del path del lib sin depender de un binario externo (dirname):
+# "${0%/*}" es el idioma de shell para dirname cuando $0 trae al menos un
+# "/" — siempre el caso dado cómo el harness invoca los hooks. Ver #50: la
+# misma razón por la que el check de perl/jq de arriba no puede fallar
+# abierto, un `source` de un path que dirname no pudo resolver tampoco.
+LIB="${0%/*}/lib/guard-matching.sh"
+if [ ! -r "$LIB" ]; then
+  printf '{"decision":"block","reason":"pre-merge-check no operativo: falta hooks/lib/guard-matching.sh"}\n'
+  exit 0
+fi
+# shellcheck source=lib/guard-matching.sh
+source "$LIB"
+
+SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
 # Solo interceptar invocaciones reales de gh pr merge
-if ! echo "$SANITIZED_COMMAND" | grep -qE '(^|&&|\|\||;|\||\$\()\s*gh\s+pr\s+merge\b'; then
+if ! echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}gh\s+pr\s+merge\b"; then
   echo '{"continue":true}'
   exit 0
 fi
@@ -102,8 +121,18 @@ THREADS_JSON=$(gh api graphql -f query="query { repository(owner: \"${OWNER}\", 
 if [ -z "$THREADS_JSON" ]; then
   block "Blocked: no pude consultar los threads de review del PR #${PR_NUMBER} (GraphQL falló). Reintenta — el guard no verifica a ciegas."
 fi
-UNRESOLVED=$(echo "$THREADS_JSON" | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length')
-if [ "${UNRESOLVED:-0}" -gt 0 ]; then
+# jq -e: exit no-cero si el jq falla (ej. .data.repository viene null —
+# permisos, repo renombrado, error con HTTP 200 — e indexar .pullRequest
+# sobre null revienta) o si el resultado final es null/false. Antes, un jq
+# fallido dejaba UNRESOLVED vacío y "${UNRESOLVED:-0}" lo convertía en
+# "cero threads sin resolver": el guard pasaba en silencio. `length`
+# siempre produce un número (nunca null/false), así que el caso normal de
+# 0 threads sin resolver sigue pasando igual.
+UNRESOLVED=$(echo "$THREADS_JSON" | jq -e '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length' 2>/dev/null)
+if [ $? -ne 0 ]; then
+  block "Blocked: no pude parsear los threads de review del PR #${PR_NUMBER} (respuesta de GraphQL inesperada). Reintenta — el guard no verifica a ciegas."
+fi
+if [ "$UNRESOLVED" -gt 0 ]; then
   ERRORS="${ERRORS}  - Hay ${UNRESOLVED} thread(s) de review sin resolver. Resuélvelos o respóndelos antes de mergear\n"
 fi
 

@@ -2,12 +2,42 @@
 # Pre-commit guard: Detecta si Claude va a hacer git commit
 # y verifica que los tests pasen primero.
 # Recibe JSON en stdin con tool_input del comando Bash.
+#
+# Matching endurecido (#47): el match se sanea (spans quoted/heredoc) y se
+# ancla a posición de comando en vez de al string completo — mismo helper
+# que usa pre-merge-check.sh. Ver hooks/lib/guard-matching.sh.
+#
+# Fail-closed sin jq (cierra #50 para este guard): sin jq, el parseo de
+# COMMAND más abajo devuelve vacío, el grep nunca matchea, y el guard
+# pasaba en silencio — un commit pasaba sin correr tests. CAMBIA el
+# contrato de este hook: antes, sin jq, pasaba.
+if ! command -v jq > /dev/null 2>&1; then
+  echo "BLOCKED: pre-commit-guard no operativo: falta jq" >&2
+  exit 2
+fi
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
+# Resolución del path del lib sin depender de un binario externo (dirname):
+# "${0%/*}" es el idioma de shell para dirname cuando $0 trae al menos un
+# "/" — siempre el caso dado cómo el harness invoca los hooks. Fail-closed si
+# el lib no existe o no es legible: un `source` fallido dejaría el resto
+# del script corriendo con guard_sanitize()/GUARD_ANCHOR indefinidos, y el
+# guard pasaría en silencio (mismo fail-open que #50). Mismo mecanismo de
+# bloqueo que usa este hook para tests fallando: stderr + exit 2.
+LIB="${0%/*}/lib/guard-matching.sh"
+if [ ! -r "$LIB" ]; then
+  echo "BLOCKED: pre-commit-guard no operativo: falta hooks/lib/guard-matching.sh" >&2
+  exit 2
+fi
+# shellcheck source=lib/guard-matching.sh
+source "$LIB"
+
+SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
+
 # Solo interceptar comandos git commit
-if ! echo "$COMMAND" | grep -qE '^\s*git\s+commit'; then
+if ! echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+commit"; then
   exit 0
 fi
 

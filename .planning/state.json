@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "feature": "fix-open-issues",
+  "branch": "feature/fix-open-issues",
+  "pr": null,
+  "updated": "2026-08-14T02:10:00Z",
+  "phases": {
+    "brainstorming": "skipped",
+    "design": "skipped",
+    "implementation": "done",
+    "docs": "done",
+    "pr": "in_progress",
+    "ci": "skipped",
+    "review": "done",
+    "e2e": "skipped",
+    "merge": "pending"
+  },
+  "batches": [
+    {
+      "id": 1,
+      "name": "fix-open-issues",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 5,
+      "tasks_total": 5,
+      "current_task": null
+    },
+    {
+      "id": 2,
+      "name": "review-round-2",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 6,
+      "tasks_total": 6,
+      "current_task": null
+    },
+    {
+      "id": 3,
+      "name": "review-round-3",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 1,
+      "tasks_total": 1,
+      "current_task": null
+    }
+  ]
+}

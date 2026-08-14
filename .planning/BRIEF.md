@@ -1,46 +1,29 @@
-# Brief: Modernización 2026 de memoria y agentes
+# Brief: Cierre de todos los issues abiertos (#47, #50, #51, #52)
 
 ## Objetivo
 
-Incorporar al sistema las mejoras accionables identificadas por la investigación del 2026-08-13 (`AUDIT-memory-agents-2026-08.md`, plan de acción §8), en un único PR a `dev`.
+Un PR a `dev` que arregle los 4 issues abiertos del repo — sin crear issues nuevos: el usuario quiere arreglar, no acumular.
 
 ## Alcance
 
 Incluye:
 
-1. Hook `PreCompact`: snapshot del estado de `.planning/` (STATE/HANDOFF) antes de una compactación, para proteger el flujo pause/resume.
-2. Hook `SubagentStop`: log de invocaciones de subagentes, para hacer medible el budget de `rulebooks/agent-budget.md`.
-3. Hook `SessionEnd`: aviso/registro si `STATE.md` quedó desactualizado al cerrar la sesión.
-4. Registro de los 3 hooks en **ambos** settings (`settings.json` raíz que instala `install.sh` y `.claude/settings.json` del repo) — lección C5 de la auditoría de julio.
-5. Runbook (`rulebooks/orchestrator-runbook.md`): paso de smoke test al retomar en Pause/Resume (correr test suite básico antes de tocar código).
-6. Runbook: el estado mutable de `STATE.md` (checklist de lotes/fases pass-fail) pasa a formato JSON — definir el schema (hallazgo: los modelos corrompen menos JSON que markdown al mutar estado).
-7. Runbook: regla anti-drift — todo PR que cambie el flujo incluye reconciliar los documentos que lo describen como parte de su DoD.
-8. `rulebooks/validation-schedule.md`: stress-test trimestral de supuestos del harness (quitar una pieza de andamiaje en branch + correr `tests/adversarial/`).
-9. `agents/e2e-runner.md`: frontmatter `memory: true` + instrucción de usar su memoria persistente para el tracking de flaky tests entre sesiones (piloto).
-10. Docs: `README.md` + `CLAUDE.md` reflejando los hooks nuevos.
-11. Tests: extender `tests/adversarial/test-hooks.sh` para cubrir los 3 hooks nuevos.
-12. `.planning/FOLLOWUPS.md`: retirar los items que este PR implementa (aplicación inmediata de la regla anti-drift).
+1. **#47** — `block-admin-merge.sh` y `pre-commit-guard.sh`: mismo matching frágil sobre `.tool_input.command` que ya se corrigió en `pre-merge-check.sh` (falso negativo con comandos compuestos en una línea; falso positivo con menciones quoted/heredoc). Fix de referencia: saneo de spans quoted/heredoc + ancla de posición de comando `(^|&&|\|\||;|\||\$\()` + regression tests.
+2. **#50** — `pre-merge-check.sh` falla ABIERTO si faltan `perl` o `jq`: pasa a fail-closed (bloquea con "guard no operativo") — el bloqueo debe emitirse sin depender de jq.
+3. **#51** — títulos de issues de terceros se inyectan verbatim en el contexto de sesión (`session-start-context.sh`, bloque `gh issue list`): truncar + strippear control chars (reusar `sanitize_text()` existente) + delimitador explícito de datos.
+4. **#52** — `.gitignore` mínimo: agregar patrones defensivos de secrets (`.env`, `.env.*`, `*.pem`, `*.key`, `credentials.*`).
 
-NO incluye:
-
-- Empaquetar la metodología como plugin (follow-up aparte, esfuerzo alto).
-- Adoptar Agent Teams (experimental; solo vigilar).
-- Notion/backends externos de memoria (descartado — ver decisión en `ARCHITECTURE.md`).
-- `memory: true` en agentes distintos de e2e-runner (evaluar tras el piloto).
-
-## Reglas de negocio / restricciones
-
-- Los 3 hooks nuevos son **no-bloqueantes**: nunca deben impedir una operación ni romper una sesión; ante cualquier error, exit 0 silencioso.
-- Deben no-op limpio cuando corren fuera de este repo o sin `.planning/` (se instalan globalmente vía symlink de `install.sh`).
-- Los devs editan los archivos del **repo** (`rulebooks/`, `hooks/`, `agents/`), no las copias/symlinks de `~/.claude/`.
-- El schema JSON del estado mutable y la ubicación del log de SubagentStop son decisiones del architect.
+NO incluye: nada fuera de esos 4 issues. No se crean issues nuevos.
 
 ## Decisiones tomadas
 
-- Usuario (2026-08-13): **todo en un solo PR**, sobre el branch existente `feature/harden-pre-merge-check` (contiene el hardening del pre-merge ya commiteado y sin mergear; el PR único a `dev` lleva ambos objetivos). Excepción consciente a "un PR por objetivo".
-- El cambio pendiente de `settings.json` (`effortLevel: xhigh`) se incluye en este PR (mismo archivo que el registro de hooks).
-- Brainstorming saltado: cumple las 4 condiciones de CLAUDE.md (cambio técnico sin nueva funcionalidad de producto, sin contratos públicos, sin dependencias nuevas, descrito con precisión por la auditoría).
+- [D-01] **Helper compartido** `hooks/lib/guard-matching.sh` (saneo + ancla) extraído de `pre-merge-check.sh`, consumido por los 3 guards — una sola regex sutil con tres consumidores es el caso exacto de la regla anti-drift. `pre-merge-check.sh` se refactoriza para consumirlo: refactor pequeño necesario, dentro del scope, documentado en el PR body. `install.sh` symlinkea `hooks/` completo, así que `lib/` viaja solo; resolución vía `$(dirname "$0")`.
+- [D-02] Brainstorming y architect saltados con justificación: bug fixes con causa raíz identificada y remediación especificada en los propios issues; la única decisión de diseño es D-01 (proporcionalidad — doctrina "escalar esfuerzo a la complejidad", LEARNINGS PR #49).
+- [D-03] Estreno del formato `state.json` (schema D3 del PR #49): esta es la "siguiente feature" desde la que aplica.
+- [D-04] El merge a `dev` no auto-cierra issues (default branch es `main`): se cierran manualmente post-merge con referencia al commit.
 
-## Descartado explícitamente
+## Reglas de negocio / restricciones
 
-- Hooks de tipo `prompt`/`agent` para los guards existentes: el determinismo de los guards `command` es el punto; no se tocan.
+- Los guards son bloqueantes: TDD obligatorio con regression tests por hook en `tests/adversarial/test-hooks.sh` (falso negativo compuesto, falso positivo quoted), sin romper los 56 tests existentes.
+- El fail-closed de #50 nunca debe romper la emisión del JSON de bloqueo (sin jq disponible → printf de JSON estático).
+- `session-start-context.sh` no debe romper su output actual (hay tests de regresión).
