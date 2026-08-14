@@ -21,9 +21,9 @@
       "name": "sandbox-guard-tests",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 2,
+      "tasks_done": 3,
       "tasks_total": 4,
-      "current_task": "tarea 3: casos nuevos de la matriz (HEAD merge commit en main -> allowed; branch master -> blocked)"
+      "current_task": "tarea 4: guard de no-contaminacion de la suite (branch + git status --porcelain del repo real)"
     },
     {
       "id": 2,

@@ -240,6 +240,7 @@ echo "--- pre-push-guard.sh ---"
 # casi-incidente del PR #49 (stash + checkout main sobre el repo real de
 # esta misma suite).
 sandbox_create_pushrepo
+PUSH_INITIAL_COMMIT=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
 
 # Caso 1: push desde feature branch (debe permitirse)
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/test)
@@ -251,6 +252,20 @@ assert_allowed_cmd "Non-push command passes through" "pre-push-guard.sh" "git st
 
 # Caso 3: push a main con HEAD non-merge (debe bloquearse)
 assert_blocked_cmd "Push from main (non-merge commit)" "pre-push-guard.sh" "git push origin main" "$PATH" "$SANDBOX_REPO"
+
+# Caso 4: push a main con HEAD = merge commit real (debe permitirse)
+(
+  cd "$SANDBOX_REPO" || exit 1
+  git checkout -q -b aux
+  git commit -q --allow-empty -m "aux commit"
+  git checkout -q main
+  git merge -q --no-ff aux -m "Merge branch 'aux'"
+)
+assert_allowed_cmd "Push from main with merge commit HEAD" "pre-push-guard.sh" "git push origin main" "$PATH" "$SANDBOX_REPO"
+
+# Caso 5: push a master (no main) con HEAD non-merge (debe bloquearse)
+(cd "$SANDBOX_REPO" && git checkout -q -b master "$PUSH_INITIAL_COMMIT")
+assert_blocked_cmd "Push from master branch (non-merge commit)" "pre-push-guard.sh" "git push origin master" "$PATH" "$SANDBOX_REPO"
 
 sandbox_cleanup_pushrepo
 
