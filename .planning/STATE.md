@@ -4,16 +4,15 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** pre-pr-reviews — mover el review dual a antes del push/PR para ahorrar runs de CI
+- **Feature:** align-atomic-commits — alinear la letra de la regla de commits con la práctica real (commit por tarea) y recalibrar la heurística de corte de PRs
 - **Última actualización:** 2026-08-14
 
 ## Decisiones
 
-- [D-01] Invariante intacto (review dual bloqueante pre-merge); cambia el momento: pre-push.
-- [D-02] post-pr-create.sh queda como checkpoint de respaldo para PRs fuera del flujo.
-- [D-03] E2E Modo B sin cambio.
-- [D-04] Dogfooding: este PR estrena el orden nuevo.
-- [D-05] "Un push por ronda" sobrevive solo post-PR.
+- [D-01] Brainstorming/design/docs saltados: cambio de redacción de 3 archivos, alcance mapeado por grep (8 puntos), sin decisiones estructurales; el diff ES documentación.
+- [D-02] La decisión histórica del 2026-07-24 en pr-workflow NO se reescribe — se enmienda con nota fechada 2026-08-14 (los registros de decisiones no se falsifican).
+- [D-03] La heurística de corte deja de contar commits (commits atómicos = más navegabilidad, no menos) — la señal es el diff irrevisable: >1000 LoC de naturaleza mixta sin agrupación navegable en el PR body.
+- [D-04] Tracker de sesión omitido (criterio del harness: <3 pasos no se trackea).
 
 ## Blockers
 
