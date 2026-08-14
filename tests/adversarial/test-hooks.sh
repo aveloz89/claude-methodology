@@ -284,6 +284,16 @@ assert_bam_blocked "block-admin-merge: sigue bloqueando sin perl en PATH (fallba
   "$NO_PERL_BAM_BIN"
 rm -rf "$NO_PERL_BAM_BIN"
 
+# (d) Regression: orden de saneo. Antes, la regla de single-quotes corría
+# ANTES que la de double-quotes y sin noción de anidamiento: dos apóstrofes
+# que caen en spans double-quoted DISTINTOS ("it's fine" ... "that's all")
+# se emparejaban entre sí, tragándose todo el comando real de en medio
+# (incluido el --admin) como si fuera contenido quoted. Saneando los spans
+# double-quoted primero, cada "..." se sanea como unidad completa antes de
+# que la regla de single-quotes vea los apóstrofes que quedaban dentro.
+assert_bam_blocked "block-admin-merge: apóstrofes en dos strings double-quoted distintos no se comen el comando real de en medio" \
+  'git commit -m "it'"'"'s fine" && gh pr merge 5 --admin && echo "that'"'"'s all"'
+
 echo ""
 
 # --- pre-commit-guard.sh ---

@@ -39,10 +39,17 @@ GUARD_ANCHOR='(^|&&|\|\||;|\||\$\()\s*'
 # guards el mismo fail-open de #50.
 guard_sanitize() {
   if command -v perl > /dev/null 2>&1; then
+    # Orden importa: double-quoted primero. Si single-quotes corriera antes,
+    # dos apóstrofes que caen en spans double-quoted DISTINTOS (ej. "it's
+    # fine" ... "that's all") se emparejarían entre sí y se tragarían todo
+    # el comando real de en medio como si fuera contenido quoted (falso
+    # negativo). Saneando "..." primero, cada string double-quoted se
+    # consume como unidad completa antes de que la regla de single-quotes
+    # vea los apóstrofes que quedaban dentro.
     printf '%s' "$1" | perl -0777 -pe '
       s/<<-?[\x27"]?(\w+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1$).*\n?)*[ \t]*\1(?:\n|$)/\n/gsm;
-      s/\x27[^\x27]*\x27/ /g;
       s/"(?:[^"\\]|\\.)*"/ /g;
+      s/\x27[^\x27]*\x27/ /g;
     '
   else
     printf '%s' "$1"
