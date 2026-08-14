@@ -33,7 +33,7 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal, de
 | **block-hard-reset** | PreToolUse (Bash) | Bloquea `git reset --hard` |
 | **pre-merge-check** | PreToolUse (Bash) | Bloquea `gh pr merge` sin número de PR explícito, con threads de review sin resolver o reviews/checks pendientes (fail-closed si no puede verificar) |
 | **pre-release-sweep** | PreToolUse (Bash) | Dispara `latent-bugs-sweep` antes de un `gh pr create --base main` |
-| **post-pr-create** | PostToolUse (Bash) | Instruye al orquestador para disparar security-reviewer + qa-frontend/qa-backend (según capas del diff) al crear un PR |
+| **post-pr-create** | PostToolUse (Bash) | Checkpoint de respaldo al crear un PR: verifica en `state.json` que el review dual pre-push ocurrió y recuerda la reconciliación del registro; si no hay evidencia, instruye lanzar el review (PR fuera del flujo) |
 | **session-start-context** | SessionStart | Muestra branch, último commit, estado de .planning/, marker de SessionEnd y resumen de state.json |
 | **context-monitor** | PostToolUse (Bash) | Avisa cuando el contexto se está agotando (35% warning, 25% critical) |
 | **docker-refresh** | PostToolUse (Bash) | Detecta si servicios Docker necesitan restart/rebuild después de push o PR. Respeta hot reload |
@@ -48,7 +48,7 @@ Los tres hooks de observabilidad (`pre-compact-snapshot`, `subagent-stop-log`, `
 |-------|----------|
 | **/new-project** | Scaffold de proyecto con gitflow, GitHub Actions CI/CD, CLAUDE.md |
 | **/refactor-scan** | Escanea el codebase buscando code smells y genera un reporte priorizado |
-| **/pr-workflow** | Presupuesto de CI, E2E pre-release, branch protection y verificación pre-merge — se invoca en Fase 2.7 o al trabajar sobre un PR existente |
+| **/pr-workflow** | Review dual local pre-push, presupuesto de CI, E2E pre-release, branch protection y verificación pre-merge — se invoca en Fase 2.6 o al trabajar sobre un PR existente |
 | **/review-pr** | Re-dispara manualmente el review dual (security + QA según capas tocadas) sobre un PR existente, sin pasar por el flujo completo del orchestrator |
 
 ## Workflow
@@ -57,15 +57,15 @@ Los tres hooks de observabilidad (`pre-compact-snapshot`, `subagent-stop-log`, `
 Idea → Brainstorming (orchestrator pregunta) → Brief
   → Architect diseña + escribe schemas/contratos
   → Devs implementan con TDD (Red → Green → Refactor)
-  → PR creado → Security + QA (qa-frontend y/o qa-backend según capas) review en paralelo
-  → Si hay issues → Dev corrige en mismo PR → Re-review
-  → Todos aprueban → Merge
+  → Review dual local pre-push → Security + QA (qa-frontend y/o qa-backend según capas) en paralelo
+  → Si hay issues → Dev corrige en el mismo branch, sin push → Re-review
+  → Veredictos limpios → Push + PR (nace revisado) → CI → Merge
 ```
 
 ## Reglas enforced
 
 - **80% test coverage** mínimo para mergear
-- **Dual review** obligatorio (security + QA frontend/backend según capas del diff)
+- **Dual review** obligatorio, pre-push por default (security + QA frontend/backend según capas del diff)
 - **TDD** obligatorio (test antes que código)
 - **Build debe compilar** antes de commit
 - **No push directo a main**
