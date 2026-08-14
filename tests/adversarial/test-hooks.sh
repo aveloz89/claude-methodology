@@ -60,6 +60,37 @@ sandbox_cleanup() {
   rm -rf "$SANDBOX_REPO" "$SANDBOX_HOME"
 }
 
+# sandbox_create_pushrepo: repo git temporal en branch main con remote fake,
+# para testear pre-push-guard.sh sin tocar el repo real de esta misma suite
+# (casi-incidente PR #49: la versión anterior hacía stash + checkout main
+# sobre el repo real). El guard solo inspecciona el comando, el branch
+# actual y el subject del último commit — nunca ejecuta el push ni consulta
+# el remote — así que un remote bare local (sin red) alcanza y blinda los
+# tests si el guard evolucionara y alguno llegara a ejecutar el push real.
+# Reutiliza SANDBOX_REPO (misma variable global que sandbox_create) porque
+# nunca se usan ambos sandboxes a la vez.
+sandbox_create_pushrepo() {
+  SANDBOX_REPO=$(mktemp -d)
+  SANDBOX_REPO=$(cd "$SANDBOX_REPO" && pwd -P)
+  SANDBOX_REMOTE=$(mktemp -d)
+  SANDBOX_REMOTE=$(cd "$SANDBOX_REMOTE" && pwd -P)
+  git init --bare -q "$SANDBOX_REMOTE"
+  (
+    cd "$SANDBOX_REPO" || exit 1
+    git init -q -b main
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    git remote add origin "$SANDBOX_REMOTE"
+    echo "sandbox" > README.md
+    git add -A
+    git commit -q -m "initial commit"
+  ) > /dev/null 2>&1
+}
+
+sandbox_cleanup_pushrepo() {
+  rm -rf "$SANDBOX_REPO" "$SANDBOX_REMOTE"
+}
+
 # assert_exit0: corre un hook no-bloqueante dentro del sandbox (cwd=run_cwd,
 # HOME=run_home) con el stdin dado, y verifica exit 0 + un efecto esperado
 # (o su ausencia) en filesystem. check_cmd es una expresión shell que se
@@ -182,6 +213,23 @@ assert_allowed_cmd() {
 }
 
 echo "=== Adversarial Hook Tests ==="
+echo ""
+
+# --- sandbox_create_pushrepo (smoke test de la infra) ---
+echo "--- sandbox_create_pushrepo (smoke test) ---"
+
+sandbox_create_pushrepo
+TOTAL=$((TOTAL + 1))
+if [ "$(cd "$SANDBOX_REPO" && git branch --show-current)" = "main" ] && \
+   (cd "$SANDBOX_REPO" && git ls-remote origin > /dev/null 2>&1); then
+  echo -e "${GREEN}PASS${NC}: sandbox_create_pushrepo produce un repo en main con remote origin resoluble"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: sandbox_create_pushrepo produce un repo en main con remote origin resoluble"
+  FAIL=$((FAIL + 1))
+fi
+sandbox_cleanup_pushrepo
+
 echo ""
 
 # --- pre-push-guard.sh ---
