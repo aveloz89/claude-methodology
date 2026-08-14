@@ -3,11 +3,11 @@
   "feature": "followups-sweep",
   "branch": "feature/followups-sweep",
   "pr": null,
-  "updated": "2026-08-14T03:10:00Z",
+  "updated": "2026-08-14T03:50:00Z",
   "phases": {
     "brainstorming": "done",
-    "design": "in_progress",
-    "implementation": "pending",
+    "design": "done",
+    "implementation": "in_progress",
     "docs": "pending",
     "pr": "pending",
     "ci": "pending",
@@ -15,5 +15,51 @@
     "e2e": "skipped",
     "merge": "pending"
   },
-  "batches": []
+  "batches": [
+    {
+      "id": 1,
+      "name": "sandbox-guard-tests",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 4,
+      "current_task": null
+    },
+    {
+      "id": 2,
+      "name": "slug-hash",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 4,
+      "current_task": null
+    },
+    {
+      "id": 3,
+      "name": "plugin-manifests",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 4,
+      "current_task": null
+    },
+    {
+      "id": 4,
+      "name": "hybrid-installer",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 5,
+      "current_task": null
+    },
+    {
+      "id": 5,
+      "name": "review-pr-skill-docs",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 5,
+      "current_task": null
+    }
+  ]
 }
