@@ -24,6 +24,15 @@
       "tasks_done": 5,
       "tasks_total": 5,
       "current_task": null
+    },
+    {
+      "id": 2,
+      "name": "review-round-2",
+      "agent": "backend-dev",
+      "status": "in_progress",
+      "tasks_done": 1,
+      "tasks_total": 6,
+      "current_task": "2: fail-closed integral del source de guard-matching.sh en los 3 guards"
     }
   ]
 }
