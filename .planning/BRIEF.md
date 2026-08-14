@@ -1,52 +1,44 @@
-# Brief: Barrido de follow-ups + plugin de distribución
+# Brief: Review dual pre-PR (ahorro de minutos de CI)
 
 ## Objetivo
 
-Un PR a `dev` que ataque TODOS los follow-ups accionables de `.planning/FOLLOWUPS.md` (9 de 10), incluyendo la implementación completa del plugin de Claude Code como mecanismo de distribución de la metodología. Decisión explícita del usuario (2026-08-14): todo en un solo PR, plugin incluido.
+Mover el review dual (security + qa-*) de después de crear el PR a **después del último commit de implementación + docs, ANTES del push y del PR**. Motivación del usuario (2026-08-14): cada ronda de fixes post-PR es un push extra = un run extra de GitHub Actions; con el review sobre el diff local, los fixes viajan en el push inicial y el PR nace revisado → un solo run de CI por PR en el caso normal.
+
+## Flujo nuevo (a diseñar en detalle por el architect)
+
+```
+Fase 2.5: Documentación (docs sobre diff local, sin push)      [sin cambio]
+Fase 2.6: Review dual LOCAL  ← NUEVO: security + qa-* sobre git diff <base>...HEAD
+          + rondas de fixes locales (sin push) hasta veredictos limpios
+          + sugerencias baratas aplicadas
+Fase 2.7: Push + PR          [el PR nace revisado]
+Fase 2.8: Monitoreo CI       [sin cambio]
+Fase 3:   queda para lo post-PR: E2E Modo B si PR a main; re-reviews
+          solo si CI obligó fixes que cambian código ya revisado
+Fase 4:   Learn              [sin cambio]
+```
 
 ## Alcance
 
-**Grupo A — Plugin y carga global (el proyecto grande):**
+1. **`rulebooks/orchestrator-runbook.md`**: renumerar/redefinir Fases 2.6–3; "Context isolation" (los reviewers reciben diff LOCAL, no `gh pr diff`); estructura del tracker ("Review dual local" como tarea separada de "PR + CI"); convención del registro de reviews (nace sin número de PR — el architect define el naming y cuándo se le añade el número).
+2. **`skills/pr-workflow/SKILL.md`**: regla 2 reescrita (el review se lanza al terminar docs, no al crear el PR); la regla "un push por ronda" queda solo para rondas post-PR (fixes de CI, re-reviews sobre PR existente); revisar coherencia de 5.1/5.2.
+3. **`global/CLAUDE.md`**: la descripción del flujo/review dual donde aparezca (el invariante "review dual bloqueante antes de merge" NO cambia — solo se adelanta el momento).
+4. **`hooks/post-pr-create.sh`**: de "instruye lanzar reviews" a **checkpoint de respaldo**: verifica/pregunta si el PR ya pasó review dual pre-push; solo instruye lanzarlo para PRs creados fuera del flujo. Actualizar sus tests si los tiene.
+5. **`agents/security-reviewer.md` y `agents/qa-*.md`**: si referencian "diff del PR"/`gh pr diff` como fuente, generalizar a "diff que el orchestrator indique (local o PR)".
+6. **Anti-drift completo** (DoD de cambios de proceso): grep de `pr diff|crear el PR|post-pr|Fase 2.7|Fase 2.8|Fase 3` en CLAUDE.md (ambos), README, rulebooks/, agents/, skills/ y reconciliar TODO documento que describa el orden viejo.
 
-1. Empaquetar la metodología como **plugin de Claude Code**: skills + agents + hooks (+ settings que aplique) en bundle instalable.
-2. Resolver la **carga global vs por proyecto** de la metodología (follow-up 2026-05-08). Restricción de plataforma conocida (verificar): los plugins empaquetan skills, agents, hooks y MCP servers — **NO distribuyen CLAUDE.md ni `rules/` ni `rulebooks/`**. El architect debe diseñar el híbrido: plugin para lo que el plugin cubre + mecanismo para instrucciones/rules/rulebooks (opciones conocidas: symlink de un CLAUDE.md global curado a `~/.claude/CLAUDE.md` — la jerarquía oficial carga managed → user → project → local, todos a la vez, con override por proximidad; `install.sh` residual para rules/rulebooks; import con `@`).
-3. Destino de `install.sh`: coexiste, se reduce a lo que el plugin no cubre, o se deprecia — decisión del architect con justificación.
-
-**Grupo B — Hooks y tests:**
-
-4. **Slug + hash del toplevel** en los 4 hooks que derivan slug (`session-start-context.sh`, `pre-compact-snapshot.sh`, `subagent-stop-log.sh`, `session-end-check.sh`): `tr '/' '-'` no es inyectivo, repos distintos pueden colisionar y pisarse artefactos. Sufijo de 8 chars de hash del toplevel. Actualizar la decisión de convención en ARCHITECTURE.md. Los 4 hooks deben cambiar juntos (mismo slug derivado) + migración/compat de artefactos existentes: decisión del architect (¿se migran, se abandonan, se lee ambos?).
-5. **Sandboxear los tests de guards** de `tests/adversarial/test-hooks.sh`: hoy hacen `git stash` + `git checkout main` sobre el repo REAL (casi pérdida de estado en PR #49). Migrar al patrón sandbox que ya usan los tests de observabilidad (repo git temporal + HOME override).
-
-**Grupo C — Skill nueva:**
-
-6. **Skill `/review-pr`**: re-disparo manual del review dual (security + qa según capas tocadas) sobre un PR existente, sin pasar por el flujo completo del orchestrator. Diseñar contrato: input (número de PR), qué lanza, formato de reporte.
-
-**Grupo D — Docs/rules (chicos, texto ya especificado en los follow-ups):**
-
-7. `rules/docker.md`: suavizar regla de env vars → "URL completa cuando aplique; piezas separadas cuando se rotan independientemente".
-8. `rules/docker.md`: reescribir excepción USER nonroot en dev → preferir `--build-arg UID=$(id -u)`; root solo si el build arg no resuelve.
-9. Quitar el frontmatter `agents:` de `rules/docker.md` y `rules/implementation-principles.md` (verificado: nada lo procesa; decisión del usuario: quitar, no uniformar agregando).
-10. Deduplicar criterios de migración DB simple/complejo: `agents/backend-dev.md` referencia al runbook (fuente canónica) en vez de repetir la lista.
-
-**NO incluye:** Agent Teams (vigilancia con trigger documentado — sigue en FOLLOWUPS como único item). Al cierre del PR, FOLLOWUPS queda solo con ese item.
+NO incluye: cambios a `skills/review-pr` (re-disparo manual post-PR — sigue válido tal cual), a E2E Modo B (queda post-PR, pre-release a main), ni al presupuesto de review proporcional (aplica igual en pre-PR).
 
 ## Decisiones tomadas
 
-- [D-01] Usuario: todo en un solo PR, plugin incluido (aceptando el costo de diff grande; el PR body debe estar organizado por grupos para navegabilidad).
-- [D-02] Usuario: `agents:` se quita, no se uniformiza agregando.
-- [D-03] El cambio de convención del slug está autorizado (ARCHITECTURE.md se actualiza como parte del PR).
-- [D-04] Formato `state.json` en uso (segunda feature con él).
+- [D-01] El invariante de CLAUDE.md global no cambia: review dual bloqueante antes de merge. Cambia el MOMENTO: antes del push inicial.
+- [D-02] `post-pr-create.sh` se conserva como red de seguridad para PRs fuera del flujo (no se elimina).
+- [D-03] E2E Modo B sin cambio (post-PR a main).
+- [D-04] Dogfooding: ESTE MISMO PR estrena el orden nuevo — review dual sobre el diff local antes de su push + PR.
+- [D-05] Las rondas de fixes pre-PR no pushean nada; la regla "un push por ronda" sobrevive solo para el caso post-PR.
 
 ## Restricciones
 
-- TDD para todo lo de hooks/tests (grupos B): la suite adversarial está en 91/91 y debe terminar verde con los tests nuevos.
-- El plugin no debe romper la instalación actual del usuario (que usa symlinks de install.sh) — la transición debe ser explícita y documentada.
-- Review dual bloqueante al final, con presupuesto proporcional (el diff será grande: organizar por grupos).
-- CLAUDE.md del repo se mantiene ≤~200 líneas.
-
-## Datos de investigación para el architect (2026-08, docs oficiales — verificar localmente lo verificable)
-
-- Plugins: bundle de skills+agents+hooks+MCP; scopes user/project/local; instalación `/plugin install <nombre>@<marketplace>`; un repo puede servir de marketplace; validación con pinning SHA en el marketplace comunitario. La CLI local puede tener `claude plugin --help` para verificar el surface real.
-- Jerarquía CLAUDE.md: managed (`/Library/Application Support/ClaudeCode/`) → user (`~/.claude/CLAUDE.md`) → project (`./CLAUDE.md`) → local (`./CLAUDE.local.md`); TODOS cargan; override por proximidad. Imports con `@path` (hasta 4 niveles; imports externos piden aprobación la primera vez).
-- `~/.claude/rules/*.md` se auto-carga (con `paths:` condicional); los plugins NO las distribuyen.
-- Skills de plugin llevan namespace `/plugin-name:skill-name`.
+- Los reviewers pierden acceso a `gh pr view/diff` en el caso pre-PR: el paquete de contexto debe darles base y branch para `git diff` local (o el diff inline). Los reviewers remotos necesitan el branch PUSHEADO para clonarlo — conflicto con "review antes del push": el architect debe resolverlo (opciones: reviewers locales por defecto; o push del branch SIN crear PR — pushear un branch no gasta Actions si los workflows disparan on: pull_request y no on: push de branches — verificar qué asume la metodología y documentar la condición).
+- Suite adversarial verde; si `post-pr-create.sh` tiene tests en test-hooks.sh, actualizarlos con TDD.
+- CLAUDE.md del repo ≤~200 líneas; global/CLAUDE.md sigue global-safe.

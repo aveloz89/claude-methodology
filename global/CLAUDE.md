@@ -31,13 +31,13 @@ El hook `session-start-context.sh` te da branch, último commit y estado de `.pl
 2. **Diseño antes de código** — El architect diseña (estructura, contratos, schemas) antes de que los devs implementen.
 3. **TDD obligatorio para lógica de negocio** — Red → Green → Refactor. Nunca código de producción sin un test que falle primero.
    - **No aplica TDD literal** a: estilos CSS, configuración de infra (Dockerfile, docker-compose, Caddyfile), migraciones declarativas, archivos de configuración.
-4. **Dual review obligatorio (bloqueante)** — `security-reviewer` + QA (`qa-frontend` y/o `qa-backend` según las capas tocadas en el diff) deben aprobar antes de merge. Se lanzan en paralelo, automáticamente, sin pedir confirmación.
+4. **Dual review obligatorio (bloqueante)** — `security-reviewer` + QA (`qa-frontend` y/o `qa-backend` según las capas tocadas en el diff) deben aprobar antes de merge. Se lanzan en paralelo, automáticamente, sin pedir confirmación — sobre el diff local al terminar docs (Fase 2.6), antes del push inicial; el invariante bloqueante antes de merge no cambia.
 5. **80% coverage de branches mínimo** — Calculado **solo sobre archivos modificados en el PR**, no sobre todo el repo.
    - **Excluidos del cálculo**: re-exports, archivos de config, migraciones declarativas, definiciones de tipos puros, mocks/fixtures de test.
 
 ## Lotes
 
-Un **lote** es una agrupación de hasta 5 tareas atómicas que un dev ejecuta como unidad de trabajo — el cap existe por budget de invocación, ver `~/.claude/rulebooks/agent-budget.md`. El architect particiona el diseño en lotes y declara si son secuenciales o paralelizables. El último lote del feature se invoca con `last_batch=true` (cierra la implementación con verificación final completa; el push + PR lo hace el orchestrator después de docs — Fases 2.5–2.7).
+Un **lote** es una agrupación de hasta 5 tareas atómicas que un dev ejecuta como unidad de trabajo — el cap existe por budget de invocación, ver `~/.claude/rulebooks/agent-budget.md`. El architect particiona el diseño en lotes y declara si son secuenciales o paralelizables. El último lote del feature se invoca con `last_batch=true` (cierra la implementación con verificación final completa; el push + PR lo hace el orchestrator después de docs y del review dual local — Fases 2.5–2.7).
 
 ## Equipo de subagentes
 
@@ -48,9 +48,9 @@ Un **lote** es una agrupación de hasta 5 tareas atómicas que un dev ejecuta co
 | `db-specialist` | sonnet | Implementa todo lo de DB cuando es complejo | Lotes con trabajo de DB que califica como complejo |
 | `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples | Lotes con trabajo server-side |
 | `frontend-dev` | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) | Lotes con trabajo client-side |
-| `security-reviewer` | opus | Auditoría OWASP, secrets, dependencias (read-only). **Bloqueante.** | Al revisar PRs |
-| `qa-frontend` | sonnet | UX, accesibilidad, componentes, tests frontend, coverage. **Bloqueante si toca frontend.** | PR con archivos de UI |
-| `qa-backend` | sonnet | Contratos API, lógica, datos, tests backend, coverage. **Bloqueante si toca backend.** | PR con archivos de servidor |
+| `security-reviewer` | opus | Auditoría OWASP, secrets, dependencias (read-only). **Bloqueante.** | En Fase 2.6 (diff local) y re-reviews post-PR |
+| `qa-frontend` | sonnet | UX, accesibilidad, componentes, tests frontend, coverage. **Bloqueante si toca frontend.** | Diff con archivos de UI |
+| `qa-backend` | sonnet | Contratos API, lógica, datos, tests backend, coverage. **Bloqueante si toca backend.** | Diff con archivos de servidor |
 | `e2e-runner` | sonnet | Tests E2E con Playwright. **Modo A**: usuario, branch propio. **Modo B**: pre-release a `main`, branch del PR | Pre-release o invocación directa |
 | `build-resolver` | sonnet | Diagnostica y resuelve errores de build/compilación | Cuando un dev se atora con build error |
 | `refactor` | sonnet | Refactoriza sin cambiar comportamiento. Lee issues con label `legacy-violation`, `scoped-out-violation`, `latent-bug`, `stale-docs` | `/refactor-scan` o pedido explícito |
@@ -85,22 +85,24 @@ Fase 1:    Diseño           → architect entrega DESIGN.md con plan de lotes
 Fase 2:    Implementación   → invoca devs por lote, con flag last_batch=true|false
                               [PARALELO si lote marcado independiente por architect]
 Fase 2.5:  Documentación    → invoca docs sobre el diff local contra la base (sin push)
-Fase 2.7:  Push + PR        → lo haces tú: push del branch + gh pr create
+Fase 2.6:  Review dual local → security-reviewer + qa-* sobre el diff local  [PARALELO siempre]
+                              fixes sin push hasta veredictos limpios: el PR nace revisado
+Fase 2.7:  Push + PR        → lo haces tú: push + gh pr create + reconciliación del registro
 Fase 2.8:  Monitoreo CI     → gh pr checks --watch --fail-fast
-Fase 3:    Revisión         → security-reviewer + qa-*  [PARALELO siempre]
-                              + e2e-runner Modo B si PR a main  [PARALELO con los anteriores]
+Fase 3:    Post-PR          → re-reviews SOLO si CI obligó fixes sobre código ya revisado
+                              + e2e-runner Modo B si PR a main + pre-merge + merge
 Fase 4:    Learn (post-merge)
 ```
 
 **Reglas clave del flujo:**
 
 - **Setup del branch lo haces tú una sola vez** (`git checkout dev && git checkout -b feature/<slug>`). Los devs trabajan sobre ese branch existente, no crean nuevos.
-- **Modo single-PR (default)**: todos los lotes en el mismo branch, último lote con `last_batch=true`; después docs (Fase 2.5) y push + PR los haces tú (Fase 2.7).
-- **Presupuesto de CI**: repos privados, minutos contados. Un push por ronda de review, docs en el push inicial, reproducir el check fallido localmente antes de re-push. Detalle en la skill `pr-workflow`, regla 5.
+- **Modo single-PR (default)**: todos los lotes en el mismo branch, último lote con `last_batch=true`; después vienen docs (Fase 2.5), review dual local (Fase 2.6) y push + PR (Fase 2.7, lo haces tú).
+- **Presupuesto de CI**: repos privados, minutos contados. Un push por ronda de review (rondas post-PR; las de Fase 2.6 no pushean), docs en el push inicial, reproducir el check fallido localmente antes de re-push. Detalle en la skill `pr-workflow`, regla 5.
 - **Modo multi-PR**: solo si el architect lo justificó. Cada grupo con su branch + PR.
 - **Orden cuando hay db-specialist**: db-specialist primero (schema), luego backend-dev (consume schema), luego frontend-dev. Pueden paralelizar back/front si son archivos disjuntos.
 - **Validación del plan del architect**: cada lote ≤5 tareas, max 3 reintentos de validación, después escalar al usuario.
-- **Tracker de tareas de sesión (obligatorio, sin que el usuario lo pida)**: al cerrar el diseño con el architect, creas el listado de tareas visible con las herramientas nativas del harness (TaskCreate/TaskUpdate): una tarea por lote + una por etapa del pipeline (PR+reviews+CI, E2E si toca UI, merge+retro), con dependencias entre ellas. Actualizas el estado en vivo (`in_progress` al lanzar, `completed` solo cuando el hito realmente ocurrió) — el usuario sigue el progreso sin preguntarte. No reemplaza `.planning/STATE.md` ni `.planning/state.json` (el estado persistente entre sesiones sigue viviendo ahí); el tracker es la visibilidad de ESTA sesión. Formato exacto en `~/.claude/rulebooks/orchestrator-runbook.md`.
+- **Tracker de tareas de sesión (obligatorio, sin que el usuario lo pida)**: al cerrar el diseño con el architect, creas el listado de tareas visible con las herramientas nativas del harness (TaskCreate/TaskUpdate): una tarea por lote + una por etapa del pipeline (review dual local, PR+CI, E2E si toca UI, merge+retro), con dependencias entre ellas. Actualizas el estado en vivo (`in_progress` al lanzar, `completed` solo cuando el hito realmente ocurrió) — el usuario sigue el progreso sin preguntarte. No reemplaza `.planning/STATE.md` ni `.planning/state.json` (el estado persistente entre sesiones sigue viviendo ahí); el tracker es la visibilidad de ESTA sesión. Formato exacto en `~/.claude/rulebooks/orchestrator-runbook.md`.
 - **Fixes en el mismo PR/branch** — nunca branch nuevo para correcciones post-review.
 - **Re-lanzar solo los reviewers que marcaron issues** (no los que aprobaron).
 - **Conflicto entre reviewers**: security gana en seguridad, QA gana en UX/accesibilidad/contratos, y si es zona gris escalas al usuario. Detalle y matices en `governance-playbook.md` §7.
@@ -111,7 +113,7 @@ Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`
 
 ## Estado persistente: `.planning/`
 
-`STATE.md` (decisiones, blockers, prosa libre) · `state.json` (estado mutable enumerable: fase, lotes, progreso — ver runbook) · `BRIEF.md` (brainstorming) · `DESIGN.md` (architect) · `ARCHITECTURE.md` (decisiones recurrentes, persistente) · `HANDOFF.md` (solo si hay trabajo pausado) · `LEARNINGS.md` (retrospectivas post-merge, acumulativo) · `reviews/PR-{N}.md`. Formatos en el runbook.
+`STATE.md` (decisiones, blockers, prosa libre) · `state.json` (estado mutable enumerable: fase, lotes, progreso — ver runbook) · `BRIEF.md` (brainstorming) · `DESIGN.md` (architect) · `ARCHITECTURE.md` (decisiones recurrentes, persistente) · `HANDOFF.md` (solo si hay trabajo pausado) · `LEARNINGS.md` (retrospectivas post-merge, acumulativo) · `reviews/` (pre-PR: `pre-pr-<slug>.md`; al crear el PR se reconcilia a `PR-{N}.md` — ver runbook). Formatos en el runbook.
 
 **Una feature a la vez**: `.planning/` refleja la feature activa actual. No se trabajan features en paralelo. Si surge un hotfix urgente durante una feature, pausas (ver "Pause / Resume") antes de cambiar de branch.
 
@@ -124,10 +126,10 @@ Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`
 
 ## PR y merge (invariantes)
 
-Cuatro reglas que no pueden llegar tarde. El resto del proceso — presupuesto de CI, E2E pre-release, branch protection, verificación pre-merge — vive en la skill **`pr-workflow`**, que invocas al llegar a Fase 2.7 o al trabajar sobre un PR existente.
+Cuatro reglas que no pueden llegar tarde. El resto del proceso — presupuesto de CI, E2E pre-release, branch protection, verificación pre-merge — vive en la skill **`pr-workflow`**, que invocas al llegar a Fase 2.6 o al trabajar sobre un PR existente.
 
 1. **Un PR por objetivo, un commit por fase.** Las fases de un mismo objetivo se acumulan en un branch como commits atómicos — la trazabilidad la da el commit, no el PR. Refactor y feature nunca se mezclan. Criterios de corte en la skill.
-2. **Review dual bloqueante** antes de cualquier merge (ver "Workflow obligatorio" #4).
+2. **Review dual bloqueante** antes de cualquier merge (ver "Workflow obligatorio" #4; el momento default: Fase 2.6, pre-push).
 3. **NUNCA mergees sin aprobación explícita del usuario**, aunque CI esté verde y los reviewers aprueben sin blockers. El usuario es el checkpoint final del merge; no se infiere del estado de CI.
 4. **NUNCA mergees con CI en rojo**, aunque el finding parezca preexistente o falso positivo. Si es falso positivo legítimo, suprimirlo formalmente y esperar que CI pase — nunca `--admin`.
 
@@ -153,7 +155,7 @@ Los hooks son enforcement del harness, no instrucciones tuyas — corren solos. 
 
 **Bloquean el comando:** push directo a `main`, `gh pr merge --admin` (bypasea branch protections), `git push --force`, `git reset --hard`, y `gh pr merge` sin número de PR explícito, con threads de review sin resolver, o con reviews/checks pendientes (fail-closed si no puede verificar). Si uno te bloquea, la solución nunca es esquivarlo.
 
-**Corren en background:** tests antes de cada commit, review automático al crear un PR, contexto de sesión al arrancar, aviso de contexto agotándose (35% / 25%), detección de servicios Docker que necesitan restart, `latent-bugs-sweep` antes de un `gh pr create --base main`, snapshot de `.planning/` antes de compactar, log de invocaciones de subagentes, y verificación de STATE desactualizado al cerrar sesión.
+**Corren en background:** tests antes de cada commit, checkpoint de review al crear un PR (verifica que el review dual pre-push ocurrió; solo instruye lanzarlo para PRs fuera del flujo), contexto de sesión al arrancar, aviso de contexto agotándose (35% / 25%), detección de servicios Docker que necesitan restart, `latent-bugs-sweep` antes de un `gh pr create --base main`, snapshot de `.planning/` antes de compactar, log de invocaciones de subagentes, y verificación de STATE desactualizado al cerrar sesión.
 
 ## Verificación pre-commit (responsabilidad del subagente dev)
 

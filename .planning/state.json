@@ -1,60 +1,24 @@
 {
   "schema": 1,
-  "feature": "followups-sweep",
-  "branch": "feature/followups-sweep",
-  "pr": 55,
-  "updated": "2026-08-14T07:40:00Z",
+  "feature": "pre-pr-reviews",
+  "branch": "feature/pre-pr-reviews",
+  "pr": 56,
+  "updated": "2026-08-14T12:50:00Z",
   "phases": {
     "brainstorming": "done",
     "design": "done",
     "implementation": "done",
     "docs": "done",
-    "pr": "done",
-    "ci": "skipped",
     "review": "done",
+    "pr": "in_progress",
+    "ci": "pending",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
       "id": 1,
-      "name": "sandbox-guard-tests",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 4,
-      "tasks_total": 4,
-      "current_task": null
-    },
-    {
-      "id": 2,
-      "name": "slug-hash",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 4,
-      "tasks_total": 4,
-      "current_task": null
-    },
-    {
-      "id": 3,
-      "name": "plugin-manifests",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 4,
-      "tasks_total": 4,
-      "current_task": null
-    },
-    {
-      "id": 4,
-      "name": "hybrid-installer",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 6,
-      "tasks_total": 6,
-      "current_task": null
-    },
-    {
-      "id": 5,
-      "name": "review-pr-skill-docs",
+      "name": "hook-checkpoint-v2",
       "agent": "backend-dev",
       "status": "done",
       "tasks_done": 5,
@@ -62,13 +26,32 @@
       "current_task": null
     },
     {
-      "id": 6,
-      "name": "review-suggestions",
+      "id": 2,
+      "name": "docs-core-flujo",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 5,
+      "tasks_total": 5,
+      "current_task": null
+    },
+    {
+      "id": 3,
+      "name": "periferia-y-cierre",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 5,
+      "tasks_total": 5,
+      "current_task": null
+    },
+    {
+      "id": 4,
+      "name": "fixes-2.6",
       "agent": "backend-dev",
       "status": "done",
       "tasks_done": 5,
       "tasks_total": 5,
       "current_task": null
     }
-  ]
+  ],
+  "review_sha": "b22c664d924845427f8b813e7125ec609d210142"
 }

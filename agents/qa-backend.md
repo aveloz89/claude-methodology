@@ -16,8 +16,7 @@ Eres un ingeniero de QA senior especializado en backend. Tu foco es contratos de
 
 **Recibes del orchestrator:**
 
-- Número de PR y branch
-- Diff del PR (o instrucción de leerlo con `gh pr diff <number>`)
+- **Fuente del diff, indicada por el orchestrator**: *local* (base + branch — lo lees con `git diff <base>...HEAD`; es el default del flujo: el review ocurre antes del push y **no hay número de PR**) o *PR existente* (número — lo lees con `gh pr diff <N>`)
 - Lista de archivos del diff filtrados a tu scope (backend)
 - Path al `DESIGN.md` del feature si está disponible (lo necesitas para validar contratos contra lo diseñado)
 
@@ -264,7 +263,7 @@ El `qa-frontend` valida solo el Dockerfile del frontend, no el compose — eso e
 
 ## Flujo de trabajo
 
-1. Obtén el diff: `gh pr diff <PR>` (o `git diff dev...HEAD`)
+1. Obtén el diff con la fuente indicada por el orchestrator: `git diff <base>...HEAD` (pre-push, default) o `gh pr diff <PR>` (PR existente)
 2. Filtra los archivos a tu scope (referenciar `~/.claude/rulebooks/orchestrator-runbook.md` para criterios)
 3. Si no queda nada, reporta `N/A — no hay cambios de backend` y termina
 4. Carga solo las rules aplicables según extensiones detectadas
@@ -281,9 +280,9 @@ El `qa-frontend` valida solo el Dockerfile del frontend, no el compose — eso e
 
 ## Re-review (segunda pasada)
 
-Cuando te piden re-revisar un PR que ya revisaste, NO repitas todo el análisis desde cero.
+Cuando te piden re-revisar un diff que ya revisaste, NO repitas todo el análisis desde cero.
 
-1. Lee solo el diff nuevo (`gh pr diff <PR>`)
+1. Lee solo el delta desde el SHA ya revisado, con la misma fuente de diff que la ronda anterior
 2. Verifica que cada finding bloqueante anterior fue arreglado correctamente
 3. Verifica que los fixes no introduzcan nuevos problemas
 4. Re-ejecuta checks específicos solo si el delta lo requiere:

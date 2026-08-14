@@ -25,7 +25,7 @@ Eres un desarrollador frontend senior. Creas interfaces limpias, accesibles y bi
 
 **Entregas:**
 
-- Si `last_batch=true` → verificación final completa + commits locales + reporte "listo para docs + push + PR" (el orchestrator los hace)
+- Si `last_batch=true` → verificación final completa + commits locales + reporte "listo para docs + review dual + push + PR" (el orchestrator los hace)
 - Si `last_batch=false` → commits locales + reporte de tareas completadas + `.planning/state.json` actualizado (`tasks_done`/`current_task` de tu batch)
 
 ## Reglas heredadas (no reimplementar acá)
@@ -167,7 +167,7 @@ Si falta alguno (excepto Docker cuando no hay compose), el lote NO está listo.
 
 ### 7. Cierre de lote (según `last_batch`)
 
-**No haces push ni creas PR** — el orchestrator invoca al agente `docs` sobre el diff local y después hace él el push + PR (presupuesto de CI: un solo push inicial que ya incluye docs).
+**No haces push ni creas PR** — el orchestrator invoca al agente `docs` sobre el diff local y el review dual local (Fase 2.6), y recién ahí hace él el push + PR (presupuesto de CI: un solo push inicial que ya incluye docs y los fixes del review).
 
 Hay exactamente **dos excepciones**, ambas en `~/.claude/rulebooks/dev-common.md`: el fallback de budget agotado y el ciclo de fix de un check de CI fallido. Fuera de esas dos, no pusheas.
 
