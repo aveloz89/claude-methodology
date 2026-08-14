@@ -29,10 +29,10 @@
       "id": 2,
       "name": "review-round-2",
       "agent": "backend-dev",
-      "status": "in_progress",
-      "tasks_done": 5,
+      "status": "done",
+      "tasks_done": 6,
       "tasks_total": 6,
-      "current_task": "6: fail-open en UNRESOLVED (threads sin resolver) de pre-merge-check.sh"
+      "current_task": null
     }
   ]
 }

@@ -121,8 +121,18 @@ THREADS_JSON=$(gh api graphql -f query="query { repository(owner: \"${OWNER}\", 
 if [ -z "$THREADS_JSON" ]; then
   block "Blocked: no pude consultar los threads de review del PR #${PR_NUMBER} (GraphQL falló). Reintenta — el guard no verifica a ciegas."
 fi
-UNRESOLVED=$(echo "$THREADS_JSON" | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length')
-if [ "${UNRESOLVED:-0}" -gt 0 ]; then
+# jq -e: exit no-cero si el jq falla (ej. .data.repository viene null —
+# permisos, repo renombrado, error con HTTP 200 — e indexar .pullRequest
+# sobre null revienta) o si el resultado final es null/false. Antes, un jq
+# fallido dejaba UNRESOLVED vacío y "${UNRESOLVED:-0}" lo convertía en
+# "cero threads sin resolver": el guard pasaba en silencio. `length`
+# siempre produce un número (nunca null/false), así que el caso normal de
+# 0 threads sin resolver sigue pasando igual.
+UNRESOLVED=$(echo "$THREADS_JSON" | jq -e '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length' 2>/dev/null)
+if [ $? -ne 0 ]; then
+  block "Blocked: no pude parsear los threads de review del PR #${PR_NUMBER} (respuesta de GraphQL inesperada). Reintenta — el guard no verifica a ciegas."
+fi
+if [ "$UNRESOLVED" -gt 0 ]; then
   ERRORS="${ERRORS}  - Hay ${UNRESOLVED} thread(s) de review sin resolver. Resuélvelos o respóndelos antes de mergear\n"
 fi
 

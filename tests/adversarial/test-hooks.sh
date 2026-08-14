@@ -408,7 +408,17 @@ case "$1 $2" in
     echo '{"reviewDecision":null}'
     ;;
   "api graphql")
-    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    case "$FAKE_GH_MODE" in
+      threads_null_repo)
+        # Cuerpo NO vacío pero .data.repository es null (permisos, repo
+        # renombrado, error con HTTP 200) — jq falla al indexar .pullRequest
+        # sobre null.
+        echo '{"data":{"repository":null}}'
+        ;;
+      *)
+        echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+        ;;
+    esac
     ;;
   "pr checks")
     case "$FAKE_GH_MODE" in
@@ -512,6 +522,18 @@ assert_pre_merge_continue "No CI checks configured does not block" "gh pr merge 
 # Caso 5b: la consulta de checks falla de verdad (no es el caso "sin
 # checks") — sigue bloqueando fail-closed.
 assert_pre_merge_blocked "Genuine CI checks query failure still blocks" "gh pr merge 45" "no pude consultar los CI checks" "checks_fail"
+
+# Caso 5c: [ronda 2, tarea 6] GraphQL responde un cuerpo NO vacío pero con
+# .data.repository en null (permisos, repo renombrado, error con HTTP
+# 200) — antes, jq fallaba al indexar .pullRequest sobre null, UNRESOLVED
+# quedaba vacío, y "${UNRESOLVED:-0}" lo convertía en "cero threads sin
+# resolver": el guard pasaba en silencio (fail-open) en vez de bloquear.
+assert_pre_merge_blocked "GraphQL body with null repository still blocks (fail-closed)" "gh pr merge 45" "no pude parsear los threads de review" "threads_null_repo"
+
+# Caso 5d: el caso normal (JSON válido con 0 threads sin resolver) sigue
+# pasando — jq -e no vuelve falsy un `length` de 0 (jq -e solo distingue
+# null/false del resto, y 0 no es ninguno de los dos).
+assert_pre_merge_continue "Valid GraphQL response with 0 unresolved threads still passes" "gh pr merge 45" ""
 
 # Caso 6: fail-closed sin dependencias (#50) — antes, si faltaba perl o jq,
 # la sustitución/parseo devolvía vacío, el grep no matcheaba, y el hook
