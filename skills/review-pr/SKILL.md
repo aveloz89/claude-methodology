@@ -25,6 +25,8 @@ Instalada vía plugin se invoca como `/methodology:review-pr`.
 
 ### 1. Validar el PR
 
+Si `$1` no es un entero (`^[0-9]+$`) → **abortar con aviso**: el argumento debe ser el número del PR, no un branch ni una URL.
+
 ```bash
 gh pr view $1 --json number,title,state,isDraft,baseRefName,headRefName,additions,deletions,files
 ```
