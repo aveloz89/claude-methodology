@@ -21,9 +21,9 @@
       "name": "sandbox-guard-tests",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 1,
+      "tasks_done": 2,
       "tasks_total": 4,
-      "current_task": "tarea 2: migrar los 3 casos existentes de pre-push-guard al sandbox y eliminar el manejo del repo real"
+      "current_task": "tarea 3: casos nuevos de la matriz (HEAD merge commit en main -> allowed; branch master -> blocked)"
     },
     {
       "id": 2,

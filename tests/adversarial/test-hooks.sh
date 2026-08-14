@@ -235,32 +235,24 @@ echo ""
 # --- pre-push-guard.sh ---
 echo "--- pre-push-guard.sh ---"
 
-# Para testear push a main, necesitamos estar en main temporalmente
-ORIGINAL_BRANCH=$(git branch --show-current)
+# Sandbox: el guard solo inspecciona comando/branch/último commit — nunca
+# toca la red ni el remote — así que un repo temporal alcanza. Evita el
+# casi-incidente del PR #49 (stash + checkout main sobre el repo real de
+# esta misma suite).
+sandbox_create_pushrepo
 
-# Test: push desde feature branch (debe permitirse)
-assert_allowed "Push from feature branch" "pre-push-guard.sh" "git push origin feature/test"
+# Caso 1: push desde feature branch (debe permitirse)
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/test)
+assert_allowed_cmd "Push from feature branch" "pre-push-guard.sh" "git push origin feature/test" "$PATH" "$SANDBOX_REPO"
 
-# Test: comandos no-push (debe permitirse)
-assert_allowed "Non-push command passes through" "pre-push-guard.sh" "git status"
+# Caso 2: comandos no-push en main (debe permitirse, pass-through)
+(cd "$SANDBOX_REPO" && git checkout -q main)
+assert_allowed_cmd "Non-push command passes through" "pre-push-guard.sh" "git status" "$PATH" "$SANDBOX_REPO"
 
-# Test: push a main desde main (debe bloquearse si no es merge commit)
-# Solo correr si podemos cambiar de branch temporalmente
-if git stash --include-untracked -q 2>/dev/null; then
-  git checkout main -q 2>/dev/null
-  LAST_MSG=$(git log -1 --pretty=%s)
-  if echo "$LAST_MSG" | grep -qiE '^Merge'; then
-    # El último commit en main es un merge — el hook lo permite (correcto).
-    # Creamos un commit temporal non-merge para testear el bloqueo.
-    git commit --allow-empty -m "test: non-merge commit" -q 2>/dev/null
-    assert_blocked "Push from main (non-merge commit)" "pre-push-guard.sh" "git push origin main"
-    git reset --soft HEAD~1 -q 2>/dev/null
-  else
-    assert_blocked "Push from main branch" "pre-push-guard.sh" "git push origin main"
-  fi
-  git checkout "$ORIGINAL_BRANCH" -q 2>/dev/null
-  git stash pop -q 2>/dev/null || true
-fi
+# Caso 3: push a main con HEAD non-merge (debe bloquearse)
+assert_blocked_cmd "Push from main (non-merge commit)" "pre-push-guard.sh" "git push origin main" "$PATH" "$SANDBOX_REPO"
+
+sandbox_cleanup_pushrepo
 
 echo ""
 
