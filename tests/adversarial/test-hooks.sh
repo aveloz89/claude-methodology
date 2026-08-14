@@ -294,7 +294,18 @@ rm -rf "$NO_PERL_BAM_BIN"
 assert_bam_blocked "block-admin-merge: apóstrofes en dos strings double-quoted distintos no se comen el comando real de en medio" \
   'git commit -m "it'"'"'s fine" && gh pr merge 5 --admin && echo "that'"'"'s all"'
 
-# (e) [ronda 2, tarea 3] Cierra #50 de verdad para este guard: hoy, sin jq
+# (e) [ronda 3] Regression espejo de (d): el swap de la ronda 2 (double-quoted
+# primero, single-quoted después) resolvió (d) pero espejó el mismo bug —
+# ahora un número impar de comillas dobles dentro de dos spans SINGLE-quoted
+# DISTINTOS se empareja a través de ellos y se traga el comando real de en
+# medio, exactamente como (d) pero con los roles de comilla invertidos.
+assert_bam_blocked "block-admin-merge: comillas dobles sueltas en dos strings single-quoted distintos no se comen el comando real de en medio (grep)" \
+  'grep -c '"'"'"'"'"' a.txt && gh pr merge 5 --admin && grep -c '"'"'"'"'"' b.txt'
+
+assert_bam_blocked "block-admin-merge: comillas dobles sueltas en dos strings single-quoted distintos no se comen el comando real de en medio (commit message)" \
+  'git commit -m '"'"'quote the " char'"'"' && gh pr merge 5 --admin && echo '"'"'end " here'"'"''
+
+# (f) [ronda 2, tarea 3] Cierra #50 de verdad para este guard: hoy, sin jq
 # en PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, el
 # guard nunca detecta el --admin y pasa en silencio (fail-open). Este check
 # CAMBIA el contrato de este hook (antes: sin jq pasaba); ahora bloquea

@@ -43,19 +43,21 @@ guard_sanitize() {
     # Orden importa: primero unir continuaciones de línea (backslash-
     # newline) — un comando real partido en dos líneas (ej. "gh pr merge 5
     # \" + "  --admin") no debe evadir el match por quedar partido antes de
-    # que corra cualquier otra regla. Después, double-quoted antes que
-    # single-quoted: si single-quotes corriera antes, dos apóstrofes que
-    # caen en spans double-quoted DISTINTOS (ej. "it's fine" ... "that's
-    # all") se emparejarían entre sí y se tragarían todo el comando real de
-    # en medio como si fuera contenido quoted (falso negativo). Saneando
-    # "..." primero, cada string double-quoted se consume como unidad
-    # completa antes de que la regla de single-quotes vea los apóstrofes
-    # que quedaban dentro.
+    # que corra cualquier otra regla. Los spans single-quoted y double-quoted
+    # se sanean en UNA sola pasada con alternancia (no dos reglas
+    # secuenciales): el span que abre primero consume el texto hasta su
+    # propio cierre, sin importar qué tipo de comilla sea — así es como el
+    # shell realmente parsea. Una secuencia de dos reglas separadas rompe
+    # esto en ambas direcciones: sanear "..." antes que '...' hace que dos
+    # apóstrofes en spans double-quoted DISTINTOS (ej. "it's fine" ...
+    # "that's all") se emparejen entre sí; sanear '...' antes que "..." hace
+    # lo mismo con comillas dobles sueltas dentro de spans single-quoted
+    # DISTINTOS (ej. 'quote the " char' ... 'end " here'). Ambos casos se
+    # tragan el comando real de en medio como si fuera contenido quoted.
     printf '%s' "$1" | perl -0777 -pe '
       s/\\\n\s*/ /g;
       s/<<-?[\x27"]?(\w+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1$).*\n?)*[ \t]*\1(?:\n|$)/\n/gsm;
-      s/"(?:[^"\\]|\\.)*"/ /g;
-      s/\x27[^\x27]*\x27/ /g;
+      s/\x27[^\x27]*\x27|"(?:[^"\\]|\\.)*"/ /g;
     '
   else
     echo "guard-matching: perl no disponible, matching sin saneo (posibles falsos positivos)" >&2
