@@ -3,7 +3,7 @@
   "feature": "followups-sweep",
   "branch": "feature/followups-sweep",
   "pr": null,
-  "updated": "2026-08-14T05:10:00Z",
+  "updated": "2026-08-14T05:06:00Z",
   "phases": {
     "brainstorming": "done",
     "design": "done",
@@ -56,8 +56,8 @@
       "id": 5,
       "name": "review-pr-skill-docs",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
+      "status": "done",
+      "tasks_done": 5,
       "tasks_total": 5,
       "current_task": null
     }
