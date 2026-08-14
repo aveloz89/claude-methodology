@@ -31,8 +31,9 @@ if ! echo "$COMMAND" | grep -qE 'gh\s+pr\s+create'; then
   exit 0
 fi
 
-# Extraer la URL del PR del stdout del comando
-PR_URL=$(echo "$INPUT" | jq -r '.stdout // empty' | grep -oE 'https://github.com/[^ ]+/pull/[0-9]+')
+# Extraer la URL del PR del stdout del comando (head -1: si el stdout trae
+# más de una URL de PR, solo la primera es la del comando recién ejecutado)
+PR_URL=$(echo "$INPUT" | jq -r '.stdout // empty' | grep -oE 'https://github.com/[^ ]+/pull/[0-9]+' | head -1)
 
 if [ -n "$PR_URL" ]; then
   TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -72,12 +73,26 @@ if [ -n "$PR_URL" ]; then
       # señales: fase, branch Y anclaje — cualquier otra combinación cae
       # a CASO B)
       PR_NUMBER=${PR_URL##*/}
-      FEATURE_SLUG=$(jq -r '.feature // empty' "$STATE_FILE")
+      FEATURE_SLUG=$(jq -r '.feature // empty' "$STATE_FILE" 2>/dev/null)
+      # Interpolar solo bajo allowlist: state.json y el nombre del branch
+      # son input no confiable para el output del checkpoint. Fuera de la
+      # allowlist (o vacío), label genérico — el CASO A no cambia, solo la
+      # presentación. Los patrones case atrapan cualquier carácter fuera
+      # de la allowlist, incluidos newlines (a diferencia de grep, que
+      # matchea línea por línea).
+      case "$FEATURE_SLUG" in
+        *[!a-z0-9-]* | '') SLUG_LABEL="<feature-slug>" ;;
+        *) SLUG_LABEL="$FEATURE_SLUG" ;;
+      esac
+      case "$CURRENT_BRANCH" in
+        *[!A-Za-z0-9/_-]*) BRANCH_LABEL="<branch actual>" ;;
+        *) BRANCH_LABEL="$CURRENT_BRANCH" ;;
+      esac
       echo "PR creado: $PR_URL"
       echo ""
-      echo "Review dual pre-push verificado (state.json: phases.review=done, branch $CURRENT_BRANCH)."
+      echo "Review dual pre-push verificado (state.json: phases.review=done, branch $BRANCH_LABEL)."
       echo "CHECKPOINT: confirma la reconciliación — .planning/reviews/PR-$PR_NUMBER.md debe existir"
-      echo "(renombrado desde pre-pr-$FEATURE_SLUG.md). Si falta, ejecútala ahora (Fase 2.7)."
+      echo "(renombrado desde pre-pr-$SLUG_LABEL.md). Si falta, ejecútala ahora (Fase 2.7)."
       echo "No relances reviewers: el PR nació revisado. Re-review solo si CI obliga fixes"
       echo "sobre código ya revisado (Fase 3)."
       exit 0

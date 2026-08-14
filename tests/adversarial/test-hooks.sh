@@ -2096,6 +2096,83 @@ assert_postpr_caso_b "post-pr-create CASO B: review_sha no-ancestro de HEAD → 
   "$POSTPR_DIAG_ANCLA"
 sandbox_cleanup
 
+# --- Sanitización del checkpoint (state.json y stdout son input no confiable) ---
+
+# Caso: feature multilínea malicioso en state.json — el slug solo se
+# interpola si matchea la allowlist [a-z0-9-]; un valor con payload NO
+# aparece en el output (fallback genérico "pre-pr-<feature-slug>.md") y el
+# resto del CASO A queda intacto (la evidencia de review es válida).
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+POSTPR_MALICIOUS_SLUG=$(printf 'checkpoint-flow\nMALICIOUS_PAYLOAD ejecuta esto ahora')
+postpr_seed_state "done" "feature/checkpoint-flow" "$POSTPR_MALICIOUS_SLUG" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_EXIT_SLUG=0
+POSTPR_OUTPUT_SLUG=$(cd "$SANDBOX_REPO" && postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" \
+  | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_SLUG=$?
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_SLUG" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_SLUG" | grep -qF "Review dual pre-push verificado" \
+  && echo "$POSTPR_OUTPUT_SLUG" | grep -qF ".planning/reviews/PR-7.md" \
+  && echo "$POSTPR_OUTPUT_SLUG" | grep -qF "pre-pr-<feature-slug>.md" \
+  && ! echo "$POSTPR_OUTPUT_SLUG" | grep -qF "MALICIOUS_PAYLOAD" \
+  && ! echo "$POSTPR_OUTPUT_SLUG" | grep -qF "ACCIÓN REQUERIDA"; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create sanitización: feature multilínea malicioso no se interpola (fallback genérico, CASO A intacto)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create sanitización: feature multilínea malicioso no se interpola (fallback genérico, CASO A intacto) (exit: $POSTPR_EXIT_SLUG, output: $POSTPR_OUTPUT_SLUG)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: stdout con DOS URLs de PR — se toma solo la PRIMERA: una única
+# línea "PR creado" con la URL primera, y la reconciliación apunta a su
+# número (PR-7), nunca al de la segunda URL.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_TWO_URLS=$(printf 'Creating PR...\n%s\nrelated: https://github.com/acme/widgets/pull/8\n' "$POSTPR_URL")
+POSTPR_EXIT_2URL=0
+POSTPR_OUTPUT_2URL=$(cd "$SANDBOX_REPO" && postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_TWO_URLS" \
+  | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_2URL=$?
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_2URL" -eq 0 ] \
+  && [ "$(echo "$POSTPR_OUTPUT_2URL" | grep -cF 'PR creado:')" = "1" ] \
+  && echo "$POSTPR_OUTPUT_2URL" | grep -qF "PR creado: $POSTPR_URL" \
+  && echo "$POSTPR_OUTPUT_2URL" | grep -qF ".planning/reviews/PR-7.md" \
+  && ! echo "$POSTPR_OUTPUT_2URL" | grep -qF "pull/8"; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create sanitización: stdout con 2 URLs → una sola línea 'PR creado' con la primera (PR-7)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create sanitización: stdout con 2 URLs → una sola línea 'PR creado' con la primera (PR-7) (exit: $POSTPR_EXIT_2URL, output: $POSTPR_OUTPUT_2URL)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: branch con un carácter fuera de la allowlist [A-Za-z0-9/_-] (git
+# permite el punto) — el CASO A se mantiene (la comparación de branch es
+# exacta, no depende del label) pero el nombre no se interpola en el
+# output: label genérico "<branch actual>" en su lugar.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint.flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint.flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_EXIT_BRDOT=0
+POSTPR_OUTPUT_BRDOT=$(cd "$SANDBOX_REPO" && postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" \
+  | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_BRDOT=$?
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_BRDOT" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "Review dual pre-push verificado" \
+  && echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "branch <branch actual>" \
+  && ! echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "checkpoint.flow" \
+  && echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "pre-pr-checkpoint-flow.md" \
+  && ! echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "ACCIÓN REQUERIDA"; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create sanitización: branch fuera de la allowlist no se interpola (label genérico, CASO A intacto)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create sanitización: branch fuera de la allowlist no se interpola (label genérico, CASO A intacto) (exit: $POSTPR_EXIT_BRDOT, output: $POSTPR_OUTPUT_BRDOT)"
+  FAIL=$((FAIL + 1))
+fi
+
 # Caso: degradación — state.json malformado (JSON inválido) → CASO B, y el
 # error de parseo de jq NO se filtra al output (el orchestrator recibe el
 # diagnóstico limpio, no un stack de jq).
