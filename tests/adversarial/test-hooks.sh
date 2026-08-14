@@ -2173,6 +2173,32 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# --- Entornos degenerados de git (gap declarado por QA) ---
+
+# Caso: detached HEAD — `git branch --show-current` devuelve vacío, así
+# que la señal de branch no puede verificarse aunque el state.json sea un
+# CASO A válido en todo lo demás → CASO B (fail hacia el review).
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+(cd "$SANDBOX_REPO" && git checkout -q --detach) > /dev/null 2>&1
+assert_postpr_caso_b "post-pr-create CASO B: detached HEAD → falla hacia el review (branch no verificable)" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
+sandbox_cleanup
+
+# Caso: fuera de un repo git — `git rev-parse --show-toplevel` devuelve
+# vacío; aunque el cwd tenga un .planning/state.json aparentemente válido,
+# sin toplevel no hay evidencia verificable → CASO B, sin ruido de errores
+# de git en el output.
+POSTPR_NONGIT_DIR=$(mktemp -d)
+POSTPR_NONGIT_DIR=$(cd "$POSTPR_NONGIT_DIR" && pwd -P)
+mkdir -p "$POSTPR_NONGIT_DIR/.planning"
+SANDBOX_REPO="$POSTPR_NONGIT_DIR"
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "0123456789abcdef0123456789abcdef01234567"
+assert_postpr_caso_b "post-pr-create CASO B: fuera de un repo git (TOPLEVEL vacío) → falla hacia el review" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
+rm -rf "$POSTPR_NONGIT_DIR"
+
 # Caso: degradación — state.json malformado (JSON inválido) → CASO B, y el
 # error de parseo de jq NO se filtra al output (el orchestrator recibe el
 # diagnóstico limpio, no un stack de jq).

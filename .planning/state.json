@@ -3,7 +3,7 @@
   "feature": "pre-pr-reviews",
   "branch": "feature/pre-pr-reviews",
   "pr": null,
-  "updated": "2026-08-14T11:45:00Z",
+  "updated": "2026-08-14T11:55:00Z",
   "phases": {
     "brainstorming": "done",
     "design": "done",
@@ -48,9 +48,9 @@
       "name": "fixes-2.6",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 2,
+      "tasks_done": 3,
       "tasks_total": 5,
-      "current_task": "3: tests de detached HEAD y fuera de repo git"
+      "current_task": "4: check de evidencia del review dual en pre-merge"
     }
   ]
 }
