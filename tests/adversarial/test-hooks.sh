@@ -20,6 +20,13 @@ PASS=0
 FAIL=0
 TOTAL=0
 
+# Guard de no-contaminación: ningún test debe modificar el repo real (branch
+# actual ni working tree) — captura acá, se compara al final del archivo.
+# Protege contra cualquier regresión futura de cualquier test, no solo
+# pre-push-guard (casi-incidente PR #49).
+REPO_GUARD_BRANCH_BEFORE=$(git -C "$REPO_ROOT" branch --show-current)
+REPO_GUARD_STATUS_BEFORE=$(git -C "$REPO_ROOT" status --porcelain)
+
 # Colores
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -58,6 +65,37 @@ sandbox_create() {
 
 sandbox_cleanup() {
   rm -rf "$SANDBOX_REPO" "$SANDBOX_HOME"
+}
+
+# sandbox_create_pushrepo: repo git temporal en branch main con remote fake,
+# para testear pre-push-guard.sh sin tocar el repo real de esta misma suite
+# (casi-incidente PR #49: la versión anterior hacía stash + checkout main
+# sobre el repo real). El guard solo inspecciona el comando, el branch
+# actual y el subject del último commit — nunca ejecuta el push ni consulta
+# el remote — así que un remote bare local (sin red) alcanza y blinda los
+# tests si el guard evolucionara y alguno llegara a ejecutar el push real.
+# Reutiliza SANDBOX_REPO (misma variable global que sandbox_create) porque
+# nunca se usan ambos sandboxes a la vez.
+sandbox_create_pushrepo() {
+  SANDBOX_REPO=$(mktemp -d)
+  SANDBOX_REPO=$(cd "$SANDBOX_REPO" && pwd -P)
+  SANDBOX_REMOTE=$(mktemp -d)
+  SANDBOX_REMOTE=$(cd "$SANDBOX_REMOTE" && pwd -P)
+  git init --bare -q "$SANDBOX_REMOTE"
+  (
+    cd "$SANDBOX_REPO" || exit 1
+    git init -q -b main
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    git remote add origin "$SANDBOX_REMOTE"
+    echo "sandbox" > README.md
+    git add -A
+    git commit -q -m "initial commit"
+  ) > /dev/null 2>&1
+}
+
+sandbox_cleanup_pushrepo() {
+  rm -rf "$SANDBOX_REPO" "$SANDBOX_REMOTE"
 }
 
 # assert_exit0: corre un hook no-bloqueante dentro del sandbox (cwd=run_cwd,
@@ -184,35 +222,59 @@ assert_allowed_cmd() {
 echo "=== Adversarial Hook Tests ==="
 echo ""
 
+# --- sandbox_create_pushrepo (smoke test de la infra) ---
+echo "--- sandbox_create_pushrepo (smoke test) ---"
+
+sandbox_create_pushrepo
+TOTAL=$((TOTAL + 1))
+if [ "$(cd "$SANDBOX_REPO" && git branch --show-current)" = "main" ] && \
+   (cd "$SANDBOX_REPO" && git ls-remote origin > /dev/null 2>&1); then
+  echo -e "${GREEN}PASS${NC}: sandbox_create_pushrepo produce un repo en main con remote origin resoluble"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: sandbox_create_pushrepo produce un repo en main con remote origin resoluble"
+  FAIL=$((FAIL + 1))
+fi
+sandbox_cleanup_pushrepo
+
+echo ""
+
 # --- pre-push-guard.sh ---
 echo "--- pre-push-guard.sh ---"
 
-# Para testear push a main, necesitamos estar en main temporalmente
-ORIGINAL_BRANCH=$(git branch --show-current)
+# Sandbox: el guard solo inspecciona comando/branch/último commit — nunca
+# toca la red ni el remote — así que un repo temporal alcanza. Evita el
+# casi-incidente del PR #49 (stash + checkout main sobre el repo real de
+# esta misma suite).
+sandbox_create_pushrepo
+PUSH_INITIAL_COMMIT=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
 
-# Test: push desde feature branch (debe permitirse)
-assert_allowed "Push from feature branch" "pre-push-guard.sh" "git push origin feature/test"
+# Caso 1: push desde feature branch (debe permitirse)
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/test)
+assert_allowed_cmd "Push from feature branch" "pre-push-guard.sh" "git push origin feature/test" "$PATH" "$SANDBOX_REPO"
 
-# Test: comandos no-push (debe permitirse)
-assert_allowed "Non-push command passes through" "pre-push-guard.sh" "git status"
+# Caso 2: comandos no-push en main (debe permitirse, pass-through)
+(cd "$SANDBOX_REPO" && git checkout -q main)
+assert_allowed_cmd "Non-push command passes through" "pre-push-guard.sh" "git status" "$PATH" "$SANDBOX_REPO"
 
-# Test: push a main desde main (debe bloquearse si no es merge commit)
-# Solo correr si podemos cambiar de branch temporalmente
-if git stash --include-untracked -q 2>/dev/null; then
-  git checkout main -q 2>/dev/null
-  LAST_MSG=$(git log -1 --pretty=%s)
-  if echo "$LAST_MSG" | grep -qiE '^Merge'; then
-    # El último commit en main es un merge — el hook lo permite (correcto).
-    # Creamos un commit temporal non-merge para testear el bloqueo.
-    git commit --allow-empty -m "test: non-merge commit" -q 2>/dev/null
-    assert_blocked "Push from main (non-merge commit)" "pre-push-guard.sh" "git push origin main"
-    git reset --soft HEAD~1 -q 2>/dev/null
-  else
-    assert_blocked "Push from main branch" "pre-push-guard.sh" "git push origin main"
-  fi
-  git checkout "$ORIGINAL_BRANCH" -q 2>/dev/null
-  git stash pop -q 2>/dev/null || true
-fi
+# Caso 3: push a main con HEAD non-merge (debe bloquearse)
+assert_blocked_cmd "Push from main (non-merge commit)" "pre-push-guard.sh" "git push origin main" "$PATH" "$SANDBOX_REPO"
+
+# Caso 4: push a main con HEAD = merge commit real (debe permitirse)
+(
+  cd "$SANDBOX_REPO" || exit 1
+  git checkout -q -b aux
+  git commit -q --allow-empty -m "aux commit"
+  git checkout -q main
+  git merge -q --no-ff aux -m "Merge branch 'aux'"
+)
+assert_allowed_cmd "Push from main with merge commit HEAD" "pre-push-guard.sh" "git push origin main" "$PATH" "$SANDBOX_REPO"
+
+# Caso 5: push a master (no main) con HEAD non-merge (debe bloquearse)
+(cd "$SANDBOX_REPO" && git checkout -q -b master "$PUSH_INITIAL_COMMIT")
+assert_blocked_cmd "Push from master branch (non-merge commit)" "pre-push-guard.sh" "git push origin master" "$PATH" "$SANDBOX_REPO"
+
+sandbox_cleanup_pushrepo
 
 echo ""
 
@@ -724,6 +786,177 @@ sandbox_cleanup
 
 echo ""
 
+# --- hooks/lib/slug.sh ---
+echo "--- hooks/lib/slug.sh ---"
+
+# Se sourcea una sola vez a nivel de script: repo_slug()/_slug_hash8() quedan
+# disponibles como funciones normales, heredadas por los subshells que
+# restringen PATH más abajo (un subshell "( ... )" es un fork del mismo
+# proceso bash, no un exec nuevo — las funciones ya definidas viajan con él).
+# shellcheck source=../../hooks/lib/slug.sh
+source "$HOOKS_DIR/lib/slug.sh"
+
+# Caso: formato <basename saneado>-<hash8> (8 hex chars).
+TOTAL=$((TOTAL + 1))
+SLUG_FORMAT=$(repo_slug "/Users/alas/Proyectos/claude-methodology")
+if echo "$SLUG_FORMAT" | grep -qE '^claude-methodology-[0-9a-f]{8}$'; then
+  echo -e "${GREEN}PASS${NC}: repo_slug produce el formato <basename>-<hash8>"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug produce el formato <basename>-<hash8> (got: $SLUG_FORMAT)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: determinismo — misma entrada dos veces produce el mismo slug (la
+# consistencia por máquina a lo largo del tiempo es el requisito real).
+TOTAL=$((TOTAL + 1))
+SLUG_DET_1=$(repo_slug "/Users/alas/Proyectos/claude-methodology")
+SLUG_DET_2=$(repo_slug "/Users/alas/Proyectos/claude-methodology")
+if [ "$SLUG_DET_1" = "$SLUG_DET_2" ]; then
+  echo -e "${GREEN}PASS${NC}: repo_slug es determinístico (misma entrada → mismo slug)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug es determinístico (misma entrada → mismo slug) ($SLUG_DET_1 != $SLUG_DET_2)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: los pares que "tr '/' '-'" colapsaba al mismo string producen slugs
+# DISTINTOS con la convención nueva.
+TOTAL=$((TOTAL + 1))
+SLUG_COLLIDE_1=$(repo_slug "/a/b-c")
+SLUG_COLLIDE_2=$(repo_slug "/a-b/c")
+if [ "$SLUG_COLLIDE_1" != "$SLUG_COLLIDE_2" ]; then
+  echo -e "${GREEN}PASS${NC}: repo_slug distingue /a/b-c de /a-b/c (colisión de tr resuelta)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug distingue /a/b-c de /a-b/c (colisión de tr resuelta) (ambos: $SLUG_COLLIDE_1)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: basename con caracteres fuera de la allowlist (espacios, símbolos)
+# se filtra — el slug resultante solo contiene [A-Za-z0-9_-].
+TOTAL=$((TOTAL + 1))
+SLUG_WEIRD=$(repo_slug "/tmp/weird name!@# with \$ymbols")
+if echo "$SLUG_WEIRD" | grep -qE '^[A-Za-z0-9_-]+$' && echo "$SLUG_WEIRD" | grep -qF "weirdnamewithymbols"; then
+  echo -e "${GREEN}PASS${NC}: repo_slug filtra el basename a la allowlist alfanumérica"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug filtra el basename a la allowlist alfanumérica (got: $SLUG_WEIRD)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: basename que queda vacío tras el filtro (compuesto solo de
+# caracteres fuera de la allowlist) cae al fallback "repo".
+TOTAL=$((TOTAL + 1))
+SLUG_EMPTY_BASE=$(repo_slug "/tmp/!!!")
+if echo "$SLUG_EMPTY_BASE" | grep -qE '^repo-[0-9a-f]{8}$'; then
+  echo -e "${GREEN}PASS${NC}: repo_slug usa 'repo' cuando el basename saneado queda vacío"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug usa 'repo' cuando el basename saneado queda vacío (got: $SLUG_EMPTY_BASE)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Fallback de herramienta de hash: cada nivel de la cadena
+# (shasum → sha256sum → md5 → md5sum) se ejercita con un PATH restringido a
+# los binarios mínimos que repo_slug necesita (basename, tr, cut) más SOLO
+# la herramienta de hash bajo prueba — así la ausencia de las anteriores es
+# real, no un efecto colateral de romper otra dependencia (mismo patrón que
+# los NO_JQ_BIN de los demás hooks).
+slug_restricted_bin() {
+  local dir cmd cmd_path
+  dir=$(mktemp -d)
+  for cmd in "$@"; do
+    cmd_path=$(command -v "$cmd" 2>/dev/null)
+    [ -n "$cmd_path" ] && ln -s "$cmd_path" "$dir/$cmd"
+  done
+  printf '%s' "$dir"
+}
+
+RESTRICTED_SHA256SUM=$(slug_restricted_bin basename tr cut sha256sum)
+TOTAL=$((TOTAL + 1))
+SLUG_FB_SHA256SUM=$(PATH="$RESTRICTED_SHA256SUM" repo_slug "/Users/alas/Proyectos/claude-methodology")
+if echo "$SLUG_FB_SHA256SUM" | grep -qE '^claude-methodology-[0-9a-f]{8}$'; then
+  echo -e "${GREEN}PASS${NC}: repo_slug cae a sha256sum sin shasum en PATH"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug cae a sha256sum sin shasum en PATH (got: $SLUG_FB_SHA256SUM)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$RESTRICTED_SHA256SUM"
+
+RESTRICTED_MD5=$(slug_restricted_bin basename tr cut md5)
+TOTAL=$((TOTAL + 1))
+SLUG_FB_MD5=$(PATH="$RESTRICTED_MD5" repo_slug "/Users/alas/Proyectos/claude-methodology")
+if echo "$SLUG_FB_MD5" | grep -qE '^claude-methodology-[0-9a-f]{8}$'; then
+  echo -e "${GREEN}PASS${NC}: repo_slug cae a md5 -q sin shasum/sha256sum en PATH"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug cae a md5 -q sin shasum/sha256sum en PATH (got: $SLUG_FB_MD5)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$RESTRICTED_MD5"
+
+RESTRICTED_MD5SUM=$(slug_restricted_bin basename tr cut md5sum)
+TOTAL=$((TOTAL + 1))
+SLUG_FB_MD5SUM=$(PATH="$RESTRICTED_MD5SUM" repo_slug "/Users/alas/Proyectos/claude-methodology")
+if echo "$SLUG_FB_MD5SUM" | grep -qE '^claude-methodology-[0-9a-f]{8}$'; then
+  echo -e "${GREEN}PASS${NC}: repo_slug cae a md5sum como último recurso"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug cae a md5sum como último recurso (got: $SLUG_FB_MD5SUM)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$RESTRICTED_MD5SUM"
+
+# Caso: sin ninguna herramienta de hash en PATH → return 1.
+RESTRICTED_NONE=$(slug_restricted_bin basename tr cut)
+TOTAL=$((TOTAL + 1))
+SLUG_NONE_RC=0
+SLUG_NONE_OUT=$(PATH="$RESTRICTED_NONE" repo_slug "/Users/alas/Proyectos/claude-methodology") || SLUG_NONE_RC=$?
+if [ "$SLUG_NONE_RC" -eq 1 ]; then
+  echo -e "${GREEN}PASS${NC}: repo_slug retorna 1 sin ninguna herramienta de hash en PATH"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug retorna 1 sin ninguna herramienta de hash en PATH (rc: $SLUG_NONE_RC, out: $SLUG_NONE_OUT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$RESTRICTED_NONE"
+
+# Caso: herramienta de hash PRESENTE pero que falla en runtime (exit != 0,
+# sin output) → return 1, nunca un slug truncado "<base>-". Distinto del
+# caso anterior: acá `command -v shasum` tiene éxito, el fallo es del
+# comando en sí — mismo patrón de fakes que los NO_JQ_BIN de otros hooks.
+SLUG_FAKE_BIN=$(mktemp -d)
+printf '#!/bin/bash\nexit 1\n' > "$SLUG_FAKE_BIN/shasum"
+chmod +x "$SLUG_FAKE_BIN/shasum"
+TOTAL=$((TOTAL + 1))
+SLUG_BROKEN_RC=0
+SLUG_BROKEN_OUT=$(PATH="$SLUG_FAKE_BIN:$PATH" repo_slug "/Users/alas/Proyectos/claude-methodology") || SLUG_BROKEN_RC=$?
+if [ "$SLUG_BROKEN_RC" -eq 1 ] && [ -z "$SLUG_BROKEN_OUT" ]; then
+  echo -e "${GREEN}PASS${NC}: repo_slug retorna 1 si la herramienta de hash existe pero falla en runtime"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug retorna 1 si la herramienta de hash existe pero falla en runtime (rc: $SLUG_BROKEN_RC, out: $SLUG_BROKEN_OUT)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: el consumidor hace no-op limpio ante ese fallo — pre-compact-snapshot
+# (el consumidor que escribe incondicionalmente en happy path, representativo
+# del contrato `repo_slug || exit 0` de los 3 hooks) no crea ningún artefacto.
+sandbox_create
+assert_exit0 "PreCompact hace no-op si la herramienta de hash falla en runtime" \
+  "$HOOKS_DIR/pre-compact-snapshot.sh" \
+  '{"trigger":"auto"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude/methodology" ]' \
+  "$SLUG_FAKE_BIN:$PATH"
+sandbox_cleanup
+rm -rf "$SLUG_FAKE_BIN"
+
+echo ""
+
 # --- pre-compact-snapshot.sh ---
 echo "--- pre-compact-snapshot.sh ---"
 
@@ -743,7 +976,7 @@ perm_of() {
 
 # Caso: happy path — snapshot completo de .planning/ con meta.json correcto.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 assert_exit0 "PreCompact crea snapshot de .planning/ con meta.json" \
   "$HOOKS_DIR/pre-compact-snapshot.sh" \
   '{"trigger":"auto"}' \
@@ -756,7 +989,7 @@ sandbox_cleanup
 # grupo/otros (planificación y session ids no deben ser legibles por otros
 # usuarios de la máquina).
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 assert_exit0 "PreCompact crea snapshot y meta.json sin permisos de grupo/otros (umask 077)" \
   "$HOOKS_DIR/pre-compact-snapshot.sh" \
   '{"trigger":"auto"}' \
@@ -767,7 +1000,7 @@ sandbox_cleanup
 
 # Caso: JSON válido sin campo trigger — cae al fallback "unknown" (D4).
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 assert_exit0 "PreCompact usa trigger=unknown si el campo no viene en el stdin" \
   "$HOOKS_DIR/pre-compact-snapshot.sh" \
   '{}' \
@@ -781,7 +1014,7 @@ sandbox_cleanup
 # otro caracter que pudiera romper el word splitting del `ls | xargs rm -rf`
 # de retención más abajo si se cuela en el nombre del directorio.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 DANGEROUS_TRIGGER_JSON=$(jq -n --arg trigger 'weird value/with spaces "and quotes" and;semicolons$(danger)' '{trigger: $trigger}')
 assert_exit0 "PreCompact reduce TRIGGER a allowlist alfanumérica (a-zA-Z0-9_-)" \
   "$HOOKS_DIR/pre-compact-snapshot.sh" \
@@ -842,7 +1075,7 @@ sandbox_cleanup
 # (que crea uno nuevo, el 7mo) quedan exactamente los 5 más recientes:
 # el nuevo + los 4 más recientes de los 6 preexistentes.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 RETENTION_ROOT="$SANDBOX_HOME/.claude/methodology/snapshots/$SLUG"
 mkdir -p "$RETENTION_ROOT"
 for n in 1 2 3 4 5 6; do
@@ -863,7 +1096,7 @@ sandbox_cleanup
 # específicamente las invocaciones "-n" (la del meta.json final) y deja
 # pasar todo lo demás al jq real, para no romper el resto del hook.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 FAKE_JQ_DIR=$(mktemp -d)
 REAL_JQ=$(command -v jq)
 cat > "$FAKE_JQ_DIR/jq" <<FAKE_JQ_EOF
@@ -1096,7 +1329,7 @@ echo "--- session-end-check.sh ---"
 
 # Caso: señal S1 — commit posterior a STATE.md con mtime viejo (touch -t).
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch -t 202001010000 .planning/STATE.md
@@ -1115,7 +1348,7 @@ sandbox_cleanup
 # Caso: umask 077 — el marker (branch, head, señales) queda sin permisos de
 # grupo/otros.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch -t 202001010000 .planning/STATE.md
@@ -1136,7 +1369,7 @@ sandbox_cleanup
 # intercepta solo "-n" (la del marker final), deja pasar el resto al jq
 # real para no romper el resto del hook (jq -R/-s de SIGNALS_JSON).
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch -t 202001010000 .planning/STATE.md
@@ -1169,7 +1402,7 @@ sandbox_cleanup
 # inicial del sandbox, para no disparar S1 también) y el archivo dirty se
 # crea tras un sleep para garantizar mtime estrictamente posterior.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch .planning/STATE.md
@@ -1189,7 +1422,7 @@ sandbox_cleanup
 
 # Caso: archivos dirty DENTRO de .planning/ no cuentan para S2 (solo fuera).
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch .planning/STATE.md
@@ -1210,7 +1443,7 @@ sandbox_cleanup
 # Caso: STATE.md más reciente que todo (commits y archivos dirty) — no se
 # escribe marker.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch .planning/STATE.md
@@ -1252,7 +1485,7 @@ rm -rf "$NO_GIT_DIR" "$NO_GIT_HOME"
 # Caso: el marker se SOBRESCRIBE entre invocaciones sucesivas, nunca acumula
 # señales de invocaciones anteriores.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch -t 202001010000 .planning/STATE.md
@@ -1288,7 +1521,7 @@ sandbox_cleanup
 # SÍ se escribiría un marker — así la ausencia de marker se debe realmente a
 # la falta de jq, no a la falta de señales.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch -t 202001010000 .planning/STATE.md
@@ -1320,6 +1553,34 @@ echo "--- session-start-context.sh ---"
 # de los hooks no-bloqueantes anteriores), así que estos casos no usan
 # assert_exit0 (descarta stdout) sino asserts inline sobre el output capturado.
 
+# Caso: roundtrip escritor/lector — session-end-check.sh escribe el marker
+# con repo_slug() y session-start-context.sh lo encuentra con el MISMO
+# repo_slug() (no un slug manual construido en el test). Si el par
+# escritor/lector alguna vez divergiera de slug, este es el test que lo
+# detecta: el marker quedaría escrito bajo un nombre que el lector nunca
+# busca, y se "perdería" en silencio.
+sandbox_create
+(
+  cd "$SANDBOX_REPO" || exit 1
+  touch -t 202001010000 .planning/STATE.md
+  echo "new work" > new-file.txt
+  git add new-file.txt
+  git commit -q -m "commit after state"
+) > /dev/null 2>&1
+(cd "$SANDBOX_REPO" && echo '{"reason":"other"}' | HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-end-check.sh" > /dev/null 2>&1)
+OUTPUT_ROUNDTRIP=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+TOTAL=$((TOTAL + 1))
+ROUNDTRIP_SLUG=$(repo_slug "$SANDBOX_REPO")
+ROUNDTRIP_MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$ROUNDTRIP_SLUG.json"
+if echo "$OUTPUT_ROUNDTRIP" | grep -qF "commits_after_state" && [ ! -f "$ROUNDTRIP_MARKER" ]; then
+  echo -e "${GREEN}PASS${NC}: roundtrip SessionEnd→SessionStart: el marker escrito con repo_slug() se encuentra y se consume"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: roundtrip SessionEnd→SessionStart: el marker escrito con repo_slug() se encuentra y se consume (output: $OUTPUT_ROUNDTRIP)"
+  FAIL=$((FAIL + 1))
+fi
+sandbox_cleanup
+
 # Caso: sin marker y sin state.json, el output no cambia (no rompe el
 # comportamiento actual del hook).
 sandbox_create
@@ -1337,7 +1598,7 @@ sandbox_cleanup
 # Caso: con marker presente, la primera invocación avisa con las señales y
 # borra el marker (consume-once); la segunda invocación ya no avisa.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
 mkdir -p "$MARKER_DIR"
 jq -n '{ts:"2026-08-13T00:00:00Z", reason:"other", branch:"feature/x", head:"abc1234", signals:["commits_after_state","dirty_files_after_state"]}' \
@@ -1373,7 +1634,7 @@ sandbox_cleanup
 # estructura) para verificar que el conteo de líneas no varía por los bytes
 # de control embebidos.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
 mkdir -p "$MARKER_DIR"
 RAW_SIGNAL=$(printf 'SIGSTART\x01\nMIDDLE_%sZZZ_SIGEND' "$(printf 'A%.0s' $(seq 1 470))")
@@ -1385,7 +1646,7 @@ LINES_SIGNAL_MALICIOUS=$(echo "$OUTPUT_SIGNAL_MALICIOUS" | wc -l | tr -d ' ')
 sandbox_cleanup
 
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
 mkdir -p "$MARKER_DIR"
 jq -n '{ts:"2026-08-13T00:00:00Z", reason:"other", branch:"feature/x", head:"abc1234", signals: ["safe_signal"]}' \
@@ -1412,7 +1673,7 @@ fi
 # en el hook): Unicode zero-width/bidi no se filtran, solo control chars
 # ASCII (\000-\037 y \177).
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
 mkdir -p "$MARKER_DIR"
 RAW_SIGNAL_DEL=$(printf 'SIGDEL_MARK\177END_MARK')
@@ -1581,6 +1842,62 @@ fi
 
 echo ""
 
+# --- Modo degradado: hooks/lib/slug.sh ausente ---
+echo "--- modo degradado: hooks/lib/slug.sh ausente ---"
+
+# Copia de hooks/ con lib/slug.sh renombrado (nunca se toca el hooks/ real,
+# que sí lo tiene). pre-compact-snapshot.sh y session-end-check.sh son
+# observabilidad (PreCompact/SessionEnd): sin el lib, el contrato es no-op
+# limpio (exit 0, sin artefactos), nunca bloquean. session-start-context.sh
+# es lector con salida visible: sin el lib, imprime el resto del contexto
+# normal y solo omite la sección del marker.
+DEGRADED_HOOKS_DIR=$(mktemp -d)
+cp -R "$HOOKS_DIR/." "$DEGRADED_HOOKS_DIR/"
+mv "$DEGRADED_HOOKS_DIR/lib/slug.sh" "$DEGRADED_HOOKS_DIR/lib/slug.sh.disabled"
+
+sandbox_create
+assert_exit0 "PreCompact modo degradado: exit 0 sin snapshot si falta hooks/lib/slug.sh" \
+  "$DEGRADED_HOOKS_DIR/pre-compact-snapshot.sh" \
+  '{"trigger":"auto"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude" ]'
+sandbox_cleanup
+
+sandbox_create
+(
+  cd "$SANDBOX_REPO" || exit 1
+  touch -t 202001010000 .planning/STATE.md
+  echo "new work" > new-file.txt
+  git add new-file.txt
+  git commit -q -m "commit after state"
+) > /dev/null 2>&1
+assert_exit0 "SessionEnd modo degradado: exit 0 sin marker si falta hooks/lib/slug.sh (con señal S1 forzada)" \
+  "$DEGRADED_HOOKS_DIR/session-end-check.sh" \
+  '{"reason":"other"}' \
+  "$SANDBOX_REPO" \
+  "$SANDBOX_HOME" \
+  '[ ! -e "$SANDBOX_HOME/.claude" ]'
+sandbox_cleanup
+
+sandbox_create
+OUTPUT_DEGRADED=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$DEGRADED_HOOKS_DIR/session-start-context.sh" 2>&1)
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if echo "$OUTPUT_DEGRADED" | grep -q "=== Session Context ===" \
+  && ! echo "$OUTPUT_DEGRADED" | grep -q "sesión anterior cerró" \
+  && ! echo "$OUTPUT_DEGRADED" | grep -qiE "no such file|command not found|slug\.sh"; then
+  echo -e "${GREEN}PASS${NC}: SessionStart modo degradado: imprime contexto normal sin sección de marker si falta hooks/lib/slug.sh"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart modo degradado: imprime contexto normal sin sección de marker si falta hooks/lib/slug.sh (output: $OUTPUT_DEGRADED)"
+  FAIL=$((FAIL + 1))
+fi
+
+rm -rf "$DEGRADED_HOOKS_DIR"
+
+echo ""
+
 # --- .gitignore (#52) ---
 echo "--- .gitignore ---"
 
@@ -1637,6 +1954,25 @@ else
 fi
 
 rm -rf "$GITIGNORE_TEST_DIR"
+
+echo ""
+
+# --- Guard de no-contaminación: el repo real debe seguir intacto ---
+TOTAL=$((TOTAL + 1))
+REPO_GUARD_BRANCH_AFTER=$(git -C "$REPO_ROOT" branch --show-current)
+REPO_GUARD_STATUS_AFTER=$(git -C "$REPO_ROOT" status --porcelain)
+if [ "$REPO_GUARD_BRANCH_BEFORE" = "$REPO_GUARD_BRANCH_AFTER" ] && [ "$REPO_GUARD_STATUS_BEFORE" = "$REPO_GUARD_STATUS_AFTER" ]; then
+  echo -e "${GREEN}PASS${NC}: la suite no modificó el repo real (branch y working tree intactos)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: la suite modificó el repo real — esto es un bug en la suite, no en un hook"
+  echo "  branch antes: $REPO_GUARD_BRANCH_BEFORE | branch después: $REPO_GUARD_BRANCH_AFTER"
+  echo "  status antes:"
+  echo "$REPO_GUARD_STATUS_BEFORE"
+  echo "  status después:"
+  echo "$REPO_GUARD_STATUS_AFTER"
+  FAIL=$((FAIL + 1))
+fi
 
 echo ""
 

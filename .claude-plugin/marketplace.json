@@ -1,0 +1,12 @@
+{
+  "name": "claude-methodology",
+  "description": "Marketplace de la metodología de agentes de claude-methodology",
+  "owner": { "name": "Alejandro Veloz" },
+  "plugins": [
+    {
+      "name": "methodology",
+      "source": "./",
+      "description": "Metodología completa: 13 agentes, 14 hooks, 4 skills"
+    }
+  ]
+}

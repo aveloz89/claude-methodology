@@ -49,15 +49,16 @@ QA reporta coverage < 80%
 
 ```
 Sospecha de que un hook no se ejecutó
-  → Verificar en settings.json que el hook está configurado
+  → Verificar en hooks/hooks.json (registro de hooks del plugin) que el hook está registrado
   → Ejecutar el hook manualmente para confirmar que funciona:
       bash hooks/<nombre-del-hook>.sh
   → Si el hook tiene bug:
       → Arreglar en un hotfix branch
       → Testear manualmente
       → PR a main
-  → Si el hook no estaba configurado:
-      → Agregar a settings.json
+  → Si el hook no estaba registrado:
+      → Agregar a hooks/hooks.json
+      → Correr tests/adversarial/test-plugin-manifest.sh (verifica la paridad)
       → Verificar con un test manual
   → Revisar si algún PR pasó sin la protección del hook:
       → Si sí, revisar esos PRs manualmente

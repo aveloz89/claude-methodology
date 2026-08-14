@@ -1,29 +1,52 @@
-# Brief: Cierre de todos los issues abiertos (#47, #50, #51, #52)
+# Brief: Barrido de follow-ups + plugin de distribución
 
 ## Objetivo
 
-Un PR a `dev` que arregle los 4 issues abiertos del repo — sin crear issues nuevos: el usuario quiere arreglar, no acumular.
+Un PR a `dev` que ataque TODOS los follow-ups accionables de `.planning/FOLLOWUPS.md` (9 de 10), incluyendo la implementación completa del plugin de Claude Code como mecanismo de distribución de la metodología. Decisión explícita del usuario (2026-08-14): todo en un solo PR, plugin incluido.
 
 ## Alcance
 
-Incluye:
+**Grupo A — Plugin y carga global (el proyecto grande):**
 
-1. **#47** — `block-admin-merge.sh` y `pre-commit-guard.sh`: mismo matching frágil sobre `.tool_input.command` que ya se corrigió en `pre-merge-check.sh` (falso negativo con comandos compuestos en una línea; falso positivo con menciones quoted/heredoc). Fix de referencia: saneo de spans quoted/heredoc + ancla de posición de comando `(^|&&|\|\||;|\||\$\()` + regression tests.
-2. **#50** — `pre-merge-check.sh` falla ABIERTO si faltan `perl` o `jq`: pasa a fail-closed (bloquea con "guard no operativo") — el bloqueo debe emitirse sin depender de jq.
-3. **#51** — títulos de issues de terceros se inyectan verbatim en el contexto de sesión (`session-start-context.sh`, bloque `gh issue list`): truncar + strippear control chars (reusar `sanitize_text()` existente) + delimitador explícito de datos.
-4. **#52** — `.gitignore` mínimo: agregar patrones defensivos de secrets (`.env`, `.env.*`, `*.pem`, `*.key`, `credentials.*`).
+1. Empaquetar la metodología como **plugin de Claude Code**: skills + agents + hooks (+ settings que aplique) en bundle instalable.
+2. Resolver la **carga global vs por proyecto** de la metodología (follow-up 2026-05-08). Restricción de plataforma conocida (verificar): los plugins empaquetan skills, agents, hooks y MCP servers — **NO distribuyen CLAUDE.md ni `rules/` ni `rulebooks/`**. El architect debe diseñar el híbrido: plugin para lo que el plugin cubre + mecanismo para instrucciones/rules/rulebooks (opciones conocidas: symlink de un CLAUDE.md global curado a `~/.claude/CLAUDE.md` — la jerarquía oficial carga managed → user → project → local, todos a la vez, con override por proximidad; `install.sh` residual para rules/rulebooks; import con `@`).
+3. Destino de `install.sh`: coexiste, se reduce a lo que el plugin no cubre, o se deprecia — decisión del architect con justificación.
 
-NO incluye: nada fuera de esos 4 issues. No se crean issues nuevos.
+**Grupo B — Hooks y tests:**
+
+4. **Slug + hash del toplevel** en los 4 hooks que derivan slug (`session-start-context.sh`, `pre-compact-snapshot.sh`, `subagent-stop-log.sh`, `session-end-check.sh`): `tr '/' '-'` no es inyectivo, repos distintos pueden colisionar y pisarse artefactos. Sufijo de 8 chars de hash del toplevel. Actualizar la decisión de convención en ARCHITECTURE.md. Los 4 hooks deben cambiar juntos (mismo slug derivado) + migración/compat de artefactos existentes: decisión del architect (¿se migran, se abandonan, se lee ambos?).
+5. **Sandboxear los tests de guards** de `tests/adversarial/test-hooks.sh`: hoy hacen `git stash` + `git checkout main` sobre el repo REAL (casi pérdida de estado en PR #49). Migrar al patrón sandbox que ya usan los tests de observabilidad (repo git temporal + HOME override).
+
+**Grupo C — Skill nueva:**
+
+6. **Skill `/review-pr`**: re-disparo manual del review dual (security + qa según capas tocadas) sobre un PR existente, sin pasar por el flujo completo del orchestrator. Diseñar contrato: input (número de PR), qué lanza, formato de reporte.
+
+**Grupo D — Docs/rules (chicos, texto ya especificado en los follow-ups):**
+
+7. `rules/docker.md`: suavizar regla de env vars → "URL completa cuando aplique; piezas separadas cuando se rotan independientemente".
+8. `rules/docker.md`: reescribir excepción USER nonroot en dev → preferir `--build-arg UID=$(id -u)`; root solo si el build arg no resuelve.
+9. Quitar el frontmatter `agents:` de `rules/docker.md` y `rules/implementation-principles.md` (verificado: nada lo procesa; decisión del usuario: quitar, no uniformar agregando).
+10. Deduplicar criterios de migración DB simple/complejo: `agents/backend-dev.md` referencia al runbook (fuente canónica) en vez de repetir la lista.
+
+**NO incluye:** Agent Teams (vigilancia con trigger documentado — sigue en FOLLOWUPS como único item). Al cierre del PR, FOLLOWUPS queda solo con ese item.
 
 ## Decisiones tomadas
 
-- [D-01] **Helper compartido** `hooks/lib/guard-matching.sh` (saneo + ancla) extraído de `pre-merge-check.sh`, consumido por los 3 guards — una sola regex sutil con tres consumidores es el caso exacto de la regla anti-drift. `pre-merge-check.sh` se refactoriza para consumirlo: refactor pequeño necesario, dentro del scope, documentado en el PR body. `install.sh` symlinkea `hooks/` completo, así que `lib/` viaja solo; resolución vía `$(dirname "$0")`.
-- [D-02] Brainstorming y architect saltados con justificación: bug fixes con causa raíz identificada y remediación especificada en los propios issues; la única decisión de diseño es D-01 (proporcionalidad — doctrina "escalar esfuerzo a la complejidad", LEARNINGS PR #49).
-- [D-03] Estreno del formato `state.json` (schema D3 del PR #49): esta es la "siguiente feature" desde la que aplica.
-- [D-04] El merge a `dev` no auto-cierra issues (default branch es `main`): se cierran manualmente post-merge con referencia al commit.
+- [D-01] Usuario: todo en un solo PR, plugin incluido (aceptando el costo de diff grande; el PR body debe estar organizado por grupos para navegabilidad).
+- [D-02] Usuario: `agents:` se quita, no se uniformiza agregando.
+- [D-03] El cambio de convención del slug está autorizado (ARCHITECTURE.md se actualiza como parte del PR).
+- [D-04] Formato `state.json` en uso (segunda feature con él).
 
-## Reglas de negocio / restricciones
+## Restricciones
 
-- Los guards son bloqueantes: TDD obligatorio con regression tests por hook en `tests/adversarial/test-hooks.sh` (falso negativo compuesto, falso positivo quoted), sin romper los 56 tests existentes.
-- El fail-closed de #50 nunca debe romper la emisión del JSON de bloqueo (sin jq disponible → printf de JSON estático).
-- `session-start-context.sh` no debe romper su output actual (hay tests de regresión).
+- TDD para todo lo de hooks/tests (grupos B): la suite adversarial está en 91/91 y debe terminar verde con los tests nuevos.
+- El plugin no debe romper la instalación actual del usuario (que usa symlinks de install.sh) — la transición debe ser explícita y documentada.
+- Review dual bloqueante al final, con presupuesto proporcional (el diff será grande: organizar por grupos).
+- CLAUDE.md del repo se mantiene ≤~200 líneas.
+
+## Datos de investigación para el architect (2026-08, docs oficiales — verificar localmente lo verificable)
+
+- Plugins: bundle de skills+agents+hooks+MCP; scopes user/project/local; instalación `/plugin install <nombre>@<marketplace>`; un repo puede servir de marketplace; validación con pinning SHA en el marketplace comunitario. La CLI local puede tener `claude plugin --help` para verificar el surface real.
+- Jerarquía CLAUDE.md: managed (`/Library/Application Support/ClaudeCode/`) → user (`~/.claude/CLAUDE.md`) → project (`./CLAUDE.md`) → local (`./CLAUDE.local.md`); TODOS cargan; override por proximidad. Imports con `@path` (hasta 4 niveles; imports externos piden aprobación la primera vez).
+- `~/.claude/rules/*.md` se auto-carga (con `paths:` condicional); los plugins NO las distribuyen.
+- Skills de plugin llevan namespace `/plugin-name:skill-name`.

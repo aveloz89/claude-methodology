@@ -1,33 +1,51 @@
 {
   "schema": 1,
-  "feature": "fix-open-issues",
-  "branch": "feature/fix-open-issues",
-  "pr": 54,
-  "updated": "2026-08-14T02:40:00Z",
+  "feature": "followups-sweep",
+  "branch": "feature/followups-sweep",
+  "pr": null,
+  "updated": "2026-08-14T07:20:00Z",
   "phases": {
-    "brainstorming": "skipped",
-    "design": "skipped",
+    "brainstorming": "done",
+    "design": "done",
     "implementation": "done",
     "docs": "done",
-    "pr": "done",
+    "pr": "in_progress",
     "ci": "skipped",
     "review": "done",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
       "id": 1,
-      "name": "fix-open-issues",
+      "name": "sandbox-guard-tests",
       "agent": "backend-dev",
       "status": "done",
-      "tasks_done": 5,
-      "tasks_total": 5,
+      "tasks_done": 4,
+      "tasks_total": 4,
       "current_task": null
     },
     {
       "id": 2,
-      "name": "review-round-2",
+      "name": "slug-hash",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 4,
+      "tasks_total": 4,
+      "current_task": null
+    },
+    {
+      "id": 3,
+      "name": "plugin-manifests",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 4,
+      "tasks_total": 4,
+      "current_task": null
+    },
+    {
+      "id": 4,
+      "name": "hybrid-installer",
       "agent": "backend-dev",
       "status": "done",
       "tasks_done": 6,
@@ -35,12 +53,21 @@
       "current_task": null
     },
     {
-      "id": 3,
-      "name": "review-round-3",
+      "id": 5,
+      "name": "review-pr-skill-docs",
       "agent": "backend-dev",
       "status": "done",
-      "tasks_done": 1,
-      "tasks_total": 1,
+      "tasks_done": 5,
+      "tasks_total": 5,
+      "current_task": null
+    },
+    {
+      "id": 6,
+      "name": "review-suggestions",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 5,
+      "tasks_total": 5,
       "current_task": null
     }
   ]
