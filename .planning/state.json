@@ -1,47 +1,19 @@
 {
   "schema": 1,
-  "feature": "fix-open-issues",
-  "branch": "feature/fix-open-issues",
-  "pr": 54,
-  "updated": "2026-08-14T02:40:00Z",
+  "feature": "followups-sweep",
+  "branch": "feature/followups-sweep",
+  "pr": null,
+  "updated": "2026-08-14T03:10:00Z",
   "phases": {
-    "brainstorming": "skipped",
-    "design": "skipped",
-    "implementation": "done",
-    "docs": "done",
-    "pr": "done",
-    "ci": "skipped",
-    "review": "done",
+    "brainstorming": "done",
+    "design": "in_progress",
+    "implementation": "pending",
+    "docs": "pending",
+    "pr": "pending",
+    "ci": "pending",
+    "review": "pending",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
-  "batches": [
-    {
-      "id": 1,
-      "name": "fix-open-issues",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 5,
-      "tasks_total": 5,
-      "current_task": null
-    },
-    {
-      "id": 2,
-      "name": "review-round-2",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 6,
-      "tasks_total": 6,
-      "current_task": null
-    },
-    {
-      "id": 3,
-      "name": "review-round-3",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 1,
-      "tasks_total": 1,
-      "current_task": null
-    }
-  ]
+  "batches": []
 }

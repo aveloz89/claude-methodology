@@ -4,15 +4,15 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** fix-open-issues — cierre de los 4 issues abiertos (#47, #50, #51, #52) en un PR a dev
-- **Última actualización:** 2026-08-13
+- **Feature:** followups-sweep — barrido de los 9 follow-ups accionables + plugin de distribución, en un PR a dev
+- **Última actualización:** 2026-08-14
 
 ## Decisiones
 
-- [D-01] Helper compartido `hooks/lib/guard-matching.sh` para el matching de los 3 guards (anti-drift; ver BRIEF).
-- [D-02] Brainstorming y architect saltados con justificación (bug fixes con causa raíz y remediación en los issues).
-- [D-03] Primer uso del formato `state.json` (schema D3).
-- [D-04] Issues se cierran manualmente post-merge (el merge a dev no auto-cierra; default branch es main).
+- [D-01] Usuario: todo en un solo PR, plugin incluido.
+- [D-02] Usuario: frontmatter `agents:` se elimina de las 2 rules que lo tienen.
+- [D-03] Cambio de convención de slug (+hash) autorizado; ARCHITECTURE.md se actualiza en el PR.
+- [D-04] Agent Teams queda como único item de FOLLOWUPS (vigilancia, trigger documentado).
 
 ## Blockers
 
