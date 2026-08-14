@@ -315,7 +315,7 @@ Escribes este contenido en `.planning/DESIGN.md`:
 - **Multi-PR:** sub-PRs separados, cada uno con sus propios lotes. Solo se justifica cuando:
   - Los grupos son **genuinamente independientes** (no se tocan entre sí, sin riesgo de conflictos)
   - Cada grupo es **shippeable solo** (podría ir a `dev` sin los demás)
-  - El scope total es tan grande que un PR sería irrevisable (heurística: >1000 LoC de diff o >15 commits)
+  - El diff se vuelve irrevisable: **>1000 LoC de naturaleza mixta que el PR body no logra agrupar de forma navegable**; el número de commits atómicos no es señal de corte
 
 Si eliges multi-PR, justifica explícitamente cuál de los 3 criterios aplica.
 
