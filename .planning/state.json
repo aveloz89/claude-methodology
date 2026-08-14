@@ -3,15 +3,15 @@
   "feature": "fix-open-issues",
   "branch": "feature/fix-open-issues",
   "pr": null,
-  "updated": "2026-08-14T00:20:00Z",
+  "updated": "2026-08-14T02:10:00Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
     "implementation": "done",
     "docs": "done",
     "pr": "in_progress",
-    "ci": "pending",
-    "review": "pending",
+    "ci": "skipped",
+    "review": "done",
     "e2e": "skipped",
     "merge": "pending"
   },
