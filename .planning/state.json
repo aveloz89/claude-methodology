@@ -30,9 +30,9 @@
       "name": "slug-hash",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 2,
+      "tasks_done": 3,
       "tasks_total": 4,
-      "current_task": "3: migrar session-end-check.sh + session-start-context.sh (par escritor/lector del marker)"
+      "current_task": "4: modo degradado (lib ausente) para los tres hooks"
     },
     {
       "id": 3,

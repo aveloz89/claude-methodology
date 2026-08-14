@@ -71,7 +71,9 @@ REASON=$(echo "$INPUT" | jq -r '.reason // "other"' 2>/dev/null)
 BRANCH=$(cd "$TOPLEVEL" && git branch --show-current 2>/dev/null)
 HEAD=$(cd "$TOPLEVEL" && git rev-parse --short HEAD 2>/dev/null)
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-SLUG=$(echo "$TOPLEVEL" | tr '/' '-')
+# shellcheck source=lib/slug.sh
+source "${0%/*}/lib/slug.sh"
+SLUG=$(repo_slug "$TOPLEVEL")
 
 MARKER_DIR="$HOME/.claude/methodology/session-end"
 mkdir -p "$MARKER_DIR" 2>/dev/null

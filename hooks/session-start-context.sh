@@ -63,7 +63,9 @@ fi
 if command -v jq > /dev/null 2>&1; then
   TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
   if [ -n "$TOPLEVEL" ]; then
-    SLUG=$(echo "$TOPLEVEL" | tr '/' '-')
+    # shellcheck source=lib/slug.sh
+    source "${0%/*}/lib/slug.sh"
+    SLUG=$(repo_slug "$TOPLEVEL")
     MARKER_FILE="$HOME/.claude/methodology/session-end/$SLUG.json"
     if [ -f "$MARKER_FILE" ]; then
       SIGNALS=$(jq -r '.signals // [] | join(", ")' "$MARKER_FILE" 2>/dev/null)

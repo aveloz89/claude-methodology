@@ -1297,7 +1297,7 @@ echo "--- session-end-check.sh ---"
 
 # Caso: señal S1 — commit posterior a STATE.md con mtime viejo (touch -t).
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch -t 202001010000 .planning/STATE.md
@@ -1316,7 +1316,7 @@ sandbox_cleanup
 # Caso: umask 077 — el marker (branch, head, señales) queda sin permisos de
 # grupo/otros.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch -t 202001010000 .planning/STATE.md
@@ -1337,7 +1337,7 @@ sandbox_cleanup
 # intercepta solo "-n" (la del marker final), deja pasar el resto al jq
 # real para no romper el resto del hook (jq -R/-s de SIGNALS_JSON).
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch -t 202001010000 .planning/STATE.md
@@ -1370,7 +1370,7 @@ sandbox_cleanup
 # inicial del sandbox, para no disparar S1 también) y el archivo dirty se
 # crea tras un sleep para garantizar mtime estrictamente posterior.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch .planning/STATE.md
@@ -1390,7 +1390,7 @@ sandbox_cleanup
 
 # Caso: archivos dirty DENTRO de .planning/ no cuentan para S2 (solo fuera).
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch .planning/STATE.md
@@ -1411,7 +1411,7 @@ sandbox_cleanup
 # Caso: STATE.md más reciente que todo (commits y archivos dirty) — no se
 # escribe marker.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch .planning/STATE.md
@@ -1453,7 +1453,7 @@ rm -rf "$NO_GIT_DIR" "$NO_GIT_HOME"
 # Caso: el marker se SOBRESCRIBE entre invocaciones sucesivas, nunca acumula
 # señales de invocaciones anteriores.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch -t 202001010000 .planning/STATE.md
@@ -1489,7 +1489,7 @@ sandbox_cleanup
 # SÍ se escribiría un marker — así la ausencia de marker se debe realmente a
 # la falta de jq, no a la falta de señales.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 (
   cd "$SANDBOX_REPO" || exit 1
   touch -t 202001010000 .planning/STATE.md
@@ -1521,6 +1521,34 @@ echo "--- session-start-context.sh ---"
 # de los hooks no-bloqueantes anteriores), así que estos casos no usan
 # assert_exit0 (descarta stdout) sino asserts inline sobre el output capturado.
 
+# Caso: roundtrip escritor/lector — session-end-check.sh escribe el marker
+# con repo_slug() y session-start-context.sh lo encuentra con el MISMO
+# repo_slug() (no un slug manual construido en el test). Si el par
+# escritor/lector alguna vez divergiera de slug, este es el test que lo
+# detecta: el marker quedaría escrito bajo un nombre que el lector nunca
+# busca, y se "perdería" en silencio.
+sandbox_create
+(
+  cd "$SANDBOX_REPO" || exit 1
+  touch -t 202001010000 .planning/STATE.md
+  echo "new work" > new-file.txt
+  git add new-file.txt
+  git commit -q -m "commit after state"
+) > /dev/null 2>&1
+(cd "$SANDBOX_REPO" && echo '{"reason":"other"}' | HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-end-check.sh" > /dev/null 2>&1)
+OUTPUT_ROUNDTRIP=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+TOTAL=$((TOTAL + 1))
+ROUNDTRIP_SLUG=$(repo_slug "$SANDBOX_REPO")
+ROUNDTRIP_MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$ROUNDTRIP_SLUG.json"
+if echo "$OUTPUT_ROUNDTRIP" | grep -qF "commits_after_state" && [ ! -f "$ROUNDTRIP_MARKER" ]; then
+  echo -e "${GREEN}PASS${NC}: roundtrip SessionEnd→SessionStart: el marker escrito con repo_slug() se encuentra y se consume"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: roundtrip SessionEnd→SessionStart: el marker escrito con repo_slug() se encuentra y se consume (output: $OUTPUT_ROUNDTRIP)"
+  FAIL=$((FAIL + 1))
+fi
+sandbox_cleanup
+
 # Caso: sin marker y sin state.json, el output no cambia (no rompe el
 # comportamiento actual del hook).
 sandbox_create
@@ -1538,7 +1566,7 @@ sandbox_cleanup
 # Caso: con marker presente, la primera invocación avisa con las señales y
 # borra el marker (consume-once); la segunda invocación ya no avisa.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
 mkdir -p "$MARKER_DIR"
 jq -n '{ts:"2026-08-13T00:00:00Z", reason:"other", branch:"feature/x", head:"abc1234", signals:["commits_after_state","dirty_files_after_state"]}' \
@@ -1574,7 +1602,7 @@ sandbox_cleanup
 # estructura) para verificar que el conteo de líneas no varía por los bytes
 # de control embebidos.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
 mkdir -p "$MARKER_DIR"
 RAW_SIGNAL=$(printf 'SIGSTART\x01\nMIDDLE_%sZZZ_SIGEND' "$(printf 'A%.0s' $(seq 1 470))")
@@ -1586,7 +1614,7 @@ LINES_SIGNAL_MALICIOUS=$(echo "$OUTPUT_SIGNAL_MALICIOUS" | wc -l | tr -d ' ')
 sandbox_cleanup
 
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
 mkdir -p "$MARKER_DIR"
 jq -n '{ts:"2026-08-13T00:00:00Z", reason:"other", branch:"feature/x", head:"abc1234", signals: ["safe_signal"]}' \
@@ -1613,7 +1641,7 @@ fi
 # en el hook): Unicode zero-width/bidi no se filtran, solo control chars
 # ASCII (\000-\037 y \177).
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
 mkdir -p "$MARKER_DIR"
 RAW_SIGNAL_DEL=$(printf 'SIGDEL_MARK\177END_MARK')
