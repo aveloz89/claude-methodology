@@ -786,6 +786,145 @@ sandbox_cleanup
 
 echo ""
 
+# --- hooks/lib/slug.sh ---
+echo "--- hooks/lib/slug.sh ---"
+
+# Se sourcea una sola vez a nivel de script: repo_slug()/_slug_hash8() quedan
+# disponibles como funciones normales, heredadas por los subshells que
+# restringen PATH más abajo (un subshell "( ... )" es un fork del mismo
+# proceso bash, no un exec nuevo — las funciones ya definidas viajan con él).
+# shellcheck source=../../hooks/lib/slug.sh
+source "$HOOKS_DIR/lib/slug.sh"
+
+# Caso: formato <basename saneado>-<hash8> (8 hex chars).
+TOTAL=$((TOTAL + 1))
+SLUG_FORMAT=$(repo_slug "/Users/alas/Proyectos/claude-methodology")
+if echo "$SLUG_FORMAT" | grep -qE '^claude-methodology-[0-9a-f]{8}$'; then
+  echo -e "${GREEN}PASS${NC}: repo_slug produce el formato <basename>-<hash8>"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug produce el formato <basename>-<hash8> (got: $SLUG_FORMAT)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: determinismo — misma entrada dos veces produce el mismo slug (la
+# consistencia por máquina a lo largo del tiempo es el requisito real).
+TOTAL=$((TOTAL + 1))
+SLUG_DET_1=$(repo_slug "/Users/alas/Proyectos/claude-methodology")
+SLUG_DET_2=$(repo_slug "/Users/alas/Proyectos/claude-methodology")
+if [ "$SLUG_DET_1" = "$SLUG_DET_2" ]; then
+  echo -e "${GREEN}PASS${NC}: repo_slug es determinístico (misma entrada → mismo slug)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug es determinístico (misma entrada → mismo slug) ($SLUG_DET_1 != $SLUG_DET_2)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: los pares que "tr '/' '-'" colapsaba al mismo string producen slugs
+# DISTINTOS con la convención nueva.
+TOTAL=$((TOTAL + 1))
+SLUG_COLLIDE_1=$(repo_slug "/a/b-c")
+SLUG_COLLIDE_2=$(repo_slug "/a-b/c")
+if [ "$SLUG_COLLIDE_1" != "$SLUG_COLLIDE_2" ]; then
+  echo -e "${GREEN}PASS${NC}: repo_slug distingue /a/b-c de /a-b/c (colisión de tr resuelta)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug distingue /a/b-c de /a-b/c (colisión de tr resuelta) (ambos: $SLUG_COLLIDE_1)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: basename con caracteres fuera de la allowlist (espacios, símbolos)
+# se filtra — el slug resultante solo contiene [A-Za-z0-9_-].
+TOTAL=$((TOTAL + 1))
+SLUG_WEIRD=$(repo_slug "/tmp/weird name!@# with \$ymbols")
+if echo "$SLUG_WEIRD" | grep -qE '^[A-Za-z0-9_-]+$' && echo "$SLUG_WEIRD" | grep -qF "weirdnamewithymbols"; then
+  echo -e "${GREEN}PASS${NC}: repo_slug filtra el basename a la allowlist alfanumérica"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug filtra el basename a la allowlist alfanumérica (got: $SLUG_WEIRD)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: basename que queda vacío tras el filtro (compuesto solo de
+# caracteres fuera de la allowlist) cae al fallback "repo".
+TOTAL=$((TOTAL + 1))
+SLUG_EMPTY_BASE=$(repo_slug "/tmp/!!!")
+if echo "$SLUG_EMPTY_BASE" | grep -qE '^repo-[0-9a-f]{8}$'; then
+  echo -e "${GREEN}PASS${NC}: repo_slug usa 'repo' cuando el basename saneado queda vacío"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug usa 'repo' cuando el basename saneado queda vacío (got: $SLUG_EMPTY_BASE)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Fallback de herramienta de hash: cada nivel de la cadena
+# (shasum → sha256sum → md5 → md5sum) se ejercita con un PATH restringido a
+# los binarios mínimos que repo_slug necesita (basename, tr, cut) más SOLO
+# la herramienta de hash bajo prueba — así la ausencia de las anteriores es
+# real, no un efecto colateral de romper otra dependencia (mismo patrón que
+# los NO_JQ_BIN de los demás hooks).
+slug_restricted_bin() {
+  local dir cmd cmd_path
+  dir=$(mktemp -d)
+  for cmd in "$@"; do
+    cmd_path=$(command -v "$cmd" 2>/dev/null)
+    [ -n "$cmd_path" ] && ln -s "$cmd_path" "$dir/$cmd"
+  done
+  printf '%s' "$dir"
+}
+
+RESTRICTED_SHA256SUM=$(slug_restricted_bin basename tr cut sha256sum)
+TOTAL=$((TOTAL + 1))
+SLUG_FB_SHA256SUM=$(PATH="$RESTRICTED_SHA256SUM" repo_slug "/Users/alas/Proyectos/claude-methodology")
+if echo "$SLUG_FB_SHA256SUM" | grep -qE '^claude-methodology-[0-9a-f]{8}$'; then
+  echo -e "${GREEN}PASS${NC}: repo_slug cae a sha256sum sin shasum en PATH"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug cae a sha256sum sin shasum en PATH (got: $SLUG_FB_SHA256SUM)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$RESTRICTED_SHA256SUM"
+
+RESTRICTED_MD5=$(slug_restricted_bin basename tr cut md5)
+TOTAL=$((TOTAL + 1))
+SLUG_FB_MD5=$(PATH="$RESTRICTED_MD5" repo_slug "/Users/alas/Proyectos/claude-methodology")
+if echo "$SLUG_FB_MD5" | grep -qE '^claude-methodology-[0-9a-f]{8}$'; then
+  echo -e "${GREEN}PASS${NC}: repo_slug cae a md5 -q sin shasum/sha256sum en PATH"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug cae a md5 -q sin shasum/sha256sum en PATH (got: $SLUG_FB_MD5)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$RESTRICTED_MD5"
+
+RESTRICTED_MD5SUM=$(slug_restricted_bin basename tr cut md5sum)
+TOTAL=$((TOTAL + 1))
+SLUG_FB_MD5SUM=$(PATH="$RESTRICTED_MD5SUM" repo_slug "/Users/alas/Proyectos/claude-methodology")
+if echo "$SLUG_FB_MD5SUM" | grep -qE '^claude-methodology-[0-9a-f]{8}$'; then
+  echo -e "${GREEN}PASS${NC}: repo_slug cae a md5sum como último recurso"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug cae a md5sum como último recurso (got: $SLUG_FB_MD5SUM)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$RESTRICTED_MD5SUM"
+
+# Caso: sin ninguna herramienta de hash en PATH → return 1.
+RESTRICTED_NONE=$(slug_restricted_bin basename tr cut)
+TOTAL=$((TOTAL + 1))
+SLUG_NONE_RC=0
+SLUG_NONE_OUT=$(PATH="$RESTRICTED_NONE" repo_slug "/Users/alas/Proyectos/claude-methodology") || SLUG_NONE_RC=$?
+if [ "$SLUG_NONE_RC" -eq 1 ]; then
+  echo -e "${GREEN}PASS${NC}: repo_slug retorna 1 sin ninguna herramienta de hash en PATH"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: repo_slug retorna 1 sin ninguna herramienta de hash en PATH (rc: $SLUG_NONE_RC, out: $SLUG_NONE_OUT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$RESTRICTED_NONE"
+
+echo ""
+
 # --- pre-compact-snapshot.sh ---
 echo "--- pre-compact-snapshot.sh ---"
 

@@ -29,10 +29,10 @@
       "id": 2,
       "name": "slug-hash",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
+      "status": "in_progress",
+      "tasks_done": 1,
       "tasks_total": 4,
-      "current_task": null
+      "current_task": "2: migrar pre-compact-snapshot.sh a repo_slug()"
     },
     {
       "id": 3,
