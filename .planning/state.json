@@ -3,15 +3,15 @@
   "feature": "followups-sweep",
   "branch": "feature/followups-sweep",
   "pr": null,
-  "updated": "2026-08-14T05:35:01Z",
+  "updated": "2026-08-14T07:20:00Z",
   "phases": {
     "brainstorming": "done",
     "design": "done",
     "implementation": "done",
     "docs": "done",
     "pr": "in_progress",
-    "ci": "pending",
-    "review": "pending",
+    "ci": "skipped",
+    "review": "done",
     "e2e": "skipped",
     "merge": "pending"
   },
