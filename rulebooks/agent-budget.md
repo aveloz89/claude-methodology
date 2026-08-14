@@ -26,7 +26,7 @@ Causa raíz: la invocación no podía caber el trabajo completo, pero nadie redu
 - **Orchestrator:** valida que cada lote ≤5 tareas y que la estrategia de PR está declarada. Si un lote excede el cap, devuelve el plan al architect — **no improvisa la partición**. Sigue el plan literalmente: en single-PR, invoca devs lote por lote sobre el mismo branch y crea un único PR al final; en multi-PR, un branch + PR por grupo.
 
 **Ejemplos:**
-- Feature con 28 tareas backend secuencialmente dependientes → architect entrega 6 lotes de ≤5 tareas en estrategia **single-PR**. El orchestrator invoca al backend-dev 6 veces sobre el mismo branch (commits per-tarea acumulándose), push + PR + CI + review **una sola vez**.
+- Feature con 28 tareas backend secuencialmente dependientes → architect entrega 6 lotes de ≤5 tareas en estrategia **single-PR**. El orchestrator invoca al backend-dev 6 veces sobre el mismo branch (commits per-tarea acumulándose), review local + push + PR + CI **una sola vez**.
 - Feature con 2 servicios independientes (cada uno ~10 tareas backend, sin overlap de archivos, shippeables solos) → architect podría justificar **multi-PR** (2 PRs paralelos), pero también es válido un único PR con 4 lotes. El default sigue siendo single-PR salvo justificación.
 - 5 tareas + 2 "extras" agregados después por el usuario → no son extras, vuelven al architect como input para un nuevo lote (o ajuste del plan).
 
@@ -50,7 +50,7 @@ RED → GREEN → REFACTOR → COMMIT → siguiente tarea
 
 Lint, build y self-review ocurren al cierre de la invocación, después de todos los commits per-tarea. Si self-review encuentra violaciones, se corrigen en commits adicionales.
 
-**El dev no pushea ni abre PR.** Al terminar el último lote, el orchestrator invoca `docs` sobre el diff local y recién ahí hace push + PR. Ver `rulebooks/orchestrator-runbook.md`, Fases 2.5–2.7.
+**El dev no pushea ni abre PR.** Al terminar el último lote, el orchestrator invoca `docs` sobre el diff local, corre el review dual local y recién ahí hace push + PR. Ver `rulebooks/orchestrator-runbook.md`, Fases 2.5–2.7.
 
 ### 3. state.json actualizado entre tareas
 
