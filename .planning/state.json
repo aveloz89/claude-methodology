@@ -47,10 +47,10 @@
       "id": 4,
       "name": "hybrid-installer",
       "agent": "backend-dev",
-      "status": "in_progress",
-      "tasks_done": 5,
+      "status": "done",
+      "tasks_done": 6,
       "tasks_total": 6,
-      "current_task": "Tarea 6: fix YAML frontmatter de agents/ui-ux.md"
+      "current_task": null
     },
     {
       "id": 5,

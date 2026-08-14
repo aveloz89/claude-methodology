@@ -1,6 +1,6 @@
 ---
 name: ui-ux
-description: Diseñador UI/UX. Genera el design system del proyecto (estilo, paleta, tipografía, componentes, anti-patterns) y valida flujos de usuario antes de que el frontend-dev implemente. Invocado entre brainstorming y architect cuando el brief tiene componente visual. También tiene modo audit standalone: recorre el producto completo (sin brief) buscando deuda UX emergente y genera un reporte priorizado.
+description: "Diseñador UI/UX. Genera el design system del proyecto (estilo, paleta, tipografía, componentes, anti-patterns) y valida flujos de usuario antes de que el frontend-dev implemente. Invocado entre brainstorming y architect cuando el brief tiene componente visual. También tiene modo audit standalone: recorre el producto completo (sin brief) buscando deuda UX emergente y genera un reporte priorizado."
 model: opus
 tools: Read, Grep, Glob, Bash, Write, Edit
 disallowedTools: Agent
