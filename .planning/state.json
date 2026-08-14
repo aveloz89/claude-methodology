@@ -3,7 +3,7 @@
   "feature": "followups-sweep",
   "branch": "feature/followups-sweep",
   "pr": null,
-  "updated": "2026-08-14T04:40:00Z",
+  "updated": "2026-08-14T05:10:00Z",
   "phases": {
     "brainstorming": "done",
     "design": "done",
@@ -47,10 +47,10 @@
       "id": 4,
       "name": "hybrid-installer",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
-      "tasks_total": 5,
-      "current_task": null
+      "status": "in_progress",
+      "tasks_done": 1,
+      "tasks_total": 6,
+      "current_task": "Tarea 2: adelgazar CLAUDE.md del repo"
     },
     {
       "id": 5,
