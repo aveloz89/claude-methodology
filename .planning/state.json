@@ -2,8 +2,8 @@
   "schema": 1,
   "feature": "pre-pr-reviews",
   "branch": "feature/pre-pr-reviews",
-  "pr": null,
-  "updated": "2026-08-14T12:30:00Z",
+  "pr": 56,
+  "updated": "2026-08-14T12:50:00Z",
   "phases": {
     "brainstorming": "done",
     "design": "done",
