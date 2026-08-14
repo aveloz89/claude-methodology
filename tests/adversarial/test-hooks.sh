@@ -20,6 +20,13 @@ PASS=0
 FAIL=0
 TOTAL=0
 
+# Guard de no-contaminación: ningún test debe modificar el repo real (branch
+# actual ni working tree) — captura acá, se compara al final del archivo.
+# Protege contra cualquier regresión futura de cualquier test, no solo
+# pre-push-guard (casi-incidente PR #49).
+REPO_GUARD_BRANCH_BEFORE=$(git -C "$REPO_ROOT" branch --show-current)
+REPO_GUARD_STATUS_BEFORE=$(git -C "$REPO_ROOT" status --porcelain)
+
 # Colores
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -1692,6 +1699,25 @@ else
 fi
 
 rm -rf "$GITIGNORE_TEST_DIR"
+
+echo ""
+
+# --- Guard de no-contaminación: el repo real debe seguir intacto ---
+TOTAL=$((TOTAL + 1))
+REPO_GUARD_BRANCH_AFTER=$(git -C "$REPO_ROOT" branch --show-current)
+REPO_GUARD_STATUS_AFTER=$(git -C "$REPO_ROOT" status --porcelain)
+if [ "$REPO_GUARD_BRANCH_BEFORE" = "$REPO_GUARD_BRANCH_AFTER" ] && [ "$REPO_GUARD_STATUS_BEFORE" = "$REPO_GUARD_STATUS_AFTER" ]; then
+  echo -e "${GREEN}PASS${NC}: la suite no modificó el repo real (branch y working tree intactos)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: la suite modificó el repo real — esto es un bug en la suite, no en un hook"
+  echo "  branch antes: $REPO_GUARD_BRANCH_BEFORE | branch después: $REPO_GUARD_BRANCH_AFTER"
+  echo "  status antes:"
+  echo "$REPO_GUARD_STATUS_BEFORE"
+  echo "  status después:"
+  echo "$REPO_GUARD_STATUS_AFTER"
+  FAIL=$((FAIL + 1))
+fi
 
 echo ""
 
