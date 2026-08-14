@@ -618,10 +618,10 @@ git push origin dev
 
 ## Formato de reporte de review
 
-Para `gh pr comment <number> --body "<reporte>"`:
+El mismo formato sirve para las dos rondas: **pre-PR** (Fase 2.6 — no hay PR todavía: el reporte vive solo en el registro local) y **post-PR** (re-reviews de Fase 3 y PRs fuera del flujo — ahí además se comenta con `gh pr comment <number> --body "<reporte>"`; ese comando aplica SOLO post-PR).
 
 ```markdown
-## Review: PR #[number] — [title]
+## Review: [PR #<number> | pre-push <branch>] — [title]
 
 ### Resumen
 [Qué hace este PR en 1-2 oraciones]
@@ -645,7 +645,15 @@ Para `gh pr comment <number> --body "<reporte>"`:
 - [ ] ...
 ```
 
-Guardar copia en `.planning/reviews/PR-<number>.md`.
+**Registro (convención dual + reconciliación):**
+
+| Momento | Archivo | Quién lo escribe |
+|---|---|---|
+| Fase 2.6 (pre-PR) | `.planning/reviews/pre-pr-<feature-slug>.md` | Orchestrator (consolidación) |
+| Fase 2.7 (al crear el PR) | `git mv` → `.planning/reviews/PR-<N>.md` + `state.json.pr = N`, commit `planning: vincular review pre-push al PR #<N>` | Orchestrator |
+| Fase 3 / skill `review-pr` (post-PR) | Append `## Re-review <fecha>` a `PR-<N>.md` (convención existente, sin cambio) | Orchestrator / skill |
+
+`<feature-slug>` = campo `feature` de `state.json`. **Header obligatorio del registro pre-PR**: branch, base, SHA de HEAD revisado, fecha, veredicto — sin él, el re-review acotado al delta no tiene ancla. La reconciliación es un rename y no dos convenciones permanentes porque los re-reviews post-PR hacen append a `PR-<N>.md`: sin el rename, la historia de review de un mismo PR quedaría fragmentada en dos archivos.
 
 ---
 
@@ -702,6 +710,7 @@ Este paso no es opcional ni cosmético: las 7 contradicciones de la auditoría d
 | Dev (cualquiera) reporta `BUDGET LIMIT` | Leer `HANDOFF.md`, reinvocar al mismo dev con tareas restantes, anotar en `LEARNINGS.md` |
 | Dev reporta error de build/CI | `build-resolver` con error completo + branch + archivos. Max 3 fixes automáticos |
 | Reviewer reporta bloqueante | Asignar fix al dev del lote correspondiente en mismo branch. Re-lanzar solo el reviewer que reportó. Repetir hasta aprobación |
+| PR creado sin review pre-push (el checkpoint del hook `post-pr-create` lo señala) | Tratarlo como PR fuera del flujo: skill `review-pr` sobre `gh pr diff` |
 | `gh pr merge` falla | Verificar las 3 condiciones de pre-merge. Reportar cuál bloquea |
 | Healthcheck Docker falla antes de E2E pre-release | Escalar al dev del servicio fallando antes de lanzar `e2e-runner` Modo B |
 | Hotfix mergeado pero falló integración a dev | Conflicto manual. Escalar al usuario con detalles del conflicto |
@@ -719,3 +728,5 @@ Cuando el usuario pide revisar un PR que no salió de este flujo:
 2. `gh pr diff <number>`
 3. Clasifica el diff (sección "Clasificación del diff por capa") y lanza los reviewers correspondientes en paralelo
 4. Consolida y comenta en el PR: `gh pr comment <number> --body "<reporte>"` (formato en sección "Formato de reporte de review")
+
+El registro se guarda **directo en `.planning/reviews/PR-<N>.md`** — acá no hay archivo `pre-pr-*` que reconciliar: el PR ya existía antes del review.
