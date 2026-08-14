@@ -30,9 +30,9 @@
       "name": "slug-hash",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 1,
+      "tasks_done": 2,
       "tasks_total": 4,
-      "current_task": "2: migrar pre-compact-snapshot.sh a repo_slug()"
+      "current_task": "3: migrar session-end-check.sh + session-start-context.sh (par escritor/lector del marker)"
     },
     {
       "id": 3,

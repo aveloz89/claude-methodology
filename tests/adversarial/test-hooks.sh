@@ -944,7 +944,7 @@ perm_of() {
 
 # Caso: happy path — snapshot completo de .planning/ con meta.json correcto.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 assert_exit0 "PreCompact crea snapshot de .planning/ con meta.json" \
   "$HOOKS_DIR/pre-compact-snapshot.sh" \
   '{"trigger":"auto"}' \
@@ -957,7 +957,7 @@ sandbox_cleanup
 # grupo/otros (planificación y session ids no deben ser legibles por otros
 # usuarios de la máquina).
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 assert_exit0 "PreCompact crea snapshot y meta.json sin permisos de grupo/otros (umask 077)" \
   "$HOOKS_DIR/pre-compact-snapshot.sh" \
   '{"trigger":"auto"}' \
@@ -968,7 +968,7 @@ sandbox_cleanup
 
 # Caso: JSON válido sin campo trigger — cae al fallback "unknown" (D4).
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 assert_exit0 "PreCompact usa trigger=unknown si el campo no viene en el stdin" \
   "$HOOKS_DIR/pre-compact-snapshot.sh" \
   '{}' \
@@ -982,7 +982,7 @@ sandbox_cleanup
 # otro caracter que pudiera romper el word splitting del `ls | xargs rm -rf`
 # de retención más abajo si se cuela en el nombre del directorio.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 DANGEROUS_TRIGGER_JSON=$(jq -n --arg trigger 'weird value/with spaces "and quotes" and;semicolons$(danger)' '{trigger: $trigger}')
 assert_exit0 "PreCompact reduce TRIGGER a allowlist alfanumérica (a-zA-Z0-9_-)" \
   "$HOOKS_DIR/pre-compact-snapshot.sh" \
@@ -1043,7 +1043,7 @@ sandbox_cleanup
 # (que crea uno nuevo, el 7mo) quedan exactamente los 5 más recientes:
 # el nuevo + los 4 más recientes de los 6 preexistentes.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 RETENTION_ROOT="$SANDBOX_HOME/.claude/methodology/snapshots/$SLUG"
 mkdir -p "$RETENTION_ROOT"
 for n in 1 2 3 4 5 6; do
@@ -1064,7 +1064,7 @@ sandbox_cleanup
 # específicamente las invocaciones "-n" (la del meta.json final) y deja
 # pasar todo lo demás al jq real, para no romper el resto del hook.
 sandbox_create
-SLUG=$(echo "$SANDBOX_REPO" | tr '/' '-')
+SLUG=$(repo_slug "$SANDBOX_REPO")
 FAKE_JQ_DIR=$(mktemp -d)
 REAL_JQ=$(command -v jq)
 cat > "$FAKE_JQ_DIR/jq" <<FAKE_JQ_EOF

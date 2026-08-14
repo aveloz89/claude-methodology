@@ -26,7 +26,9 @@ TRIGGER=$(echo "$INPUT" | jq -r '.trigger // "unknown"' 2>/dev/null)
 TRIGGER=$(echo "$TRIGGER" | tr -cd 'A-Za-z0-9_-')
 [ -n "$TRIGGER" ] || TRIGGER="unknown"
 
-SLUG=$(echo "$TOPLEVEL" | tr '/' '-')
+# shellcheck source=lib/slug.sh
+source "${0%/*}/lib/slug.sh"
+SLUG=$(repo_slug "$TOPLEVEL")
 TS=$(date -u +%Y%m%d-%H%M%S)
 SNAPSHOT_DIR="$HOME/.claude/methodology/snapshots/$SLUG/${TS}-${TRIGGER}"
 
