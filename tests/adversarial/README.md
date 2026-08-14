@@ -6,17 +6,19 @@ Tests que validan que la metodología misma funciona correctamente.
 
 | Archivo | Qué valida |
 |---------|-----------|
-| `test-hooks.sh` | Los hooks de Claude Code bloquean comandos peligrosos — incluye regresión del matching compartido en `hooks/lib/guard-matching.sh` (comandos compuestos, menciones quoted/heredoc, fallback sin `perl`/`jq`) —, los hooks de observabilidad (`pre-compact-snapshot`, `subagent-stop-log`, `session-end-check`) producen el efecto esperado en filesystem sin bloquear el evento, `session-start-context.sh` sanitiza datos de terceros (títulos de issues), y `.gitignore` cubre los patrones de secrets defensivos |
+| `test-hooks.sh` | Los hooks de Claude Code bloquean comandos peligrosos — incluye regresión del matching compartido en `hooks/lib/guard-matching.sh` (comandos compuestos, menciones quoted/heredoc, fallback sin `perl`/`jq`) —, los hooks de observabilidad (`pre-compact-snapshot`, `subagent-stop-log`, `session-end-check`) producen el efecto esperado en filesystem sin bloquear el evento, `session-start-context.sh` sanitiza datos de terceros (títulos de issues), `hooks/lib/slug.sh` produce slugs determinísticos sin las colisiones de `tr '/' '-'` (y los 3 hooks que lo consumen degradan a no-op limpio si el lib falta), y `.gitignore` cubre los patrones de secrets defensivos. Toda la suite corre en sandboxes temporales — incluido un repo git con remote bare fake para `pre-push-guard` — y un guard final verifica que el repo real quedó intacto (branch y working tree) |
+| `test-plugin-manifest.sh` | Paridad `hooks/*.sh` ↔ `hooks/hooks.json`: cada script (excluyendo `hooks/lib/`) registrado exactamente una vez, con demostración RED sobre una copia corrupta del manifest (nunca sobre el real). Además: los 3 manifests del plugin (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `hooks/hooks.json`) parsean como JSON válido, y `claude plugin validate --strict .` pasa si la CLI está en PATH (SKIP declarado si no) |
 | `test-qa-detection.md` | Los QA agents (qa-frontend / qa-backend) detectan code smells, stubs y red flags en su capa |
 | `test-security-detection.md` | El security-reviewer detecta vulnerabilidades conocidas |
 
 ## Cómo ejecutar
 
-### Hook tests (automatizado)
+### Hook y plugin manifest tests (automatizado)
 
 ```bash
 cd /path/to/project
 bash tests/adversarial/test-hooks.sh
+bash tests/adversarial/test-plugin-manifest.sh
 ```
 
 ### QA / Security detection tests (manual)
@@ -33,6 +35,6 @@ bash tests/adversarial/test-hooks.sh
 
 - Antes de releases
 - Después de modificar prompts de agentes (`agents/*.md`)
-- Después de modificar hooks (`hooks/*.sh`)
+- Después de modificar hooks (`hooks/*.sh`) o los manifests del plugin (`hooks/hooks.json`, `.claude-plugin/`)
 - Después de modificar rules (`rules/*.md`)
 - Periódicamente (mensual) como parte de la validación de agentes

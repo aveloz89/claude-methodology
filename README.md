@@ -4,7 +4,7 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 
 ## Qué incluye
 
-El **orchestrator** no es un subagente: es el Claude de la sesión principal, definido en `CLAUDE.md`. Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 13 agentes:
+El **orchestrator** no es un subagente: es el Claude de la sesión principal, definido en `global/CLAUDE.md` (instalado como `~/.claude/CLAUDE.md`). Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 13 agentes:
 
 ### Agentes (13)
 | Agente | Modelo | Rol |
@@ -43,12 +43,13 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal, de
 
 Los tres hooks de observabilidad (`pre-compact-snapshot`, `subagent-stop-log`, `session-end-check`) escriben sus artefactos bajo `~/.claude/methodology/` (`snapshots/`, `logs/`, `session-end/`, uno por repo vía slug) con retención acotada (5 snapshots más recientes por repo, log rotado a `.old` al superar 1 MB, marker de sesión sobrescrito en cada cierre); el directorio entero se puede borrar sin riesgo — se regenera solo en la siguiente invocación de cada hook.
 
-### Skills (3)
+### Skills (4)
 | Skill | Qué hace |
 |-------|----------|
 | **/new-project** | Scaffold de proyecto con gitflow, GitHub Actions CI/CD, CLAUDE.md |
 | **/refactor-scan** | Escanea el codebase buscando code smells y genera un reporte priorizado |
 | **/pr-workflow** | Presupuesto de CI, E2E pre-release, branch protection y verificación pre-merge — se invoca en Fase 2.7 o al trabajar sobre un PR existente |
+| **/review-pr** | Re-dispara manualmente el review dual (security + QA según capas tocadas) sobre un PR existente, sin pasar por el flujo completo del orchestrator |
 
 ## Workflow
 
@@ -121,6 +122,9 @@ Los hooks de observabilidad `pre-compact-snapshot` y `session-end-check` escribe
 
 ```
 claude-methodology/
+├── .claude-plugin/
+│   ├── marketplace.json
+│   └── plugin.json
 ├── agents/
 │   ├── architect.md
 │   ├── backend-dev.md
@@ -135,14 +139,18 @@ claude-methodology/
 │   ├── refactor.md
 │   ├── security-reviewer.md
 │   └── ui-ux.md
+├── global/
+│   └── CLAUDE.md
 ├── hooks/
 │   ├── block-admin-merge.sh
 │   ├── block-force-push.sh
 │   ├── block-hard-reset.sh
 │   ├── context-monitor.sh
 │   ├── docker-refresh.sh
+│   ├── hooks.json
 │   ├── lib/
-│   │   └── guard-matching.sh
+│   │   ├── guard-matching.sh
+│   │   └── slug.sh
 │   ├── post-pr-create.sh
 │   ├── pre-commit-guard.sh
 │   ├── pre-compact-snapshot.sh
@@ -174,7 +182,9 @@ claude-methodology/
 │   │   └── SKILL.md
 │   ├── pr-workflow/
 │   │   └── SKILL.md
-│   └── refactor-scan/
+│   ├── refactor-scan/
+│   │   └── SKILL.md
+│   └── review-pr/
 │       └── SKILL.md
 ├── settings.json
 ├── install.sh
