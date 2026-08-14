@@ -34,6 +34,28 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-08-14] PR #56 — Review dual pre-push (Fase 2.6): el PR nace revisado
+
+**Métricas:**
+- Review rounds: 1 dual pre-push (estreno del flujo en su propio PR) + 1 ronda de fixes local sin re-review (cambio menor validado por tests)
+- Hallazgos security: 2 MEDIUM (anclaje por SHA, sanitización de slug) + 2 LOW + 1 legacy adoptada (4º check pre-merge) — todos aplicados
+- Hallazgos qa-backend: 3 sugerencias + 1 gap de cobertura declarado (detached HEAD) — todos aplicados
+- Errores de build/CI: 0. **Runs de CI consumidos por el ciclo de review: 0** — el objetivo del cambio, cumplido en su primer uso
+- Self-reflection atrapó: el barrido de docs cazó 8 secuencias del flujo viejo que el grep por palabras no podía atrapar (no mencionaban "review")
+- Lotes: 3 (15 tareas) + ronda 2.6 (5+1) + docs. Devs: general-purpose con rol inyectado (transición al plugin), architect en fable
+- Suites al cierre: 128/128 + 19/19
+
+**Qué salió bien:**
+- **El flujo nuevo se revisó a sí mismo y se mejoró en el acto**: el review pre-push de este PR encontró el hueco del anclaje (evidencia stale si hay commits post-review) y el fix entró en la misma ronda local — exactamente el ciclo barato que el cambio promete.
+- Decisión del architect de NO renumerar fases (2.6 entra en el hueco existente): el costo anti-drift del cambio bajó drásticamente.
+- El 4º check pre-merge estrenó en el propio merge de este PR, verificando evidencia real (`review_sha` ancestro, registro reconciliado).
+- Muertes por límite de sesión a mitad de review: reanudar desde transcript preservó el avance (el ángulo del SHA que security venía persiguiendo sobrevivió al corte y terminó siendo el hallazgo principal).
+
+**Qué causó re-work:**
+- Nada estructural. La demo en vivo del hook en ESTA sesión requirió invocación manual (la sesión en limbo post-migración registró hooks desde el path viejo) — consecuencia ya conocida y documentada de la transición al plugin.
+
+**Patrón potencial:** el par "review encuentra el hueco de evidencia → la evidencia se vuelve machine-readable → un check mecánico la exige" (checkpoint CASO A + 4º check) es la misma jugada que mató la clase C5 (test de paridad) — 2ª aparición de "convertir invariantes de proceso en verificación mecánica"; si aparece una 3ª, considerar regla explícita de diseño.
+
 ### [2026-08-14] PR #55 — Barrido de follow-ups: plugin de distribución, slug con hash, sandbox total y skill review-pr
 
 **Métricas:**
