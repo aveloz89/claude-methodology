@@ -3,7 +3,7 @@
   "feature": "pre-pr-reviews",
   "branch": "feature/pre-pr-reviews",
   "pr": null,
-  "updated": "2026-08-14T09:00:00Z",
+  "updated": "2026-08-14T12:00:00Z",
   "phases": {
     "brainstorming": "done",
     "design": "done",
@@ -38,8 +38,8 @@
       "id": 3,
       "name": "periferia-y-cierre",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
+      "status": "done",
+      "tasks_done": 5,
       "tasks_total": 5,
       "current_task": null
     }
