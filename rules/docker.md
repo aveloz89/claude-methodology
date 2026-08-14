@@ -8,11 +8,6 @@ paths:
   - "**/compose.yml"
   - "**/compose.*.yml"
   - "**/.dockerignore"
-agents:
-  - backend-dev
-  - frontend-dev
-  - qa-backend
-  - qa-frontend
 ---
 
 # Docker Review Rules
