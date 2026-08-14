@@ -611,6 +611,68 @@ rm -rf "$MISSING_LIB_DIR"
 
 echo ""
 
+# --- guard-matching.sh: transparencia sin perl + join de continuaciones + GUARD_ANCHOR ampliado (ronda 2, tarea 4) ---
+echo "--- guard-matching.sh: modo degradado sin perl, continuaciones de línea, anclas ---"
+
+# (a) [QA blocker] Transparencia del modo degradado: sin perl, guard_sanitize
+# cae a devolver el comando sin sanear (fail-safe: sigue interceptando más
+# de la cuenta en vez de menos), pero antes no lo anunciaba — el modo
+# degradado era invisible. Se pinea el falso positivo COMO comportamiento
+# aceptado (heredoc con "git commit" al inicio de una línea, sin perl para
+# reconocerlo como cuerpo de heredoc, dispara el guard) y se verifica que
+# el aviso por stderr ahora lo hace explícito.
+NO_PERL_TRANSPARENCY_DIR=$(mktemp -d)
+touch "$NO_PERL_TRANSPARENCY_DIR/pyproject.toml"
+FAKE_PYTEST_TRANSPARENCY_DIR=$(mktemp -d)
+cat > "$FAKE_PYTEST_TRANSPARENCY_DIR/pytest" <<'FAKE_PYTEST_EOF'
+#!/bin/bash
+exit 1
+FAKE_PYTEST_EOF
+chmod +x "$FAKE_PYTEST_TRANSPARENCY_DIR/pytest"
+NO_PERL_BIN=$(mktemp -d)
+for cmd in bash cat jq grep; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_PERL_BIN/$cmd"
+done
+HEREDOC_MENTION_NO_PERL=$(cat <<'CMD_EOF'
+cat <<'NOTE_EOF' > notes.txt
+git commit -m "reminder text" (do this later)
+NOTE_EOF
+CMD_EOF
+)
+JSON_NO_PERL_TRANSPARENCY=$(jq -n --arg cmd "$HEREDOC_MENTION_NO_PERL" '{tool_input: {command: $cmd}}')
+NO_PERL_EXIT=0
+NO_PERL_OUTPUT=$(cd "$NO_PERL_TRANSPARENCY_DIR" && echo "$JSON_NO_PERL_TRANSPARENCY" | PATH="$FAKE_PYTEST_TRANSPARENCY_DIR:$NO_PERL_BIN" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1) || NO_PERL_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$NO_PERL_EXIT" -eq 2 ] && echo "$NO_PERL_OUTPUT" | grep -qF "guard-matching: perl no disponible, matching sin saneo (posibles falsos positivos)"; then
+  echo -e "${GREEN}PASS${NC}: guard_sanitize sin perl: falso positivo de heredoc pineado como aceptado + aviso stderr presente"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_sanitize sin perl: falso positivo de heredoc pineado como aceptado + aviso stderr presente (exit: $NO_PERL_EXIT, output: $NO_PERL_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$NO_PERL_TRANSPARENCY_DIR" "$FAKE_PYTEST_TRANSPARENCY_DIR" "$NO_PERL_BIN"
+
+# (b) [security LOW] Continuaciones de línea (backslash-newline) deben
+# unirse ANTES que cualquier otra regla de saneo: un "gh pr merge 5 \" con
+# el "--admin" en la línea siguiente no debe evadir el match por quedar
+# partido en dos líneas.
+MULTILINE_ADMIN_COMMAND=$(printf 'gh pr merge 5 \\\n  --admin')
+assert_bam_blocked "block-admin-merge: gh pr merge --admin partido en dos líneas con continuación (\\\\) se bloquea" \
+  "$MULTILINE_ADMIN_COMMAND"
+
+# (c) [security LOW] GUARD_ANCHOR ampliado: backtick, "(", "{" y "&" no
+# anclaban el match — una invocación real precedida por esos separadores
+# de comando pasaba sin validar (falso negativo).
+assert_bam_blocked "block-admin-merge: invocación real dentro de backticks se bloquea" \
+  'echo `gh pr merge 5 --admin`'
+assert_bam_blocked "block-admin-merge: invocación real dentro de subshell ( ) se bloquea" \
+  '( gh pr merge 5 --admin )'
+assert_bam_blocked "block-admin-merge: invocación real tras & (background) se bloquea" \
+  'sleep 1 & gh pr merge 5 --admin'
+
+echo ""
+
 # --- Sandbox infra para hooks no-bloqueantes (PreCompact, SubagentStop, SessionEnd) ---
 echo "--- sandbox infra ---"
 

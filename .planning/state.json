@@ -30,9 +30,9 @@
       "name": "review-round-2",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 3,
+      "tasks_done": 4,
       "tasks_total": 6,
-      "current_task": "4: transparencia de guard_sanitize sin perl + join de continuaciones + GUARD_ANCHOR ampliado"
+      "current_task": "5: session-start-context.sh (prefijo de línea en issues, DEL en sanitize_text) + .gitignore"
     }
   ]
 }
