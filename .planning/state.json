@@ -3,7 +3,7 @@
   "feature": "pre-pr-reviews",
   "branch": "feature/pre-pr-reviews",
   "pr": null,
-  "updated": "2026-08-14T10:40:00Z",
+  "updated": "2026-08-14T11:20:00Z",
   "phases": {
     "brainstorming": "done",
     "design": "done",
@@ -42,6 +42,15 @@
       "tasks_done": 5,
       "tasks_total": 5,
       "current_task": null
+    },
+    {
+      "id": 4,
+      "name": "fixes-2.6",
+      "agent": "backend-dev",
+      "status": "in_progress",
+      "tasks_done": 1,
+      "tasks_total": 5,
+      "current_task": "2: sanitización y robustez del hook"
     }
   ]
 }

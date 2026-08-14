@@ -159,7 +159,7 @@ El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` r
    Paquete de contexto (context isolation): base + branch + instrucción de leer `git diff <base>...HEAD` + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida. **Sin número de PR — no existe todavía.**
 4. **Consolida y registra**: reporte con el "Formato de reporte de review" (más abajo), guardado en `.planning/reviews/pre-pr-<feature-slug>.md` con header de trazabilidad (branch, base, SHA de HEAD revisado, fecha, veredicto). Commit al branch: `planning: registrar review dual pre-push`
 5. **Si hay bloqueantes**: fixes por el dev correspondiente en el mismo branch, **sin push** (si el bloqueante es de schema/migración/query optimizada, va al `db-specialist`). Re-lanza **solo** los reviewers que marcaron issues, acotados al delta local (`git diff <sha-ya-revisado>...HEAD`). Append de la re-ronda al registro. Sugerencias baratas: aplicadas antes del push (política en la skill `pr-workflow`, regla 2)
-6. **Veredictos limpios**: actualiza `.planning/state.json` (`phases.review` a `done`) y avanza a Fase 2.7. Fixes, sugerencias aplicadas y registro viajan en el push inicial: **el PR nace revisado**
+6. **Veredictos limpios**: actualiza `.planning/state.json` (`phases.review` a `done` y `review_sha` al SHA de HEAD al momento de los veredictos limpios) y avanza a Fase 2.7. Fixes, sugerencias aplicadas y registro viajan en el push inicial: **el PR nace revisado**
 
 ### Fase 2.7: Push + PR
 
@@ -411,6 +411,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
   "feature": "slug-corto-de-la-feature",
   "branch": "feature/slug",
   "pr": null,
+  "review_sha": null,
   "updated": "2026-08-13T18:30:00Z",
   "phases": {
     "brainstorming": "done",
@@ -440,7 +441,8 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 - **Enum de status** (`phases.*` y `batches[].status`): `pending | in_progress | done | failed | skipped`. Ningún otro valor.
 - `phases` es un objeto de **claves fijas** — siempre las 9 de arriba, presentes todas (`skipped` para las que no aplican, p. ej. `e2e` sin UI). Claves fijas = mutación mínima ("cambiar un valor"), menos corruptible que un array.
 - `batches` refleja el plan del architect: `id`/`name`/`agent` los siembra el orchestrator al cerrar el diseño; `status`/`tasks_done`/`current_task` mutan durante la ejecución.
-- **Orden de transiciones**: `review` pasa a `done` en la Fase 2.6, **antes** que `pr` y `ci` — el review dual ocurre pre-push. Es la evidencia que el hook `post-pr-create.sh` verifica al crearse el PR (CASO A: `phases.review == "done"` y `branch` igual al actual).
+- **Orden de transiciones**: `review` pasa a `done` en la Fase 2.6, **antes** que `pr` y `ci` — el review dual ocurre pre-push. Es la evidencia que el hook `post-pr-create.sh` verifica al crearse el PR (CASO A: `phases.review == "done"`, `branch` igual al actual, y `review_sha` ancestro de HEAD con delta posterior solo bajo `.planning/`).
+- **`review_sha`** (opcional, **sin bump de schema** — hooks viejos lo ignoran): SHA de HEAD al momento de los veredictos limpios de la Fase 2.6. Ancla la evidencia de review a los commits realmente revisados: si después del review entra cualquier commit que toque algo fuera de `.planning/` (los commits legítimos post-review son registro/reconciliación), el checkpoint deja de dar CASO A.
 
 **Quién escribe qué:**
 
@@ -449,6 +451,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 | Archivo completo (creación) | Orchestrator | Al cerrar el diseño (fin de Fase 1) |
 | `phases.*` | Orchestrator | En cada transición de fase del pipeline |
 | `phases.review` | Orchestrator | Fase 2.6, al cerrar veredictos limpios (antes que `pr` y `ci`) |
+| `review_sha` | Orchestrator | Fase 2.6, paso 6 — mismo momento que `phases.review`: SHA de HEAD al cerrar los veredictos limpios |
 | `batches[].status` | Orchestrator | Al invocar / al cerrar cada lote |
 | `batches[].tasks_done` y `current_task` de **su** batch | Dev que ejecuta el lote | Antes de empezar cada tarea atómica (reemplaza la regla 3 de `agent-budget.md` de "STATE.md actualizado entre tareas") |
 | `pr` | Orchestrator | Fase 2.7 — dentro del commit de reconciliación (el mismo que renombra el registro a `PR-<N>.md`) |

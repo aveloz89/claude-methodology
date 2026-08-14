@@ -1917,61 +1917,95 @@ postpr_input() {
 
 # postpr_seed_state: escribe .planning/state.json en el sandbox con el
 # status de review, el branch y el slug de feature dados (schema 1 real).
+# El 4º argumento (opcional) es review_sha: si se omite, el campo queda
+# AUSENTE del JSON — semántica real del campo opcional (sin bump de
+# schema; hooks viejos lo ignoran).
 postpr_seed_state() {
-  local review_status="$1" state_branch="$2" feature_slug="$3"
-  jq -n --arg review "$review_status" --arg branch "$state_branch" --arg feature "$feature_slug" '{
+  local review_status="$1" state_branch="$2" feature_slug="$3" review_sha="${4:-}"
+  jq -n --arg review "$review_status" --arg branch "$state_branch" \
+        --arg feature "$feature_slug" --arg sha "$review_sha" '{
     schema: 1, feature: $feature, branch: $branch, pr: null,
     updated: "2026-08-14T00:00:00Z",
     phases: {brainstorming:"done", design:"done", implementation:"done",
              docs:"done", review:$review, pr:"pending", ci:"pending",
              e2e:"skipped", merge:"pending"},
     batches: []
-  }' > "$SANDBOX_REPO/.planning/state.json"
+  } + (if $sha == "" then {} else {review_sha: $sha} end)' > "$SANDBOX_REPO/.planning/state.json"
 }
 
 POSTPR_URL="https://github.com/acme/widgets/pull/7"
 
-# Caso: CASO A — state.json legible en el toplevel, phases.review=done y
-# branch igual al actual → checkpoint "PR del flujo ya revisado" con la
-# verificación de reconciliación (PR-<N>.md con N de la URL, renombrado
-# desde pre-pr-<slug>.md con slug del campo feature) y SIN bloque
+# assert_postpr_caso_a: corre el hook en el sandbox con el input dado y
+# verifica el contrato completo de CASO A: exit 0, línea "PR creado",
+# checkpoint "Review dual pre-push verificado" (branch del sandbox),
+# reconciliación PR-7.md (N de la URL) desde pre-pr-checkpoint-flow.md
+# (slug del campo feature), "No relances reviewers" y AUSENCIA del bloque
 # "ACCIÓN REQUERIDA" (no se relanzan reviewers: el PR nació revisado).
-sandbox_create
-(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
-postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow"
-POSTPR_EXIT_A=0
-POSTPR_OUTPUT_A=$(cd "$SANDBOX_REPO" && postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" \
-  | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_A=$?
-sandbox_cleanup
-TOTAL=$((TOTAL + 1))
-if [ "$POSTPR_EXIT_A" -eq 0 ] \
-  && echo "$POSTPR_OUTPUT_A" | grep -qF "PR creado: $POSTPR_URL" \
-  && echo "$POSTPR_OUTPUT_A" | grep -qF "Review dual pre-push verificado (state.json: phases.review=done, branch feature/checkpoint-flow)." \
-  && echo "$POSTPR_OUTPUT_A" | grep -qF ".planning/reviews/PR-7.md" \
-  && echo "$POSTPR_OUTPUT_A" | grep -qF "pre-pr-checkpoint-flow.md" \
-  && echo "$POSTPR_OUTPUT_A" | grep -qF "No relances reviewers" \
-  && ! echo "$POSTPR_OUTPUT_A" | grep -qF "ACCIÓN REQUERIDA"; then
-  echo -e "${GREEN}PASS${NC}: post-pr-create CASO A: review=done + branch coincide → checkpoint de PR revisado, sin ACCIÓN REQUERIDA"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: post-pr-create CASO A: review=done + branch coincide → checkpoint de PR revisado, sin ACCIÓN REQUERIDA (exit: $POSTPR_EXIT_A, output: $POSTPR_OUTPUT_A)"
-  FAIL=$((FAIL + 1))
-fi
-
-# assert_postpr_caso_b: corre el hook en el sandbox con el input dado y
-# verifica el contrato completo de CASO B: exit 0, línea de diagnóstico
-# ("sin evidencia de review pre-push"), bloque ACCIÓN REQUERIDA conservado
-# de v1 (reviewers + referencia al runbook), AUSENCIA del checkpoint de
-# CASO A y sin ruido de errores en el output (un state.json ilegible
-# degrada limpio, sin filtrar el stderr de jq al orchestrator).
-# Reutilizado por los casos de ausencia, estado y degradación.
-assert_postpr_caso_b() {
+assert_postpr_caso_a() {
   local test_name="$1" stdin_json="$2"
   TOTAL=$((TOTAL + 1))
   local exit_code=0 output
   output=$(cd "$SANDBOX_REPO" && printf '%s' "$stdin_json" | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || exit_code=$?
   if [ "$exit_code" -eq 0 ] \
-    && echo "$output" | grep -qF "No hay evidencia de review dual pre-push para este branch — se trata como PR fuera del flujo." \
+    && echo "$output" | grep -qF "PR creado: $POSTPR_URL" \
+    && echo "$output" | grep -qF "Review dual pre-push verificado (state.json: phases.review=done, branch feature/checkpoint-flow)." \
+    && echo "$output" | grep -qF ".planning/reviews/PR-7.md" \
+    && echo "$output" | grep -qF "pre-pr-checkpoint-flow.md" \
+    && echo "$output" | grep -qF "No relances reviewers" \
+    && ! echo "$output" | grep -qF "ACCIÓN REQUERIDA"; then
+    echo -e "${GREEN}PASS${NC}: $test_name"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit: $exit_code, output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# Caso: CASO A — state.json legible en el toplevel, phases.review=done,
+# branch igual al actual y review_sha == HEAD (delta vacío: no se commiteó
+# nada después de los veredictos limpios) → checkpoint "PR del flujo ya
+# revisado".
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+POSTPR_HEAD_SHA=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$POSTPR_HEAD_SHA"
+assert_postpr_caso_a "post-pr-create CASO A: review=done + branch coincide + review_sha == HEAD → checkpoint de PR revisado, sin ACCIÓN REQUERIDA" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
+sandbox_cleanup
+
+# Caso: CASO A — review_sha == HEAD~1 y el delta post-review toca SOLO
+# paths bajo .planning/ (los commits legítimos post-review son el registro
+# del review y la reconciliación) → sigue siendo CASO A: la evidencia
+# cubre los commits actuales.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+POSTPR_REVIEWED_SHA=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
+(cd "$SANDBOX_REPO" \
+  && echo "# registro pre-pr" > .planning/reviews/pre-pr-checkpoint-flow.md \
+  && git add -A && git commit -q -m "planning: registrar review dual pre-push") > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$POSTPR_REVIEWED_SHA"
+assert_postpr_caso_a "post-pr-create CASO A: review_sha == HEAD~1 con delta solo-.planning → checkpoint (registro post-review legítimo)" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
+sandbox_cleanup
+
+# assert_postpr_caso_b: corre el hook en el sandbox con el input dado y
+# verifica el contrato completo de CASO B: exit 0, línea de diagnóstico
+# (por default "sin evidencia de review pre-push"; el 3er argumento
+# opcional la reemplaza — los casos de anclaje al SHA revisado esperan
+# "evidencia de review no cubre los commits actuales"), bloque ACCIÓN
+# REQUERIDA conservado de v1 (reviewers + referencia al runbook), AUSENCIA
+# del checkpoint de CASO A y sin ruido de errores en el output (un
+# state.json ilegible degrada limpio, sin filtrar el stderr de jq al
+# orchestrator). Reutilizado por los casos de ausencia, estado, anclaje y
+# degradación.
+assert_postpr_caso_b() {
+  local test_name="$1" stdin_json="$2"
+  local diag_line="${3:-No hay evidencia de review dual pre-push para este branch — se trata como PR fuera del flujo.}"
+  TOTAL=$((TOTAL + 1))
+  local exit_code=0 output
+  output=$(cd "$SANDBOX_REPO" && printf '%s' "$stdin_json" | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || exit_code=$?
+  if [ "$exit_code" -eq 0 ] \
+    && echo "$output" | grep -qF "$diag_line" \
     && echo "$output" | grep -qF "ACCIÓN REQUERIDA: Revisa este PR: $POSTPR_URL" \
     && echo "$output" | grep -qF "security-reviewer" \
     && echo "$output" | grep -qF "qa-frontend" \
@@ -2016,6 +2050,52 @@ assert_postpr_caso_b "post-pr-create CASO B: review=done pero branch de otra fea
   "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
 sandbox_cleanup
 
+# Diagnóstico de los casos de anclaje: fase y branch coinciden pero el SHA
+# revisado no cubre el HEAD actual — distinto del "sin evidencia" genérico.
+POSTPR_DIAG_ANCLA="evidencia de review no cubre los commits actuales"
+
+# Caso: CASO B por anclaje — review=done y branch coincide, pero el delta
+# review_sha..HEAD toca un archivo FUERA de .planning/ (código commiteado
+# después de los veredictos limpios): la evidencia no cubre los commits
+# que el PR realmente lleva.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+POSTPR_REVIEWED_SHA=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
+(cd "$SANDBOX_REPO" \
+  && echo "cambio post-review" > src-change.txt \
+  && git add -A && git commit -q -m "cambio post-review fuera de .planning") > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$POSTPR_REVIEWED_SHA"
+assert_postpr_caso_b "post-pr-create CASO B: delta post-review con archivo fuera de .planning → evidencia no cubre los commits" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")" \
+  "$POSTPR_DIAG_ANCLA"
+sandbox_cleanup
+
+# Caso: CASO B por anclaje — review_sha AUSENTE del state.json (las dos
+# señales viejas, fase + branch, ya no bastan solas para CASO A).
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow"
+assert_postpr_caso_b "post-pr-create CASO B: review_sha ausente → evidencia no cubre los commits" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")" \
+  "$POSTPR_DIAG_ANCLA"
+sandbox_cleanup
+
+# Caso: CASO B por anclaje — review_sha es un commit real del repo pero
+# NO-ancestro de HEAD (commit de un branch lateral que nunca se integró):
+# lo revisado no es lo que este branch lleva.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+(cd "$SANDBOX_REPO" \
+  && git checkout -q -b side-branch \
+  && git commit -q --allow-empty -m "commit lateral" \
+  && git checkout -q feature/checkpoint-flow) > /dev/null 2>&1
+POSTPR_SIDE_SHA=$(cd "$SANDBOX_REPO" && git rev-parse side-branch)
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$POSTPR_SIDE_SHA"
+assert_postpr_caso_b "post-pr-create CASO B: review_sha no-ancestro de HEAD → evidencia no cubre los commits" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")" \
+  "$POSTPR_DIAG_ANCLA"
+sandbox_cleanup
+
 # Caso: degradación — state.json malformado (JSON inválido) → CASO B, y el
 # error de parseo de jq NO se filtra al output (el orchestrator recibe el
 # diagnóstico limpio, no un stack de jq).
@@ -2033,7 +2113,7 @@ sandbox_cleanup
 # hook intentara continuar sin jq, cualquier output lo delataría.
 sandbox_create
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
-postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow"
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
 NO_JQ_POSTPR_BIN=$(mktemp -d)
 for cmd in bash cat grep git; do
   CMD_PATH=$(command -v "$cmd" 2>/dev/null)
@@ -2063,7 +2143,7 @@ fi
 # (incluido otro subcomando de gh pr) no producen output alguno.
 sandbox_create
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
-postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow"
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
 for POSTPR_CMD in "git push -u origin feature/checkpoint-flow" "gh pr view 7 --json url"; do
   POSTPR_EXIT_PASS=0
   POSTPR_OUTPUT_PASS=$(cd "$SANDBOX_REPO" && postpr_input "$POSTPR_CMD" "$POSTPR_URL" \
@@ -2084,7 +2164,7 @@ sandbox_cleanup
 # (sin URL no hay número de PR que reconciliar, aunque el review esté done).
 sandbox_create
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
-postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow"
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
 POSTPR_EXIT_WARN=0
 POSTPR_OUTPUT_WARN=$(cd "$SANDBOX_REPO" && postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "algo falló: rate limit de la API" \
   | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_WARN=$?
