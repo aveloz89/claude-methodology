@@ -34,6 +34,31 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-08-14] PR #55 — Barrido de follow-ups: plugin de distribución, slug con hash, sandbox total y skill review-pr
+
+**Métricas:**
+- Review rounds: 1 dual + 1 ronda de sugerencias (sin re-review — cambios menores validados por tests, per skill)
+- Hallazgos security: 3 LOW + 1 robustez + 1 adjudicación de contrato — 0 blockers; el checklist crítico (fuga repo-específica en global/CLAUDE.md) salió limpio
+- Hallazgos qa-frontend: no aplica
+- Hallazgos qa-backend: 4 sugerencias, 0 blockers; verificación empírica completa (suites + 5 escenarios de installer + tests validados por mutación)
+- Errores de build/CI: 0 (sin CI; suites 110/110 + 19/19 verificadas por dev, QA remoto y orchestrator)
+- Self-reflection atrapó: el validate del plugin destapó YAML roto en ui-ux.md (legacy) — arreglado en el lote, no estacionado
+- Lotes ejecutados: 5 (22→24 tareas con las agregadas) + 1 ronda de sugerencias (5) + docs
+- Devs involucrados: backend-dev (lotes 1–4), general-purpose con rol inyectado (lote 5, docs, sugerencias — ver hallazgo de transición), architect (fable, con verificación de CLI en vivo)
+
+**Qué salió bien:**
+- El architect verificó el formato del plugin contra la CLI real (ciclo add→install en HOME aislado) ANTES de diseñar — cero retrabajo por formatos asumidos.
+- La ronda de sugerencias demostró RED real: los symlinks con `..` sí se borraban (el LOW de security era bug genuino, no teoría).
+- El pulido del installer se validó con 22 assertions en HOME fake antes de tocar nada real.
+- La instrumentación `raw_keys` del PR #54 pagó: primer análisis del log reveló la causa de los `unknown` (payload con `agent_type: null`, forma de evento Stop) — el diagnóstico diferido funcionó como se diseñó.
+- **Migración en caliente gestionada**: quitar el bloque hooks del settings symlinkeado + install.sh inmediato dejó doble registro inocuo, nunca ventana sin guards (verificado con plugin details).
+
+**Qué causó re-work:**
+- **La migración des-registró los tipos de agente de la sesión corriendo** (el symlink legacy ~/.claude/agents era lo que los cargaba): los lotes 5+, docs y reviews corrieron con general-purpose + rol inyectado desde agents/*.md. Funcionó bien como workaround, pero es fricción. Lección: tras migrar el mecanismo de carga de agentes, la sesión debe reiniciarse — documentado; los flujos de instalación deben avisarlo.
+- El watchdog mató un dev (600s sin progreso, probable CLI interactiva colgada) — mitigación que funcionó: reanudar con instrucción de timeout manual + stdin cerrado en toda invocación de `claude`.
+
+**Patrón potencial:** sí, dos. (1) "Verificar contra el sistema real antes de diseñar/afirmar" — 3ª aparición (PR #49: stat en Docker; PR #54: repo público recalibró severidad; PR #55: CLI del plugin + RED del installer). **Regla de 3 alcanzada** → propuesta: añadir a `implementation-principles.md` o al prompt del architect la regla explícita "toda afirmación sobre comportamiento de plataforma/entorno se verifica ejecutando, no se asume de docs". (2) Rol inyectado como fallback de agentes nombrados — funcionó 4 veces; documentarlo en governance-playbook como respuesta estándar a "agente no disponible".
+
 ### [2026-08-14] PR #54 — Cierre de todos los issues abiertos: guards endurecidos, fail-closed y sanitización
 
 **Métricas:**

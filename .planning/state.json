@@ -2,18 +2,18 @@
   "schema": 1,
   "feature": "followups-sweep",
   "branch": "feature/followups-sweep",
-  "pr": null,
-  "updated": "2026-08-14T07:20:00Z",
+  "pr": 55,
+  "updated": "2026-08-14T07:40:00Z",
   "phases": {
     "brainstorming": "done",
     "design": "done",
     "implementation": "done",
     "docs": "done",
-    "pr": "in_progress",
+    "pr": "done",
     "ci": "skipped",
     "review": "done",
     "e2e": "skipped",
-    "merge": "pending"
+    "merge": "done"
   },
   "batches": [
     {
