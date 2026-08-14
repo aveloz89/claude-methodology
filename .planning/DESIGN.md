@@ -68,13 +68,13 @@ Sin claves `skills`/`agents`/`hooks` explícitas: el auto-discovery por convenci
     {
       "name": "methodology",
       "source": "./",
-      "description": "Metodología completa: 13 agentes, 13 hooks, 4 skills"
+      "description": "Metodología completa: 13 agentes, 14 hooks, 4 skills"
     }
   ]
 }
 ```
 
-**`hooks/hooks.json`** (nuevo): espejo exacto del bloque `hooks` actual de `settings.json` — mismos eventos, matchers y timeouts — con `~/.claude/hooks/` reemplazado por `${CLAUDE_PLUGIN_ROOT}/hooks/`. Los 13 hooks: 7 PreToolUse (block-admin-merge, block-force-push, block-hard-reset, pre-push-guard, pre-merge-check, pre-release-sweep, pre-commit-guard), 3 PostToolUse (post-pr-create, context-monitor, docker-refresh), SessionStart matcher `startup` (session-start-context), PreCompact (pre-compact-snapshot), SubagentStop (subagent-stop-log), SessionEnd (session-end-check). La resolución de libs internas (`${0%/*}/lib/…`) funciona igual bajo el plugin root — no cambia ningún hook.
+**`hooks/hooks.json`** (nuevo): espejo exacto del bloque `hooks` actual de `settings.json` — mismos eventos, matchers y timeouts — con `~/.claude/hooks/` reemplazado por `${CLAUDE_PLUGIN_ROOT}/hooks/`. Los 14 hooks: 7 PreToolUse (block-admin-merge, block-force-push, block-hard-reset, pre-push-guard, pre-merge-check, pre-release-sweep, pre-commit-guard), 3 PostToolUse (post-pr-create, context-monitor, docker-refresh), SessionStart matcher `startup` (session-start-context), PreCompact (pre-compact-snapshot), SubagentStop (subagent-stop-log), SessionEnd (session-end-check). La resolución de libs internas (`${0%/*}/lib/…`) funciona igual bajo el plugin root — no cambia ningún hook.
 
 **Consecuencia aceptada**: `plugin install` copia el repo completo (incl. `tests/`, `docs/`, `rules/`, `.planning/`) al cache versionado. Es inerte y pesa poco; la alternativa (subdir) cuesta más de lo que compra. Bonus: `rules/` y `rulebooks/` viajan físicamente en la copia aunque no se auto-carguen — el installer residual sigue siendo su mecanismo de carga.
 
@@ -114,7 +114,7 @@ Sin claves `skills`/`agents`/`hooks` explícitas: el auto-discovery por convenci
 
 `install.sh` **no se deprecia**: se reduce a lo que el plugin no cubre, más la migración desde la instalación por symlinks. Comportamiento nuevo (idempotente, correr N veces = mismo estado):
 
-1. **Instala residual**: symlink `~/.claude/CLAUDE.md` → `global/CLAUDE.md` (backup `.bak` si existe archivo real); symlinks de `rules/`, `rulebooks/`, `statusline.sh` (igual que hoy).
+1. **Instala residual**: symlink `~/.claude/CLAUDE.md` → `global/CLAUDE.md`. Si existe un archivo real del usuario: **SKIP** — se deja intacto, sin backup `.bak` (más conservador y coherente con la regla dura de §Riesgos: no se borra ni reemplaza nada del usuario); el mensaje final sugiere integrar la metodología vía una línea de import (`@<repo>/global/CLAUDE.md`) o merge manual. Symlinks de `rules/`, `rulebooks/`, `statusline.sh` (igual que hoy).
 2. **Migración de legacy**: elimina `~/.claude/agents`, `~/.claude/hooks` **solo si son symlinks que apuntan dentro de este repo** (ahora los provee el plugin); si son directorios reales, no los toca y avisa. `~/.claude/skills`: si es symlink al repo, lo elimina y crea directorio real.
 3. **Dev-loop**: crea symlink `~/.claude/skills/methodology` → raíz del repo.
 4. **settings.json deja de distribuirse**: si `~/.claude/settings.json` es symlink al repo, lo **materializa como archivo real** (copia del contenido actual) para desacoplar la config viva del working tree. El `settings.json` del repo pierde su bloque `hooks` (los registra el plugin vía hooks.json) y queda documentado como config de referencia del autor, ya no instalable.
@@ -234,7 +234,7 @@ argument-hint: "<número de PR> [security|qa|full]"
 **Nuevos:**
 - `.claude-plugin/plugin.json` — manifest del plugin
 - `.claude-plugin/marketplace.json` — manifest del marketplace
-- `hooks/hooks.json` — registro de los 13 hooks para el plugin
+- `hooks/hooks.json` — registro de los 14 hooks para el plugin
 - `hooks/lib/slug.sh` — lib compartida `repo_slug()`
 - `global/CLAUDE.md` — núcleo global-safe de la metodología (→ `~/.claude/CLAUDE.md`)
 - `skills/review-pr/SKILL.md` — skill nueva
