@@ -48,9 +48,9 @@
       "name": "hybrid-installer",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 1,
+      "tasks_done": 2,
       "tasks_total": 6,
-      "current_task": "Tarea 2: adelgazar CLAUDE.md del repo"
+      "current_task": "Tarea 3: reescribir install.sh residual + migración"
     },
     {
       "id": 5,
