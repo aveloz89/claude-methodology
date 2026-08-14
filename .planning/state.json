@@ -3,11 +3,11 @@
   "feature": "align-atomic-commits",
   "branch": "feature/align-atomic-commits",
   "pr": null,
-  "updated": "2026-08-14T14:10:00Z",
+  "updated": "2026-08-14T15:05:00Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
-    "implementation": "in_progress",
+    "implementation": "done",
     "docs": "skipped",
     "review": "pending",
     "pr": "pending",
@@ -20,8 +20,8 @@
       "id": 1,
       "name": "align-wording",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
+      "status": "done",
+      "tasks_done": 3,
       "tasks_total": 3,
       "current_task": null
     }
