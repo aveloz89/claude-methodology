@@ -2054,6 +2054,53 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Caracterización de lo conservado de v1. Los dos casos siembran un CASO A
+# válido adrede: ni el passthrough ni el WARNING deben depender del estado
+# del review — la extracción de comando/URL va ANTES que la lógica de
+# state.json.
+
+# Caso: passthrough silencioso — comandos que no son `gh pr create`
+# (incluido otro subcomando de gh pr) no producen output alguno.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow"
+for POSTPR_CMD in "git push -u origin feature/checkpoint-flow" "gh pr view 7 --json url"; do
+  POSTPR_EXIT_PASS=0
+  POSTPR_OUTPUT_PASS=$(cd "$SANDBOX_REPO" && postpr_input "$POSTPR_CMD" "$POSTPR_URL" \
+    | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_PASS=$?
+  TOTAL=$((TOTAL + 1))
+  if [ "$POSTPR_EXIT_PASS" -eq 0 ] && [ -z "$POSTPR_OUTPUT_PASS" ]; then
+    echo -e "${GREEN}PASS${NC}: post-pr-create passthrough silencioso: '$POSTPR_CMD' → exit 0 sin output"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: post-pr-create passthrough silencioso: '$POSTPR_CMD' → exit 0 sin output (exit: $POSTPR_EXIT_PASS, output: $POSTPR_OUTPUT_PASS)"
+    FAIL=$((FAIL + 1))
+  fi
+done
+sandbox_cleanup
+
+# Caso: WARNING conservado — `gh pr create` cuyo stdout no trae URL de PR
+# extraíble → verificación manual + instrucción de review, sin checkpoint
+# (sin URL no hay número de PR que reconciliar, aunque el review esté done).
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow"
+POSTPR_EXIT_WARN=0
+POSTPR_OUTPUT_WARN=$(cd "$SANDBOX_REPO" && postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "algo falló: rate limit de la API" \
+  | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_WARN=$?
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_WARN" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_WARN" | grep -qF "WARNING: Se detectó 'gh pr create' pero no se pudo extraer la URL del PR del output." \
+  && echo "$POSTPR_OUTPUT_WARN" | grep -qF "Verifica manualmente si el PR fue creado" \
+  && ! echo "$POSTPR_OUTPUT_WARN" | grep -qF "Review dual pre-push verificado"; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create WARNING conservado: gh pr create sin URL en stdout → verificación manual, sin checkpoint"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create WARNING conservado: gh pr create sin URL en stdout → verificación manual, sin checkpoint (exit: $POSTPR_EXIT_WARN, output: $POSTPR_OUTPUT_WARN)"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 
 # --- .gitignore (#52) ---
