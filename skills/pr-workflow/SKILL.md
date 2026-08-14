@@ -130,7 +130,7 @@ CodeQL, Semgrep y dependency-audit **NO corren en PRs a `dev`** — ahí solo li
 - **PRs a `main`** (pre-release) — bloqueantes, como siempre. **Bloqueante de verdad**: los jobs de `security.yml` deben estar enumerados en `required_status_checks.contexts` de la protection de `main` — un scan que corre pero no está listado es informativo y no impide el merge
 - **Schedule semanal** (cron) sobre `dev` — con checkout `ref: dev` explícito (los crons corren sobre el default branch)
 
-**Cobertura que se mantiene:** el `security-reviewer` (agente) sigue revisando cada PR con su checklist (regla 2), así que ningún PR entra a `dev` sin revisión de seguridad — solo se mueve el scan automatizado caro al punto de release.
+**Cobertura que se mantiene:** el `security-reviewer` (agente) sigue revisando cada cambio con su checklist — pre-push, en la Fase 2.6 (regla 2) — así que ningún PR entra a `dev` sin revisión de seguridad — solo se mueve el scan automatizado caro al punto de release.
 
 **Respuesta a hallazgos del scan semanal** (un scan cuya salida nadie procesa no acota ninguna ventana):
 
