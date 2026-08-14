@@ -265,7 +265,7 @@ Cada subagente recibe un paquete de contexto, **no el historial completo**:
 
 - `architect` recibe: `BRIEF.md` completo + tarea ("diseña la solución para esto").
 - `backend-dev` / `frontend-dev` reciben: sección de `DESIGN.md` correspondiente al lote + lista de tareas TDD del lote + `rules/<lenguaje>.md` aplicable.
-- `security-reviewer` / `qa-*` reciben: diff completo del PR + `DESIGN.md` + `BRIEF.md` (necesitan saber qué se quería para juzgar si el código lo cumple).
+- `security-reviewer` / `qa-*` reciben: **la fuente del diff, que la parametriza el orchestrator** — diff local (`git diff <base>...HEAD`) en Fase 2.6 (default del flujo, no existe PR todavía); diff del PR (`gh pr diff <N>`) solo en re-reviews post-PR y PRs fuera del flujo — + `DESIGN.md` + `BRIEF.md` (necesitan saber qué se quería para juzgar si el código lo cumple).
 - `db-specialist` recibe: `DESIGN.md` (sección de datos) + schema actual.
 
 **Quien construye el paquete eres tú**, no el agente que va a recibirlo.
@@ -333,14 +333,15 @@ Visibilidad en vivo del pipeline de la fase para el usuario. Se crea SIEMPRE al 
 Al recibir el plan de lotes del architect, crea:
 
 1. **Una tarea por lote** — subject: `Lote N: <resumen corto del contenido>`. Si el plan es multi-PR, indica a qué PR pertenece en la descripción.
-2. **Una tarea por PR del plan**: `Abrir PR <n> + reviews (security + qa-*) + CI` — bloqueada por (`addBlockedBy`) los lotes que contiene.
-3. **Una tarea de E2E** por cada PR que toque UI: `E2E visual en navegador` — bloqueada por la tarea del PR. Solo se elimina si el usuario renuncia explícitamente a la E2E (y esa renuncia queda registrada en STATE.md como deuda consciente).
-4. **Una tarea final**: `Merge + retro de fase (LEARNINGS + STATE handoff)` — bloqueada por todo lo anterior.
+2. **Una tarea de review por PR del plan**: `Review dual local (security + qa-*)` — bloqueada por (`addBlockedBy`) los lotes que contiene el PR.
+3. **Una tarea por PR del plan**: `Abrir PR <n> + CI` — bloqueada por la tarea de review dual local.
+4. **Una tarea de E2E** por cada PR que toque UI: `E2E visual en navegador` — bloqueada por la tarea del PR. Solo se elimina si el usuario renuncia explícitamente a la E2E (y esa renuncia queda registrada en STATE.md como deuda consciente).
+5. **Una tarea final**: `Merge + retro de fase (LEARNINGS + STATE handoff)` — bloqueada por todo lo anterior.
 
 ### Reglas de actualización
 
 - `in_progress` al LANZAR el trabajo (dev invocado, reviews lanzados, E2E iniciada).
-- `completed` SOLO cuando el hito ocurrió de verdad: lote = commits pusheados y reporte del dev recibido; PR/reviews = veredictos limpios + sugerencias aplicadas + CI verde; E2E = checklist ejecutada con hallazgos resueltos; merge+retro = mergeado Y retro commiteada.
+- `completed` SOLO cuando el hito ocurrió de verdad: lote = commits del lote hechos (locales — los devs no pushean) y reporte del dev recibido; review dual local = veredictos limpios + sugerencias aplicadas + registro commiteado; PR/CI = PR creado + registro reconciliado (`PR-<N>.md`) + CI verde; E2E = checklist ejecutada con hallazgos resueltos; merge+retro = mergeado Y retro commiteada.
 - Los blockers de reviews/E2E se resuelven dentro de la tarea en curso (fixes en el mismo PR) — NO crean tareas nuevas, salvo que generen trabajo fuera del PR (fix-PR posterior o issue), en cuyo caso sí se agrega la tarea.
 - Si el usuario pausa la fase, las tareas quedan en su estado actual y HANDOFF.md/state.json registran el corte exacto (el tracker no persiste entre sesiones; al retomar, se recrea desde HANDOFF.md + STATE.md + state.json).
 - Fases con un solo paso trivial no necesitan tracker (criterio general del harness: <3 pasos no se trackea).
@@ -416,9 +417,9 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
     "design": "in_progress",
     "implementation": "pending",
     "docs": "pending",
+    "review": "pending",
     "pr": "pending",
     "ci": "pending",
-    "review": "pending",
     "e2e": "skipped",
     "merge": "pending"
   },
@@ -439,6 +440,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 - **Enum de status** (`phases.*` y `batches[].status`): `pending | in_progress | done | failed | skipped`. Ningún otro valor.
 - `phases` es un objeto de **claves fijas** — siempre las 9 de arriba, presentes todas (`skipped` para las que no aplican, p. ej. `e2e` sin UI). Claves fijas = mutación mínima ("cambiar un valor"), menos corruptible que un array.
 - `batches` refleja el plan del architect: `id`/`name`/`agent` los siembra el orchestrator al cerrar el diseño; `status`/`tasks_done`/`current_task` mutan durante la ejecución.
+- **Orden de transiciones**: `review` pasa a `done` en la Fase 2.6, **antes** que `pr` y `ci` — el review dual ocurre pre-push. Es la evidencia que el hook `post-pr-create.sh` verifica al crearse el PR (CASO A: `phases.review == "done"` y `branch` igual al actual).
 
 **Quién escribe qué:**
 
@@ -446,9 +448,10 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 |---|---|---|
 | Archivo completo (creación) | Orchestrator | Al cerrar el diseño (fin de Fase 1) |
 | `phases.*` | Orchestrator | En cada transición de fase del pipeline |
+| `phases.review` | Orchestrator | Fase 2.6, al cerrar veredictos limpios (antes que `pr` y `ci`) |
 | `batches[].status` | Orchestrator | Al invocar / al cerrar cada lote |
 | `batches[].tasks_done` y `current_task` de **su** batch | Dev que ejecuta el lote | Antes de empezar cada tarea atómica (reemplaza la regla 3 de `agent-budget.md` de "STATE.md actualizado entre tareas") |
-| `pr` | Orchestrator | Fase 2.7 (al crear el PR) |
+| `pr` | Orchestrator | Fase 2.7 — dentro del commit de reconciliación (el mismo que renombra el registro a `PR-<N>.md`) |
 | `updated` | Quien haga la escritura | En toda escritura al archivo |
 
 **Cuándo actualizar `STATE.md`:**

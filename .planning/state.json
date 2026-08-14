@@ -30,9 +30,9 @@
       "name": "docs-core-flujo",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 1,
+      "tasks_done": 2,
       "tasks_total": 5,
-      "current_task": "2: context isolation + tracker + transiciones de state.json"
+      "current_task": "3: formato de reporte + registro dual + errores comunes"
     },
     {
       "id": 3,
