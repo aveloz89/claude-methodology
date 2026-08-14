@@ -2,8 +2,8 @@
   "schema": 1,
   "feature": "align-atomic-commits",
   "branch": "feature/align-atomic-commits",
-  "pr": null,
-  "updated": "2026-08-14T15:20:00Z",
+  "pr": 57,
+  "updated": "2026-08-14T15:30:00Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
