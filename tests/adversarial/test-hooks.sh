@@ -1958,6 +1958,43 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# assert_postpr_caso_b: corre el hook en el sandbox con el input dado y
+# verifica el contrato completo de CASO B: exit 0, línea de diagnóstico
+# ("sin evidencia de review pre-push"), bloque ACCIÓN REQUERIDA conservado
+# de v1 (reviewers + referencia al runbook) y AUSENCIA del checkpoint de
+# CASO A. Reutilizado por los casos de ausencia, estado y degradación.
+assert_postpr_caso_b() {
+  local test_name="$1" stdin_json="$2"
+  local extra_check="${3:-true}"
+  TOTAL=$((TOTAL + 1))
+  local exit_code=0 output
+  output=$(cd "$SANDBOX_REPO" && printf '%s' "$stdin_json" | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || exit_code=$?
+  if [ "$exit_code" -eq 0 ] \
+    && echo "$output" | grep -qF "No hay evidencia de review dual pre-push para este branch — se trata como PR fuera del flujo." \
+    && echo "$output" | grep -qF "ACCIÓN REQUERIDA: Revisa este PR: $POSTPR_URL" \
+    && echo "$output" | grep -qF "security-reviewer" \
+    && echo "$output" | grep -qF "qa-frontend" \
+    && echo "$output" | grep -qF "qa-backend" \
+    && echo "$output" | grep -qF "Clasificación del diff por capa" \
+    && ! echo "$output" | grep -qF "Review dual pre-push verificado" \
+    && eval "$extra_check"; then
+    echo -e "${GREEN}PASS${NC}: $test_name"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit: $exit_code, output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# Caso: CASO B por ausencia — sin .planning/state.json en el toplevel no
+# hay evidencia de review pre-push → línea de diagnóstico + bloque
+# ACCIÓN REQUERIDA de v1 (PR fuera del flujo); exit 0.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+assert_postpr_caso_b "post-pr-create CASO B: sin state.json → diagnóstico + ACCIÓN REQUERIDA conservada" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
+sandbox_cleanup
+
 echo ""
 
 # --- .gitignore (#52) ---

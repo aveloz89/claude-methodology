@@ -45,6 +45,7 @@ if [ -n "$PR_URL" ]; then
   # CASO B: sin evidencia de review dual pre-push — PR fuera del flujo
   echo "PR creado: $PR_URL"
   echo ""
+  echo "No hay evidencia de review dual pre-push para este branch — se trata como PR fuera del flujo."
   echo "ACCIÓN REQUERIDA: Revisa este PR: $PR_URL"
   echo "1. Obtén el contexto con 'gh pr diff' y 'gh pr view'."
   echo "2. Clasifica los archivos del diff por capa (frontend / backend)."
