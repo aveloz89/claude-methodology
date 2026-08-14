@@ -98,7 +98,7 @@ Fase 4:    Learn (post-merge)
 
 - **Setup del branch lo haces tú una sola vez** (`git checkout dev && git checkout -b feature/<slug>`). Los devs trabajan sobre ese branch existente, no crean nuevos.
 - **Modo single-PR (default)**: todos los lotes en el mismo branch, último lote con `last_batch=true`; después vienen docs (Fase 2.5), review dual local (Fase 2.6) y push + PR (Fase 2.7, lo haces tú).
-- **Presupuesto de CI**: repos privados, minutos contados. Un push por ronda de review, docs en el push inicial, reproducir el check fallido localmente antes de re-push. Detalle en la skill `pr-workflow`, regla 5.
+- **Presupuesto de CI**: repos privados, minutos contados. Un push por ronda de review (rondas post-PR; las de Fase 2.6 no pushean), docs en el push inicial, reproducir el check fallido localmente antes de re-push. Detalle en la skill `pr-workflow`, regla 5.
 - **Modo multi-PR**: solo si el architect lo justificó. Cada grupo con su branch + PR.
 - **Orden cuando hay db-specialist**: db-specialist primero (schema), luego backend-dev (consume schema), luego frontend-dev. Pueden paralelizar back/front si son archivos disjuntos.
 - **Validación del plan del architect**: cada lote ≤5 tareas, max 3 reintentos de validación, después escalar al usuario.

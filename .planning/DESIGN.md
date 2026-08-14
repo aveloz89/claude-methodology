@@ -200,12 +200,12 @@ Resultado del grep DoD (`pr diff|crear el PR|post-pr|Fase 2\.|Fase 3|reviews/PR-
 - `agents/qa-backend.md` — contrato #3 (L19–20, L267, L286).
 - `agents/qa-frontend.md` — contrato #3 (L19–20, L196, L215).
 - `agents/docs.md` L14 — precisión opcional: "(Fase 2.5…, ANTES del review dual local y del push + PR)". Barato, evita ambigüedad.
+- `rulebooks/governance-playbook.md` §1–§3 — gates de bloqueo reescritos agnósticos al momento ("no se pushea (pre-push, el default) / no se mergea (post-PR)"). Clasificado inicialmente como sin-cambio; el drift se detectó y cerró en b96bf05.
 
 ### Verificados SIN cambio (falsos positivos del grep — documentado para no re-investigar)
 
 - `agents/build-resolver.md` L219 "Fase 3: Aplicar el fix mínimo" — fases **internas** del agente, no del pipeline. L17 referencia "Fase 2.8", que conserva número. Sin cambio.
 - `skills/review-pr/SKILL.md` — post-PR por definición, fuera de alcance por BRIEF; su convención de append a `PR-<N>.md` es exactamente lo que la reconciliación preserva. Sin cambio.
-- `rulebooks/governance-playbook.md` — los "Re-review de QA/security" de sus diagramas de conflicto son agnósticos del momento (aplican igual pre-push). Sin cambio.
 - `hooks/hooks.json`, `settings.json`, `tests/adversarial/test-plugin-manifest.sh` — registro del hook intacto.
 - E2E Modo B / `agents/e2e-runner.md` — sin cambio (D-03).
 - `tests/validation/`, `docs/books/` — cero referencias al orden del flujo.
