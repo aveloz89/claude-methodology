@@ -26,7 +26,7 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal, de
 ### Hooks (14)
 | Hook | Evento | Qué hace |
 |------|--------|----------|
-| **pre-commit-guard** | PreToolUse (Bash) | Corre tests antes de cada commit. Detecta pnpm/yarn/npm/pytest |
+| **pre-commit-guard** | PreToolUse (Bash) | Corre tests antes de cada commit. Detecta pnpm/yarn/npm/pytest. En monorepos npm/pnpm acota la corrida a los workspaces tocados (`hooks/lib/workspace-scope.sh`); si no puede resolverlo con confianza, corre todo |
 | **pre-push-guard** | PreToolUse (Bash) | Bloquea push directo a main |
 | **block-admin-merge** | PreToolUse (Bash) | Bloquea `gh pr merge --admin` que bypasea branch protections |
 | **block-force-push** | PreToolUse (Bash) | Bloquea `git push --force` / `-f` |
@@ -150,7 +150,8 @@ claude-methodology/
 │   ├── hooks.json
 │   ├── lib/
 │   │   ├── guard-matching.sh
-│   │   └── slug.sh
+│   │   ├── slug.sh
+│   │   └── workspace-scope.sh
 │   ├── post-pr-create.sh
 │   ├── pre-commit-guard.sh
 │   ├── pre-compact-snapshot.sh

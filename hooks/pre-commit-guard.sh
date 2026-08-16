@@ -55,8 +55,32 @@ if [ -f "package.json" ]; then
   if jq -e '.scripts.test' package.json > /dev/null 2>&1; then
     TEST_CMD=$(jq -r '.scripts.test' package.json)
     if [ "$TEST_CMD" != "null" ] && [ "$TEST_CMD" != "" ] && [ "$TEST_CMD" != "echo \"Error: no test specified\" && exit 1" ]; then
-      echo "Running tests before commit ($PKG_MGR)..." >&2
-      $PKG_MGR test 2>&1
+      # Scoping por workspace en monorepos: correr "$PKG_MGR test" en la
+      # raíz de un monorepo dispara TODAS las suites en cada commit, aunque
+      # el commit toque un solo workspace. hooks/lib/workspace-scope.sh
+      # resuelve, con criterio conservador, si el commit se puede acotar a
+      # los workspaces realmente tocados.
+      #
+      # A diferencia de guard-matching.sh más arriba, esta lib NO es
+      # fail-closed: si no existe, no es legible, o no logra resolver un
+      # subconjunto con confianza, simplemente no se activa el scoping y se
+      # sigue el camino de siempre ($PKG_MGR test) — nunca bloquea el
+      # commit por su ausencia.
+      SCOPED=false
+      WS_LIB="${0%/*}/lib/workspace-scope.sh"
+      if [ -r "$WS_LIB" ]; then
+        # shellcheck source=lib/workspace-scope.sh
+        source "$WS_LIB"
+        workspace_scope_resolve "$PKG_MGR" && SCOPED=true
+      fi
+
+      if [ "$SCOPED" = true ]; then
+        echo "Running tests before commit ($PKG_MGR, workspace(s): $WORKSPACE_SCOPE_LABEL)..." >&2
+        "${WORKSPACE_SCOPE_CMD[@]}" 2>&1
+      else
+        echo "Running tests before commit ($PKG_MGR)..." >&2
+        $PKG_MGR test 2>&1
+      fi
       if [ $? -ne 0 ]; then
         echo "BLOCKED: Tests failed. Fix tests before committing." >&2
         exit 2
