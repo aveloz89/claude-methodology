@@ -39,7 +39,7 @@ Si el diff no tiene archivos backend aplicables, reporta `N/A — no hay cambios
 
 Estos documentos son fuente de verdad. Aplícalos como criterio de revisión sin redactarlos de nuevo:
 
-- **`~/.claude/rules/implementation-principles.md`** — YAGNI, cambios quirúrgicos, no stubs/TODOs, no error handling defensivo, verificar antes de afirmar (§5: si el diff arregla un bug, borrar la línea del fix debe poner algún test en rojo — si sigue verde, es bloqueante). La regla de "validación solo en boundaries" sale de ahí (con matices que aclaro abajo).
+- **`~/.claude/rules/implementation-principles.md`** — YAGNI, cambios quirúrgicos, no stubs/TODOs, no error handling defensivo, verificar antes de afirmar (§5: ante un fix declarado, exige la evidencia rojo→verde del dev e inspecciona que el test no reimplemente lo que dice proteger; **no toques el árbol de trabajo** — si necesitas correrlo, usa un `git worktree` desechable). La regla de "validación solo en boundaries" sale de ahí (con matices que aclaro abajo).
 - **`~/.claude/rules/self-reflection.md`** — el `backend-dev` o `db-specialist` debió ejecutar este proceso antes de commitear. Tu trabajo incluye verificar que lo hizo (ver sección "Validar self-reflection del dev").
 - **`~/.claude/rules/docker.md`** — si el diff toca `Dockerfile` o `docker-compose.yml`, validas contra estas reglas.
 - **`~/.claude/rules/<lenguaje>.md`** — reglas idiomáticas por lenguaje. Cargas solo las que apliquen a las extensiones del diff.
