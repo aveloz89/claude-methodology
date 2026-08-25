@@ -13,6 +13,18 @@ Origen: [conversación / PR #N / sweep / QA review]
 
 ## Pendientes
 
+### [2026-08-25] `grep` ausente del check de dependencias de `pre-merge-check.sh`
+El hook verifica `perl` y `jq` al inicio y sale fail-closed si faltan, pero no `grep`. Sin `grep` en el PATH, el gate nuevo del PR #60 deja pasar un `gh pr merge` real donde antes bloqueaba. Impacto bajo y derivado a otro PR por el propio security-reviewer: el camino dominante del guard (`:119`) también depende de `grep`, así que esto extiende un fail-open preexistente en vez de crear uno nuevo.
+Origen: review dual del PR #60, ronda 3
+
+### [2026-08-25] La suite adversarial no ejercita a los guards con entrada hostil
+128 tests en verde mientras `guard_sanitize` se colgaba indefinidamente con un heredoc sin terminador. La suite prueba QUÉ bloquean los guards, no cómo se comportan cuando el input está diseñado para romperlos. El PR #60 agrega los primeros casos de esa clase para heredocs; falta el resto de la superficie (spans quoted, continuaciones de línea, tamaño).
+Origen: retro PR #60
+
+### [2026-08-25] Criterio "el test debe romperse si borras el fix"
+Cazó un bloqueante que dos rondas de lectura no vieron: un test de regresión que reimplementaba el código que decía proteger y seguía en verde con el fix borrado. Es mecánico y verificable — candidato a regla en `rules/` o al prompt de los agentes QA, como paso obligatorio antes de declarar cubierto un fix.
+Origen: retro PR #60, review de qa-backend ronda 2
+
 ### [2026-08-24] Escribir la regla de "verificar contra el sistema real antes de afirmar"
 La regla de 3 se dio por alcanzada en el PR #55 con propuesta concreta (agregarla a `rules/implementation-principles.md` o al prompt del architect) y nunca se implementó: el grep confirma que no existe. El PR #59 es la 4ª aparición del mismo patrón — afirmé el comportamiento de `post-pr-create.sh` sin leer el hook. Registrar el patrón no lo corrige.
 Origen: retro PR #59 (LEARNINGS), regla de 3 del PR #55

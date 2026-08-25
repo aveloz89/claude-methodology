@@ -650,6 +650,93 @@ rm -rf "$NO_JQ_PMC_BIN"
 # Con ambos disponibles (PATH normal): comportamiento intacto.
 assert_pre_merge_continue "pre-merge-check con perl y jq disponibles: comportamiento normal intacto (#50)" "git status"
 
+# [security LOW-2] "perl falló en tiempo de ejecución" y "perl ausente"
+# tienen que ser el MISMO estado para este guard: bloquea. Los otros dos
+# guards (block-admin-merge.sh, pre-commit-guard.sh) toleran el fallback
+# de guard_sanitize (comando sin sanear) porque solo BLOQUEAN de más sobre
+# texto sin sanear — la dirección segura. Este guard es distinto: EXTRAE
+# un número de PR del texto (línea ~82, sin GUARD_ANCHOR, a diferencia del
+# check de "es una invocación real" que sí lo usa) y lo usa para decidir A
+# CUÁL PR validar. Sobre texto sin sanear, un señuelo quoted con número
+# ("gh pr merge 7" dentro de un mensaje de commit) hace que esa extracción
+# agarre el número equivocado — termina validando el PR señuelo en vez de
+# bloquear por "sin número explícito", que es lo que debería pasar con la
+# invocación real (gh pr merge --squash, sin número). Repro exacta:
+# git commit -m "ver nota: gh pr merge 7" && gh pr merge --squash.
+FAKE_PERL_FAILS_PMC_DIR=$(mktemp -d)
+cat > "$FAKE_PERL_FAILS_PMC_DIR/perl" <<'FAKE_PERL_PMC_EOF'
+#!/bin/bash
+# Fake perl: simula un guard_sanitize() que falla en tiempo de ejecución
+# (perl SÍ está en PATH, a diferencia de los casos de arriba) — la rama
+# nueva de guard_sanitize que este guard nunca había ejercitado.
+exit 142
+FAKE_PERL_PMC_EOF
+chmod +x "$FAKE_PERL_FAILS_PMC_DIR/perl"
+# "cat" hace falta: a diferencia de los casos de arriba (que bloquean en
+# el chequeo de dependencias, antes de leer stdin), acá perl SÍ está en
+# PATH, así que la ejecución llega hasta INPUT=$(cat) — sin él, el hook
+# fallaría por una razón aburrida (comando no encontrado) en vez de
+# ejercitar el camino que este test quiere probar.
+for cmd in bash jq grep cat; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$FAKE_PERL_FAILS_PMC_DIR/$cmd"
+done
+TOTAL=$((TOTAL + 1))
+PMC_DECOY_JSON=$(jq -n '{tool_input: {command: "git commit -m \"ver nota: gh pr merge 7\" && gh pr merge --squash"}}')
+PMC_DECOY_OUTPUT=$(echo "$PMC_DECOY_JSON" | PATH="$FAKE_PERL_FAILS_PMC_DIR" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+if echo "$PMC_DECOY_OUTPUT" | grep -q '"decision":"block"' \
+  && echo "$PMC_DECOY_OUTPUT" | grep -qF "el saneo del comando" \
+  && ! echo "$PMC_DECOY_OUTPUT" | grep -qF "PR #7"; then
+  echo -e "${GREEN}PASS${NC}: pre-merge-check [security]: perl fallando en tiempo de ejecución bloquea (no valida el PR señuelo del texto sin sanear)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-merge-check [security]: perl fallando en tiempo de ejecución bloquea (no valida el PR señuelo del texto sin sanear) (output: $PMC_DECOY_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$FAKE_PERL_FAILS_PMC_DIR"
+
+# [security MEDIUM, ronda 2] El bloqueo de arriba corría ANTES del check
+# de "esto es una invocación real de gh pr merge" (línea ~94 en la
+# versión sin fix) — un saneo fallido bloqueaba CUALQUIER comando Bash,
+# no solo los que podrían ser un merge. Security lo verificó con "ls -la",
+# "cat README.md" y "git status": los tres recibían "decision":"block"
+# con un mensaje sobre extracción de números de PR que para esos comandos
+# no significa nada. Alcanzable sin trampas: el regex nuevo sigue siendo
+# ~O(n²) en aperturas "<<palabra" sin terminador (4000 aperturas / 122 KB
+# se come el alarm de 5s), así que un comando grande cualquiera se
+# auto-bloquea. Fix: gate permisivo sobre el texto CRUDO (que mencione
+# gh, pr Y merge) antes de decidir si el saneo fallido amerita bloquear.
+FAKE_PERL_FAILS_UNRELATED_DIR=$(mktemp -d)
+cat > "$FAKE_PERL_FAILS_UNRELATED_DIR/perl" <<'FAKE_PERL_UNRELATED_EOF'
+#!/bin/bash
+exit 142
+FAKE_PERL_UNRELATED_EOF
+chmod +x "$FAKE_PERL_FAILS_UNRELATED_DIR/perl"
+for cmd in bash jq grep cat; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$FAKE_PERL_FAILS_UNRELATED_DIR/$cmd"
+done
+
+assert_pre_merge_unrelated_not_blocked() {
+  local test_name="$1" cmd="$2"
+  TOTAL=$((TOTAL + 1))
+  local json output
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$FAKE_PERL_FAILS_UNRELATED_DIR" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  if echo "$output" | grep -q '"continue":true'; then
+    echo -e "${GREEN}PASS${NC}: $test_name"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pre_merge_unrelated_not_blocked "pre-merge-check [security]: perl fallando NO bloquea 'ls -la' (no menciona gh/pr/merge)" "ls -la"
+assert_pre_merge_unrelated_not_blocked "pre-merge-check [security]: perl fallando NO bloquea 'cat README.md' (no menciona gh/pr/merge)" "cat README.md"
+assert_pre_merge_unrelated_not_blocked "pre-merge-check [security]: perl fallando NO bloquea 'git status' (no menciona gh/pr/merge)" "git status"
+rm -rf "$FAKE_PERL_FAILS_UNRELATED_DIR"
+
 rm -rf "$FAKE_GH_DIR"
 
 echo ""
@@ -765,6 +852,331 @@ assert_bam_blocked "block-admin-merge: invocación real dentro de subshell ( ) s
   '( gh pr merge 5 --admin )'
 assert_bam_blocked "block-admin-merge: invocación real tras & (background) se bloquea" \
   'sleep 1 & gh pr merge 5 --admin'
+
+echo ""
+
+# --- guard-matching.sh: ReDoS en heredocs (backtracking catastrófico) ---
+echo "--- guard-matching.sh: ReDoS en heredocs (backtracking catastrófico) ---"
+
+# guard_sanitize() se sourcea directo (no vía un hook) para poder acotar la
+# ejecución con un watchdog en bash: no hay `timeout` por default en
+# macOS, así que se corre en background y se mata si excede
+# REDOS_WATCHDOG_SECONDS. Antes del fix, un heredoc SIN terminador dispara
+# backtracking catastrófico en el regex de saneo (el cuantificador anidado
+# "(?:(?!...).*\n?)*" bajo /s deja que ".*" reconsuma el mismo texto de
+# formas solapadas): con solo 8 líneas de relleno ya tarda más de 3s
+# (medido con perl -0777 y alarm(3) real) y sigue creciendo sin cota
+# aparente. Como los 3 guards (pre-commit-guard.sh, pre-merge-check.sh,
+# block-admin-merge.sh) sourcean este helper en CADA llamada Bash del
+# harness, el cuelgue bloquea la sesión entera, no solo un commit.
+# 8s (no 4s): guard_sanitize() tiene su propio alarm(5) interno como red
+# de seguridad (ver hooks/lib/guard-matching.sh) — este watchdog externo
+# tiene que dar margen para que ESE mecanismo pueda actuar y devolver su
+# fallback antes de que este lo mate desde afuera; si fuera más corto que
+# el alarm interno, mataría el proceso prematuramente y el test nunca
+# ejercitaría el camino de fallback real.
+REDOS_WATCHDOG_SECONDS=8
+
+# build_redos_heredoc: arma con printf (nunca con un heredoc real de bash,
+# para no colgar esta misma suite esperando un EOF por stdin) el TEXTO de
+# un comando "cat <<EOF" con $1 líneas de relleno. terminator="none" no
+# cierra nunca; terminator="indented" cierra con un terminador legítimo
+# pero indentado (2 espacios) — caso que el regex debe seguir reconociendo
+# como heredoc bien formado, no solo el caso patológico.
+build_redos_heredoc() {
+  local lines="$1" terminator="$2" i
+  printf 'cat <<EOF\n'
+  for i in $(seq 1 "$lines"); do
+    printf 'linea %s de relleno\n' "$i"
+  done
+  [ "$terminator" = "indented" ] && printf '  EOF\n'
+  return 0
+}
+
+# guard_sanitize_watchdog_kill: mata TODO el árbol de un subshell que corrió
+# guard_sanitize() en background — pkill mata primero a los HIJOS directos
+# del subshell (printf y perl del pipe dentro de guard_sanitize) antes de
+# matar el subshell mismo; un "kill -9 $pid" solo, sin el pkill, mata el
+# wrapper pero deja el perl real huérfano corriendo sin límite. Compartida
+# entre assert_guard_sanitize_bounded (el kill real cuando algo se cuelga
+# de verdad) y assert_watchdog_no_orphan_perl (el test dedicado a que ESTE
+# mecanismo, en particular, no deje huérfanos) — si el helper cambia o se
+# rompe, los dos dejan de proteger lo mismo a la vez, no solo uno de los
+# dos. Antes cada assert reimplementaba su propio kill por separado: el
+# test dedicado no ejercitaba el de assert_guard_sanitize_bounded, así que
+# borrar el pkill de ESE (el que corre en producción de tests) no ponía
+# nada en rojo (QA ronda 2).
+guard_sanitize_watchdog_kill() {
+  local pid="$1"
+  pkill -9 -P "$pid" 2>/dev/null || true
+  kill -9 "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
+# assert_guard_sanitize_bounded: corre guard_sanitize() en background (en
+# un subshell que sourcea el lib real) y lo mata si no vuelve dentro de
+# REDOS_WATCHDOG_SECONDS. Si vuelve a tiempo y se pasa $expected, además
+# verifica que el resultado saneado es el esperado — no alcanza con que
+# sea rápido, tiene que seguir siendo correcto (regression de #47).
+assert_guard_sanitize_bounded() {
+  local test_name="$1" payload="$2" expected="${3:-}"
+  TOTAL=$((TOTAL + 1))
+
+  local out_file pid start_ts end_ts elapsed
+  out_file=$(mktemp)
+  (
+    # shellcheck source=../../hooks/lib/guard-matching.sh
+    source "$HOOKS_DIR/lib/guard-matching.sh"
+    guard_sanitize "$payload"
+  ) > "$out_file" 2>/dev/null &
+  pid=$!
+  start_ts=$(date +%s)
+
+  while kill -0 "$pid" 2>/dev/null; do
+    elapsed=$(( $(date +%s) - start_ts ))
+    if [ "$elapsed" -ge "$REDOS_WATCHDOG_SECONDS" ]; then
+      guard_sanitize_watchdog_kill "$pid"
+      echo -e "${RED}FAIL${NC}: $test_name (no terminó en ${REDOS_WATCHDOG_SECONDS}s — backtracking catastrófico)"
+      FAIL=$((FAIL + 1))
+      rm -f "$out_file"
+      return
+    fi
+    sleep 0.2
+  done
+  wait "$pid" 2>/dev/null || true
+  end_ts=$(date +%s)
+
+  if [ -n "$expected" ] && [ "$(cat "$out_file")" != "$expected" ]; then
+    echo -e "${RED}FAIL${NC}: $test_name (terminó en $((end_ts - start_ts))s pero el saneo cambió de resultado)"
+    FAIL=$((FAIL + 1))
+  else
+    echo -e "${GREEN}PASS${NC}: $test_name (terminó en $((end_ts - start_ts))s)"
+    PASS=$((PASS + 1))
+  fi
+  rm -f "$out_file"
+}
+
+# Regression QA (ronda 2): el test anterior reimplementaba su propio loop
+# de watchdog con su propio pkill, en vez de ejercitar el de
+# assert_guard_sanitize_bounded — borrar el pkill real no ponía nada en
+# rojo. Ahora reutiliza guard_sanitize_watchdog_kill, el MISMO helper que
+# assert_guard_sanitize_bounded llama en su rama de timeout: se reproduce
+# con un guard_sanitize mockeado que invoca perl real con un sleep largo
+# — determinístico, no depende de resucitar el ReDoS del regex (que ya no
+# cuelga tras el fix). El marcador "watchdog-leak-test-marker" en argv
+# evita falsos positivos/negativos por otros procesos perl del sistema o
+# de otros tests de esta misma suite.
+WATCHDOG_LEAK_TEST_SECONDS=1
+WATCHDOG_LEAK_MARKER="watchdog-leak-test-marker"
+
+assert_watchdog_no_orphan_perl() {
+  local test_name="$1"
+  TOTAL=$((TOTAL + 1))
+
+  local pid start_ts elapsed
+  (
+    # shellcheck source=../../hooks/lib/guard-matching.sh
+    source "$HOOKS_DIR/lib/guard-matching.sh"
+    guard_sanitize() { printf '' | perl -e 'sleep 30' "$WATCHDOG_LEAK_MARKER"; }
+    guard_sanitize "unused"
+  ) > /dev/null 2>&1 &
+  pid=$!
+  start_ts=$(date +%s)
+
+  # Da tiempo a que el subshell realmente lance el perl real antes de
+  # medir — evita un falso PASS por matar el subshell antes de que el
+  # hijo exista.
+  sleep 0.3
+
+  while kill -0 "$pid" 2>/dev/null; do
+    elapsed=$(( $(date +%s) - start_ts ))
+    if [ "$elapsed" -ge "$WATCHDOG_LEAK_TEST_SECONDS" ]; then
+      guard_sanitize_watchdog_kill "$pid"
+      break
+    fi
+    sleep 0.1
+  done
+
+  # Margen para que el kill se propague antes de verificar.
+  sleep 0.3
+  if pgrep -f "$WATCHDOG_LEAK_MARKER" > /dev/null 2>&1; then
+    echo -e "${RED}FAIL${NC}: $test_name (quedó un perl huérfano corriendo tras el kill)"
+    FAIL=$((FAIL + 1))
+    pkill -9 -f "$WATCHDOG_LEAK_MARKER" 2>/dev/null || true
+  else
+    echo -e "${GREEN}PASS${NC}: $test_name (no queda ningún perl corriendo tras el kill)"
+    PASS=$((PASS + 1))
+  fi
+}
+
+assert_watchdog_no_orphan_perl "assert_guard_sanitize_bounded: matar el pid del subshell también mata al perl hijo del pipe (no deja huérfanos)"
+
+# (a) Heredoc sin terminador: nunca cierra — el saneo tiene que devolver
+# igual dentro del bound (regex en tiempo lineal), no colgarse esperando
+# un terminador que no existe. [QA opcional] Expected == payload sin
+# cambios: sin terminador real la regla de heredocs nunca matchea (no hay
+# ")" de cierre que la satisfaga), así que el camino degenerado no debe
+# corromper el texto en silencio — solo no encontrar nada que reemplazar.
+assert_guard_sanitize_bounded "guard_sanitize: heredoc sin terminador no cuelga (ReDoS)" \
+  "$(build_redos_heredoc 8 none)" \
+  "$(build_redos_heredoc 8 none)"
+
+# (b) Heredoc con terminador indentado: regression de correctness — el fix
+# tiene que seguir reconociendo un heredoc legítimo con terminador
+# indentado, no solo no colgarse. Expected: el saneo reemplaza desde
+# "<<EOF" hasta el terminador por un solo salto de línea; "cat " (antes
+# del "<<") queda intacto. Sin trailing "\n" porque $(guard_sanitize ...)
+# dentro de assert_guard_sanitize_bounded lo recorta (misma razón por la
+# que $(cat "$out_file") recorta el que produce guard_sanitize de verdad).
+EXPECTED_INDENTED_SANITIZED="cat "
+assert_guard_sanitize_bounded "guard_sanitize: heredoc con terminador indentado se sanea igual que antes" \
+  "$(build_redos_heredoc 8 indented)" \
+  "$EXPECTED_INDENTED_SANITIZED"
+
+# (b.1)-(b.3) [QA blocker] Equivalencia old-vs-new persistida: el commit
+# que introdujo el fix de greedy→lazy afirmó haber verificado 5 casos
+# contra el regex viejo (heredoc simple, indentado, anidado, delimiter
+# quoted, dos heredocs consecutivos) en un harness desechable — el repo
+# solo persistía 1 (el indentado, arriba). El indentado y el sin-terminador
+# ya están cubiertos; estos tres completan simple/anidado/delimiter-quoted
+# como asserts reales, no solo cobertura incidental de otros tests.
+
+# (b.1) Heredoc simple con terminador exacto.
+EXPECTED_SIMPLE_SANITIZED="cat "
+assert_guard_sanitize_bounded "guard_sanitize: heredoc simple se sanea igual que antes" \
+  "$(printf 'cat <<EOF\nhola\nmundo\nEOF\n')" \
+  "$EXPECTED_SIMPLE_SANITIZED"
+
+# (b.2) Heredoc anidado — mismo patrón que usa un mensaje de commit real
+# con "$(cat <<'EOF' ... EOF)" adentro (ver HEREDOC_MENTION_COMMAND más
+# abajo, que ejercita esto incidentalmente para OTRO propósito). Expected
+# termina en dos espacios: uno de "-m ", uno del span "$(...)" completo
+# reemplazado por un espacio (regla de quotes, que corre después de la de
+# heredocs) — no es un typo, verificado byte a byte contra guard_sanitize.
+EXPECTED_NESTED_SANITIZED="git commit -m  "
+assert_guard_sanitize_bounded "guard_sanitize: heredoc anidado (nested EOF) se sanea igual que antes" \
+  "$(printf 'git commit -m "$(cat <<%sEOF\nhooks: aclarar mensaje\n\nAntes el guard bloqueaba.\nEOF\n)"\n' "'")" \
+  "$EXPECTED_NESTED_SANITIZED"
+
+# (b.3) Heredoc con delimiter quoted ('NOTE_EOF' en vez de EOF).
+EXPECTED_QUOTED_DELIM_SANITIZED="cat "
+assert_guard_sanitize_bounded "guard_sanitize: heredoc con delimiter quoted se sanea igual que antes" \
+  "$(printf "cat <<'NOTE_EOF' > notes.txt\ngit commit -m reminder\nNOTE_EOF\n")" \
+  "$EXPECTED_QUOTED_DELIM_SANITIZED"
+
+# (b.4) [security] Regression del fail-open real que cerró greedy→lazy —
+# no solo el ReDoS. Con el regex VIEJO (greedy), ".*\n?" se estiraba hasta
+# el ÚLTIMO terminador del string completo con el MISMO nombre de
+# delimitador: dos heredocs bien formados, AMBOS "<<EOF", con un comando
+# real en el medio, hacían que el backreference \1="EOF" encontrara el
+# ÚLTIMO "EOF" del string (poco backtracking porque está cerca del final)
+# y tragara todo lo de en medio — incluido "gh pr merge 5 --admin" y el
+# terminador legítimo del PRIMER heredoc — en un solo span reemplazado por
+# "\n". Medido: 7ms, sin colgarse (verificado aparte, no en este archivo,
+# con el regex viejo restaurado en un harness descartable y alarm(5) de
+# red de seguridad). Bash sí lo ejecuta (cada heredoc cierra en su propio
+# terminador); el guard nunca lo veía. Con delimitadores DISTINTOS (ej.
+# "<<A"/"<<B") el mismo regex viejo en cambio SÍ cuelga (el backtracking
+# para encontrar el terminador correcto de "A" — que no es el último "A"
+# del string, es el único — es mucho más caro): sirve para el test de
+# ReDoS de más arriba, no para este, que necesita mismo delimitador para
+# aislar el fail-open sin acoplarlo al cuelgue. Lazy elige el PRIMER
+# terminador — igual que bash — así que el comando de en medio queda en
+# su propia línea, VISIBLE. Este test falla si alguien vuelve a poner el
+# cuantificador en greedy, aunque el cambio no reintroduzca el ReDoS (ej.
+# agregando un límite de iteraciones): por eso NO alcanza con "el saneo
+# termina", hay que ver el contenido.
+TWO_HEREDOCS_ADMIN_PAYLOAD=$(printf 'cat <<EOF\none\nEOF\ngh pr merge 5 --admin\ncat <<EOF\ntwo\nEOF\n')
+EXPECTED_TWO_HEREDOCS_SANITIZED=$'cat \ngh pr merge 5 --admin\ncat '
+assert_guard_sanitize_bounded "guard_sanitize [security]: comando real entre dos heredocs consecutivos queda VISIBLE tras el saneo (no se lo traga un greedy)" \
+  "$TWO_HEREDOCS_ADMIN_PAYLOAD" \
+  "$EXPECTED_TWO_HEREDOCS_SANITIZED"
+
+# Mismo payload, de punta a punta a través del hook real: si el saneo
+# falla en su intención (deja el admin visible pero desanclado, o el
+# GUARD_ANCHOR no lo reconoce en su nueva posición), esto lo atrapa donde
+# de verdad importa — el hook tiene que bloquear.
+assert_bam_blocked "block-admin-merge [security]: gh pr merge --admin entre dos heredocs consecutivos se bloquea (regression del fail-open greedy)" \
+  "$TWO_HEREDOCS_ADMIN_PAYLOAD"
+
+# (c) Watchdog interno: si perl encuentra un patológico futuro no
+# anticipado, "BEGIN { alarm 5 }" lo mata en vez de dejarlo colgado. Un
+# fake perl que sale con 142 (el mismo código que deja un SIGALRM real sin
+# handler, ver redos.sh) simula ese timeout sin depender de un cuelgue de
+# 5s de verdad. Dirección de la degradación (igual razonamiento que "perl
+# no disponible" arriba): si perl muere, guard_sanitize NO puede devolver
+# la cadena vacía (el grep de cada guard no matchearía nada → fail-open
+# silencioso) — tiene que devolver el comando SIN sanear, la dirección
+# seguía siendo bloquear de más, nunca dejar pasar de menos.
+FAKE_PERL_TIMEOUT_DIR=$(mktemp -d)
+cat > "$FAKE_PERL_TIMEOUT_DIR/perl" <<'FAKE_PERL_EOF'
+#!/bin/bash
+# Fake perl: simula un guard_sanitize() que timeoutea o crashea — sale con
+# el mismo código que deja un SIGALRM real sin handler instalado (128+14,
+# ver redos.sh), sin imprimir nada a stdout ni ejecutar ningún regex real.
+exit 142
+FAKE_PERL_EOF
+chmod +x "$FAKE_PERL_TIMEOUT_DIR/perl"
+for cmd in bash cat jq grep dirname; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$FAKE_PERL_TIMEOUT_DIR/$cmd"
+done
+
+assert_bam_blocked "block-admin-merge: sigue bloqueando si perl falla/timeoutea (fallback fail-closed, sin sanear)" \
+  "gh pr merge 5 --admin" \
+  "$FAKE_PERL_TIMEOUT_DIR"
+
+# Transparencia del modo degradado (mismo criterio que la transparencia
+# "sin perl" de arriba): con perl fallando, el heredoc que menciona "git
+# commit" ya no se reconoce como cuerpo de heredoc — falso positivo
+# aceptado (dirección segura) — y el aviso por stderr tiene que ser
+# distinguible del de "perl no disponible" (esto NO es ausencia, es una
+# falla/timeout en tiempo de ejecución).
+HEREDOC_MENTION_PERL_TIMEOUT=$(cat <<'CMD_EOF'
+cat <<'NOTE_EOF' > notes.txt
+git commit -m "reminder text" (do this later)
+NOTE_EOF
+CMD_EOF
+)
+JSON_PERL_TIMEOUT=$(jq -n --arg cmd "$HEREDOC_MENTION_PERL_TIMEOUT" '{tool_input: {command: $cmd}}')
+PERL_TIMEOUT_PCG_DIR=$(mktemp -d)
+touch "$PERL_TIMEOUT_PCG_DIR/pyproject.toml"
+FAKE_PYTEST_PERL_TIMEOUT_DIR=$(mktemp -d)
+cat > "$FAKE_PYTEST_PERL_TIMEOUT_DIR/pytest" <<'FAKE_PYTEST_EOF'
+#!/bin/bash
+# Fake pytest: siempre "falla" (simula tests rotos), sin ejecutar nada real.
+exit 1
+FAKE_PYTEST_EOF
+chmod +x "$FAKE_PYTEST_PERL_TIMEOUT_DIR/pytest"
+PERL_TIMEOUT_EXIT=0
+PERL_TIMEOUT_OUTPUT=$(cd "$PERL_TIMEOUT_PCG_DIR" && echo "$JSON_PERL_TIMEOUT" | PATH="$FAKE_PYTEST_PERL_TIMEOUT_DIR:$FAKE_PERL_TIMEOUT_DIR" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1) || PERL_TIMEOUT_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$PERL_TIMEOUT_EXIT" -eq 2 ] && echo "$PERL_TIMEOUT_OUTPUT" | grep -qF "guard-matching: saneo abortado"; then
+  echo -e "${GREEN}PASS${NC}: guard_sanitize con perl fallando: falso positivo de heredoc pineado como aceptado + aviso stderr distinto de 'perl no disponible'"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_sanitize con perl fallando: falso positivo de heredoc pineado como aceptado + aviso stderr distinto de 'perl no disponible' (exit: $PERL_TIMEOUT_EXIT, output: $PERL_TIMEOUT_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$PERL_TIMEOUT_PCG_DIR" "$FAKE_PYTEST_PERL_TIMEOUT_DIR" "$FAKE_PERL_TIMEOUT_DIR"
+
+# (d) [security LOW-3] El alarm interno tiene que dar margen contra
+# degradaciones espurias por máquina cargada: medido, un caso lineal de
+# 348 KB tarda 0s, así que subir el margen no debilita nada. Con 2s, un
+# comando grande mientras corre esta misma suite en paralelo puede
+# degradar de forma intermitente — y en pre-commit-guard.sh degradar
+# significa disparar la suite de tests entera del proyecto. Regression
+# simple sobre el valor de la constante: no depende de inducir un timeout
+# real de 5s (lento y flaky), solo confirma que el tunable es el que se
+# quiso fijar.
+TOTAL=$((TOTAL + 1))
+if grep -qE "alarm 5\b" "$HOOKS_DIR/lib/guard-matching.sh"; then
+  echo -e "${GREEN}PASS${NC}: guard_sanitize: el alarm interno es 5s (margen contra degradaciones espurias)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_sanitize: el alarm interno es 5s (margen contra degradaciones espurias)"
+  FAIL=$((FAIL + 1))
+fi
 
 echo ""
 
