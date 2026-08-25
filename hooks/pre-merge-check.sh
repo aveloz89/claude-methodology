@@ -140,25 +140,109 @@ block() {
   exit 0
 }
 
-# --repo <owner>/<name> (o --repo=<owner>/<name>) explícito en el comando
-# interceptado: gana sobre el repo del cwd de la sesión. Antes, el guard
-# detectaba el repo SIEMPRE con `gh repo view` sobre el cwd — un `gh pr
-# merge <N> --repo otro/repo` real quedaba bloqueado fail-closed porque
-# `gh pr view` corría contra el repo local, donde ese PR no existe (no hay
-# "cd" posible al cwd del comando interceptado: este hook corre en la raíz
-# de la sesión). Se extrae del comando YA SANEADO (mismo criterio que
-# PR_NUMBER, arriba): sobre texto sin sanear, un --repo quoted dentro de un
-# heredoc/mensaje de commit podría ganarle a la invocación real. Se valida
-# la forma "owner/name" antes de usarlo en cualquier lado — el valor
-# termina en comandos gh y en variables de una query GraphQL, y un --repo
-# malformado (sin "/", con comillas o espacios) bloquea fail-closed en vez
-# de intentar una consulta con un valor del que no se puede confiar.
-REPO_FLAG_MATCH=$(echo "$SANITIZED_COMMAND" | grep -oE -- '--repo(=| +)[^ ]+' | head -1)
+# --repo <owner>/<name> (o --repo=<owner>/<name>, -R <owner>/<name>,
+# -R<owner>/<name> pegado sin espacio, o -R=<owner>/<name> — las formas
+# que gh realmente acepta, verificado contra `gh help pr merge` y contra
+# GitHub real) explícito en el comando interceptado: gana sobre el repo
+# del cwd de la sesión. Antes, el guard detectaba el repo SIEMPRE con
+# `gh repo view` sobre el cwd — un `gh pr merge <N> --repo otro/repo`
+# real quedaba bloqueado fail-closed porque `gh pr view` corría contra el
+# repo local, donde ese PR no existe (no hay "cd" posible al cwd del
+# comando interceptado: este hook corre en la raíz de la sesión).
+#
+# [security, ronda 2] La extracción tiene que estar anclada a la MISMA
+# invocación de merge que valida el resto del guard, no a "el primer
+# --repo en cualquier parte del comando": en un compuesto como
+# "gh pr list --repo victima/otro && gh pr merge 3", tomar el primer
+# --repo del string completo verificaba victima/otro (sin relación con el
+# merge real) y dejaba pasar el merge contra el repo del cwd sin
+# verificar nada — fail-open real, reproducido con un gh falso que loguea
+# argv. Se recorta primero la VENTANA de texto de la invocación anclada
+# (mismo GUARD_ANCHOR que usa el check de "es una invocación real", unas
+# líneas arriba) hasta el próximo separador de comando (; | & ) } o
+# backtick) o el fin del string — --repo/-R se busca SOLO ahí adentro. Un
+# --repo de un subcomando distinto, antes o después del separador, queda
+# afuera de la ventana y se ignora.
+MERGE_WINDOW_PATTERN="${GUARD_ANCHOR}"'gh\s+pr\s+merge\b[^;|&)}`]*'
+MERGE_WINDOW=$(echo "$SANITIZED_COMMAND" | grep -oE "$MERGE_WINDOW_PATTERN" | head -1)
+
+# [security, ronda 2] gh no trata --repo como "una flag, un token": acepta
+# -R en tres formas (con espacio, pegado "-Rvalor", con "=") y, si se
+# repite, gana la ÚLTIMA ocurrencia (verificado contra GitHub real con
+# --repo duplicado y con --repo/-R mezclados). Un regex de un solo shot no
+# modela esto con confianza — se tokeniza la ventana (misma noción de
+# "palabras separadas por espacio" que ve gh en argv, ya que
+# guard_sanitize corrió antes) y se recorre de izquierda a derecha
+# pisando el valor cada vez que aparece la flag, para que gane la última
+# igual que en gh real.
+#
+# Un valor entre comillas queda destruido por guard_sanitize (colapsa el
+# span quoted a un solo espacio) ANTES de que esta extracción corra —
+# comillar el argumento es una forma normal de escribir el comando, no
+# evasión, así que no se puede ignorar sin más. Si la flag aparece pero no
+# queda un token utilizable después (vacío, o el siguiente token es otra
+# flag que empieza con "-"), NO se adivina el repo del cwd: se bloquea más
+# abajo. Esto también evita culpar a la flag equivocada: en
+# "--repo 'a/b' --squash", el único token que sobrevive al saneo después
+# de --repo es "--squash" — se descarta por empezar con "-" (no se toma
+# como valor), en vez de terminar bloqueando con un mensaje que responsabiliza
+# a --squash de una forma inválida que no es suya.
+REPO_FLAG_SEEN=false
+REPO_FLAG_VALUE=""
+read -ra MERGE_WINDOW_TOKENS <<< "$MERGE_WINDOW"
+TOKEN_IDX=0
+TOKEN_COUNT=${#MERGE_WINDOW_TOKENS[@]}
+while [ "$TOKEN_IDX" -lt "$TOKEN_COUNT" ]; do
+  TOKEN="${MERGE_WINDOW_TOKENS[$TOKEN_IDX]}"
+  case "$TOKEN" in
+    --repo=*)
+      REPO_FLAG_SEEN=true
+      REPO_FLAG_VALUE="${TOKEN#--repo=}"
+      ;;
+    --repo|-R)
+      REPO_FLAG_SEEN=true
+      NEXT_IDX=$((TOKEN_IDX + 1))
+      if [ "$NEXT_IDX" -lt "$TOKEN_COUNT" ] && [ -n "${MERGE_WINDOW_TOKENS[$NEXT_IDX]}" ] \
+        && [[ "${MERGE_WINDOW_TOKENS[$NEXT_IDX]}" != -* ]]; then
+        REPO_FLAG_VALUE="${MERGE_WINDOW_TOKENS[$NEXT_IDX]}"
+        TOKEN_IDX=$NEXT_IDX
+      else
+        REPO_FLAG_VALUE=""
+      fi
+      ;;
+    -R=*)
+      REPO_FLAG_SEEN=true
+      REPO_FLAG_VALUE="${TOKEN#-R=}"
+      ;;
+    -R?*)
+      REPO_FLAG_SEEN=true
+      REPO_FLAG_VALUE="${TOKEN#-R}"
+      ;;
+  esac
+  TOKEN_IDX=$((TOKEN_IDX + 1))
+done
+
 EXPLICIT_REPO=""
-if [ -n "$REPO_FLAG_MATCH" ]; then
-  EXPLICIT_REPO=$(echo "$REPO_FLAG_MATCH" | grep -oE '[^ =]+$')
-  if ! echo "$EXPLICIT_REPO" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$'; then
-    block "Blocked: --repo '${EXPLICIT_REPO}' no tiene forma owner/name válida — el guard no puede verificar un repo malformado."
+if [ "$REPO_FLAG_SEEN" = true ]; then
+  # Forma validada: "owner/name" (dos segmentos, sin "/" adicional en
+  # ninguno de los dos gracias a la clase de caracteres). Esto rechaza a
+  # propósito la forma de tres segmentos "[HOST/]OWNER/REPO" que gh
+  # documenta para GitHub Enterprise — fail-closed (bloquea en vez de
+  # adivinar cuál segmento es el host), no una vulnerabilidad, pero
+  # que no sorprenda al próximo: un --repo apuntando a un host Enterprise
+  # real bloquea igual que uno malformado.
+  if echo "$REPO_FLAG_VALUE" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$'; then
+    EXPLICIT_REPO="$REPO_FLAG_VALUE"
+  else
+    # [security LOW] El valor reflejado en el mensaje se trunca: viene del
+    # comando (un token sin cota de tamaño), y jq -Rs escapa bien pero no
+    # acota longitud — sin esto, un token de cientos de KB vuelve entero
+    # al usuario en el reason.
+    REPO_VALUE_FOR_REASON="$REPO_FLAG_VALUE"
+    if [ "${#REPO_VALUE_FOR_REASON}" -gt 64 ]; then
+      REPO_VALUE_FOR_REASON="${REPO_VALUE_FOR_REASON:0:64}..."
+    fi
+    block "Blocked: --repo/-R sin un valor owner/name utilizable ('${REPO_VALUE_FOR_REASON}') — puede ser una comilla saneada (guard_sanitize colapsa comillas a un espacio) o una forma inválida/incompleta. El guard no puede verificar un repo sin confirmar cuál es."
   fi
 fi
 

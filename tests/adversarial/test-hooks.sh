@@ -1462,14 +1462,178 @@ assert_pre_merge_repo_flag_continue "gh pr merge --repo <owner>/<name> usa el re
   "gh pr merge 179 --repo aveloz89/easy-quotes"
 assert_pre_merge_repo_flag_continue "gh pr merge --repo=<owner>/<name> (forma con signo igual) usa el repo explícito" \
   "gh pr merge 179 --repo=aveloz89/easy-quotes"
+
+# [security, ronda 2] -R en sus tres formas (espacio, pegado, "="):
+# verificado contra `gh help pr merge` (-R, --repo es la MISMA flag que
+# --repo, no una alternativa distinta) y contra GitHub real (ver commit).
+# Reusa el mismo fake gh: el valor resuelto tiene que llegar idéntico a
+# gh pr view/checks/graphql sin importar qué forma escribió el usuario.
+assert_pre_merge_repo_flag_continue "gh pr merge -R <owner>/<name> (forma corta con espacio) usa el repo explícito" \
+  "gh pr merge 179 -R aveloz89/easy-quotes"
+assert_pre_merge_repo_flag_continue "gh pr merge -R<owner>/<name> (forma corta pegada, sin espacio) usa el repo explícito" \
+  "gh pr merge 179 -Raveloz89/easy-quotes"
+assert_pre_merge_repo_flag_continue "gh pr merge -R=<owner>/<name> (forma corta con signo igual) usa el repo explícito" \
+  "gh pr merge 179 -R=aveloz89/easy-quotes"
 rm -rf "$FAKE_GH_REPO_FLAG_DIR"
+
+# [security HIGH, ronda 2] Anclaje: un --repo de OTRO subcomando en el
+# mismo compuesto no debe ganarle al repo real del merge. Reproducido con
+# el mismo gh falso que argumentó el hallazgo: "repo view" resuelve el cwd
+# a un repo VÁLIDO conocido (aveloz89/claude-methodology) — pr
+# view/checks/graphql solo responden con éxito si reciben ESE repo, y
+# fallan si reciben el decoy (victima/otro), aunque el decoy tenga forma
+# válida. Antes de este fix, el primer --repo del string completo ganaba
+# sin importar a qué subcomando pertenecía — este test fallaba (bloqueaba
+# verificando victima/otro, que no existe para este fake) contra esa
+# versión.
+FAKE_GH_ANCHOR_DIR=$(mktemp -d)
+cat > "$FAKE_GH_ANCHOR_DIR/gh" <<'FAKE_GH_ANCHOR_EOF'
+#!/bin/bash
+case "$1 $2" in
+  "repo view")
+    echo "aveloz89/claude-methodology"
+    ;;
+  "pr view")
+    echo "$@" | grep -q -- "--repo aveloz89/claude-methodology" || { echo "unexpected args (repo decoy leaked): $*" >&2; exit 1; }
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo "$@" | grep -q -- "owner=aveloz89" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo "$@" | grep -q -- "name=claude-methodology" || { echo "unexpected args (repo decoy leaked): $*" >&2; exit 1; }
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    echo "$@" | grep -q -- "--repo aveloz89/claude-methodology" || { echo "unexpected args (repo decoy leaked): $*" >&2; exit 1; }
+    printf 'some-check\tpass\t1s\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_ANCHOR_EOF
+chmod +x "$FAKE_GH_ANCHOR_DIR/gh"
+
+assert_pre_merge_anchor_continue() {
+  local test_name="$1" cmd="$2"
+  TOTAL=$((TOTAL + 1))
+  local json output
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$FAKE_GH_ANCHOR_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  if echo "$output" | grep -q '"continue":true'; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pre_merge_anchor_continue "gh pr merge [security]: --repo de OTRO subcomando (gh pr list) no gana sobre el repo del cwd" \
+  "gh pr list --repo victima/otro && gh pr merge 45"
+assert_pre_merge_anchor_continue "gh pr merge [security]: --repo de un subcomando DESPUÉS del merge (tras &&) tampoco gana" \
+  "gh pr merge 45 && gh pr list --repo victima/otro"
+rm -rf "$FAKE_GH_ANCHOR_DIR"
+
+# [security HIGH, ronda 2] Duplicado: gana la ÚLTIMA ocurrencia dentro de
+# la ventana anclada, igual que gh real (verificado contra GitHub real,
+# ver commit). Mismo estilo de fake gh que el de anclaje: solo responde
+# con éxito al repo que DEBERÍA ganar; si el guard tomara la primera
+# ocurrencia en vez de la última, este test fallaría.
+FAKE_GH_DUP_DIR=$(mktemp -d)
+cat > "$FAKE_GH_DUP_DIR/gh" <<'FAKE_GH_DUP_EOF'
+#!/bin/bash
+case "$1 $2" in
+  "repo view")
+    exit 1
+    ;;
+  "pr view")
+    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args (no ganó el ultimo --repo): $*" >&2; exit 1; }
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo "$@" | grep -q -- "name=easy-quotes" || { echo "unexpected args (no ganó el ultimo --repo): $*" >&2; exit 1; }
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args (no ganó el ultimo --repo): $*" >&2; exit 1; }
+    printf 'some-check\tpass\t1s\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_DUP_EOF
+chmod +x "$FAKE_GH_DUP_DIR/gh"
+
+assert_pre_merge_dup_continue() {
+  local test_name="$1" cmd="$2"
+  TOTAL=$((TOTAL + 1))
+  local json output
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$FAKE_GH_DUP_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  if echo "$output" | grep -q '"continue":true'; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pre_merge_dup_continue "gh pr merge [security]: --repo duplicado, el decoy va PRIMERO y el real gana por ser el último" \
+  "gh pr merge 179 --repo aveloz89/claude-methodology --repo aveloz89/easy-quotes"
+assert_pre_merge_dup_continue "gh pr merge [security]: --repo/-R mezclados, -R al final gana igual que gh real" \
+  "gh pr merge 179 --repo aveloz89/claude-methodology -R aveloz89/easy-quotes"
+rm -rf "$FAKE_GH_DUP_DIR"
+
+# El caso inverso (decoy AL FINAL) prueba que NO seguimos tomando el
+# primero: si el guard tomara el primero, este bloquearía verificando
+# aveloz89/claude-methodology#179 (inexistente en offline) en vez de dar
+# error por el decoy que va después — ambos caminos bloquean hoy (offline
+# no resuelve nada), así que se verifica contra GitHub real en su lugar,
+# más abajo con FAKE_GH_MODE apagado. Ver verificación end-to-end en el
+# reporte (no se agrega un tercer fake gh solo para este ángulo — ya está
+# cubierto por los dos asserts de arriba, que prueban las dos direcciones
+# de "cuál gana": primero-decoy-último-real y --repo/-R mezclados).
+
+# [security HIGH, ronda 2] Valor destruido por guard_sanitize: un --repo
+# comillado colapsa a un espacio ANTES de esta extracción — comillar es
+# una forma normal de escribir el comando, no evasión. El guard tiene que
+# BLOQUEAR (no adivinar el repo del cwd) y el mensaje no debe reflejar la
+# flag siguiente como si fuera el valor.
+assert_pre_merge_blocked "gh pr merge [security]: --repo comillado (saneo destruye el valor) bloquea, no adivina el cwd" \
+  "gh pr merge 5 --repo 'aveloz89/easy-quotes'" "sin un valor owner/name utilizable" "offline"
+assert_pre_merge_blocked "gh pr merge [security]: --repo comillado + flag detrás no culpa a esa flag por la forma inválida" \
+  "gh pr merge 5 --repo 'a/b' --squash" "sin un valor owner/name utilizable ('')" "offline"
 
 # --repo malformado (sin "/", el único separador owner/name válido):
 # fail-closed sin necesidad de tocar gh — la validación de forma corre
 # antes de cualquier consulta, así que ni siquiera hace falta un fake gh
 # especial para probarla (usa el fake gh general de esta sección).
 assert_pre_merge_blocked "gh pr merge --repo malformado (sin owner/name) bloquea fail-closed sin consultar gh" \
-  "gh pr merge 179 --repo not-a-valid-repo" "forma owner/name válida" "offline"
+  "gh pr merge 179 --repo not-a-valid-repo" "sin un valor owner/name utilizable" "offline"
+
+# [security LOW, ronda 2] El valor reflejado en el reason se trunca a 64
+# chars — un token de 300 chars no debe volver entero al usuario.
+LONG_REPO_VALUE=$(printf 'a%.0s' $(seq 1 300))
+assert_pre_merge_blocked "gh pr merge [security]: valor de --repo malformado y largo se trunca en el mensaje de bloqueo" \
+  "gh pr merge 179 --repo $LONG_REPO_VALUE" "$(printf 'a%.0s' $(seq 1 64))..." "offline"
+TOTAL=$((TOTAL + 1))
+LONG_REPO_OUTPUT=$(jq -n --arg cmd "gh pr merge 179 --repo $LONG_REPO_VALUE" '{tool_input: {command: $cmd}}' | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="offline" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+if ! echo "$LONG_REPO_OUTPUT" | grep -qF "$LONG_REPO_VALUE"; then
+  echo -e "${GREEN}PASS${NC}: gh pr merge [security]: el reason NO contiene el token de 300 chars completo"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: gh pr merge [security]: el reason NO contiene el token de 300 chars completo (output: $LONG_REPO_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+
+# [doc, ronda 2 punto 4] La forma de tres segmentos "[HOST/]OWNER/REPO"
+# que gh documenta para Enterprise queda fuera del regex de validación a
+# propósito (dos segmentos exactos) — fail-closed, no una vulnerabilidad,
+# pero con test para que quede verificado y no solo comentado.
+assert_pre_merge_blocked "gh pr merge [doc]: --repo de 3 segmentos (github.enterprise.com/owner/repo) bloquea fail-closed" \
+  "gh pr merge 179 --repo github.enterprise.com/owner/repo" "sin un valor owner/name utilizable" "offline"
 
 rm -rf "$FAKE_GH_DIR"
 
