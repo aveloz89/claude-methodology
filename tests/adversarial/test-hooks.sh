@@ -1380,6 +1380,73 @@ assert_pre_merge_unrelated_not_blocked "pre-merge-check [security]: perl falland
 assert_pre_merge_unrelated_not_blocked "pre-merge-check [security]: perl fallando NO bloquea 'git status' (no menciona gh/pr/merge)" "git status"
 rm -rf "$FAKE_PERL_FAILS_UNRELATED_DIR"
 
+# Caso 7 (follow-up 2026-08-24): --repo <owner>/<name> explícito en el
+# comando interceptado. Antes, el guard detectaba el repo SIEMPRE con `gh
+# repo view` sobre el cwd de la sesión — un `gh pr merge <N> --repo
+# otro/repo` real quedaba bloqueado fail-closed porque `gh pr view` corría
+# contra el repo local, donde ese PR no existe (no hay "cd" posible al cwd
+# del comando: este hook corre en la raíz de la sesión). Fake gh dedicado:
+# "repo view" SIEMPRE falla (simula un cwd que no resuelve al repo
+# objetivo) — si el guard igual continúa/bloquea por otra razón, es porque
+# usó el --repo explícito en vez de llamar a gh repo view. Los otros tres
+# subcomandos (pr view / api graphql / pr checks) solo responden con éxito
+# si reciben exactamente el owner/name esperado — así se prueba que el
+# valor viaja de punta a punta, no solo que el guard "no explotó".
+FAKE_GH_REPO_FLAG_DIR=$(mktemp -d)
+cat > "$FAKE_GH_REPO_FLAG_DIR/gh" <<'FAKE_GH_REPO_FLAG_EOF'
+#!/bin/bash
+case "$1 $2" in
+  "repo view")
+    exit 1
+    ;;
+  "pr view")
+    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo "$@" | grep -q -- "owner=aveloz89" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo "$@" | grep -q -- "name=easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
+    printf 'some-check\tpass\t1s\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_REPO_FLAG_EOF
+chmod +x "$FAKE_GH_REPO_FLAG_DIR/gh"
+
+assert_pre_merge_repo_flag_continue() {
+  local test_name="$1" cmd="$2"
+  TOTAL=$((TOTAL + 1))
+  local json output
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$FAKE_GH_REPO_FLAG_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  if echo "$output" | grep -q '"continue":true'; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pre_merge_repo_flag_continue "gh pr merge --repo <owner>/<name> usa el repo explícito, no gh repo view (cwd offline)" \
+  "gh pr merge 179 --repo aveloz89/easy-quotes"
+assert_pre_merge_repo_flag_continue "gh pr merge --repo=<owner>/<name> (forma con signo igual) usa el repo explícito" \
+  "gh pr merge 179 --repo=aveloz89/easy-quotes"
+rm -rf "$FAKE_GH_REPO_FLAG_DIR"
+
+# --repo malformado (sin "/", el único separador owner/name válido):
+# fail-closed sin necesidad de tocar gh — la validación de forma corre
+# antes de cualquier consulta, así que ni siquiera hace falta un fake gh
+# especial para probarla (usa el fake gh general de esta sección).
+assert_pre_merge_blocked "gh pr merge --repo malformado (sin owner/name) bloquea fail-closed sin consultar gh" \
+  "gh pr merge 179 --repo not-a-valid-repo" "forma owner/name válida" "offline"
+
 rm -rf "$FAKE_GH_DIR"
 
 echo ""

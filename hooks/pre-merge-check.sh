@@ -140,10 +140,38 @@ block() {
   exit 0
 }
 
-# Detectar owner/repo del remoto — fail-closed si no se puede
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
-if [ -z "$REPO" ]; then
-  block "Blocked: no pude detectar el repo (gh repo view falló). El guard no puede verificar el PR #${PR_NUMBER} — reintenta o revisa la conexión/auth de gh."
+# --repo <owner>/<name> (o --repo=<owner>/<name>) explícito en el comando
+# interceptado: gana sobre el repo del cwd de la sesión. Antes, el guard
+# detectaba el repo SIEMPRE con `gh repo view` sobre el cwd — un `gh pr
+# merge <N> --repo otro/repo` real quedaba bloqueado fail-closed porque
+# `gh pr view` corría contra el repo local, donde ese PR no existe (no hay
+# "cd" posible al cwd del comando interceptado: este hook corre en la raíz
+# de la sesión). Se extrae del comando YA SANEADO (mismo criterio que
+# PR_NUMBER, arriba): sobre texto sin sanear, un --repo quoted dentro de un
+# heredoc/mensaje de commit podría ganarle a la invocación real. Se valida
+# la forma "owner/name" antes de usarlo en cualquier lado — el valor
+# termina en comandos gh y en variables de una query GraphQL, y un --repo
+# malformado (sin "/", con comillas o espacios) bloquea fail-closed en vez
+# de intentar una consulta con un valor del que no se puede confiar.
+REPO_FLAG_MATCH=$(echo "$SANITIZED_COMMAND" | grep -oE -- '--repo(=| +)[^ ]+' | head -1)
+EXPLICIT_REPO=""
+if [ -n "$REPO_FLAG_MATCH" ]; then
+  EXPLICIT_REPO=$(echo "$REPO_FLAG_MATCH" | grep -oE '[^ =]+$')
+  if ! echo "$EXPLICIT_REPO" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$'; then
+    block "Blocked: --repo '${EXPLICIT_REPO}' no tiene forma owner/name válida — el guard no puede verificar un repo malformado."
+  fi
+fi
+
+# Detectar owner/repo: el --repo explícito gana; si no hay, fail-closed
+# sobre el remoto del cwd de la sesión (comportamiento previo a esta
+# extensión, intacto para el caso sin --repo).
+if [ -n "$EXPLICIT_REPO" ]; then
+  REPO="$EXPLICIT_REPO"
+else
+  REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
+  if [ -z "$REPO" ]; then
+    block "Blocked: no pude detectar el repo (gh repo view falló). El guard no puede verificar el PR #${PR_NUMBER} — reintenta o revisa la conexión/auth de gh."
+  fi
 fi
 OWNER="${REPO%%/*}"
 NAME="${REPO##*/}"
@@ -153,7 +181,7 @@ ERRORS=""
 # 1. Review decision (CHANGES_REQUESTED) — fail-closed si la consulta falla.
 # Nota: reviewDecision es null legítimamente cuando no hay reviews requeridos,
 # por eso se distingue "consulta falló" (exit code) de "campo null".
-REVIEW_JSON=$(gh pr view "$PR_NUMBER" --json reviewDecision 2>/dev/null)
+REVIEW_JSON=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json reviewDecision 2>/dev/null)
 if [ -z "$REVIEW_JSON" ]; then
   block "Blocked: no pude consultar el PR #${PR_NUMBER} (gh pr view falló). Reintenta — el guard no verifica a ciegas."
 fi
@@ -164,7 +192,18 @@ fi
 
 # 2. Threads de review sin resolver (inline). GraphQL es la única API que
 # expone isResolved; la REST de comments no distingue resuelto de abierto.
-THREADS_JSON=$(gh api graphql -f query="query { repository(owner: \"${OWNER}\", name: \"${NAME}\") { pullRequest(number: ${PR_NUMBER}) { reviewThreads(first: 100) { nodes { isResolved } } } } }" 2>/dev/null)
+# OWNER/NAME viajan como variables GraphQL (-f, siempre string — sin la
+# conversión de tipo "mágica" de -F, que rompería si un nombre fuera todo
+# dígitos), no interpolados crudo en el string de la query: con --repo
+# ahora aceptando un valor del comando interceptado, interpolar directo
+# dejaría un carácter de escape de GraphQL (una comilla, por ejemplo)
+# romper la query o alterar su significado. PR_NUMBER sigue interpolado —
+# ya viene validado como solo-dígitos por la extracción de arriba.
+THREADS_JSON=$(gh api graphql \
+  -f owner="$OWNER" \
+  -f name="$NAME" \
+  -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { pullRequest(number: '"$PR_NUMBER"') { reviewThreads(first: 100) { nodes { isResolved } } } } }' \
+  2>/dev/null)
 if [ -z "$THREADS_JSON" ]; then
   block "Blocked: no pude consultar los threads de review del PR #${PR_NUMBER} (GraphQL falló). Reintenta — el guard no verifica a ciegas."
 fi
@@ -189,7 +228,7 @@ fi
 # consulta falló de verdad" por el texto de stderr ("no checks reported"),
 # el único indicador que expone gh para este caso.
 CHECKS_STDERR_FILE=$(mktemp)
-CHECKS_OUTPUT=$(gh pr checks "$PR_NUMBER" 2>"$CHECKS_STDERR_FILE")
+CHECKS_OUTPUT=$(gh pr checks "$PR_NUMBER" --repo "$REPO" 2>"$CHECKS_STDERR_FILE")
 NO_CHECKS_CONFIGURED=false
 grep -qi 'no checks reported' "$CHECKS_STDERR_FILE" && NO_CHECKS_CONFIGURED=true
 rm -f "$CHECKS_STDERR_FILE"
