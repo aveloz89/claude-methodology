@@ -851,6 +851,26 @@ build_redos_heredoc() {
   return 0
 }
 
+# guard_sanitize_watchdog_kill: mata TODO el árbol de un subshell que corrió
+# guard_sanitize() en background — pkill mata primero a los HIJOS directos
+# del subshell (printf y perl del pipe dentro de guard_sanitize) antes de
+# matar el subshell mismo; un "kill -9 $pid" solo, sin el pkill, mata el
+# wrapper pero deja el perl real huérfano corriendo sin límite. Compartida
+# entre assert_guard_sanitize_bounded (el kill real cuando algo se cuelga
+# de verdad) y assert_watchdog_no_orphan_perl (el test dedicado a que ESTE
+# mecanismo, en particular, no deje huérfanos) — si el helper cambia o se
+# rompe, los dos dejan de proteger lo mismo a la vez, no solo uno de los
+# dos. Antes cada assert reimplementaba su propio kill por separado: el
+# test dedicado no ejercitaba el de assert_guard_sanitize_bounded, así que
+# borrar el pkill de ESE (el que corre en producción de tests) no ponía
+# nada en rojo (QA ronda 2).
+guard_sanitize_watchdog_kill() {
+  local pid="$1"
+  pkill -9 -P "$pid" 2>/dev/null || true
+  kill -9 "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
 # assert_guard_sanitize_bounded: corre guard_sanitize() en background (en
 # un subshell que sourcea el lib real) y lo mata si no vuelve dentro de
 # REDOS_WATCHDOG_SECONDS. Si vuelve a tiempo y se pasa $expected, además
@@ -873,14 +893,7 @@ assert_guard_sanitize_bounded() {
   while kill -0 "$pid" 2>/dev/null; do
     elapsed=$(( $(date +%s) - start_ts ))
     if [ "$elapsed" -ge "$REDOS_WATCHDOG_SECONDS" ]; then
-      # pkill -P mata a los HIJOS directos del subshell (printf y perl del
-      # pipe dentro de guard_sanitize) antes de matar el subshell mismo —
-      # kill -9 "$pid" solo mataba el wrapper, dejando el perl real
-      # huérfano corriendo sin límite (regression QA, ver
-      # assert_watchdog_no_orphan_perl más abajo).
-      pkill -9 -P "$pid" 2>/dev/null || true
-      kill -9 "$pid" 2>/dev/null || true
-      wait "$pid" 2>/dev/null || true
+      guard_sanitize_watchdog_kill "$pid"
       echo -e "${RED}FAIL${NC}: $test_name (no terminó en ${REDOS_WATCHDOG_SECONDS}s — backtracking catastrófico)"
       FAIL=$((FAIL + 1))
       rm -f "$out_file"
@@ -901,14 +914,16 @@ assert_guard_sanitize_bounded() {
   rm -f "$out_file"
 }
 
-# Regression QA: el "kill -9 $pid" de assert_guard_sanitize_bounded mata el
-# subshell wrapper, pero el perl real del pipe ("printf | perl") es un
-# HIJO de ese subshell, no el propio $pid — sobrevive corriendo sin límite
-# (huérfano). Se reproduce con un guard_sanitize mockeado que invoca perl
-# real con un sleep largo — determinístico, no depende de resucitar el
-# ReDoS del regex (que ya no cuelga tras el fix). El marcador
-# "watchdog-leak-test-marker" en argv evita falsos positivos/negativos por
-# otros procesos perl del sistema o de otros tests de esta misma suite.
+# Regression QA (ronda 2): el test anterior reimplementaba su propio loop
+# de watchdog con su propio pkill, en vez de ejercitar el de
+# assert_guard_sanitize_bounded — borrar el pkill real no ponía nada en
+# rojo. Ahora reutiliza guard_sanitize_watchdog_kill, el MISMO helper que
+# assert_guard_sanitize_bounded llama en su rama de timeout: se reproduce
+# con un guard_sanitize mockeado que invoca perl real con un sleep largo
+# — determinístico, no depende de resucitar el ReDoS del regex (que ya no
+# cuelga tras el fix). El marcador "watchdog-leak-test-marker" en argv
+# evita falsos positivos/negativos por otros procesos perl del sistema o
+# de otros tests de esta misma suite.
 WATCHDOG_LEAK_TEST_SECONDS=1
 WATCHDOG_LEAK_MARKER="watchdog-leak-test-marker"
 
@@ -934,9 +949,7 @@ assert_watchdog_no_orphan_perl() {
   while kill -0 "$pid" 2>/dev/null; do
     elapsed=$(( $(date +%s) - start_ts ))
     if [ "$elapsed" -ge "$WATCHDOG_LEAK_TEST_SECONDS" ]; then
-      pkill -9 -P "$pid" 2>/dev/null || true
-      kill -9 "$pid" 2>/dev/null || true
-      wait "$pid" 2>/dev/null || true
+      guard_sanitize_watchdog_kill "$pid"
       break
     fi
     sleep 0.1
