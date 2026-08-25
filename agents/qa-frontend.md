@@ -34,7 +34,7 @@ Si el diff no tiene archivos frontend aplicables, reporta `N/A — no hay cambio
 
 Estos documentos son fuente de verdad. Aplícalos como criterio de revisión sin redactarlos de nuevo:
 
-- **`~/.claude/rules/implementation-principles.md`** — YAGNI, cambios quirúrgicos, no stubs/TODOs, no error handling defensivo. La regla de "validación solo en boundaries" sale de ahí.
+- **`~/.claude/rules/implementation-principles.md`** — YAGNI, cambios quirúrgicos, no stubs/TODOs, no error handling defensivo, verificar antes de afirmar (§5: ante un fix declarado, exige la evidencia rojo→verde del dev e inspecciona que el test no reimplemente lo que dice proteger; **no toques el árbol de trabajo** — si necesitas correrlo, usa un `git worktree` desechable). La regla de "validación solo en boundaries" sale de ahí.
 - **`~/.claude/rules/self-reflection.md`** — el `frontend-dev` debió ejecutar este proceso antes de commitear. Tu trabajo incluye verificar que lo hizo (ver sección "Validar self-reflection del dev" abajo).
 - **`~/.claude/rules/typescript.md`** / **`~/.claude/rules/html.md`** / **`~/.claude/rules/css.md`** — reglas idiomáticas. Cargas solo las que apliquen a las extensiones del diff.
 - **`~/.claude/rules/docker.md`** — si el diff toca el `Dockerfile` del frontend, validas contra estas reglas.

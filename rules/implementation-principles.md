@@ -9,6 +9,8 @@ paths:
   - "**/*.rs"
   - "**/*.cs"
   - "**/*.sql"
+  - "**/*.sh"
+  - "**/*.bash"
   - "**/*.vue"
   - "**/*.svelte"
   - "**/*.css"
@@ -130,10 +132,48 @@ Todo lo que entra al PR debe estar terminado. Código placeholder es bloqueante 
 
 Si la respuesta es "no" o "depende", el PR no está listo.
 
+### 5. Verificar antes de afirmar
+
+Toda afirmación sobre cómo se comporta el sistema —una plataforma, un hook, una herramienta, una librería, el entorno— se verifica **ejecutándola**. No se deduce de la documentación, del nombre de una función, ni de la memoria.
+
+Aplica a todo artefacto, no solo al código: comentarios, mensajes de commit, reportes de review y documentos de proceso. Una afirmación falsa en un comentario cuesta más que un bug, porque el que viene después la usa como premisa y construye encima.
+
+**Qué exige, en concreto:**
+
+- Si afirmas que un flag o comando existe, córrelo **en la plataforma donde va a correr**. Ejemplo real: `ps -o etimes=` es de Linux; en macOS no existe, y el watchdog que lo usaba nunca mató nada mientras se reportaba activo.
+- Si afirmas que un hook o un guard cubre un caso, lee el hook y confirma **cuándo se dispara**. Ejemplo real: `post-pr-create.sh` valida el delta al crear el PR y no vuelve a mirar el branch — citarlo como cobertura de un commit posterior es falso.
+- Si escribes "verificado en N casos", que los N casos **estén en el repo**. Una verificación que vive en un harness desechable no existe para el que venga después. Esto no obliga a agregar casos —YAGNI sigue mandando sobre cuántos tests escribir—: obliga a no afirmar cobertura que el repo no tiene.
+- Si mides tiempo o performance, acota la corrida y reporta **el número**, no la impresión.
+
+**Corolario para tests: el test que protege un fix debe romperse si se revierte el fix.**
+
+Un test que pasa con y sin el fix no protege nada — y es peor que no tenerlo, porque simula cobertura. Se han encontrado tests de regresión que reimplementaban por dentro el código que decían proteger y seguían verdes al revertir el fix real.
+
+**Quién lo comprueba:** el **dev**, en el paso 6 de la verificación pre-commit. Revierte el cambio del fix —el hunk mínimo que lo compone, no "la línea"—, corre la suite, confirma que algo se pone **rojo**, restaura y confirma el verde. Al reporte va el resultado, no la intención.
+
+**Cuándo aplica:** cuando el diff arregla un defecto **y eso está declarado** — en el commit, en el PR o en el reporte del dev. No se infiere de la forma del diff.
+
+**Cuándo NO aplica.** La ausencia de evidencia rojo→verde no bloquea por sí sola; **la inspección del test sí puede bloquear**. Quien invoque la excepción nombra cuál de las dos aplica y en qué `archivo:línea`, para que el reviewer pueda disputarla en vez de aceptarla a ciegas:
+
+- Revertir no compila o rompe la sintaxis (cambios de un token, de firma o de tipo). Ahí la suite se pondría roja por la razón equivocada y el check pasaría vacío: es el peor resultado posible, porque simula justo la verificación que este principio quiere instalar.
+- El cambio no tiene suite asociada: configuración, infra declarativa, documentación.
+
+Si el fix consistió en **borrar** código, revertir significa restaurarlo: el corolario vale igual mientras el árbol siga compilando.
+
+**Quién lo verifica en review:** el QA **no** modifica el árbol de trabajo — es read-only por diseño. Exige la evidencia rojo→verde del dev e inspecciona que el test no reimplemente por dentro el código que dice proteger. Bloquea si la evidencia no existe, o si la inspección muestra que el test seguiría verde sin el fix. Si necesita comprobarlo por su cuenta, lo hace sobre un `git worktree` desechable —jamás sobre el árbol del PR— y lo elimina al terminar (`git worktree remove`).
+
+Y **debe** comprobarlo cuando el "revertir no compila" del dev no se sostiene a la vista del hunk: si el fix es una constante, un valor o una condición —y no un cambio de tipo o de firma—, revertirlo compila, así que la excepción no aplica. Ese es el último resquicio por el que la etiqueta *no verificable* podría usarse para no cubrir un fix que sí era cubrible.
+
+**Self-check antes de commitear:**
+
+> "¿Cuál de las afirmaciones que escribí —en el código, en los comentarios o en el mensaje de commit— no ejecuté yo mismo?"
+
+Lo que no ejecutaste se escribe como lo que es: **no verificado**. Decirlo no es una debilidad del reporte, es la diferencia entre un dato y una suposición.
+
 ## Cómo se valida
 
 **Devs (auto-aplicación durante implementación):**
-- Aplicar los 4 principios al escribir código, no al final
+- Aplicar los 5 principios al escribir código, no al final
 - Correr los self-checks antes de cada commit
 
 **Devs (al abrir PR):**
@@ -141,6 +181,7 @@ Si la respuesta es "no" o "depende", el PR no está listo.
 
 **QA agents:**
 - Revisar el diff buscando violaciones: scope creep, abstracciones especulativas, error handling defensivo, refactor colateral, stubs/TODOs sin ticket, validación faltante en boundaries.
+- Cuando el diff declara arreglar un defecto: aplicar el corolario del principio 5 **sin tocar el árbol de trabajo** — exigir la evidencia rojo→verde del dev e inspeccionar que el test no reimplemente el código que dice proteger. Es bloqueante si la evidencia no existe o si el test seguiría verde sin el fix; es *no verificable* (y no bloqueante) si revertir no compila o no hay suite asociada.
 
 **Security reviewer:**
 - Reportar violaciones **solo cuando tienen implicación de seguridad**: catch silencioso que oculta errores, validación faltante en boundary que recibe input de usuario, secrets hardcodeados disfrazados de "TODO cambiar antes de prod", logs ausentes en flujos de auth/pago. El resto queda en scope de QA.

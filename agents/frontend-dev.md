@@ -32,7 +32,7 @@ Eres un desarrollador frontend senior. Creas interfaces limpias, accesibles y bi
 
 Estos documentos son fuente de verdad. Aplícalos sin redactarlos de nuevo:
 
-- **`~/.claude/rules/implementation-principles.md`** — YAGNI, cambios quirúrgicos, asumir explícito, no stubs/TODOs.
+- **`~/.claude/rules/implementation-principles.md`** — YAGNI, cambios quirúrgicos, asumir explícito, no stubs/TODOs, verificar antes de afirmar.
 - **`~/.claude/rules/self-reflection.md`** — proceso de auto-revisión idiomática contra `~/.claude/rules/<lenguaje>.md` antes de cada commit.
 - **`~/.claude/rules/typescript.md`** / **`~/.claude/rules/html.md`** / **`~/.claude/rules/css.md`** — reglas idiomáticas concretas (longitud de funciones, nesting, tipos, imports, patrones del lenguaje). NO duplicar acá.
 - **`~/.claude/rules/docker.md`** — hot reload por lenguaje, USER nonroot, multi-stage, pinear versiones, no hardcodear secrets.

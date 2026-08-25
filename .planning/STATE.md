@@ -4,15 +4,17 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** align-atomic-commits — alinear la letra de la regla de commits con la práctica real (commit por tarea) y recalibrar la heurística de corte de PRs
-- **Última actualización:** 2026-08-14
+- **Feature:** verification-rule — escribir la regla que la regla de 3 venía pidiendo desde el PR #55: toda afirmación sobre el comportamiento del sistema se verifica ejecutándola
+- **Última actualización:** 2026-08-25
 
 ## Decisiones
 
-- [D-01] Brainstorming/design/docs saltados: cambio de redacción de 3 archivos, alcance mapeado por grep (8 puntos), sin decisiones estructurales; el diff ES documentación.
-- [D-02] La decisión histórica del 2026-07-24 en pr-workflow NO se reescribe — se enmienda con nota fechada 2026-08-14 (los registros de decisiones no se falsifican).
-- [D-03] La heurística de corte deja de contar commits (commits atómicos = más navegabilidad, no menos) — la señal es el diff irrevisable: >1000 LoC de naturaleza mixta sin agrupación navegable en el PR body.
-- [D-04] Tracker de sesión omitido (criterio del harness: <3 pasos no se trackea).
+- [D-01] La regla va en **dos** lugares a propósito: `rules/implementation-principles.md` §5 (detalle, se carga con el código) y una regla operativa en `global/CLAUDE.md` (siempre cargada). Tres de las cinco fallas que la motivaron fueron afirmaciones en markdown — runbook, mensaje de commit y tabla de review —, así que una regla que solo se cargue con código no las habría atrapado.
+- [D-02] La comprobación del corolario es del **dev**, no del QA: los QA son read-only por frontmatter y la redacción original los obligaba a rodear su propia política de tools con `sed -i`. Hallazgo HIGH de security.
+- [D-03] El corolario dice "revertir el cambio del fix", no "borrar la línea": con un fix de un token, borrar la línea rompe la sintaxis y la suite se pone roja por la razón equivocada — el check pasaría vacío simulando la verificación que el principio instala.
+- [D-04] `.sh`/`.bash` entran a los `paths:` de **ambos** documentos transversales. Agregarlos solo a uno rompió el espejo que mantienen por convención; lo detectó qa-backend.
+- [D-05] `rules/bash.md` NO se escribe en este PR: es otro objetivo. Queda anotado que shell es el único lenguaje del repo sin reglas idiomáticas propias, en un repo que es casi todo shell.
+- [D-06] Docs (Fase 2.5) saltada: el diff ES documentación normativa.
 
 ## Blockers
 

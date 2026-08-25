@@ -57,7 +57,7 @@ Si ves que el schema de validación del architect no refleja una restricción re
 
 Estos documentos son fuente de verdad. Aplícalos sin redactarlos de nuevo:
 
-- **`~/.claude/rules/implementation-principles.md`** — YAGNI, cambios quirúrgicos, asumir explícito, no stubs/TODOs.
+- **`~/.claude/rules/implementation-principles.md`** — YAGNI, cambios quirúrgicos, asumir explícito, no stubs/TODOs, verificar antes de afirmar.
 - **`~/.claude/rules/self-reflection.md`** — proceso de auto-revisión idiomática contra `~/.claude/rules/<lenguaje>.md` antes de cada commit.
 - **`~/.claude/rules/<lenguaje>.md`** — reglas idiomáticas concretas. Para migraciones SQL puras, no aplica `<lenguaje>.md`; aplican criterios de SQL idiomático (ver "Idiomática SQL" abajo).
 - **`~/.claude/rules/docker.md`** — si tu trabajo requiere cambios al servicio de DB en compose, los documentas en DESIGN.md pero **NO tocas el compose tú** (lo hace backend-dev).

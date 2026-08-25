@@ -1,6 +1,6 @@
 # Learnings
 
-Retrospectivas post-merge. El orchestrator **prepend** una entrada (más reciente arriba) después de cada PR mergeado.
+Retro por PR mergeado. El orchestrator **prepend** una entrada (más reciente arriba) en la Fase 4, como último commit del branch del PR — antes del merge, nunca en un PR aparte.
 
 ## Formato de entrada
 
@@ -33,6 +33,81 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 ## Entradas
 
 (Las entradas se agregan aquí, la más reciente arriba)
+
+### [2026-08-25] PR #61 — La regla de verificar antes de afirmar, y su propia demostración
+
+**Métricas:**
+- Review rounds: 2
+- Hallazgos security: 5 (critical: 0, high: 2, medium: 0, low: 3)
+- Hallazgos qa-frontend: 0 (no aplica)
+- Hallazgos qa-backend: 3 (2 bloqueantes, 1 sugerencia)
+- Errores de build/CI: 0 (este repo no tiene Actions)
+- Self-reflection atrapó: n/a — sin dev, el diff lo escribió el orchestrator
+- Lotes ejecutados: 1 / Tareas: 1
+- Devs involucrados: ninguno
+
+**Qué salió bien:**
+- La regla se escribió **el mismo día** que el patrón llegó a su 5ª aparición, en vez de registrarse por sexta vez. El disparador fue el usuario preguntando "¿por qué esperar?".
+- El review dual demostró la tesis del PR con el PR mismo: los dos reviewers bloquearon, y las tres fallas eran afirmaciones que yo no había verificado.
+- Las dos sugerencias de la ronda 2 convergieron en el hueco que yo mismo les había pedido buscar — pedir explícitamente "díganme por dónde se rompe esto" produjo mejor review que pedir "revísenlo".
+
+**Qué causó re-work:**
+- Escribí una instrucción que obligaba a los QA a modificar el árbol de trabajo sin comprobar sus tools: tienen `Write` y `Edit` denegados por frontmatter. Estaba enseñándoles a rodear su propia política con `sed -i`.
+- Definí el corolario como "borrar la línea del fix" sin probar los casos borde. Con un fix de un token, borrar la línea rompe la sintaxis: la suite se pone roja por la razón equivocada y el check pasa vacío. La forma más peligrosa de fallar, porque simula la verificación.
+- Agregué `.sh` a un archivo de `rules/` sin mirar su gemelo, y rompí un espejo de `paths:` que se mantenía por convención — el mismo drift que la sección Anti-drift existe para prevenir.
+
+**Patrón potencial:** sí, dos. (1) **"El review dual es lo que sostiene la regla, no la regla"** — el principio 5 no habría atrapado ninguna de las tres fallas de su propio PR, porque las tres eran afirmaciones sobre documentos y frontmatter, no sobre código ejecutable. Lo que las atrapó fue que dos agentes fueran a mirar el archivo vecino y el caso borde. La regla escrita reduce la frecuencia; el review sigue siendo el que la hace cumplir. 1ª aparición formulada así. (2) **Pedir el vector de falla concreto en el prompt del reviewer** ("¿puede esta etiqueta usarse como excusa?", "¿el gate deja pasar un merge real?") produjo hallazgos que un "revisa esto" genérico no produjo — 2ª aparición contando el PR #60, donde la pregunta "¿el regex nuevo sanea de más?" destapó un fail-open que llevaba meses vivo.
+
+### [2026-08-25] PR #60 — ReDoS en guard_sanitize, y el fail-open que escondía
+
+**Métricas:**
+- Review rounds: 3
+- Hallazgos security: 7 (critical: 0, high: 0, medium: 1, low: 6) + el descubrimiento de un fail-open preexistente en el código viejo
+- Hallazgos qa-frontend: 0 (no aplica)
+- Hallazgos qa-backend: 5 (2 bloqueantes, 3 sugerencias — 2 aplicadas, 1 diferida)
+- Errores de build/CI: 0 (este repo no tiene Actions)
+- Self-reflection atrapó: el dev distinguió shellcheck preexistente de regresión propia, y rechazó tres veces un system-reminder que le pedía usar heredocs con el ReDoS activo
+- Lotes ejecutados: 1 / Tareas: 4
+- Devs involucrados: backend-dev (dos invocaciones; la primera abortada sin commits)
+
+**Qué salió bien:**
+- **El bug lo encontró el usuario, no el sistema**: "la mac está super caliente". 128 tests adversariales en verde mientras el sanitizador se colgaba con entrada ordinaria. Ningún test, ningún hook, ningún monitor lo veía.
+- Los dos reviewers verificaron **ejecutando**: security corrió 12 payloads contra `bash` real para saber cuáles ejecuta y cuáles trata como literal; QA reconstruyó el regex viejo desde `dev` y borró el fix para comprobar que el test se ponía rojo. Todo lo que se encontró salió de ahí, nada de lectura.
+- La pregunta del brief ("¿el regex nuevo sanea de más?") se respondió al revés de lo esperado y destapó un **fail-open real** del regex viejo: dos heredocs con el mismo delimitador se tragaban un `--admin` en 9ms, en silencio, desde que se escribió la lib.
+- Segunda aplicación de la regla del PR #59: la retro viaja en el branch.
+
+**Qué causó re-work:**
+- Describí mal el exploit al dev (delimitadores distintos en vez del mismo); él lo verificó y me corrigió antes de escribir el test. Después security **retiró su propia tabla** por la misma razón: había marcado "HIDES" donde era "TIMEOUT".
+- Pedí meter `pre-merge-check.sh` al scope sin decir dónde iba el check. Quedó bloqueando cualquier comando ante un saneo fallido — `ls -la` incluido. MEDIUM de la ronda 2, daño colateral mío.
+- Mi propio watchdog usó `ps -o etimes=`, que no existe en macOS: nunca mató nada y dejó una hora de CPU ardiendo mientras yo lo daba por activo.
+- Diagnostiqué el primer intento del dev como "atrapado en el bug que fue a arreglar". Narrativa redonda y falsa: la evidencia estaba en el mismo `ps` que ya había mirado — esos procesos corrían el regex **viejo**, y el archivo ya tenía el nuevo.
+
+**Patrón potencial:** sí, tres. (1) **"Verificar contra el sistema real antes de afirmar" — 5ª aparición**, con cinco instancias dentro de esta sola sesión (mi nota sobre `post-pr-create.sh`, el commit del dev con "5 casos verificados", el test del huérfano, mi `etimes`, la tabla de security). La regla de 3 se alcanzó en el PR #55 y la propuesta **sigue sin escribirse**: el grep confirma que no existe en `rules/`. Registrar el patrón cinco veces no lo corrige. (2) **"El test que protege un fix debe romperse si borras el fix"** — criterio mecánico, verificable, que cazó un bloqueante que dos rondas de lectura no habrían visto. 1ª aparición como criterio explícito; candidato a regla o al prompt de los QA. (3) La suite adversarial no ejercita a los guards con entrada patológica: prueba qué bloquean, no cómo se comportan con input hostil. El ReDoS vivió ahí, en verde.
+
+### [2026-08-24] PR #59 — La retro viaja en el branch del PR, no en un PR aparte
+
+**Métricas:**
+- Review rounds: 2
+- Hallazgos security: 7 (critical: 0, high: 0, medium: 1, low: 6) + 1 bug funcional fuera de scope de seguridad
+- Hallazgos qa-frontend: 0 (no aplica — sin frontend en el diff)
+- Hallazgos qa-backend: 3 (1 bloqueante, 2 sugerencias — 1 aplicada, 1 diferida con razón)
+- Errores de build/CI: 0 (este repo no tiene GitHub Actions)
+- Self-reflection atrapó: n/a — sin dev, el diff lo escribió el orchestrator
+- Lotes ejecutados: 1 / Tareas: 1
+- Devs involucrados: ninguno
+
+**Qué salió bien:**
+- El review dual sobre un diff 100% markdown pagó su costo dos veces: cazó una contradicción semántica con el modo multi-PR que ningún grep detecta, y una afirmación falsa sobre qué hook cubre qué.
+- Verificar el comando nuevo del check 4 **ejecutándolo** contra rangos de commits reales (no leyéndolo) confirmó el `0`/`N` esperado y la guarda de `review_sha` vacío.
+- El cambio se estrenó a sí mismo: esta entrada viaja en el branch del PR #59.
+- El origen fue un dato medido, no una intuición: 7m23s de runners de easy-quotes por 47 líneas de markdown.
+
+**Qué causó re-work:**
+- Afirmé que `post-pr-create.sh` ya cubría el commit de retro **sin leer el hook**. Corre en `gh pr create` y no vuelve a mirar el branch. Prevenible con 30 segundos de lectura; costó una ronda de fixes y, mientras existió, dejó una ventana real (push post-review sin ningún guard de contenido).
+- Reescribí de paso la cardinalidad de LEARNINGS ("por cada merge exitoso" → "por feature") sin que nadie lo pidiera. Rompió el modo multi-PR y fue el único bloqueante del PR: un cambio no pedido, adyacente al pedido.
+- El DoD anti-drift se cumplió y aun así no alcanzó: el grep de términos encuentra residuos léxicos, no contradicciones semánticas. La contradicción la encontró un reviewer leyendo el flujo completo. Y el propio `LEARNINGS.md` decía "retrospectivas post-merge" — quedó fuera del grep porque `.planning/` no estaba en la lista de directorios del DoD.
+
+**Patrón potencial:** sí, dos. (1) **"Verificar contra el sistema real antes de afirmar" — 4ª aparición** (PR #49: `stat` en Docker; PR #54: repo público; PR #55: CLI del plugin; PR #59: comportamiento de `post-pr-create.sh`). La regla de 3 se dio por alcanzada en el PR #55, con propuesta concreta de agregarla a `rules/implementation-principles.md` o al prompt del architect — y **nunca se implementó**: el grep confirma que no existe. Que el patrón reaparezca es la evidencia de que registrarlo no lo corrige. (2) qa-backend cambió de criterio entre rondas del mismo PR — revisó coherencia normativa en la ronda 1 y en la ronda 2 se declaró fuera de scope por ser markdown. Un diff de proceso no tiene reviewer con mandato claro; 1ª aparición, si se repite hay que definir a quién le toca.
 
 ### [2026-08-14] PR #56 — Review dual pre-push (Fase 2.6): el PR nace revisado
 
