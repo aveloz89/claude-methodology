@@ -9,6 +9,8 @@ paths:
   - "**/*.rs"
   - "**/*.cs"
   - "**/*.sql"
+  - "**/*.sh"
+  - "**/*.bash"
   - "**/*.vue"
   - "**/*.svelte"
   - "**/*.css"
@@ -130,10 +132,33 @@ Todo lo que entra al PR debe estar terminado. Código placeholder es bloqueante 
 
 Si la respuesta es "no" o "depende", el PR no está listo.
 
+### 5. Verificar antes de afirmar
+
+Toda afirmación sobre cómo se comporta el sistema —una plataforma, un hook, una herramienta, una librería, el entorno— se verifica **ejecutándola**. No se deduce de la documentación, del nombre de una función, ni de la memoria.
+
+Aplica a todo artefacto, no solo al código: comentarios, mensajes de commit, reportes de review y documentos de proceso. Una afirmación falsa en un comentario cuesta más que un bug, porque el que viene después la usa como premisa y construye encima.
+
+**Qué exige, en concreto:**
+
+- Si afirmas que un flag o comando existe, córrelo **en la plataforma donde va a correr**. Ejemplo real: `ps -o etimes=` es de Linux; en macOS no existe, y el watchdog que lo usaba nunca mató nada mientras se reportaba activo.
+- Si afirmas que un hook o un guard cubre un caso, lee el hook y confirma **cuándo se dispara**. Ejemplo real: `post-pr-create.sh` valida el delta al crear el PR y no vuelve a mirar el branch — citarlo como cobertura de un commit posterior es falso.
+- Si escribes "verificado en N casos", que los N casos **estén en el repo**. Una verificación que vive en un harness desechable no existe para el que venga después.
+- Si mides tiempo o performance, acota la corrida y reporta **el número**, no la impresión.
+
+**Corolario para tests: el test que protege un fix debe romperse si borras el fix.**
+
+Antes de declarar cubierto un arreglo: borra la línea del fix, corre la suite, confirma que algo se pone **rojo**, restaura y confirma el verde. Un test que pasa con y sin el fix no protege nada — y es peor que no tenerlo, porque simula cobertura. Se han encontrado tests de regresión que reimplementaban por dentro el código que decían proteger y quedaban verdes al revertir el fix real.
+
+**Self-check antes de commitear:**
+
+> "¿Cuál de las afirmaciones que escribí —en el código, en los comentarios o en el mensaje de commit— no ejecuté yo mismo?"
+
+Lo que no ejecutaste se escribe como lo que es: **no verificado**. Decirlo no es una debilidad del reporte, es la diferencia entre un dato y una suposición.
+
 ## Cómo se valida
 
 **Devs (auto-aplicación durante implementación):**
-- Aplicar los 4 principios al escribir código, no al final
+- Aplicar los 5 principios al escribir código, no al final
 - Correr los self-checks antes de cada commit
 
 **Devs (al abrir PR):**
@@ -141,6 +166,7 @@ Si la respuesta es "no" o "depende", el PR no está listo.
 
 **QA agents:**
 - Revisar el diff buscando violaciones: scope creep, abstracciones especulativas, error handling defensivo, refactor colateral, stubs/TODOs sin ticket, validación faltante en boundaries.
+- Cuando el diff arregla un bug: aplicar el corolario del principio 5 — borrar la línea del fix y confirmar que algún test se pone rojo. Un test de regresión que sigue verde sin el fix es bloqueante, no una sugerencia.
 
 **Security reviewer:**
 - Reportar violaciones **solo cuando tienen implicación de seguridad**: catch silencioso que oculta errores, validación faltante en boundary que recibe input de usuario, secrets hardcodeados disfrazados de "TODO cambiar antes de prod", logs ausentes en flujos de auth/pago. El resto queda en scope de QA.
