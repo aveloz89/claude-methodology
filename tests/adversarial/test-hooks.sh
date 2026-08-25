@@ -862,6 +862,67 @@ assert_guard_sanitize_bounded "guard_sanitize: heredoc con terminador indentado 
   "$(build_redos_heredoc 8 indented)" \
   "$EXPECTED_INDENTED_SANITIZED"
 
+# (c) Watchdog interno: si perl encuentra un patológico futuro no
+# anticipado, "BEGIN { alarm 2 }" lo mata en vez de dejarlo colgado. Un
+# fake perl que sale con 142 (el mismo código que deja un SIGALRM real sin
+# handler, ver redos.sh) simula ese timeout sin depender de un cuelgue de
+# 2s de verdad. Dirección de la degradación (igual razonamiento que "perl
+# no disponible" arriba): si perl muere, guard_sanitize NO puede devolver
+# la cadena vacía (el grep de cada guard no matchearía nada → fail-open
+# silencioso) — tiene que devolver el comando SIN sanear, la dirección
+# seguía siendo bloquear de más, nunca dejar pasar de menos.
+FAKE_PERL_TIMEOUT_DIR=$(mktemp -d)
+cat > "$FAKE_PERL_TIMEOUT_DIR/perl" <<'FAKE_PERL_EOF'
+#!/bin/bash
+# Fake perl: simula un guard_sanitize() que timeoutea o crashea — sale con
+# el mismo código que deja un SIGALRM real sin handler instalado (128+14,
+# ver redos.sh), sin imprimir nada a stdout ni ejecutar ningún regex real.
+exit 142
+FAKE_PERL_EOF
+chmod +x "$FAKE_PERL_TIMEOUT_DIR/perl"
+for cmd in bash cat jq grep dirname; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$FAKE_PERL_TIMEOUT_DIR/$cmd"
+done
+
+assert_bam_blocked "block-admin-merge: sigue bloqueando si perl falla/timeoutea (fallback fail-closed, sin sanear)" \
+  "gh pr merge 5 --admin" \
+  "$FAKE_PERL_TIMEOUT_DIR"
+
+# Transparencia del modo degradado (mismo criterio que la transparencia
+# "sin perl" de arriba): con perl fallando, el heredoc que menciona "git
+# commit" ya no se reconoce como cuerpo de heredoc — falso positivo
+# aceptado (dirección segura) — y el aviso por stderr tiene que ser
+# distinguible del de "perl no disponible" (esto NO es ausencia, es una
+# falla/timeout en tiempo de ejecución).
+HEREDOC_MENTION_PERL_TIMEOUT=$(cat <<'CMD_EOF'
+cat <<'NOTE_EOF' > notes.txt
+git commit -m "reminder text" (do this later)
+NOTE_EOF
+CMD_EOF
+)
+JSON_PERL_TIMEOUT=$(jq -n --arg cmd "$HEREDOC_MENTION_PERL_TIMEOUT" '{tool_input: {command: $cmd}}')
+PERL_TIMEOUT_PCG_DIR=$(mktemp -d)
+touch "$PERL_TIMEOUT_PCG_DIR/pyproject.toml"
+FAKE_PYTEST_PERL_TIMEOUT_DIR=$(mktemp -d)
+cat > "$FAKE_PYTEST_PERL_TIMEOUT_DIR/pytest" <<'FAKE_PYTEST_EOF'
+#!/bin/bash
+# Fake pytest: siempre "falla" (simula tests rotos), sin ejecutar nada real.
+exit 1
+FAKE_PYTEST_EOF
+chmod +x "$FAKE_PYTEST_PERL_TIMEOUT_DIR/pytest"
+PERL_TIMEOUT_EXIT=0
+PERL_TIMEOUT_OUTPUT=$(cd "$PERL_TIMEOUT_PCG_DIR" && echo "$JSON_PERL_TIMEOUT" | PATH="$FAKE_PYTEST_PERL_TIMEOUT_DIR:$FAKE_PERL_TIMEOUT_DIR" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1) || PERL_TIMEOUT_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$PERL_TIMEOUT_EXIT" -eq 2 ] && echo "$PERL_TIMEOUT_OUTPUT" | grep -qF "guard-matching: saneo abortado"; then
+  echo -e "${GREEN}PASS${NC}: guard_sanitize con perl fallando: falso positivo de heredoc pineado como aceptado + aviso stderr distinto de 'perl no disponible'"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_sanitize con perl fallando: falso positivo de heredoc pineado como aceptado + aviso stderr distinto de 'perl no disponible' (exit: $PERL_TIMEOUT_EXIT, output: $PERL_TIMEOUT_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$PERL_TIMEOUT_PCG_DIR" "$FAKE_PYTEST_PERL_TIMEOUT_DIR" "$FAKE_PERL_TIMEOUT_DIR"
+
 echo ""
 
 # --- Sandbox infra para hooks no-bloqueantes (PreCompact, SubagentStop, SessionEnd) ---

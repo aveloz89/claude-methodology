@@ -64,11 +64,29 @@ guard_sanitize() {
     # real el motor prueba todas las formas de repartir el texto entre
     # iteraciones — backtracking catastrófico (con 8 líneas de relleno sin
     # cerrar, >3s; crece sin cota visible).
-    printf '%s' "$1" | perl -0777 -pe '
+    local sanitized status
+    sanitized=$(printf '%s' "$1" | perl -0777 -pe '
+      BEGIN { alarm 2 }
       s/\\\n\s*/ /g;
       s/<<-?[\x27"]?(\w+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1[ \t]*$)[^\n]*\n)*?[ \t]*\1(?:\n|$)/\n/gsm;
       s/\x27[^\x27]*\x27|"(?:[^"\\]|\\.)*"/ /g;
-    '
+    ')
+    status=$?
+    # Red de seguridad para cualquier patológico futuro no anticipado por
+    # el fix de arriba: si perl no vuelve a tiempo, alarm(2) lo mata (sin
+    # $SIG{ALRM} instalado, la señal termina el proceso — perl sale con
+    # 128+14). Si perl falla por cualquier motivo (timeout o error), NO se
+    # puede devolver su stdout (vacío o parcial): eso equivaldría a sanear
+    # todo el comando a la nada, y el grep de cada guard nunca matchearía
+    # nada — fail-open silencioso. Se cae al mismo fallback que "perl no
+    # disponible": comando sin sanear (más falsos positivos, la dirección
+    # segura), avisado por stderr.
+    if [ "$status" -ne 0 ]; then
+      echo "guard-matching: saneo abortado (perl salió con estado $status, posible timeout), matching sin saneo (posibles falsos positivos)" >&2
+      printf '%s' "$1"
+    else
+      printf '%s' "$sanitized"
+    fi
   else
     echo "guard-matching: perl no disponible, matching sin saneo (posibles falsos positivos)" >&2
     printf '%s' "$1"
