@@ -967,6 +967,45 @@ else
 fi
 rm -rf "$WSLIB_DIR" "$WSLIB_NO_PNPM_BIN"
 
+# Casos [sugerencia no bloqueante, PR #58]: rutas de error de
+# _workspace_scope_pnpm_dirs cuando el binario SÍ está pero falla o
+# devuelve algo inesperado — un fake "pnpm" en PATH que antepone al real
+# permite controlar exit code y stdout sin depender de un pnpm instalado.
+_wslib_pnpm_case() {
+  local desc="$1" fake_body="$2"
+  local dir fakebin
+  dir=$(mktemp -d)
+  dir=$(cd "$dir" && pwd -P)
+  fakebin=$(mktemp -d)
+  echo '{"name": "root"}' > "$dir/package.json"
+  cat > "$fakebin/pnpm" <<EOF
+#!/bin/bash
+$fake_body
+EOF
+  chmod +x "$fakebin/pnpm"
+  local rc=0
+  local out
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" _workspace_scope_pnpm_dirs) || rc=$?
+  TOTAL=$((TOTAL + 1))
+  if [ "$rc" -ne 0 ]; then
+    echo -e "${GREEN}PASS${NC}: _workspace_scope_pnpm_dirs $desc → no resuelve nada"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: _workspace_scope_pnpm_dirs $desc (rc=$rc, esperado != 0, out=[$out])"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -rf "$dir" "$fakebin"
+}
+
+# Caso con stdout NO vacío a propósito: si el "|| return 1" tras el
+# comando se perdiera, el chequeo de "$list_json vacío" no alcanzaría para
+# atrapar la falla (hay JSON válido y no vacío) — este caso ejercita el
+# guard del exit code en sí, no el de vacío.
+_wslib_pnpm_case "cuando \"pnpm list -r\" falla (exit != 0) con stdout no vacío" \
+  'echo "[{\"path\": \"$(pwd)/packages/a\"}]"; exit 1'
+_wslib_pnpm_case "cuando \"pnpm list -r\" devuelve stdout vacío" 'exit 0'
+_wslib_pnpm_case "cuando \"pnpm list -r\" devuelve JSON malformado" 'echo "{not valid json"'
+
 # Caso: yarn nunca se resuelve con confianza (ver comentario en
 # workspace_scope_resolve) — documentado explícitamente, no un olvido.
 WSLIB_DIR=$(mktemp -d)
