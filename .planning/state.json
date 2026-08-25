@@ -4,7 +4,7 @@
   "branch": "feature/followups-sweep",
   "pr": 64,
   "review_sha": "a84e8b5",
-  "updated": "2026-08-25T19:42:28Z",
+  "updated": "2026-08-25T23:49:29Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
@@ -14,7 +14,7 @@
     "pr": "done",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "pending"
+    "merge": "done"
   },
   "batches": [
     {
