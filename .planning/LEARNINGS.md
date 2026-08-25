@@ -34,6 +34,30 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-08-25] PR #61 — La regla de verificar antes de afirmar, y su propia demostración
+
+**Métricas:**
+- Review rounds: 2
+- Hallazgos security: 5 (critical: 0, high: 2, medium: 0, low: 3)
+- Hallazgos qa-frontend: 0 (no aplica)
+- Hallazgos qa-backend: 3 (2 bloqueantes, 1 sugerencia)
+- Errores de build/CI: 0 (este repo no tiene Actions)
+- Self-reflection atrapó: n/a — sin dev, el diff lo escribió el orchestrator
+- Lotes ejecutados: 1 / Tareas: 1
+- Devs involucrados: ninguno
+
+**Qué salió bien:**
+- La regla se escribió **el mismo día** que el patrón llegó a su 5ª aparición, en vez de registrarse por sexta vez. El disparador fue el usuario preguntando "¿por qué esperar?".
+- El review dual demostró la tesis del PR con el PR mismo: los dos reviewers bloquearon, y las tres fallas eran afirmaciones que yo no había verificado.
+- Las dos sugerencias de la ronda 2 convergieron en el hueco que yo mismo les había pedido buscar — pedir explícitamente "díganme por dónde se rompe esto" produjo mejor review que pedir "revísenlo".
+
+**Qué causó re-work:**
+- Escribí una instrucción que obligaba a los QA a modificar el árbol de trabajo sin comprobar sus tools: tienen `Write` y `Edit` denegados por frontmatter. Estaba enseñándoles a rodear su propia política con `sed -i`.
+- Definí el corolario como "borrar la línea del fix" sin probar los casos borde. Con un fix de un token, borrar la línea rompe la sintaxis: la suite se pone roja por la razón equivocada y el check pasa vacío. La forma más peligrosa de fallar, porque simula la verificación.
+- Agregué `.sh` a un archivo de `rules/` sin mirar su gemelo, y rompí un espejo de `paths:` que se mantenía por convención — el mismo drift que la sección Anti-drift existe para prevenir.
+
+**Patrón potencial:** sí, dos. (1) **"El review dual es lo que sostiene la regla, no la regla"** — el principio 5 no habría atrapado ninguna de las tres fallas de su propio PR, porque las tres eran afirmaciones sobre documentos y frontmatter, no sobre código ejecutable. Lo que las atrapó fue que dos agentes fueran a mirar el archivo vecino y el caso borde. La regla escrita reduce la frecuencia; el review sigue siendo el que la hace cumplir. 1ª aparición formulada así. (2) **Pedir el vector de falla concreto en el prompt del reviewer** ("¿puede esta etiqueta usarse como excusa?", "¿el gate deja pasar un merge real?") produjo hallazgos que un "revisa esto" genérico no produjo — 2ª aparición contando el PR #60, donde la pregunta "¿el regex nuevo sanea de más?" destapó un fail-open que llevaba meses vivo.
+
 ### [2026-08-25] PR #60 — ReDoS en guard_sanitize, y el fail-open que escondía
 
 **Métricas:**

@@ -168,7 +168,7 @@ Antes de cada commit, el subagente dev (`backend-dev`, `frontend-dev`, `db-speci
 3. Build compila.
 4. Docker container corre, si aplica.
 5. **Self-reflection idiomática** contra `~/.claude/rules/self-reflection.md` — ejecutar el proceso ahí definido, que carga `~/.claude/rules/<lenguaje>.md` aplicable según el diff y revisa solo las líneas modificadas.
-6. **Implementation principles** contra `~/.claude/rules/implementation-principles.md` — revisar el diff contra YAGNI, scope mínimo, cambios quirúrgicos, sin abstracciones especulativas ni refactor colateral.
+6. **Implementation principles** contra `~/.claude/rules/implementation-principles.md` — revisar el diff contra YAGNI, scope mínimo, cambios quirúrgicos, sin abstracciones especulativas ni refactor colateral, y sin afirmaciones que no ejecutaste (§5).
 
 Los pasos 5 y 6 son ejercicios distintos: el 5 revisa **cómo** está escrito el código, el 6 revisa **qué** se escribió. Hacerlos en pasadas separadas evita que el juicio de scope se diluya en la revisión idiomática.
 
@@ -180,6 +180,7 @@ El paso 1 está reforzado por `pre-commit-guard.sh`. Los demás son responsabili
 - **Tarea atómica** = un comportamiento concreto y testeable = un ciclo TDD. No agrupes comportamientos.
 - **Frontend delgado** — cero lógica de negocio en componentes. Regla rápida: si el backend debe re-validar o re-calcular algo, es lógica de negocio y no va en frontend (solo replica para UX). Validación sintáctica, formateo y estado derivado de UI no cuentan.
 - **Debugging sistemático** — nunca adivines: evidencia → hipótesis → verificación → fix.
+- **Verificar antes de afirmar** — toda afirmación sobre cómo se comporta el sistema (plataforma, hook, herramienta, entorno) se verifica ejecutándola: nunca se deduce de la documentación, del nombre de algo, ni de la memoria. Aplica a ti también, y a todo artefacto — código, comentarios, mensajes de commit y documentos de proceso. Lo que no ejecutaste se escribe como no verificado. Corolario para tests: el que protege un fix debe romperse si borras el fix. Detalle en `~/.claude/rules/implementation-principles.md` §5.
 - **Governance** — ante situación inesperada (reviewers en conflicto, hook que falló, agente cortado, build roto post-merge), consulta `~/.claude/rulebooks/governance-playbook.md`.
 
 ## Reglas por lenguaje
