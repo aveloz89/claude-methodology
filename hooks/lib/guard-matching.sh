@@ -28,16 +28,25 @@
 GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
 
 # guard_sanitize: recibe el comando crudo como $1 y devuelve por stdout el
-# texto saneado (sin spans quoted ni cuerpos de heredoc).
+# texto saneado (sin spans quoted ni cuerpos de heredoc). Exit status: 0
+# si saneó de verdad, 1 si degradó al fallback (perl ausente o perl falló
+# en tiempo de ejecución) — los guards que solo BLOQUEAN sobre el
+# resultado (block-admin-merge.sh, pre-commit-guard.sh) pueden ignorar el
+# status, porque para ellos texto sin sanear es la dirección segura (más
+# falsos positivos, nunca menos). pre-merge-check.sh sí lo chequea: ese
+# guard EXTRAE datos del texto (el número de PR) en vez de solo bloquear,
+# y sobre texto sin sanear esa extracción puede agarrar un señuelo quoted
+# — ahí "más bloqueo" no es la dirección segura, es "verificar el PR
+# equivocado". Ver hooks/pre-merge-check.sh.
 #
 # Si perl no está disponible, se devuelve el comando sin sanear (fallback
 # al comportamiento que block-admin-merge.sh y pre-commit-guard.sh tenían
 # antes de este helper, que nunca dependió de perl). Es la dirección
-# segura para un guard: sin perl hay más falsos positivos posibles (texto
-# quoted que menciona la frase vigilada), pero nunca un falso negativo
-# silencioso por dependencia ausente — evita reintroducir en estos dos
-# guards el mismo fail-open de #50. Se anuncia por stderr para que el modo
-# degradado sea visible en vez de un fallback silencioso.
+# segura para un guard que solo bloquea: sin perl hay más falsos positivos
+# posibles (texto quoted que menciona la frase vigilada), pero nunca un
+# falso negativo silencioso por dependencia ausente — evita reintroducir
+# en estos dos guards el mismo fail-open de #50. Se anuncia por stderr
+# para que el modo degradado sea visible en vez de un fallback silencioso.
 guard_sanitize() {
   if command -v perl > /dev/null 2>&1; then
     # Orden importa: primero unir continuaciones de línea (backslash-
@@ -104,11 +113,14 @@ guard_sanitize() {
     if [ "$status" -ne 0 ]; then
       echo "guard-matching: saneo abortado (perl salió con estado $status, posible timeout), matching sin saneo (posibles falsos positivos)" >&2
       printf '%s' "$1"
+      return 1
     else
       printf '%s' "$sanitized"
+      return 0
     fi
   else
     echo "guard-matching: perl no disponible, matching sin saneo (posibles falsos positivos)" >&2
     printf '%s' "$1"
+    return 1
   fi
 }

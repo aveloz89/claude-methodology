@@ -650,6 +650,51 @@ rm -rf "$NO_JQ_PMC_BIN"
 # Con ambos disponibles (PATH normal): comportamiento intacto.
 assert_pre_merge_continue "pre-merge-check con perl y jq disponibles: comportamiento normal intacto (#50)" "git status"
 
+# [security LOW-2] "perl falló en tiempo de ejecución" y "perl ausente"
+# tienen que ser el MISMO estado para este guard: bloquea. Los otros dos
+# guards (block-admin-merge.sh, pre-commit-guard.sh) toleran el fallback
+# de guard_sanitize (comando sin sanear) porque solo BLOQUEAN de más sobre
+# texto sin sanear — la dirección segura. Este guard es distinto: EXTRAE
+# un número de PR del texto (línea ~82, sin GUARD_ANCHOR, a diferencia del
+# check de "es una invocación real" que sí lo usa) y lo usa para decidir A
+# CUÁL PR validar. Sobre texto sin sanear, un señuelo quoted con número
+# ("gh pr merge 7" dentro de un mensaje de commit) hace que esa extracción
+# agarre el número equivocado — termina validando el PR señuelo en vez de
+# bloquear por "sin número explícito", que es lo que debería pasar con la
+# invocación real (gh pr merge --squash, sin número). Repro exacta:
+# git commit -m "ver nota: gh pr merge 7" && gh pr merge --squash.
+FAKE_PERL_FAILS_PMC_DIR=$(mktemp -d)
+cat > "$FAKE_PERL_FAILS_PMC_DIR/perl" <<'FAKE_PERL_PMC_EOF'
+#!/bin/bash
+# Fake perl: simula un guard_sanitize() que falla en tiempo de ejecución
+# (perl SÍ está en PATH, a diferencia de los casos de arriba) — la rama
+# nueva de guard_sanitize que este guard nunca había ejercitado.
+exit 142
+FAKE_PERL_PMC_EOF
+chmod +x "$FAKE_PERL_FAILS_PMC_DIR/perl"
+# "cat" hace falta: a diferencia de los casos de arriba (que bloquean en
+# el chequeo de dependencias, antes de leer stdin), acá perl SÍ está en
+# PATH, así que la ejecución llega hasta INPUT=$(cat) — sin él, el hook
+# fallaría por una razón aburrida (comando no encontrado) en vez de
+# ejercitar el camino que este test quiere probar.
+for cmd in bash jq grep cat; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$FAKE_PERL_FAILS_PMC_DIR/$cmd"
+done
+TOTAL=$((TOTAL + 1))
+PMC_DECOY_JSON=$(jq -n '{tool_input: {command: "git commit -m \"ver nota: gh pr merge 7\" && gh pr merge --squash"}}')
+PMC_DECOY_OUTPUT=$(echo "$PMC_DECOY_JSON" | PATH="$FAKE_PERL_FAILS_PMC_DIR" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+if echo "$PMC_DECOY_OUTPUT" | grep -q '"decision":"block"' \
+  && echo "$PMC_DECOY_OUTPUT" | grep -qF "el saneo del comando" \
+  && ! echo "$PMC_DECOY_OUTPUT" | grep -qF "PR #7"; then
+  echo -e "${GREEN}PASS${NC}: pre-merge-check [security]: perl fallando en tiempo de ejecución bloquea (no valida el PR señuelo del texto sin sanear)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-merge-check [security]: perl fallando en tiempo de ejecución bloquea (no valida el PR señuelo del texto sin sanear) (output: $PMC_DECOY_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$FAKE_PERL_FAILS_PMC_DIR"
+
 rm -rf "$FAKE_GH_DIR"
 
 echo ""

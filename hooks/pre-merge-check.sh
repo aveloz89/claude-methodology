@@ -72,6 +72,24 @@ source "$LIB"
 
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
+# "perl falló en tiempo de ejecución" y "perl ausente" (chequeado arriba,
+# antes de leer stdin) son el mismo estado para este guard: bloquea. Los
+# otros dos guards que sanean (block-admin-merge.sh, pre-commit-guard.sh)
+# toleran el fallback de guard_sanitize (comando sin sanear) porque solo
+# BLOQUEAN de más sobre texto crudo — la dirección segura. Este guard es
+# distinto: EXTRAE el número de PR del texto (abajo) para decidir A CUÁL
+# PR validar, y esa extracción no está anclada con GUARD_ANCHOR como el
+# check de "es una invocación real" — sobre texto sin sanear, un señuelo
+# quoted con número (ej. un mensaje de commit que menciona "gh pr merge 7")
+# le gana la extracción a la invocación real y el guard termina
+# verificando el PR equivocado en vez de bloquear por "sin número
+# explícito", que es lo que correspondería. Ver guard_sanitize() en
+# hooks/lib/guard-matching.sh para el contrato de exit status.
+if [ $? -ne 0 ]; then
+  printf '{"decision":"block","reason":"pre-merge-check no operativo: el saneo del comando falló (perl abortó en tiempo de ejecución) — no se puede confiar en la extracción del número de PR sobre texto sin sanear"}\n'
+  exit 0
+fi
+
 # Solo interceptar invocaciones reales de gh pr merge
 if ! echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}gh\s+pr\s+merge\b"; then
   echo '{"continue":true}'
