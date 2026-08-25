@@ -457,6 +457,633 @@ assert_blocked_cmd "pre-commit-guard: bloquea fail-closed (exit 2) sin jq en PAT
   "$NO_JQ_PCG_BIN"
 rm -rf "$NO_JQ_PCG_BIN"
 
+# --- pre-commit-guard.sh: workspace scoping (monorepo) ---
+echo "--- pre-commit-guard.sh: workspace scoping (monorepo) ---"
+
+# _wsscope_npm_setup: monorepo npm de dos workspaces (frontend/backend) en un
+# repo git temporal. El test de "backend" SIEMPRE falla a propósito: es la
+# señal que distingue si el scoping realmente funcionó (solo se tocó
+# frontend → backend nunca corre → el commit pasa) de si cayó al fallback
+# (la raíz corre "--workspaces", que arrastra a backend → el commit se
+# bloquea). Un test que solo mirara el exit code sin esta señal no probaría
+# scoping, solo que "algo" corrió — de ahí también los marcadores en
+# WSSCOPE_MARK: prueban qué workspace corrió de verdad, más allá del código
+# de salida.
+_wsscope_npm_setup() {
+  WSSCOPE_DIR=$(mktemp -d)
+  WSSCOPE_DIR=$(cd "$WSSCOPE_DIR" && pwd -P)
+  WSSCOPE_MARK=$(mktemp -d)
+  (
+    cd "$WSSCOPE_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p frontend backend
+    cat > package.json <<EOF
+{ "name": "root", "private": true, "workspaces": ["frontend", "backend"], "scripts": { "test": "npm run test --workspaces --if-present" } }
+EOF
+    cat > frontend/package.json <<EOF
+{ "name": "fe", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_MARK/frontend.ran" } }
+EOF
+    cat > backend/package.json <<EOF
+{ "name": "be", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_MARK/backend.ran && exit 1" } }
+EOF
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+}
+
+_wsscope_npm_reset() {
+  git -C "$WSSCOPE_DIR" reset -q --hard > /dev/null 2>&1
+  git -C "$WSSCOPE_DIR" clean -fdq > /dev/null 2>&1
+  rm -f "$WSSCOPE_MARK"/*.ran
+}
+
+_wsscope_npm_cleanup() {
+  rm -rf "$WSSCOPE_DIR" "$WSSCOPE_MARK"
+}
+
+_wsscope_assert_markers() {
+  local test_name="$1" expect_fe="$2" expect_be="$3"
+  local got_fe=no got_be=no
+  [ -f "$WSSCOPE_MARK/frontend.ran" ] && got_fe=yes
+  [ -f "$WSSCOPE_MARK/backend.ran" ] && got_be=yes
+  TOTAL=$((TOTAL + 1))
+  if [ "$got_fe" = "$expect_fe" ] && [ "$got_be" = "$expect_be" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (marcadores: frontend=$got_fe backend=$got_be)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (marcadores: frontend=$got_fe backend=$got_be, esperado: frontend=$expect_fe backend=$expect_be)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+_wsscope_npm_setup
+
+# Caso A: un solo workspace tocado → corre SOLO ese (backend, que siempre
+# falla si corre, nunca se invoca → el commit pasa).
+_wsscope_npm_reset
+echo "cambio" > "$WSSCOPE_DIR/frontend/README.md"
+git -C "$WSSCOPE_DIR" add -A > /dev/null 2>&1
+assert_allowed_cmd "pre-commit-guard: monorepo npm, un solo workspace tocado → corre solo ese" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
+_wsscope_assert_markers "pre-commit-guard: scoping a un workspace — solo frontend corrió" yes no
+
+# Caso B: los dos workspaces tocados → corren los dos (backend falla y
+# bloquea) — confirma que el scoping no se queda "pegado" a un solo
+# workspace cuando en verdad hay que correr más de uno.
+_wsscope_npm_reset
+echo "cambio fe" > "$WSSCOPE_DIR/frontend/README.md"
+echo "cambio be" > "$WSSCOPE_DIR/backend/README.md"
+git -C "$WSSCOPE_DIR" add -A > /dev/null 2>&1
+assert_blocked_cmd "pre-commit-guard: monorepo npm, dos workspaces tocados → corren los dos (backend falla y bloquea)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
+_wsscope_assert_markers "pre-commit-guard: scoping a dos workspaces — ambos corrieron" yes yes
+
+# Caso C: cambio fuera de TODOS los workspaces declarados → corre todo (cae
+# al "$PKG_MGR test" de la raíz, que arrastra a backend y bloquea) — calca
+# la regla conservadora de .github/workflows/ci.yml (PR #122 de easy-quotes).
+_wsscope_npm_reset
+echo "cambio raiz" > "$WSSCOPE_DIR/README.md"
+git -C "$WSSCOPE_DIR" add -A > /dev/null 2>&1
+assert_blocked_cmd "pre-commit-guard: cambio fuera de todos los workspaces declarados → corre todo" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
+_wsscope_assert_markers "pre-commit-guard: fuera de workspaces — corrieron los dos (fallback completo)" yes yes
+
+# Caso E: "workspaces" declara un patrón que la lib no resuelve con
+# confianza ("packages/**", comodín en medio de la ruta) → corre todo, igual
+# que el caso C, aunque el archivo tocado sí caiga dentro de un workspace
+# real. Esto es lo que en la práctica significa "si el parseo falla" para
+# esta lib: package.json es válido, pero el patrón de workspaces no.
+_wsscope_npm_reset
+cat > "$WSSCOPE_DIR/package.json" <<EOF
+{ "name": "root", "private": true, "workspaces": ["frontend", "backend/**"], "scripts": { "test": "npm run test --workspaces --if-present" } }
+EOF
+echo "cambio" > "$WSSCOPE_DIR/frontend/README.md"
+git -C "$WSSCOPE_DIR" add -A > /dev/null 2>&1
+assert_blocked_cmd "pre-commit-guard: patrón de workspace no resuelto con confianza (glob en medio de la ruta) → corre todo" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
+_wsscope_assert_markers "pre-commit-guard: patrón no resuelto — corrieron los dos (fallback completo)" yes yes
+
+_wsscope_npm_cleanup
+
+# Caso D: repo de un solo paquete (sin "workspaces") → sin cambio de
+# comportamiento respecto al hook antes de esta feature.
+WSSCOPE_SINGLE_DIR=$(mktemp -d)
+WSSCOPE_SINGLE_DIR=$(cd "$WSSCOPE_SINGLE_DIR" && pwd -P)
+WSSCOPE_SINGLE_MARK=$(mktemp -d)
+(
+  cd "$WSSCOPE_SINGLE_DIR" || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  cat > package.json <<EOF
+{ "name": "single", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_SINGLE_MARK/single.ran" } }
+EOF
+  git add -A
+  git commit -q -m init
+) > /dev/null 2>&1
+echo "cambio" > "$WSSCOPE_SINGLE_DIR/index.js"
+git -C "$WSSCOPE_SINGLE_DIR" add -A > /dev/null 2>&1
+assert_allowed_cmd "pre-commit-guard: repo de un solo paquete (sin workspaces) → sin cambio de comportamiento" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_SINGLE_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$WSSCOPE_SINGLE_MARK/single.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: repo de un solo paquete corrió su test de la raíz directamente"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: repo de un solo paquete corrió su test de la raíz directamente (marcador ausente)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSSCOPE_SINGLE_DIR" "$WSSCOPE_SINGLE_MARK"
+
+# Caso G: hooks/lib/workspace-scope.sh ausente → NO bloquea (a diferencia
+# de guard-matching.sh, esta lib no es fail-closed) y cae a correr todo. Se
+# reusa el fixture de dos workspaces: si el commit (que solo toca frontend)
+# se bloquea igual, es porque de verdad cayó al "$PKG_MGR test" completo de
+# la raíz (que arrastra al backend, que siempre falla).
+_wsscope_npm_setup
+_wsscope_npm_reset
+echo "cambio" > "$WSSCOPE_DIR/frontend/README.md"
+git -C "$WSSCOPE_DIR" add -A > /dev/null 2>&1
+
+WSSCOPE_NOLIB_DIR=$(mktemp -d)
+cp "$HOOKS_DIR/pre-commit-guard.sh" "$WSSCOPE_NOLIB_DIR/"
+mkdir -p "$WSSCOPE_NOLIB_DIR/lib"
+cp "$HOOKS_DIR/lib/guard-matching.sh" "$WSSCOPE_NOLIB_DIR/lib/"
+# A propósito NO se copia workspace-scope.sh.
+
+TOTAL=$((TOTAL + 1))
+WSSCOPE_NOLIB_EXIT=0
+WSSCOPE_NOLIB_JSON=$(jq -n --arg cmd "git commit -m x" '{tool_input: {command: $cmd}}')
+(cd "$WSSCOPE_DIR" && echo "$WSSCOPE_NOLIB_JSON" | bash "$WSSCOPE_NOLIB_DIR/pre-commit-guard.sh" > /dev/null 2>&1) || WSSCOPE_NOLIB_EXIT=$?
+if [ "$WSSCOPE_NOLIB_EXIT" -eq 2 ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: sin workspace-scope.sh no bloquea por su ausencia — cae a correr todo (bloquea por backend, no por falta de lib)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: sin workspace-scope.sh no bloquea por su ausencia — cae a correr todo (exit: $WSSCOPE_NOLIB_EXIT, esperado: 2 por el fallback completo)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSSCOPE_NOLIB_DIR"
+_wsscope_npm_cleanup
+
+# Caso F [security, PR #58, HIGH]: workspace anidado ("frontend/plugins/*",
+# declarado junto al padre "frontend") + un commit que crea el paquete
+# anidado ENTERO sin trackear. `git status --porcelain` (sin
+# --untracked-files=all) colapsa un directorio enteramente sin trackear en
+# una sola entrada con slash final (?? frontend/plugins/), que matchea el
+# workspace padre "frontend" pero no el anidado "frontend/plugins/foo" que
+# en verdad contiene el archivo nuevo — _WS_TOUCHED queda incompleto, el
+# guard corre solo "frontend" (pasa) y nunca corre el test del paquete
+# nuevo (que siempre falla), pasando el commit en silencio donde el hook
+# anterior (sin scoping) sí bloqueaba.
+WSSCOPE_NESTED_DIR=$(mktemp -d)
+WSSCOPE_NESTED_DIR=$(cd "$WSSCOPE_NESTED_DIR" && pwd -P)
+WSSCOPE_NESTED_MARK=$(mktemp -d)
+(
+  cd "$WSSCOPE_NESTED_DIR" || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  mkdir -p frontend
+  cat > package.json <<EOF
+{ "name": "root", "private": true, "workspaces": ["frontend", "frontend/plugins/*"], "scripts": { "test": "npm run test --workspaces --if-present" } }
+EOF
+  cat > frontend/package.json <<EOF
+{ "name": "fe", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_NESTED_MARK/frontend.ran" } }
+EOF
+  git add -A
+  git commit -q -m init
+) > /dev/null 2>&1
+
+mkdir -p "$WSSCOPE_NESTED_DIR/frontend/plugins/foo"
+cat > "$WSSCOPE_NESTED_DIR/frontend/plugins/foo/package.json" <<EOF
+{ "name": "foo", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_NESTED_MARK/foo.ran && exit 1" } }
+EOF
+
+assert_blocked_cmd "pre-commit-guard: paquete anidado nuevo, enteramente sin trackear, dentro de un workspace existente → corre también su test (bloquea)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_NESTED_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$WSSCOPE_NESTED_MARK/foo.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: el test del paquete anidado nuevo sí corrió (marcador presente)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: el test del paquete anidado nuevo no corrió (marcador ausente) — el colapso de directorio untracked dejó el workspace anidado fuera del scoping"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSSCOPE_NESTED_DIR" "$WSSCOPE_NESTED_MARK"
+
+# Caso H [security, PR #58, HIGH]: `status.showUntrackedFiles=no` (config
+# legítima de usuario, puede vivir en su ~/.gitconfig) hace que `git status
+# --porcelain` omita los untracked por completo. Un commit que toca
+# frontend (staged) y backend (archivo nuevo, todavía sin `git add` —
+# simula "git add -A && git commit" que aún no corrió cuando este hook
+# PreToolUse se dispara) debía correr ambas suites; con esa config activa,
+# la lib solo ve frontend y el commit pasa sin correr el test de backend
+# (que siempre falla).
+_wsscope_npm_setup
+_wsscope_npm_reset
+git -C "$WSSCOPE_DIR" config status.showUntrackedFiles no
+echo "cambio fe" > "$WSSCOPE_DIR/frontend/README.md"
+echo "cambio be nuevo" > "$WSSCOPE_DIR/backend/NEW.md"
+git -C "$WSSCOPE_DIR" add frontend/README.md > /dev/null 2>&1
+assert_blocked_cmd "pre-commit-guard: status.showUntrackedFiles=no no debe ocultar workspace nuevo tocado → corren los dos (backend falla y bloquea)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
+_wsscope_assert_markers "pre-commit-guard: showUntrackedFiles=no — ambos workspaces corrieron" yes yes
+_wsscope_npm_cleanup
+
+# Caso I [QA, PR #58]: workspace tocado que NO declara script "test" → no
+# debe bloquear el commit por un falso negativo. Depende de --if-present en
+# el comando armado por _workspace_scope_npm_cmd; sin ese flag, "npm test -w
+# frontend" falla con "Missing script: test" y el commit se bloquearía
+# aunque no hay ningún test que haya fallado de verdad.
+WSSCOPE_NOSCRIPT_DIR=$(mktemp -d)
+WSSCOPE_NOSCRIPT_DIR=$(cd "$WSSCOPE_NOSCRIPT_DIR" && pwd -P)
+(
+  cd "$WSSCOPE_NOSCRIPT_DIR" || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  mkdir -p frontend backend
+  cat > package.json <<EOF
+{ "name": "root", "private": true, "workspaces": ["frontend", "backend"], "scripts": { "test": "npm run test --workspaces --if-present" } }
+EOF
+  cat > frontend/package.json <<EOF
+{ "name": "fe", "version": "1.0.0", "scripts": {} }
+EOF
+  cat > backend/package.json <<EOF
+{ "name": "be", "version": "1.0.0", "scripts": { "test": "exit 1" } }
+EOF
+  git add -A
+  git commit -q -m init
+) > /dev/null 2>&1
+echo "cambio" > "$WSSCOPE_NOSCRIPT_DIR/frontend/README.md"
+git -C "$WSSCOPE_NOSCRIPT_DIR" add -A > /dev/null 2>&1
+assert_allowed_cmd "pre-commit-guard: npm — workspace tocado sin script \"test\" no bloquea (--if-present)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_NOSCRIPT_DIR"
+rm -rf "$WSSCOPE_NOSCRIPT_DIR"
+
+# Caso J [sugerencia no bloqueante, PR #58]: un path con espacios llega
+# C-quoteado en `git status --porcelain` (verificado: "?? \"frontend/my
+# dir/file.txt\"", con comillas literales incluidas en el path, sea cual
+# sea core.quotepath — ese setting solo afecta no-ASCII, no espacios). Las
+# comillas literales hacen que el path nunca matchee ningún "$dir"/* de
+# _WS_DIRS, así que _workspace_scope_match lo marca "outside" y cae
+# siempre al fallback completo — comportamiento seguro (nunca corre de
+# menos) pero no evidente, documentado acá y en el comentario de la lib.
+_wsscope_npm_setup
+_wsscope_npm_reset
+mkdir -p "$WSSCOPE_DIR/frontend/my dir"
+echo "cambio" > "$WSSCOPE_DIR/frontend/my dir/file.txt"
+git -C "$WSSCOPE_DIR" add -A > /dev/null 2>&1
+assert_blocked_cmd "pre-commit-guard: path con espacios cae al fallback completo (backend falla y bloquea, no scoping)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
+_wsscope_assert_markers "pre-commit-guard: path con espacios — fallback completo, corrieron los dos" yes yes
+_wsscope_npm_cleanup
+
+# Caso K [security, PR #58, MEDIUM, ronda 2]: un submódulo que es workspace
+# anidado se reporta en `git status --porcelain` SIN slash final (" M
+# frontend/plugins/foo", a diferencia del directorio untracked colapsado
+# del Caso F, que sí lo lleva) — verificado con un submódulo real. Ese
+# string no matchea "frontend/plugins/foo"/* (el patrón exige un "/" justo
+# después), pero sí matchea "frontend"/* — matched=true por el workspace
+# padre, no dispara el bail de "outside", y el submódulo queda fuera de
+# _WS_TOUCHED sin que nadie lo note. Mismo defecto de fondo que el Caso F,
+# disparado por un string sin slash en vez de uno colapsado.
+WSSCOPE_SUBMOD_INNER=$(mktemp -d)
+WSSCOPE_SUBMOD_INNER=$(cd "$WSSCOPE_SUBMOD_INNER" && pwd -P)
+WSSCOPE_SUBMOD_DIR=$(mktemp -d)
+WSSCOPE_SUBMOD_DIR=$(cd "$WSSCOPE_SUBMOD_DIR" && pwd -P)
+WSSCOPE_SUBMOD_MARK=$(mktemp -d)
+(
+  cd "$WSSCOPE_SUBMOD_INNER" || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  cat > package.json <<EOF
+{ "name": "foo", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_SUBMOD_MARK/foo.ran && exit 1" } }
+EOF
+  echo "readme" > README.md
+  git add -A
+  git commit -q -m init
+) > /dev/null 2>&1
+(
+  cd "$WSSCOPE_SUBMOD_DIR" || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  mkdir -p frontend
+  cat > package.json <<EOF
+{ "name": "root", "private": true, "workspaces": ["frontend", "frontend/plugins/*"], "scripts": { "test": "npm run test --workspaces --if-present" } }
+EOF
+  cat > frontend/package.json <<EOF
+{ "name": "fe", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_SUBMOD_MARK/frontend.ran" } }
+EOF
+  git -c protocol.file.allow=always submodule add -q "$WSSCOPE_SUBMOD_INNER" frontend/plugins/foo > /dev/null 2>&1
+  git add -A
+  git commit -q -m "init con submodulo"
+) > /dev/null 2>&1
+
+echo "dirty" >> "$WSSCOPE_SUBMOD_DIR/frontend/plugins/foo/README.md"
+
+assert_blocked_cmd "pre-commit-guard: submódulo sucio (workspace anidado) → corre también su test (bloquea)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_SUBMOD_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$WSSCOPE_SUBMOD_MARK/foo.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: el test del submódulo sucio sí corrió (marcador presente)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: el test del submódulo sucio no corrió (marcador ausente) — \" M frontend/plugins/foo\" (sin slash) matcheó solo el workspace padre"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSSCOPE_SUBMOD_INNER" "$WSSCOPE_SUBMOD_DIR" "$WSSCOPE_SUBMOD_MARK"
+
+echo ""
+# --- pre-commit-guard.sh: workspace scoping (monorepo pnpm) ---
+echo "--- pre-commit-guard.sh: workspace scoping (monorepo pnpm) ---"
+
+if command -v pnpm > /dev/null 2>&1; then
+  WSSCOPE_PNPM_DIR=$(mktemp -d)
+  WSSCOPE_PNPM_DIR=$(cd "$WSSCOPE_PNPM_DIR" && pwd -P)
+  WSSCOPE_PNPM_MARK=$(mktemp -d)
+  (
+    cd "$WSSCOPE_PNPM_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p packages/a packages/b
+    cat > pnpm-workspace.yaml <<'YAML_EOF'
+packages:
+  - "packages/*"
+YAML_EOF
+    touch pnpm-lock.yaml
+    cat > package.json <<EOF
+{ "name": "root", "private": true, "scripts": { "test": "pnpm -r run test" } }
+EOF
+    cat > packages/a/package.json <<EOF
+{ "name": "pkg-a", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_PNPM_MARK/a.ran" } }
+EOF
+    cat > packages/b/package.json <<EOF
+{ "name": "pkg-b", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_PNPM_MARK/b.ran && exit 1" } }
+EOF
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+
+  echo "cambio" > "$WSSCOPE_PNPM_DIR/packages/a/index.js"
+  git -C "$WSSCOPE_PNPM_DIR" add -A > /dev/null 2>&1
+  assert_allowed_cmd "pre-commit-guard: monorepo pnpm, un solo workspace tocado → corre solo ese" \
+    "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_PNPM_DIR"
+
+  TOTAL=$((TOTAL + 1))
+  if [ -f "$WSSCOPE_PNPM_MARK/a.ran" ] && [ ! -f "$WSSCOPE_PNPM_MARK/b.ran" ]; then
+    echo -e "${GREEN}PASS${NC}: pre-commit-guard: pnpm — scoping a un workspace, solo packages/a corrió"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: pre-commit-guard: pnpm — scoping a un workspace (a.ran=$( [ -f "$WSSCOPE_PNPM_MARK/a.ran" ] && echo si || echo no ), b.ran=$( [ -f "$WSSCOPE_PNPM_MARK/b.ran" ] && echo si || echo no ))"
+    FAIL=$((FAIL + 1))
+  fi
+
+  # Caso pnpm adicional [sugerencia no bloqueante, PR #58]: dos workspaces
+  # tocados a la vez → corren los dos (mismo chequeo que el Caso B de npm,
+  # equivalente pnpm: confirma que el scoping no se queda pegado a un solo
+  # workspace también con --filter).
+  git -C "$WSSCOPE_PNPM_DIR" reset -q --hard > /dev/null 2>&1
+  git -C "$WSSCOPE_PNPM_DIR" clean -fdq > /dev/null 2>&1
+  rm -f "$WSSCOPE_PNPM_MARK"/*.ran
+  echo "cambio a" > "$WSSCOPE_PNPM_DIR/packages/a/index.js"
+  echo "cambio b" > "$WSSCOPE_PNPM_DIR/packages/b/index.js"
+  git -C "$WSSCOPE_PNPM_DIR" add -A > /dev/null 2>&1
+  assert_blocked_cmd "pre-commit-guard: monorepo pnpm, dos workspaces tocados → corren los dos (b falla y bloquea)" \
+    "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_PNPM_DIR"
+  TOTAL=$((TOTAL + 1))
+  if [ -f "$WSSCOPE_PNPM_MARK/a.ran" ] && [ -f "$WSSCOPE_PNPM_MARK/b.ran" ]; then
+    echo -e "${GREEN}PASS${NC}: pre-commit-guard: pnpm — scoping a dos workspaces, ambos corrieron"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: pre-commit-guard: pnpm — scoping a dos workspaces (a.ran=$( [ -f "$WSSCOPE_PNPM_MARK/a.ran" ] && echo si || echo no ), b.ran=$( [ -f "$WSSCOPE_PNPM_MARK/b.ran" ] && echo si || echo no ))"
+    FAIL=$((FAIL + 1))
+  fi
+
+  rm -rf "$WSSCOPE_PNPM_DIR" "$WSSCOPE_PNPM_MARK"
+
+  # Caso pnpm [QA, PR #58]: workspace tocado que NO declara script "test" →
+  # no debe bloquear. A diferencia de npm, pnpm no necesita --if-present:
+  # "pnpm --filter ./<ws> run test" ya saltea en silencio con exit 0 un
+  # workspace sin ese script (verificado).
+  WSSCOPE_PNPM_NOSCRIPT_DIR=$(mktemp -d)
+  WSSCOPE_PNPM_NOSCRIPT_DIR=$(cd "$WSSCOPE_PNPM_NOSCRIPT_DIR" && pwd -P)
+  (
+    cd "$WSSCOPE_PNPM_NOSCRIPT_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p packages/a packages/b
+    cat > pnpm-workspace.yaml <<'YAML_EOF'
+packages:
+  - "packages/*"
+YAML_EOF
+    touch pnpm-lock.yaml
+    cat > package.json <<EOF
+{ "name": "root", "private": true, "scripts": { "test": "pnpm -r run test" } }
+EOF
+    cat > packages/a/package.json <<EOF
+{ "name": "pkg-a", "version": "1.0.0", "scripts": {} }
+EOF
+    cat > packages/b/package.json <<EOF
+{ "name": "pkg-b", "version": "1.0.0", "scripts": { "test": "exit 1" } }
+EOF
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+  echo "cambio" > "$WSSCOPE_PNPM_NOSCRIPT_DIR/packages/a/index.js"
+  git -C "$WSSCOPE_PNPM_NOSCRIPT_DIR" add -A > /dev/null 2>&1
+  assert_allowed_cmd "pre-commit-guard: pnpm — workspace tocado sin script \"test\" no bloquea (skip silencioso de pnpm)" \
+    "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_PNPM_NOSCRIPT_DIR"
+  rm -rf "$WSSCOPE_PNPM_NOSCRIPT_DIR"
+else
+  echo "SKIP: pnpm no está instalado en esta máquina — se omiten los tests de scoping para pnpm"
+fi
+
+echo ""
+# --- hooks/lib/workspace-scope.sh (unit) ---
+echo "--- hooks/lib/workspace-scope.sh (unit) ---"
+
+# shellcheck source=../../hooks/lib/workspace-scope.sh
+source "$HOOKS_DIR/lib/workspace-scope.sh"
+
+# Caso: entradas literales ("frontend", "backend") se resuelven tal cual.
+WSLIB_DIR=$(mktemp -d)
+mkdir -p "$WSLIB_DIR/frontend" "$WSLIB_DIR/backend"
+echo '{"workspaces": ["frontend", "backend"]}' > "$WSLIB_DIR/package.json"
+touch "$WSLIB_DIR/frontend/package.json" "$WSLIB_DIR/backend/package.json"
+WSLIB_RC=0
+WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs && printf '%s\n' "${_WS_DIRS[@]}" | sort) || WSLIB_RC=$?
+TOTAL=$((TOTAL + 1))
+if [ "$WSLIB_RC" -eq 0 ] && [ "$WSLIB_OUT" = "$(printf 'backend\nfrontend')" ]; then
+  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs resuelve entradas literales"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs resuelve entradas literales (rc=$WSLIB_RC, out=[$WSLIB_OUT])"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSLIB_DIR"
+
+# Caso: glob de un solo nivel al final ("packages/*") se expande a los
+# subdirectorios reales que tienen su propio package.json — un subdirectorio
+# SIN package.json (ej. un README suelto) no cuenta como workspace.
+WSLIB_DIR=$(mktemp -d)
+mkdir -p "$WSLIB_DIR/packages/a" "$WSLIB_DIR/packages/b" "$WSLIB_DIR/packages/not-a-package"
+echo '{"workspaces": ["packages/*"]}' > "$WSLIB_DIR/package.json"
+touch "$WSLIB_DIR/packages/a/package.json" "$WSLIB_DIR/packages/b/package.json"
+echo "not json, not a package" > "$WSLIB_DIR/packages/not-a-package/README.md"
+WSLIB_RC=0
+WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs && printf '%s\n' "${_WS_DIRS[@]}" | sort) || WSLIB_RC=$?
+TOTAL=$((TOTAL + 1))
+if [ "$WSLIB_RC" -eq 0 ] && [ "$WSLIB_OUT" = "$(printf 'packages/a\npackages/b')" ]; then
+  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs resuelve glob de un solo nivel (packages/*), ignora subdirs sin package.json"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs resuelve glob de un solo nivel (rc=$WSLIB_RC, out=[$WSLIB_OUT])"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSLIB_DIR"
+
+# Caso [QA, PR #58]: forma objeto de "workspaces" ({"packages": [...]}),
+# soportada explícitamente por el filtro jq de _workspace_scope_npm_dirs
+# pero sin ningún test que la ejerciera hasta ahora.
+WSLIB_DIR=$(mktemp -d)
+mkdir -p "$WSLIB_DIR/frontend" "$WSLIB_DIR/backend"
+echo '{"workspaces": {"packages": ["frontend", "backend"]}}' > "$WSLIB_DIR/package.json"
+touch "$WSLIB_DIR/frontend/package.json" "$WSLIB_DIR/backend/package.json"
+WSLIB_RC=0
+WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs && printf '%s\n' "${_WS_DIRS[@]}" | sort) || WSLIB_RC=$?
+TOTAL=$((TOTAL + 1))
+if [ "$WSLIB_RC" -eq 0 ] && [ "$WSLIB_OUT" = "$(printf 'backend\nfrontend')" ]; then
+  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs resuelve la forma objeto de \"workspaces\" ({packages: [...]})"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs resuelve la forma objeto de \"workspaces\" (rc=$WSLIB_RC, out=[$WSLIB_OUT])"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSLIB_DIR"
+
+# Caso: patrón que la lib no resuelve con confianza (comodín en medio de la
+# ruta, "**") aborta toda la resolución — no solo la entrada problemática.
+WSLIB_DIR=$(mktemp -d)
+mkdir -p "$WSLIB_DIR/frontend"
+echo '{"workspaces": ["frontend", "packages/**"]}' > "$WSLIB_DIR/package.json"
+touch "$WSLIB_DIR/frontend/package.json"
+WSLIB_RC=0
+WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs) || WSLIB_RC=$?
+TOTAL=$((TOTAL + 1))
+if [ "$WSLIB_RC" -ne 0 ]; then
+  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs no resuelve un patrón con \"**\" — aborta toda la función"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs no resuelve un patrón con \"**\" (rc=$WSLIB_RC, esperado != 0)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSLIB_DIR"
+
+# Caso: sin campo "workspaces" (repo de un solo paquete) → no hay nada que
+# resolver, la función falla con confianza (el caller cae a correr todo).
+WSLIB_DIR=$(mktemp -d)
+echo '{"name": "single"}' > "$WSLIB_DIR/package.json"
+WSLIB_RC=0
+WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs) || WSLIB_RC=$?
+TOTAL=$((TOTAL + 1))
+if [ "$WSLIB_RC" -ne 0 ]; then
+  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs sin campo \"workspaces\" declarado → no resuelve nada"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs sin campo \"workspaces\" declarado (rc=$WSLIB_RC, esperado != 0)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSLIB_DIR"
+
+# Caso: sin el binario pnpm en PATH, _workspace_scope_pnpm_dirs no resuelve
+# nada con confianza (no hay YAML que parsear a mano como fallback).
+WSLIB_DIR=$(mktemp -d)
+mkdir -p "$WSLIB_DIR/packages/a"
+echo '{"name": "root"}' > "$WSLIB_DIR/package.json"
+WSLIB_NO_PNPM_BIN=$(mktemp -d)
+for cmd in bash jq git cat pwd; do
+  p=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$p" ] && ln -s "$p" "$WSLIB_NO_PNPM_BIN/$cmd"
+done
+WSLIB_RC=0
+WSLIB_OUT=$(cd "$WSLIB_DIR" && PATH="$WSLIB_NO_PNPM_BIN" _workspace_scope_pnpm_dirs) || WSLIB_RC=$?
+TOTAL=$((TOTAL + 1))
+if [ "$WSLIB_RC" -ne 0 ]; then
+  echo -e "${GREEN}PASS${NC}: _workspace_scope_pnpm_dirs sin el binario pnpm en PATH → no resuelve nada"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _workspace_scope_pnpm_dirs sin el binario pnpm en PATH (rc=$WSLIB_RC, esperado != 0)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSLIB_DIR" "$WSLIB_NO_PNPM_BIN"
+
+# Casos [sugerencia no bloqueante, PR #58]: rutas de error de
+# _workspace_scope_pnpm_dirs cuando el binario SÍ está pero falla o
+# devuelve algo inesperado — un fake "pnpm" en PATH que antepone al real
+# permite controlar exit code y stdout sin depender de un pnpm instalado.
+_wslib_pnpm_case() {
+  local desc="$1" fake_body="$2"
+  local dir fakebin
+  dir=$(mktemp -d)
+  dir=$(cd "$dir" && pwd -P)
+  fakebin=$(mktemp -d)
+  echo '{"name": "root"}' > "$dir/package.json"
+  # printf en vez de heredoc con delimitador sin comillas: $fake_body es
+  # texto crudo (fixture con "$(pwd)" incluido a propósito en un caso), y
+  # printf '%s' nunca lo re-interpreta como sintaxis de shell al escribir
+  # — se evalúa recién cuando el fake pnpm se ejecuta, en su propio cwd.
+  printf '#!/bin/bash\n%s\n' "$fake_body" > "$fakebin/pnpm"
+  chmod +x "$fakebin/pnpm"
+  local rc=0
+  local out
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" _workspace_scope_pnpm_dirs) || rc=$?
+  TOTAL=$((TOTAL + 1))
+  if [ "$rc" -ne 0 ]; then
+    echo -e "${GREEN}PASS${NC}: _workspace_scope_pnpm_dirs $desc → no resuelve nada"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: _workspace_scope_pnpm_dirs $desc (rc=$rc, esperado != 0, out=[$out])"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -rf "$dir" "$fakebin"
+}
+
+# Caso con stdout NO vacío a propósito: si el "|| return 1" tras el
+# comando se perdiera, el chequeo de "$list_json vacío" no alcanzaría para
+# atrapar la falla (hay JSON válido y no vacío) — este caso ejercita el
+# guard del exit code en sí, no el de vacío.
+_wslib_pnpm_case "cuando \"pnpm list -r\" falla (exit != 0) con stdout no vacío" \
+  'echo "[{\"path\": \"$(pwd)/packages/a\"}]"; exit 1'
+_wslib_pnpm_case "cuando \"pnpm list -r\" devuelve stdout vacío" 'exit 0'
+_wslib_pnpm_case "cuando \"pnpm list -r\" devuelve JSON malformado" 'echo "{not valid json"'
+
+# Caso: yarn nunca se resuelve con confianza (ver comentario en
+# workspace_scope_resolve) — documentado explícitamente, no un olvido.
+WSLIB_DIR=$(mktemp -d)
+mkdir -p "$WSLIB_DIR/frontend" "$WSLIB_DIR/backend"
+echo '{"workspaces": ["frontend", "backend"]}' > "$WSLIB_DIR/package.json"
+touch "$WSLIB_DIR/frontend/package.json" "$WSLIB_DIR/backend/package.json"
+WSLIB_RC=0
+(cd "$WSLIB_DIR" && workspace_scope_resolve "yarn") || WSLIB_RC=$?
+TOTAL=$((TOTAL + 1))
+if [ "$WSLIB_RC" -ne 0 ]; then
+  echo -e "${GREEN}PASS${NC}: workspace_scope_resolve nunca resuelve yarn con confianza (punt documentado)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: workspace_scope_resolve nunca resuelve yarn con confianza (rc=$WSLIB_RC, esperado != 0)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSLIB_DIR"
+
+echo ""
+
 echo ""
 
 # --- pre-merge-check.sh ---

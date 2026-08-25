@@ -4,17 +4,18 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** verification-rule — escribir la regla que la regla de 3 venía pidiendo desde el PR #55: toda afirmación sobre el comportamiento del sistema se verifica ejecutándola
+- **Feature:** pre-commit-workspace-scope (PR #58) — acotar `pre-commit-guard.sh` a las suites de los workspaces tocados en monorepos npm/pnpm
 - **Última actualización:** 2026-08-25
 
 ## Decisiones
 
-- [D-01] La regla va en **dos** lugares a propósito: `rules/implementation-principles.md` §5 (detalle, se carga con el código) y una regla operativa en `global/CLAUDE.md` (siempre cargada). Tres de las cinco fallas que la motivaron fueron afirmaciones en markdown — runbook, mensaje de commit y tabla de review —, así que una regla que solo se cargue con código no las habría atrapado.
-- [D-02] La comprobación del corolario es del **dev**, no del QA: los QA son read-only por frontmatter y la redacción original los obligaba a rodear su propia política de tools con `sed -i`. Hallazgo HIGH de security.
-- [D-03] El corolario dice "revertir el cambio del fix", no "borrar la línea": con un fix de un token, borrar la línea rompe la sintaxis y la suite se pone roja por la razón equivocada — el check pasaría vacío simulando la verificación que el principio instala.
-- [D-04] `.sh`/`.bash` entran a los `paths:` de **ambos** documentos transversales. Agregarlos solo a uno rompió el espejo que mantienen por convención; lo detectó qa-backend.
-- [D-05] `rules/bash.md` NO se escribe en este PR: es otro objetivo. Queda anotado que shell es el único lenguaje del repo sin reglas idiomáticas propias, en un repo que es casi todo shell.
-- [D-06] Docs (Fase 2.5) saltada: el diff ES documentación normativa.
+- [D-01] PR creado **fuera del flujo**, sin review dual pre-push. Las tres rondas se hicieron sobre el PR ya abierto; el registro `PR-58.md` las cubre.
+- [D-02] Los dos HIGH de la ronda 1 se cierran con `--untracked-files=all`: expande los directorios colapsados a archivos individuales **y** sobrescribe `status.showUntrackedFiles=no` del usuario, porque un flag de línea de comandos gana sobre la config.
+- [D-03] El MEDIUM del submódulo se cierra con igualdad exacta en el `case` del match (`"$dir" | "$dir"/*`), no acotando el texto del header. Preferimos volver cierta la garantía antes que documentar la excepción.
+- [D-04] La garantía del header ya no afirma unicidad: dice "verificado hasta ahora, no exhaustivo" y consolida los cuatro modos de falla conocidos en un solo lugar. Se falseó dos veces afirmando de más.
+- [D-05] Los guards muertos de `_workspace_scope_pnpm_dirs` NO se limpian acá (cambios quirúrgicos): issue #62 con label `legacy-violation` para el agente `refactor`. La etiqueta no existía en el repo y hubo que crearla.
+- [D-06] El branch se actualizó con `dev` antes de trabajarlo, para traer el fix del ReDoS: sin eso, el `guard-matching.sh` vulnerable volvía al árbol y el bug renacía para quien trabajara ahí.
+- [D-07] Docs (Fase 2.5) saltada: cambio interno de un hook, sin superficie documentada que describa el scoping más allá de la línea del README que el PR ya actualizó.
 
 ## Blockers
 

@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "feature": "verification-rule",
-  "branch": "feature/verification-rule",
-  "pr": 61,
-  "review_sha": "749d9b2",
-  "updated": "2026-08-25T14:32:53Z",
+  "feature": "pre-commit-workspace-scope",
+  "branch": "feature/pre-commit-workspace-scope",
+  "pr": 58,
+  "review_sha": "2b19a24",
+  "updated": "2026-08-25T15:23:41Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
@@ -14,16 +14,16 @@
     "pr": "done",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
       "id": 1,
-      "name": "principio-5-verificar-antes-de-afirmar",
-      "agent": "orchestrator",
+      "name": "workspace-scope-y-cierre-de-review",
+      "agent": "backend-dev",
       "status": "done",
-      "tasks_done": 1,
-      "tasks_total": 1,
+      "tasks_done": 4,
+      "tasks_total": 4,
       "current_task": null
     }
   ]

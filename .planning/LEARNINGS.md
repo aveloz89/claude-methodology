@@ -34,6 +34,31 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-08-25] PR #58 — Scoping del pre-commit por workspace, y una garantía que se falseó tres veces
+
+**Métricas:**
+- Review rounds: 3
+- Hallazgos security: 6 (critical: 0, high: 2, medium: 1, low: 3) + 1 nit retirado por el propio reviewer
+- Hallazgos qa-frontend: 0 (no aplica)
+- Hallazgos qa-backend: 7 (2 bloqueantes, 5 sugerencias — 4 aplicadas, 1 derivada a issue)
+- Errores de build/CI: 0 (este repo no tiene Actions)
+- Self-reflection atrapó: el dev distinguió shellcheck preexistente de regresión propia; omitió la revisión idiomática con razón (no existe `rules/bash.md`)
+- Lotes ejecutados: 1 / Tareas: 4
+- Devs involucrados: backend-dev
+
+**Qué salió bien:**
+- **Primera aplicación real del corolario del principio 5**, mergeado horas antes en el PR #61, y funcionó como se diseñó: qa-backend verificó por su cuenta tres de las cuatro afirmaciones rojo→verde del dev en `git worktree` desechables, sin tocar el árbol del PR, con conteos de FAIL exactos.
+- **La etiqueta *no verificable* pasó su primera prueba sin erosionarse.** El dev la invocó para el caso pnpm y QA la adjudicó bien: ahí no hay hunk que revertir porque el skip es comportamiento de `pnpm run`, distinto del resquicio que la regla cierra (alegar "revertir no compila" cuando sí hay hunk propio).
+- Tres correcciones de afirmaciones de reviewers, todas por ejecución: el dev refutó la causa raíz de un nit de security —bash no re-escanea el valor sustituido— y security la retiró.
+- El review encontró los tres HIGH/MEDIUM yendo a construir el caso, no releyendo el código.
+
+**Qué causó re-work:**
+- La afirmación central de la lib se falseó **tres veces seguidas**. Prometía que ningún modo de falla corre menos tests: dos contraejemplos. Reescrita, decía que el path C-quoteado era el único modo conocido: otro contraejemplo, el submódulo. Cada versión la escribió alguien que no había ido a buscar el contraejemplo.
+- El branch salía de `dev` anterior al fix del ReDoS: al checkoutearlo, el `guard-matching.sh` vulnerable volvía al árbol. Hubo que mergear `dev` antes de trabajarlo — no es obvio y va a repetirse con cualquier branch viejo.
+- La etiqueta `legacy-violation` no existía en el repo y `gh issue create` falla entero con una etiqueta inexistente. Dos de las cuatro que el agente `refactor` lee no estaban.
+
+**Patrón potencial:** sí, dos. (1) **"Una garantía absoluta en un comentario es una promesa que alguien va a falsear"** — 3ª aparición en un mismo archivo. La formulación que sobrevivió no afirma unicidad: enumera lo verificado y dice explícitamente que no es exhaustiva. Candidato a regla: los comentarios de garantía se escriben como inventario de lo verificado, nunca como absoluto. (2) **La taxonomía de etiquetas del agente `refactor` no está materializada en los repos** — el flujo de derivar deuda falla en silencio. 1ª aparición; revisar si el skill `new-project` las crea al hacer scaffold.
+
 ### [2026-08-25] PR #61 — La regla de verificar antes de afirmar, y su propia demostración
 
 **Métricas:**
