@@ -4,7 +4,7 @@
   "branch": "feature/pre-commit-workspace-scope",
   "pr": 58,
   "review_sha": "2b19a24",
-  "updated": "2026-08-25T15:23:41Z",
+  "updated": "2026-08-25T17:00:46Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
@@ -14,7 +14,7 @@
     "pr": "done",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "pending"
+    "merge": "done"
   },
   "batches": [
     {
