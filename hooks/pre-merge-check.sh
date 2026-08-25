@@ -125,20 +125,124 @@ if ! echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}gh\s+pr\s+merge\b"; th
   exit 0
 fi
 
-# Extraer el número de PR de la invocación real (ya sin quotes/heredocs)
-PR_NUMBER=$(echo "$SANITIZED_COMMAND" | grep -oE 'gh\s+pr\s+merge\s+([0-9]+)' | grep -oE '[0-9]+')
-
-if [ -z "$PR_NUMBER" ]; then
-  # Sin número explícito no podemos verificar el PR correcto → fail-closed
-  echo '{"decision":"block","reason":"Blocked: gh pr merge sin número de PR explícito — el guard no puede verificar el PR implícito del branch. Usa gh pr merge <numero>."}'
-  exit 0
-fi
-
 block() {
   local reason="$1"
   echo "{\"decision\":\"block\",\"reason\":$(printf '%s' "$reason" | jq -Rs .)}"
   exit 0
 }
+
+# [security, ronda 3] Ventana de la invocación anclada, consciente de
+# balance. La ronda 2 cortaba la ventana en el primer ";", "|", "&", ")",
+# "}" o backtick que aparecía — sin distinguir un separador de comando real
+# de un delimitador de expansión que ABRE adentro de la propia ventana:
+# "gh pr merge 45 --match-head-commit $(git rev-parse HEAD) --repo real/repo"
+# cortaba en el ")" que cierra el $(...), perdiendo el --repo real que
+# viene después — el guard caía al repo del cwd sin verificar nada
+# (fail-open real, reproducido con gh falso: mismo patrón que el HIGH #1
+# de la ronda anterior, esta vez introducido por el propio fix). Pasaba
+# igual con "${VAR}" y con backticks que abren a mitad de la ventana
+# (--subject `date`).
+#
+# Fix: en vez de una clase de caracteres plana, se tokeniza la ventana
+# llevando la cuenta de paréntesis y llaves abiertas DENTRO de la ventana
+# (sin contar el "(", "{" o backtick que pudo haber abierto el GUARD_ANCHOR,
+# que arranca en cero porque el conteo empieza justo en "gh", no antes) y
+# de si hay un backtick pendiente. Un ")"/"}"/backtick con el contador
+# correspondiente en cero es lo único que corta la ventana — cierra algo
+# que se abrió ANTES de este comando (el propio anchor, o un grupo/
+# subshell que ya envolvía todo desde afuera), nunca algo que se abrió
+# adentro. Mismo criterio para ";"/"|"/"&": solo cortan si ningún
+# paréntesis/llave/backtick sigue abierto — un separador real DENTRO de
+# un $(cmd1; cmd2) no es un separador para ESTE comando.
+#
+# Implementado en perl (no en un loop de bash carácter por carácter): un
+# loop de bash con "${s:$i:1}" sobre un solo carácter a la vez resultó
+# CUADRÁTICO en este intérprete — 100 KB ya no terminaba en 2 minutos.
+# perl con \G/pos() en modo scalar consume corridas enteras de texto
+# "aburrido" en una sola operación de regex (compilada, sin el overhead
+# de iterar carácter por carácter a nivel de intérprete): medido, 1 MB
+# en 0.05s, 20 MB en 0.95s — lineal, no cuadrático (y sin backtracking
+# ambiguo: cada alternativa del regex consume un conjunto de caracteres
+# disjunto del resto, igual razonamiento de guard_sanitize). alarm(5)
+# como red de seguridad ante cualquier patológico no anticipado, igual
+# que en guard_sanitize — si perl no vuelve a tiempo (o falla por
+# cualquier otro motivo), NO se puede confiar en una ventana parcial o
+# vacía: bloquea en vez de adivinar cuál mitad del comando es la real.
+ANCHORED_TO_END=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}"'gh\s+pr\s+merge\b.*' | head -1)
+# Recorta el prefijo del anchor (separador, o el "(", "{" o backtick que
+# lo empieza) buscando "gh pr merge" DENTRO del texto ya anclado — seguro
+# porque ANCHORED_TO_END ya está acotado a partir del match real, no
+# vuelve a buscar sobre el comando completo.
+MERGE_WINDOW_FULL=$(echo "$ANCHORED_TO_END" | grep -oE 'gh\s+pr\s+merge\b.*' | head -1)
+# Si lo que abrió el anchor fue justo un backtick, el contador de
+# paréntesis/llaves no alcanza para reconocerlo (backtick usa el MISMO
+# carácter para abrir y cerrar) — se pasa aparte para que el primer
+# backtick que aparezca escaneando se trate como su cierre, no como la
+# apertura de uno nuevo.
+ANCHOR_STARTS_BACKTICK=false
+[ "${ANCHORED_TO_END:0:1}" = '`' ] && ANCHOR_STARTS_BACKTICK=true
+
+MERGE_WINDOW=$(printf '%s' "$MERGE_WINDOW_FULL" | perl -0777 -e '
+BEGIN { alarm 5 }
+my $anchor_backtick = $ARGV[0];
+my $s = <STDIN>;
+my $paren_depth = 0;
+my $brace_depth = 0;
+my $backtick_state = ($anchor_backtick eq "true") ? "outer" : "none";
+my $stop_pos = length($s);
+while ($s =~ /\G(\$\(|\$\{|[(){}`;|&]|[^(){}`;|&]+)/gc) {
+  my $tok = $1;
+  if ($tok eq "\$(" || $tok eq "(") {
+    $paren_depth++;
+  } elsif ($tok eq "\${" || $tok eq "{") {
+    $brace_depth++;
+  } elsif ($tok eq ")") {
+    if ($paren_depth > 0) { $paren_depth--; }
+    else { $stop_pos = pos($s) - length($tok); last; }
+  } elsif ($tok eq "}") {
+    if ($brace_depth > 0) { $brace_depth--; }
+    else { $stop_pos = pos($s) - length($tok); last; }
+  } elsif ($tok eq "`") {
+    if ($backtick_state eq "outer") { $stop_pos = pos($s) - length($tok); last; }
+    elsif ($backtick_state eq "mid") { $backtick_state = "none"; }
+    else { $backtick_state = "mid"; }
+  } elsif ($tok eq ";" || $tok eq "|" || $tok eq "&") {
+    if ($paren_depth == 0 && $brace_depth == 0 && $backtick_state eq "none") {
+      $stop_pos = pos($s) - length($tok);
+      last;
+    }
+  }
+}
+print substr($s, 0, $stop_pos);
+' "$ANCHOR_STARTS_BACKTICK")
+MERGE_WINDOW_STATUS=$?
+if [ "$MERGE_WINDOW_STATUS" -ne 0 ]; then
+  block "Blocked: no pude determinar los límites de la invocación real de gh pr merge (el cálculo de la ventana falló o superó el tiempo límite) — el guard no verifica a ciegas."
+fi
+
+# [security, ronda 3] PR_NUMBER se extrae de la MISMA ventana que --repo
+# (antes salía del comando completo, sin anclar y sin head -1): con
+# "gh pr merge 1 --repo a/b || gh pr merge 45 --repo real/repo", el número
+# podía salir de una invocación distinta a la que --repo ya resolvía desde
+# la ronda 2 — hoy dos invocaciones así terminan fail-closed contra gh
+# real (la extracción multilínea revienta la query GraphQL), pero conviene
+# que ambos salgan siempre de la misma invocación en vez de depender de
+# ese efecto colateral. head -1 al final por determinismo: si igual
+# apareciera más de un match dentro de la ventana (no debería, dado el
+# balance de arriba), se toma el primero de forma explícita en vez de
+# dejar que la asignación de PR_NUMBER termine multilínea.
+PR_NUMBER=$(echo "$MERGE_WINDOW" | grep -oE 'gh\s+pr\s+merge\s+([0-9]+)' | head -1 | grep -oE '[0-9]+')
+
+if [ -z "$PR_NUMBER" ]; then
+  # Sin número explícito no podemos verificar el PR correcto → fail-closed.
+  # Nota: "gh pr merge --repo o/r 45" (flag antes del número) es forma
+  # válida de gh y cae acá — fail-closed, no es un hueco, solo una
+  # invocación válida que el guard no resuelve. No se generaliza la
+  # extracción a "cualquier token numérico de la ventana" para no ampliar
+  # el scope de este fix; ver reporte del PR para la nota completa.
+  echo '{"decision":"block","reason":"Blocked: gh pr merge sin número de PR explícito — el guard no puede verificar el PR implícito del branch. Usa gh pr merge <numero>."}'
+  exit 0
+fi
 
 # --repo <owner>/<name> (o --repo=<owner>/<name>, -R <owner>/<name>,
 # -R<owner>/<name> pegado sin espacio, o -R=<owner>/<name> — las formas
@@ -148,33 +252,30 @@ block() {
 # `gh repo view` sobre el cwd — un `gh pr merge <N> --repo otro/repo`
 # real quedaba bloqueado fail-closed porque `gh pr view` corría contra el
 # repo local, donde ese PR no existe (no hay "cd" posible al cwd del
-# comando interceptado: este hook corre en la raíz de la sesión).
+# comando interceptado: este hook corre en la raíz de la sesión). Se
+# busca dentro de MERGE_WINDOW (calculada arriba, anclada y consciente de
+# balance) — no en el comando completo.
 #
-# [security, ronda 2] La extracción tiene que estar anclada a la MISMA
-# invocación de merge que valida el resto del guard, no a "el primer
-# --repo en cualquier parte del comando": en un compuesto como
-# "gh pr list --repo victima/otro && gh pr merge 3", tomar el primer
-# --repo del string completo verificaba victima/otro (sin relación con el
-# merge real) y dejaba pasar el merge contra el repo del cwd sin
-# verificar nada — fail-open real, reproducido con un gh falso que loguea
-# argv. Se recorta primero la VENTANA de texto de la invocación anclada
-# (mismo GUARD_ANCHOR que usa el check de "es una invocación real", unas
-# líneas arriba) hasta el próximo separador de comando (; | & ) } o
-# backtick) o el fin del string — --repo/-R se busca SOLO ahí adentro. Un
-# --repo de un subcomando distinto, antes o después del separador, queda
-# afuera de la ventana y se ignora.
-MERGE_WINDOW_PATTERN="${GUARD_ANCHOR}"'gh\s+pr\s+merge\b[^;|&)}`]*'
-MERGE_WINDOW=$(echo "$SANITIZED_COMMAND" | grep -oE "$MERGE_WINDOW_PATTERN" | head -1)
-
-# [security, ronda 2] gh no trata --repo como "una flag, un token": acepta
-# -R en tres formas (con espacio, pegado "-Rvalor", con "=") y, si se
-# repite, gana la ÚLTIMA ocurrencia (verificado contra GitHub real con
-# --repo duplicado y con --repo/-R mezclados). Un regex de un solo shot no
-# modela esto con confianza — se tokeniza la ventana (misma noción de
-# "palabras separadas por espacio" que ve gh en argv, ya que
-# guard_sanitize corrió antes) y se recorre de izquierda a derecha
-# pisando el valor cada vez que aparece la flag, para que gane la última
-# igual que en gh real.
+# gh no trata --repo como "una flag, un token": acepta -R en tres formas
+# (con espacio, pegado "-Rvalor", con "=") y, si se repite, gana la
+# ÚLTIMA ocurrencia (verificado contra GitHub real con --repo duplicado y
+# con --repo/-R mezclados). Un regex de un solo shot no modela esto con
+# confianza — se tokeniza la ventana (misma noción de "palabras
+# separadas por espacio" que ve gh en argv, ya que guard_sanitize corrió
+# antes) y se recorre de izquierda a derecha pisando el valor cada vez
+# que aparece la flag, para que gane la última igual que en gh real.
+#
+# [security, ronda 3, LOW] "Gana la última" asume que TODO lo que quedó
+# dentro de MERGE_WINDOW es confiable por igual, incluida la cola: un
+# decoy después del --repo real pero antes de cualquier separador real
+# también gana, por ejemplo un comentario en la misma línea
+# ("gh pr merge 45 --repo real/repo # ojo con --repo evil/x" usa
+# evil/x) — guard_sanitize no sabe de comentarios "#" de shell, así que
+# ese texto no se distingue de una flag real. Fidelidad correcta a gh
+# (así prioriza gh de verdad) pero vale dejarlo escrito: NO es "se
+# ignora lo sospechoso", es "gana lo último, punto", y ese supuesto
+# depende de que nada dentro de la ventana sea contenido inerte que
+# guard_sanitize no supo reconocer.
 #
 # Un valor entre comillas queda destruido por guard_sanitize (colapsa el
 # span quoted a un solo espacio) ANTES de que esta extracción corra —

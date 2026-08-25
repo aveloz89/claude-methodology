@@ -1534,6 +1534,126 @@ assert_pre_merge_anchor_continue "gh pr merge [security]: --repo de un subcomand
   "gh pr merge 45 && gh pr list --repo victima/otro"
 rm -rf "$FAKE_GH_ANCHOR_DIR"
 
+# [security HIGH, ronda 3] La ventana anclada de la ronda 2 cortaba en el
+# primer ";"/"|"/"&"/")"/"}"/backtick que aparecía, sin distinguir un
+# separador de comando real de un delimitador de expansión que ABRE
+# adentro de la propia ventana ($(...), ${...}, o un backtick que abre a
+# mitad de la ventana) — perdía el --repo real que viene después de esa
+# expansión y caía al repo del cwd sin verificar nada. Mismo estilo de
+# fake gh que el de anclaje: "repo view" resuelve a un cwd VÁLIDO
+# (cwd/repo) distinto del --repo real (real/repo) — pr view/checks/
+# graphql solo responden con éxito si reciben real/repo, y fallan si
+# reciben cwd/repo. Reproducido con el hook real antes de este fix (los
+# tres comandos de abajo daban {"continue":true} habiendo verificado
+# cwd/repo, no real/repo).
+FAKE_GH_BALANCE_DIR=$(mktemp -d)
+cat > "$FAKE_GH_BALANCE_DIR/gh" <<'FAKE_GH_BALANCE_EOF'
+#!/bin/bash
+case "$1 $2" in
+  "repo view")
+    echo "cwd/repo"
+    ;;
+  "pr view")
+    echo "$@" | grep -q -- "--repo real/repo" || { echo "unexpected args (la expansion se comio el --repo real): $*" >&2; exit 1; }
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo "$@" | grep -q -- "owner=real" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo "$@" | grep -q -- "name=repo" || { echo "unexpected args (la expansion se comio el --repo real): $*" >&2; exit 1; }
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    echo "$@" | grep -q -- "--repo real/repo" || { echo "unexpected args (la expansion se comio el --repo real): $*" >&2; exit 1; }
+    printf 'some-check\tpass\t1s\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_BALANCE_EOF
+chmod +x "$FAKE_GH_BALANCE_DIR/gh"
+
+assert_pre_merge_balance_continue() {
+  local test_name="$1" cmd="$2"
+  TOTAL=$((TOTAL + 1))
+  local json output
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$FAKE_GH_BALANCE_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  if echo "$output" | grep -q '"continue":true'; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pre_merge_balance_continue "gh pr merge [security]: \$(...) antes de --repo no corta la ventana (usa el repo real, no el cwd)" \
+  'gh pr merge 45 --match-head-commit $(git rev-parse HEAD) --repo real/repo'
+assert_pre_merge_balance_continue "gh pr merge [security]: \${VAR} antes de --repo no corta la ventana (usa el repo real, no el cwd)" \
+  'gh pr merge 45 --match-head-commit ${SHA} --repo real/repo'
+assert_pre_merge_balance_continue "gh pr merge [security]: backtick que abre a mitad de la ventana no la corta (usa el repo real, no el cwd)" \
+  'gh pr merge 45 --subject `date` --repo real/repo'
+
+# Regresión: el propio anchor puede ser un "(" o un backtick que ENVUELVE
+# todo el merge — ESE cierre sí tiene que cortar la ventana (si no
+# cortara, "real/repo)" o "real/repo\`" quedaría pegado como un solo
+# token y fallaría la validación de forma en vez de resolver limpio).
+assert_pre_merge_balance_continue "gh pr merge [security]: subshell que envuelve todo el merge sigue cortando en su propio cierre" \
+  '(gh pr merge 45 --repo real/repo)'
+assert_pre_merge_balance_continue "gh pr merge [security]: backtick que envuelve todo el merge sigue cortando en su propio cierre" \
+  '`gh pr merge 45 --repo real/repo`'
+rm -rf "$FAKE_GH_BALANCE_DIR"
+
+# [security, ronda 3, punto 2 — ambos reviewers] PR_NUMBER tiene que salir
+# de la MISMA ventana que --repo, no del comando completo. Con dos
+# invocaciones reales encadenadas ("gh pr merge 1 --repo a/b || gh pr
+# merge 45 --repo real/repo"), el número y el repo tienen que salir de la
+# invocación de la IZQUIERDA (la primera anclada) — nunca una mezcla de
+# "número de la primera, repo de la segunda" ni viceversa. El fake gh
+# solo responde con éxito a PR#1 contra a/b; si alguno de los dos datos
+# se filtrara de la segunda invocación, este test fallaría.
+FAKE_GH_PRNUM_DIR=$(mktemp -d)
+cat > "$FAKE_GH_PRNUM_DIR/gh" <<'FAKE_GH_PRNUM_EOF'
+#!/bin/bash
+case "$1 $2" in
+  "repo view")
+    exit 1
+    ;;
+  "pr view")
+    [ "$3" = "1" ] || { echo "unexpected PR number (se filtro la segunda invocacion): $*" >&2; exit 1; }
+    echo "$@" | grep -q -- "--repo a/b" || { echo "unexpected repo (se filtro la segunda invocacion): $*" >&2; exit 1; }
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo "$@" | grep -q -- "name=b" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    [ "$3" = "1" ] || { echo "unexpected PR number (se filtro la segunda invocacion): $*" >&2; exit 1; }
+    echo "$@" | grep -q -- "--repo a/b" || { echo "unexpected repo (se filtro la segunda invocacion): $*" >&2; exit 1; }
+    printf 'some-check\tpass\t1s\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_PRNUM_EOF
+chmod +x "$FAKE_GH_PRNUM_DIR/gh"
+
+TOTAL=$((TOTAL + 1))
+PRNUM_JSON=$(jq -n --arg cmd 'gh pr merge 1 --repo a/b || gh pr merge 45 --repo real/repo' '{tool_input: {command: $cmd}}')
+PRNUM_OUTPUT=$(echo "$PRNUM_JSON" | PATH="$FAKE_GH_PRNUM_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+if echo "$PRNUM_OUTPUT" | grep -q '"continue":true'; then
+  echo -e "${GREEN}PASS${NC}: gh pr merge [security]: PR_NUMBER y --repo salen de la MISMA ventana (dos invocaciones encadenadas, gana la primera en ambos)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: gh pr merge [security]: PR_NUMBER y --repo salen de la MISMA ventana (output: $PRNUM_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$FAKE_GH_PRNUM_DIR"
+
+
 # [security HIGH, ronda 2] Duplicado: gana la ÚLTIMA ocurrencia dentro de
 # la ventana anclada, igual que gh real (verificado contra GitHub real,
 # ver commit). Mismo estilo de fake gh que el de anclaje: solo responde
