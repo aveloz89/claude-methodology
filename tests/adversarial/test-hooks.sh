@@ -1914,6 +1914,76 @@ fi
 
 echo ""
 
+# --- guard-matching.sh: entrada hostil para las otras dos reglas de saneo
+# (spans quoted, continuaciones de línea) + un caso de tamaño combinado ---
+# El bloque de arriba cubre heredocs (PR #60). guard_sanitize aplica dos
+# reglas más sobre texto no confiable que nunca se probaron con input
+# grande o deliberadamente inconcluso — mismo tipo de gap que dejó pasar
+# el cuelgue de heredocs (128 tests en verde, guard colgado). Techo
+# acordado para esta ronda: comillas + continuaciones + un caso de
+# tamaño combinado, nada más — cualquier otra superficie que aparezca acá
+# se reporta, no se cubre en este PR.
+echo "--- guard-matching.sh: entrada hostil (comillas, continuaciones, tamaño) ---"
+
+# (a) Comilla simple SIN terminar, grande: [^\x27]* consume todo el string
+# de forma greedy y luego backtrackea de a un carácter buscando el cierre
+# — O(n) por construcción (char class negado, sin ambigüedad de
+# partición como la de heredocs), pero nunca medido ni persistido contra
+# un tamaño real. Sin cierre, ningún span matchea: el texto queda intacto
+# (misma dirección segura que un heredoc sin terminador).
+UNTERMINATED_SINGLE_QUOTE_LARGE="echo '$(printf 'a%.0s' $(seq 1 150000))"
+assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla simple sin terminar (150k chars) no cuelga y queda sin cambios" \
+  "$UNTERMINATED_SINGLE_QUOTE_LARGE" \
+  "$UNTERMINATED_SINGLE_QUOTE_LARGE"
+
+# (b) Comilla doble SIN terminar, grande, con el contenido íntegro en
+# pares "a\" — estresa la alternativa \\. (escape) del char class en vez
+# de la alternativa [^"\\], por si alguna de las dos formas de matchear
+# un mismo carácter genera una ambigüedad de partición que la otra no
+# tiene.
+UNTERMINATED_DOUBLE_QUOTE_LARGE="echo \"$(printf 'a\%.0s' $(seq 1 50000))"
+assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla doble sin terminar con backslashes (50k pares) no cuelga y queda sin cambios" \
+  "$UNTERMINATED_DOUBLE_QUOTE_LARGE" \
+  "$UNTERMINATED_DOUBLE_QUOTE_LARGE"
+
+# (c) Comilla simple grande que SÍ cierra al final: complementa (a) —
+# confirma que cerrar al final de un span largo no es más caro que nunca
+# cerrar, y que el contenido se sanea igual que un span chico (todo el
+# span colapsa a un solo espacio).
+CLOSING_SINGLE_QUOTE_LARGE="echo '$(printf 'a%.0s' $(seq 1 100000))' done"
+assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla simple grande que cierra se sanea a un solo espacio" \
+  "$CLOSING_SINGLE_QUOTE_LARGE" \
+  "echo   done"
+
+# (d) Cadena larga de continuaciones backslash-newline: la regla en sí es
+# un solo s/// sin cuantificadores anidados (sin riesgo de ReDoS por
+# construcción — a diferencia de la regla de heredocs), pero nunca se
+# midió contra una cadena realista ni se verificó que TODAS las
+# continuaciones se unan (no solo la primera o la última).
+CONT_LINES=$(printf 'seg%s\\\n' $(seq 1 20000))
+CONTINUATION_CHAIN_LARGE="${CONT_LINES}"$'\n'"end"
+CONTINUATION_CHAIN_EXPECTED=$(printf 'seg%s ' $(seq 1 20000))"end"
+assert_guard_sanitize_bounded "guard_sanitize [continuations]: cadena larga de continuaciones (20k) no cuelga y se unen todas" \
+  "$CONTINUATION_CHAIN_LARGE" \
+  "$CONTINUATION_CHAIN_EXPECTED"
+
+# (e) [tamaño] Payload combinado (~600KB) mezclando las tres reglas en el
+# mismo string, en un solo perl -0777: confirma que combinarlas no genera
+# un efecto de composición cuadrático que ninguna regla por separado
+# muestra. Sin $expected: el foco es tiempo acotado, no exactitud byte a
+# byte — la corrección de cada regla ya la cubren (a)-(d) y el bloque de
+# heredocs de arriba.
+SIZE_Q=$(printf 'a%.0s' $(seq 1 300000))
+SIZE_CONT=$(printf 'seg%s\\\n' $(seq 1 15000))
+SIZE_HD=$(printf 'linea %s de relleno\n' $(seq 1 8000))
+SIZE_PAYLOAD="git commit -m '${SIZE_Q}' && ${SIZE_CONT}"$'\n'"cmd && cat <<EOF
+${SIZE_HD}EOF
+"
+assert_guard_sanitize_bounded "guard_sanitize [size]: payload combinado ~600KB (comillas + continuaciones + heredoc) se mantiene acotado en tiempo" \
+  "$SIZE_PAYLOAD"
+
+echo ""
+
 # --- Sandbox infra para hooks no-bloqueantes (PreCompact, SubagentStop, SessionEnd) ---
 echo "--- sandbox infra ---"
 
