@@ -53,7 +53,7 @@ Un **lote** es una agrupación de hasta 5 tareas atómicas que un dev ejecuta co
 | `qa-backend` | sonnet | Contratos API, lógica, datos, tests backend, coverage. **Bloqueante si toca backend.** | Diff con archivos de servidor |
 | `e2e-runner` | sonnet | Tests E2E con Playwright. **Modo A**: usuario, branch propio. **Modo B**: pre-release a `main`, branch del PR | Pre-release o invocación directa |
 | `build-resolver` | sonnet | Diagnostica y resuelve errores de build/compilación | Cuando un dev se atora con build error |
-| `refactor` | sonnet | Refactoriza sin cambiar comportamiento. Lee issues con label `legacy-violation`, `scoped-out-violation`, `latent-bug`, `stale-docs` | `/refactor-scan` o pedido explícito |
+| `refactor` | sonnet | Refactoriza sin cambiar comportamiento. Lee issues con label `legacy-violation`, `controversial-fix`, `latent-bug`, `stale-docs` | `/refactor-scan` o pedido explícito |
 | `latent-bugs-sweep` | sonnet | Escanea repo buscando bugs latentes. Read-only. Crea issues con label `latent-bug` | Manualmente o pre-release |
 | `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después del último lote, antes del push + PR |
 

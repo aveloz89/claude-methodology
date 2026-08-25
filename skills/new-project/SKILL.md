@@ -170,7 +170,7 @@ Pregunta al usuario si quiere el repo público o privado antes de crearlo.
 ```bash
 gh label create latent-bug            --color D93F0B --description "Bug latente detectado por sweep o durante desarrollo; lo procesa el refactor agent"
 gh label create legacy-violation      --color fbca04 --description "Código que viola reglas actuales pero es preexistente; lo procesa el refactor agent"
-gh label create scoped-out-violation  --color fbca04 --description "Violación detectada de paso, fuera del scope del PR que la encontró; lo procesa el refactor agent"
+gh label create controversial-fix     --color fbca04 --description "Decisión idiomática discutible detectada en self-reflection; lo procesa el refactor agent"
 gh label create stale-docs            --color d4c5f9 --description "Documentación desactualizada detectada de paso, no arreglada en el PR de origen"
 gh label create security              --color B60205 --description "Hallazgo de seguridad (review o scan)"
 gh label create flaky-test            --color fef2c0 --description "Test que falló de forma intermitente; lo trackea el e2e-runner"

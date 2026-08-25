@@ -570,6 +570,7 @@ O archivos `.ts` / `.js` bajo:
 
 Archivos con extensión:
 - `.py`, `.go`, `.rs`, `.cs`, `.sql`
+- `.sh`, `.bash` — hooks, libs y scripts. Se revisan contra `rules/bash.md`
 
 O archivos `.ts` / `.js` bajo:
 - `api/`, `apps/backend/`, `apps/api/`
@@ -577,6 +578,12 @@ O archivos `.ts` / `.js` bajo:
 - `services/`, `controllers/`, `routes/`, `handlers/`
 - `models/`, `lib/`, `db/`, `migrations/`
 - `workers/`, `jobs/`
+
+### Documentos normativos del sistema de agentes
+
+Un diff que toca `rules/`, `rulebooks/`, `agents/`, `skills/` o `global/CLAUDE.md` va a **`qa-backend`**, con criterio de coherencia normativa y anti-drift en vez de capas de aplicación (ver `agents/qa-backend.md`). No hay capa de aplicación que clasificar ahí: el contrato son los documentos.
+
+Sin esta entrada, un diff 100% de metodología no matchea ninguna capa y el ruteo automático no invoca a nadie — pasó en esta misma sesión, donde el review ocurrió solo porque el orchestrator lo pidió a mano.
 
 ### Diff mixto
 
