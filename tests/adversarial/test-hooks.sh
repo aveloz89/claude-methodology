@@ -782,7 +782,13 @@ echo "--- guard-matching.sh: ReDoS en heredocs (backtracking catastrófico) ---"
 # aparente. Como los 3 guards (pre-commit-guard.sh, pre-merge-check.sh,
 # block-admin-merge.sh) sourcean este helper en CADA llamada Bash del
 # harness, el cuelgue bloquea la sesión entera, no solo un commit.
-REDOS_WATCHDOG_SECONDS=4
+# 8s (no 4s): guard_sanitize() tiene su propio alarm(5) interno como red
+# de seguridad (ver hooks/lib/guard-matching.sh) — este watchdog externo
+# tiene que dar margen para que ESE mecanismo pueda actuar y devolver su
+# fallback antes de que este lo mate desde afuera; si fuera más corto que
+# el alarm interno, mataría el proceso prematuramente y el test nunca
+# ejercitaría el camino de fallback real.
+REDOS_WATCHDOG_SECONDS=8
 
 # build_redos_heredoc: arma con printf (nunca con un heredoc real de bash,
 # para no colgar esta misma suite esperando un EOF por stdin) el TEXTO de
@@ -1053,6 +1059,24 @@ else
   FAIL=$((FAIL + 1))
 fi
 rm -rf "$PERL_TIMEOUT_PCG_DIR" "$FAKE_PYTEST_PERL_TIMEOUT_DIR" "$FAKE_PERL_TIMEOUT_DIR"
+
+# (d) [security LOW-3] El alarm interno tiene que dar margen contra
+# degradaciones espurias por máquina cargada: medido, un caso lineal de
+# 348 KB tarda 0s, así que subir el margen no debilita nada. Con 2s, un
+# comando grande mientras corre esta misma suite en paralelo puede
+# degradar de forma intermitente — y en pre-commit-guard.sh degradar
+# significa disparar la suite de tests entera del proyecto. Regression
+# simple sobre el valor de la constante: no depende de inducir un timeout
+# real de 5s (lento y flaky), solo confirma que el tunable es el que se
+# quiso fijar.
+TOTAL=$((TOTAL + 1))
+if grep -qE "alarm 5\b" "$HOOKS_DIR/lib/guard-matching.sh"; then
+  echo -e "${GREEN}PASS${NC}: guard_sanitize: el alarm interno es 5s (margen contra degradaciones espurias)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_sanitize: el alarm interno es 5s (margen contra degradaciones espurias)"
+  FAIL=$((FAIL + 1))
+fi
 
 echo ""
 
