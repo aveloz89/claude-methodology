@@ -182,6 +182,20 @@ MERGE_WINDOW_FULL=$(echo "$ANCHORED_TO_END" | grep -oE 'gh\s+pr\s+merge\b.*' | h
 ANCHOR_STARTS_BACKTICK=false
 [ "${ANCHORED_TO_END:0:1}" = '`' ] && ANCHOR_STARTS_BACKTICK=true
 
+# [security, ronda 4] El contador cortaba SOLO al llegar a un cierre con
+# profundidad cero — nunca miraba su propio estado al llegar a fin de
+# ventana. Un abridor que sobrevive a guard_sanitize sin su cierre (un
+# "\(" escapado, o una llave suelta como "a{b" — ninguno de los dos es
+# heredoc, quoted span ni continuación, así que guard_sanitize los deja
+# intactos) dejaba paren_depth/brace_depth en >0 para SIEMPRE: ";"/"|"/"&"
+# dejaban de cortar (exigen los tres contadores en cero) y la ventana se
+# comía la invocación siguiente completa — con "gana la última" del
+# tokenizer de --repo, el --repo del vecino le ganaba al real. Fix: al
+# salir del while (por "last" o por agotar el string), si algún contador
+# quedó > 0 o el backtick sigue abierto, la ventana no tiene límites
+# determinables — sale con status != 0 y el caller bloquea (mismo camino
+# que ya existía para el timeout de alarm(5)). Una ventana indeterminada
+# no es una ventana: no se adivina ni de más ni de menos.
 MERGE_WINDOW=$(printf '%s' "$MERGE_WINDOW_FULL" | perl -0777 -e '
 BEGIN { alarm 5 }
 my $anchor_backtick = $ARGV[0];
@@ -203,7 +217,7 @@ while ($s =~ /\G(\$\(|\$\{|[(){}`;|&]|[^(){}`;|&]+)/gc) {
     if ($brace_depth > 0) { $brace_depth--; }
     else { $stop_pos = pos($s) - length($tok); last; }
   } elsif ($tok eq "`") {
-    if ($backtick_state eq "outer") { $stop_pos = pos($s) - length($tok); last; }
+    if ($backtick_state eq "outer") { $backtick_state = "none"; $stop_pos = pos($s) - length($tok); last; }
     elsif ($backtick_state eq "mid") { $backtick_state = "none"; }
     else { $backtick_state = "mid"; }
   } elsif ($tok eq ";" || $tok eq "|" || $tok eq "&") {
@@ -213,11 +227,14 @@ while ($s =~ /\G(\$\(|\$\{|[(){}`;|&]|[^(){}`;|&]+)/gc) {
     }
   }
 }
+if ($paren_depth != 0 || $brace_depth != 0 || $backtick_state ne "none") {
+  exit 1;
+}
 print substr($s, 0, $stop_pos);
 ' "$ANCHOR_STARTS_BACKTICK")
 MERGE_WINDOW_STATUS=$?
 if [ "$MERGE_WINDOW_STATUS" -ne 0 ]; then
-  block "Blocked: no pude determinar los límites de la invocación real de gh pr merge (el cálculo de la ventana falló o superó el tiempo límite) — el guard no verifica a ciegas."
+  block "Blocked: no pude determinar los límites de la invocación real de gh pr merge (el cálculo de la ventana falló, superó el tiempo límite, o quedó indeterminada por un paréntesis/llave/backtick sin cerrar) — el guard no verifica a ciegas."
 fi
 
 # [security, ronda 3] PR_NUMBER se extrae de la MISMA ventana que --repo

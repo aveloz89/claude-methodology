@@ -1605,6 +1605,30 @@ assert_pre_merge_balance_continue "gh pr merge [security]: backtick que envuelve
   '`gh pr merge 45 --repo real/repo`'
 rm -rf "$FAKE_GH_BALANCE_DIR"
 
+# [security HIGH, ronda 4] Imagen espejo del bug de la ronda 3: el
+# contador solo cortaba al llegar a un CIERRE con profundidad cero, nunca
+# miraba su propio estado al llegar a fin de ventana. Un abridor que
+# sobrevive a guard_sanitize sin su cierre (un "\(" escapado, o una llave
+# suelta como "a{b" — ninguno de los dos es heredoc, quoted span ni
+# continuación, así que el saneo los deja intactos) dejaba el contador en
+# >0 para siempre: ";"/"|"/"&" dejan de cortar (exigen los tres contadores
+# en cero), la ventana se come la invocación siguiente completa, y con
+# "gana la última" el --repo del vecino le gana al real. Reproducido con
+# el hook real antes de este fix: los tres daban {"continue":true}
+# habiendo verificado el repo de la SEGUNDA invocación (evil/x), no la
+# primera (real/repo) — regresión directa del commit de la ronda 3 (con
+# el patrón de esa ronda, "(" no estaba en la clase de corte y el ";" sí
+# cortaba, dando la ventana correcta).
+assert_pre_merge_blocked "gh pr merge [security]: paréntesis escapado sin cerrar dentro de la ventana bloquea (no deja que el ; deje de cortar)" \
+  'gh pr merge 45 --repo real/repo --body \( ; gh pr merge 1 --repo evil/x' \
+  "no pude determinar los límites" "offline"
+assert_pre_merge_blocked "gh pr merge [security]: llave suelta sin cerrar dentro de la ventana bloquea (no deja que el ; deje de cortar)" \
+  'gh pr merge 45 --repo real/repo --jq .a{b ; gh pr merge 1 --repo evil/x' \
+  "no pude determinar los límites" "offline"
+assert_pre_merge_blocked "gh pr merge [security]: backtick sin cerrar dentro de la ventana bloquea (no deja que el ; deje de cortar)" \
+  'gh pr merge 45 --repo real/repo --body `hi ; gh pr merge 1 --repo evil/x' \
+  "no pude determinar los límites" "offline"
+
 # [security, ronda 3, punto 2 — ambos reviewers] PR_NUMBER tiene que salir
 # de la MISMA ventana que --repo, no del comando completo. Con dos
 # invocaciones reales encadenadas ("gh pr merge 1 --repo a/b || gh pr
