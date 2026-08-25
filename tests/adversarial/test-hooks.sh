@@ -907,8 +907,12 @@ assert_watchdog_no_orphan_perl "assert_guard_sanitize_bounded: matar el pid del 
 
 # (a) Heredoc sin terminador: nunca cierra — el saneo tiene que devolver
 # igual dentro del bound (regex en tiempo lineal), no colgarse esperando
-# un terminador que no existe.
+# un terminador que no existe. [QA opcional] Expected == payload sin
+# cambios: sin terminador real la regla de heredocs nunca matchea (no hay
+# ")" de cierre que la satisfaga), así que el camino degenerado no debe
+# corromper el texto en silencio — solo no encontrar nada que reemplazar.
 assert_guard_sanitize_bounded "guard_sanitize: heredoc sin terminador no cuelga (ReDoS)" \
+  "$(build_redos_heredoc 8 none)" \
   "$(build_redos_heredoc 8 none)"
 
 # (b) Heredoc con terminador indentado: regression de correctness — el fix
@@ -922,6 +926,72 @@ EXPECTED_INDENTED_SANITIZED="cat "
 assert_guard_sanitize_bounded "guard_sanitize: heredoc con terminador indentado se sanea igual que antes" \
   "$(build_redos_heredoc 8 indented)" \
   "$EXPECTED_INDENTED_SANITIZED"
+
+# (b.1)-(b.3) [QA blocker] Equivalencia old-vs-new persistida: el commit
+# que introdujo el fix de greedy→lazy afirmó haber verificado 5 casos
+# contra el regex viejo (heredoc simple, indentado, anidado, delimiter
+# quoted, dos heredocs consecutivos) en un harness desechable — el repo
+# solo persistía 1 (el indentado, arriba). El indentado y el sin-terminador
+# ya están cubiertos; estos tres completan simple/anidado/delimiter-quoted
+# como asserts reales, no solo cobertura incidental de otros tests.
+
+# (b.1) Heredoc simple con terminador exacto.
+EXPECTED_SIMPLE_SANITIZED="cat "
+assert_guard_sanitize_bounded "guard_sanitize: heredoc simple se sanea igual que antes" \
+  "$(printf 'cat <<EOF\nhola\nmundo\nEOF\n')" \
+  "$EXPECTED_SIMPLE_SANITIZED"
+
+# (b.2) Heredoc anidado — mismo patrón que usa un mensaje de commit real
+# con "$(cat <<'EOF' ... EOF)" adentro (ver HEREDOC_MENTION_COMMAND más
+# abajo, que ejercita esto incidentalmente para OTRO propósito). Expected
+# termina en dos espacios: uno de "-m ", uno del span "$(...)" completo
+# reemplazado por un espacio (regla de quotes, que corre después de la de
+# heredocs) — no es un typo, verificado byte a byte contra guard_sanitize.
+EXPECTED_NESTED_SANITIZED="git commit -m  "
+assert_guard_sanitize_bounded "guard_sanitize: heredoc anidado (nested EOF) se sanea igual que antes" \
+  "$(printf 'git commit -m "$(cat <<%sEOF\nhooks: aclarar mensaje\n\nAntes el guard bloqueaba.\nEOF\n)"\n' "'")" \
+  "$EXPECTED_NESTED_SANITIZED"
+
+# (b.3) Heredoc con delimiter quoted ('NOTE_EOF' en vez de EOF).
+EXPECTED_QUOTED_DELIM_SANITIZED="cat "
+assert_guard_sanitize_bounded "guard_sanitize: heredoc con delimiter quoted se sanea igual que antes" \
+  "$(printf "cat <<'NOTE_EOF' > notes.txt\ngit commit -m reminder\nNOTE_EOF\n")" \
+  "$EXPECTED_QUOTED_DELIM_SANITIZED"
+
+# (b.4) [security] Regression del fail-open real que cerró greedy→lazy —
+# no solo el ReDoS. Con el regex VIEJO (greedy), ".*\n?" se estiraba hasta
+# el ÚLTIMO terminador del string completo con el MISMO nombre de
+# delimitador: dos heredocs bien formados, AMBOS "<<EOF", con un comando
+# real en el medio, hacían que el backreference \1="EOF" encontrara el
+# ÚLTIMO "EOF" del string (poco backtracking porque está cerca del final)
+# y tragara todo lo de en medio — incluido "gh pr merge 5 --admin" y el
+# terminador legítimo del PRIMER heredoc — en un solo span reemplazado por
+# "\n". Medido: 7ms, sin colgarse (verificado aparte, no en este archivo,
+# con el regex viejo restaurado en un harness descartable y alarm(5) de
+# red de seguridad). Bash sí lo ejecuta (cada heredoc cierra en su propio
+# terminador); el guard nunca lo veía. Con delimitadores DISTINTOS (ej.
+# "<<A"/"<<B") el mismo regex viejo en cambio SÍ cuelga (el backtracking
+# para encontrar el terminador correcto de "A" — que no es el último "A"
+# del string, es el único — es mucho más caro): sirve para el test de
+# ReDoS de más arriba, no para este, que necesita mismo delimitador para
+# aislar el fail-open sin acoplarlo al cuelgue. Lazy elige el PRIMER
+# terminador — igual que bash — así que el comando de en medio queda en
+# su propia línea, VISIBLE. Este test falla si alguien vuelve a poner el
+# cuantificador en greedy, aunque el cambio no reintroduzca el ReDoS (ej.
+# agregando un límite de iteraciones): por eso NO alcanza con "el saneo
+# termina", hay que ver el contenido.
+TWO_HEREDOCS_ADMIN_PAYLOAD=$(printf 'cat <<EOF\none\nEOF\ngh pr merge 5 --admin\ncat <<EOF\ntwo\nEOF\n')
+EXPECTED_TWO_HEREDOCS_SANITIZED=$'cat \ngh pr merge 5 --admin\ncat '
+assert_guard_sanitize_bounded "guard_sanitize [security]: comando real entre dos heredocs consecutivos queda VISIBLE tras el saneo (no se lo traga un greedy)" \
+  "$TWO_HEREDOCS_ADMIN_PAYLOAD" \
+  "$EXPECTED_TWO_HEREDOCS_SANITIZED"
+
+# Mismo payload, de punta a punta a través del hook real: si el saneo
+# falla en su intención (deja el admin visible pero desanclado, o el
+# GUARD_ANCHOR no lo reconoce en su nueva posición), esto lo atrapa donde
+# de verdad importa — el hook tiene que bloquear.
+assert_bam_blocked "block-admin-merge [security]: gh pr merge --admin entre dos heredocs consecutivos se bloquea (regression del fail-open greedy)" \
+  "$TWO_HEREDOCS_ADMIN_PAYLOAD"
 
 # (c) Watchdog interno: si perl encuentra un patológico futuro no
 # anticipado, "BEGIN { alarm 2 }" lo mata en vez de dejarlo colgado. Un
