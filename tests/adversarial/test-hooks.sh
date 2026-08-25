@@ -768,6 +768,102 @@ assert_bam_blocked "block-admin-merge: invocación real tras & (background) se b
 
 echo ""
 
+# --- guard-matching.sh: ReDoS en heredocs (backtracking catastrófico) ---
+echo "--- guard-matching.sh: ReDoS en heredocs (backtracking catastrófico) ---"
+
+# guard_sanitize() se sourcea directo (no vía un hook) para poder acotar la
+# ejecución con un watchdog en bash: no hay `timeout` por default en
+# macOS, así que se corre en background y se mata si excede
+# REDOS_WATCHDOG_SECONDS. Antes del fix, un heredoc SIN terminador dispara
+# backtracking catastrófico en el regex de saneo (el cuantificador anidado
+# "(?:(?!...).*\n?)*" bajo /s deja que ".*" reconsuma el mismo texto de
+# formas solapadas): con solo 8 líneas de relleno ya tarda más de 3s
+# (medido con perl -0777 y alarm(3) real) y sigue creciendo sin cota
+# aparente. Como los 3 guards (pre-commit-guard.sh, pre-merge-check.sh,
+# block-admin-merge.sh) sourcean este helper en CADA llamada Bash del
+# harness, el cuelgue bloquea la sesión entera, no solo un commit.
+REDOS_WATCHDOG_SECONDS=4
+
+# build_redos_heredoc: arma con printf (nunca con un heredoc real de bash,
+# para no colgar esta misma suite esperando un EOF por stdin) el TEXTO de
+# un comando "cat <<EOF" con $1 líneas de relleno. terminator="none" no
+# cierra nunca; terminator="indented" cierra con un terminador legítimo
+# pero indentado (2 espacios) — caso que el regex debe seguir reconociendo
+# como heredoc bien formado, no solo el caso patológico.
+build_redos_heredoc() {
+  local lines="$1" terminator="$2" i
+  printf 'cat <<EOF\n'
+  for i in $(seq 1 "$lines"); do
+    printf 'linea %s de relleno\n' "$i"
+  done
+  [ "$terminator" = "indented" ] && printf '  EOF\n'
+  return 0
+}
+
+# assert_guard_sanitize_bounded: corre guard_sanitize() en background (en
+# un subshell que sourcea el lib real) y lo mata si no vuelve dentro de
+# REDOS_WATCHDOG_SECONDS. Si vuelve a tiempo y se pasa $expected, además
+# verifica que el resultado saneado es el esperado — no alcanza con que
+# sea rápido, tiene que seguir siendo correcto (regression de #47).
+assert_guard_sanitize_bounded() {
+  local test_name="$1" payload="$2" expected="${3:-}"
+  TOTAL=$((TOTAL + 1))
+
+  local out_file pid start_ts end_ts elapsed
+  out_file=$(mktemp)
+  (
+    # shellcheck source=../../hooks/lib/guard-matching.sh
+    source "$HOOKS_DIR/lib/guard-matching.sh"
+    guard_sanitize "$payload"
+  ) > "$out_file" 2>/dev/null &
+  pid=$!
+  start_ts=$(date +%s)
+
+  while kill -0 "$pid" 2>/dev/null; do
+    elapsed=$(( $(date +%s) - start_ts ))
+    if [ "$elapsed" -ge "$REDOS_WATCHDOG_SECONDS" ]; then
+      kill -9 "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      echo -e "${RED}FAIL${NC}: $test_name (no terminó en ${REDOS_WATCHDOG_SECONDS}s — backtracking catastrófico)"
+      FAIL=$((FAIL + 1))
+      rm -f "$out_file"
+      return
+    fi
+    sleep 0.2
+  done
+  wait "$pid" 2>/dev/null || true
+  end_ts=$(date +%s)
+
+  if [ -n "$expected" ] && [ "$(cat "$out_file")" != "$expected" ]; then
+    echo -e "${RED}FAIL${NC}: $test_name (terminó en $((end_ts - start_ts))s pero el saneo cambió de resultado)"
+    FAIL=$((FAIL + 1))
+  else
+    echo -e "${GREEN}PASS${NC}: $test_name (terminó en $((end_ts - start_ts))s)"
+    PASS=$((PASS + 1))
+  fi
+  rm -f "$out_file"
+}
+
+# (a) Heredoc sin terminador: nunca cierra — el saneo tiene que devolver
+# igual dentro del bound (regex en tiempo lineal), no colgarse esperando
+# un terminador que no existe.
+assert_guard_sanitize_bounded "guard_sanitize: heredoc sin terminador no cuelga (ReDoS)" \
+  "$(build_redos_heredoc 8 none)"
+
+# (b) Heredoc con terminador indentado: regression de correctness — el fix
+# tiene que seguir reconociendo un heredoc legítimo con terminador
+# indentado, no solo no colgarse. Expected: el saneo reemplaza desde
+# "<<EOF" hasta el terminador por un solo salto de línea; "cat " (antes
+# del "<<") queda intacto. Sin trailing "\n" porque $(guard_sanitize ...)
+# dentro de assert_guard_sanitize_bounded lo recorta (misma razón por la
+# que $(cat "$out_file") recorta el que produce guard_sanitize de verdad).
+EXPECTED_INDENTED_SANITIZED="cat "
+assert_guard_sanitize_bounded "guard_sanitize: heredoc con terminador indentado se sanea igual que antes" \
+  "$(build_redos_heredoc 8 indented)" \
+  "$EXPECTED_INDENTED_SANITIZED"
+
+echo ""
+
 # --- Sandbox infra para hooks no-bloqueantes (PreCompact, SubagentStop, SessionEnd) ---
 echo "--- sandbox infra ---"
 

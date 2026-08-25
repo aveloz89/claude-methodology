@@ -54,9 +54,19 @@ guard_sanitize() {
     # lo mismo con comillas dobles sueltas dentro de spans single-quoted
     # DISTINTOS (ej. 'quote the " char' ... 'end " here'). Ambos casos se
     # tragan el comando real de en medio como si fuera contenido quoted.
+    # La regla de heredocs consume el cuerpo línea por línea con
+    # "(?:(?!^[ \t]*\1[ \t]*$)[^\n]*\n)*?": cada iteración avanza
+    # exactamente un salto de línea ([^\n] no puede solaparse con el "\n"
+    # que la cierra) y el cuantificador es no-greedy, así que el motor
+    # nunca tiene ambigüedad sobre dónde cortar. La versión anterior usaba
+    # ".*\n?" (con /s, "." matchea salto de línea): eso permite que cada
+    # iteración consuma un número variable de líneas, y sin terminador
+    # real el motor prueba todas las formas de repartir el texto entre
+    # iteraciones — backtracking catastrófico (con 8 líneas de relleno sin
+    # cerrar, >3s; crece sin cota visible).
     printf '%s' "$1" | perl -0777 -pe '
       s/\\\n\s*/ /g;
-      s/<<-?[\x27"]?(\w+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1$).*\n?)*[ \t]*\1(?:\n|$)/\n/gsm;
+      s/<<-?[\x27"]?(\w+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1[ \t]*$)[^\n]*\n)*?[ \t]*\1(?:\n|$)/\n/gsm;
       s/\x27[^\x27]*\x27|"(?:[^"\\]|\\.)*"/ /g;
     '
   else
