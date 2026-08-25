@@ -741,6 +741,63 @@ assert_blocked_cmd "pre-commit-guard: path con espacios cae al fallback completo
 _wsscope_assert_markers "pre-commit-guard: path con espacios — fallback completo, corrieron los dos" yes yes
 _wsscope_npm_cleanup
 
+# Caso K [security, PR #58, MEDIUM, ronda 2]: un submódulo que es workspace
+# anidado se reporta en `git status --porcelain` SIN slash final (" M
+# frontend/plugins/foo", a diferencia del directorio untracked colapsado
+# del Caso F, que sí lo lleva) — verificado con un submódulo real. Ese
+# string no matchea "frontend/plugins/foo"/* (el patrón exige un "/" justo
+# después), pero sí matchea "frontend"/* — matched=true por el workspace
+# padre, no dispara el bail de "outside", y el submódulo queda fuera de
+# _WS_TOUCHED sin que nadie lo note. Mismo defecto de fondo que el Caso F,
+# disparado por un string sin slash en vez de uno colapsado.
+WSSCOPE_SUBMOD_INNER=$(mktemp -d)
+WSSCOPE_SUBMOD_INNER=$(cd "$WSSCOPE_SUBMOD_INNER" && pwd -P)
+WSSCOPE_SUBMOD_DIR=$(mktemp -d)
+WSSCOPE_SUBMOD_DIR=$(cd "$WSSCOPE_SUBMOD_DIR" && pwd -P)
+WSSCOPE_SUBMOD_MARK=$(mktemp -d)
+(
+  cd "$WSSCOPE_SUBMOD_INNER" || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  cat > package.json <<EOF
+{ "name": "foo", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_SUBMOD_MARK/foo.ran && exit 1" } }
+EOF
+  echo "readme" > README.md
+  git add -A
+  git commit -q -m init
+) > /dev/null 2>&1
+(
+  cd "$WSSCOPE_SUBMOD_DIR" || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  mkdir -p frontend
+  cat > package.json <<EOF
+{ "name": "root", "private": true, "workspaces": ["frontend", "frontend/plugins/*"], "scripts": { "test": "npm run test --workspaces --if-present" } }
+EOF
+  cat > frontend/package.json <<EOF
+{ "name": "fe", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_SUBMOD_MARK/frontend.ran" } }
+EOF
+  git -c protocol.file.allow=always submodule add -q "$WSSCOPE_SUBMOD_INNER" frontend/plugins/foo > /dev/null 2>&1
+  git add -A
+  git commit -q -m "init con submodulo"
+) > /dev/null 2>&1
+
+echo "dirty" >> "$WSSCOPE_SUBMOD_DIR/frontend/plugins/foo/README.md"
+
+assert_blocked_cmd "pre-commit-guard: submódulo sucio (workspace anidado) → corre también su test (bloquea)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_SUBMOD_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$WSSCOPE_SUBMOD_MARK/foo.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: el test del submódulo sucio sí corrió (marcador presente)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: el test del submódulo sucio no corrió (marcador ausente) — \" M frontend/plugins/foo\" (sin slash) matcheó solo el workspace padre"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSSCOPE_SUBMOD_INNER" "$WSSCOPE_SUBMOD_DIR" "$WSSCOPE_SUBMOD_MARK"
+
 echo ""
 # --- pre-commit-guard.sh: workspace scoping (monorepo pnpm) ---
 echo "--- pre-commit-guard.sh: workspace scoping (monorepo pnpm) ---"

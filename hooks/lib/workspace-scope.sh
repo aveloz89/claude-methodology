@@ -236,7 +236,7 @@ _workspace_scope_match() {
     matched=false
     for dir in "${_WS_DIRS[@]}"; do
       case "$path" in
-        "$dir"/*)
+        "$dir" | "$dir"/*)
           matched=true
           raw+=("$dir")
           ;;
