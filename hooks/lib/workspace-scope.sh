@@ -17,6 +17,20 @@
 # nunca peor que hoy. Ningún modo de falla de esta lib bloquea un commit ni
 # hace que se corran MENOS tests de los que se corrían antes de que existiera.
 #
+# Esa garantía depende por completo de que `git status` reporte TODOS los
+# archivos con cambios locales, uno por uno — por eso el llamado usa
+# --untracked-files=all: sin ese flag, un directorio enteramente sin
+# trackear se colapsa en una sola entrada (?? dir/), que puede matchear un
+# workspace padre sin matchear uno anidado adentro (workspace anidado
+# excluido en silencio), y status.showUntrackedFiles=no en la config del
+# usuario hace directamente invisibles los untracked (workspace entero
+# excluido en silencio) — ambos casos, cubiertos por test, verificados
+# end-to-end contra un `git` real. Único modo de falla conocido y ya seguro
+# por diseño (no un bug, cae a la suite completa a propósito): un path con
+# espacios llega C-quoteado en la salida de `--porcelain` y nunca matchea
+# ningún workspace, así que se trata como "outside" y aborta hacia el
+# fallback completo.
+#
 # Uso:
 #   source hooks/lib/workspace-scope.sh
 #   if workspace_scope_resolve "$PKG_MGR"; then
