@@ -1,29 +1,29 @@
 {
   "schema": 1,
-  "feature": "guard-sanitize-redos",
-  "branch": "fix/guard-sanitize-redos",
-  "pr": 60,
-  "review_sha": "723207c",
-  "updated": "2026-08-25T09:11:26Z",
+  "feature": "verification-rule",
+  "branch": "feature/verification-rule",
+  "pr": null,
+  "review_sha": "749d9b2",
+  "updated": "2026-08-25T09:22:28Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
     "implementation": "done",
     "docs": "skipped",
     "review": "done",
-    "pr": "done",
+    "pr": "pending",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
       "id": 1,
-      "name": "redos-fix-y-watchdog",
-      "agent": "backend-dev",
+      "name": "principio-5-verificar-antes-de-afirmar",
+      "agent": "orchestrator",
       "status": "done",
-      "tasks_done": 4,
-      "tasks_total": 4,
+      "tasks_done": 1,
+      "tasks_total": 1,
       "current_task": null
     }
   ]
