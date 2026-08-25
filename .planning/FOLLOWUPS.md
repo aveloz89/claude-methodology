@@ -13,6 +13,14 @@ Origen: [conversación / PR #N / sweep / QA review]
 
 ## Pendientes
 
+### [2026-08-25] Entrada literal de `workspaces` no verifica que exista `package.json`
+`hooks/lib/workspace-scope.sh:145` — la rama de entrada literal hace `_WS_DIRS+=("$glob")` sin chequear `-f "$glob/package.json"`, a diferencia de la rama de glob, que sí lo hace. Con el match por igualdad exacta agregado en el PR #58, un workspace declarado pero inexistente podría scopear a un `-w` inválido y hacer que npm salga con error. Es fail-closed (bloquea el commit, nunca corre de menos) y requiere un `package.json` mal declarado.
+Origen: review del PR #58, ronda 3 (observación fuera del delta)
+
+### [2026-08-25] Faltan dos de las cuatro etiquetas que lee el agente `refactor`
+El repo tenía `latent-bug`, `security` y `stale-docs`, pero no `legacy-violation` ni `scoped-out-violation`. `gh issue create` **falla el comando entero** con una etiqueta inexistente, así que hasta hoy cualquier derivación de deuda al refactor se caía en silencio salvo que fuera `latent-bug`. Se creó `legacy-violation` a mano para el issue #62; falta `scoped-out-violation`. Revisar además si el skill `new-project` las crea al hacer scaffold — si no, todo proyecto nuevo nace con el mismo hueco.
+Origen: intento de crear el issue #62
+
 ### [2026-08-25] `grep` ausente del check de dependencias de `pre-merge-check.sh`
 El hook verifica `perl` y `jq` al inicio y sale fail-closed si faltan, pero no `grep`. Sin `grep` en el PATH, el gate nuevo del PR #60 deja pasar un `gh pr merge` real donde antes bloqueaba. Impacto bajo y derivado a otro PR por el propio security-reviewer: el camino dominante del guard (`:119`) también depende de `grep`, así que esto extiende un fail-open preexistente en vez de crear uno nuevo.
 Origen: review dual del PR #60, ronda 3
