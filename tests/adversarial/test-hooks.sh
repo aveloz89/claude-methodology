@@ -874,6 +874,25 @@ else
 fi
 rm -rf "$WSLIB_DIR"
 
+# Caso [QA, PR #58]: forma objeto de "workspaces" ({"packages": [...]}),
+# soportada explícitamente por el filtro jq de _workspace_scope_npm_dirs
+# pero sin ningún test que la ejerciera hasta ahora.
+WSLIB_DIR=$(mktemp -d)
+mkdir -p "$WSLIB_DIR/frontend" "$WSLIB_DIR/backend"
+echo '{"workspaces": {"packages": ["frontend", "backend"]}}' > "$WSLIB_DIR/package.json"
+touch "$WSLIB_DIR/frontend/package.json" "$WSLIB_DIR/backend/package.json"
+WSLIB_RC=0
+WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs && printf '%s\n' "${_WS_DIRS[@]}" | sort) || WSLIB_RC=$?
+TOTAL=$((TOTAL + 1))
+if [ "$WSLIB_RC" -eq 0 ] && [ "$WSLIB_OUT" = "$(printf 'backend\nfrontend')" ]; then
+  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs resuelve la forma objeto de \"workspaces\" ({packages: [...]})"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs resuelve la forma objeto de \"workspaces\" (rc=$WSLIB_RC, out=[$WSLIB_OUT])"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSLIB_DIR"
+
 # Caso: patrón que la lib no resuelve con confianza (comodín en medio de la
 # ruta, "**") aborta toda la resolución — no solo la entrada problemática.
 WSLIB_DIR=$(mktemp -d)
