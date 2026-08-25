@@ -627,6 +627,71 @@ fi
 rm -rf "$WSSCOPE_NOLIB_DIR"
 _wsscope_npm_cleanup
 
+# Caso F [security, PR #58, HIGH]: workspace anidado ("frontend/plugins/*",
+# declarado junto al padre "frontend") + un commit que crea el paquete
+# anidado ENTERO sin trackear. `git status --porcelain` (sin
+# --untracked-files=all) colapsa un directorio enteramente sin trackear en
+# una sola entrada con slash final (?? frontend/plugins/), que matchea el
+# workspace padre "frontend" pero no el anidado "frontend/plugins/foo" que
+# en verdad contiene el archivo nuevo — _WS_TOUCHED queda incompleto, el
+# guard corre solo "frontend" (pasa) y nunca corre el test del paquete
+# nuevo (que siempre falla), pasando el commit en silencio donde el hook
+# anterior (sin scoping) sí bloqueaba.
+WSSCOPE_NESTED_DIR=$(mktemp -d)
+WSSCOPE_NESTED_DIR=$(cd "$WSSCOPE_NESTED_DIR" && pwd -P)
+WSSCOPE_NESTED_MARK=$(mktemp -d)
+(
+  cd "$WSSCOPE_NESTED_DIR" || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  mkdir -p frontend
+  cat > package.json <<EOF
+{ "name": "root", "private": true, "workspaces": ["frontend", "frontend/plugins/*"], "scripts": { "test": "npm run test --workspaces --if-present" } }
+EOF
+  cat > frontend/package.json <<EOF
+{ "name": "fe", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_NESTED_MARK/frontend.ran" } }
+EOF
+  git add -A
+  git commit -q -m init
+) > /dev/null 2>&1
+
+mkdir -p "$WSSCOPE_NESTED_DIR/frontend/plugins/foo"
+cat > "$WSSCOPE_NESTED_DIR/frontend/plugins/foo/package.json" <<EOF
+{ "name": "foo", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_NESTED_MARK/foo.ran && exit 1" } }
+EOF
+
+assert_blocked_cmd "pre-commit-guard: paquete anidado nuevo, enteramente sin trackear, dentro de un workspace existente → corre también su test (bloquea)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_NESTED_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$WSSCOPE_NESTED_MARK/foo.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: el test del paquete anidado nuevo sí corrió (marcador presente)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: el test del paquete anidado nuevo no corrió (marcador ausente) — el colapso de directorio untracked dejó el workspace anidado fuera del scoping"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSSCOPE_NESTED_DIR" "$WSSCOPE_NESTED_MARK"
+
+# Caso H [security, PR #58, HIGH]: `status.showUntrackedFiles=no` (config
+# legítima de usuario, puede vivir en su ~/.gitconfig) hace que `git status
+# --porcelain` omita los untracked por completo. Un commit que toca
+# frontend (staged) y backend (archivo nuevo, todavía sin `git add` —
+# simula "git add -A && git commit" que aún no corrió cuando este hook
+# PreToolUse se dispara) debía correr ambas suites; con esa config activa,
+# la lib solo ve frontend y el commit pasa sin correr el test de backend
+# (que siempre falla).
+_wsscope_npm_setup
+_wsscope_npm_reset
+git -C "$WSSCOPE_DIR" config status.showUntrackedFiles no
+echo "cambio fe" > "$WSSCOPE_DIR/frontend/README.md"
+echo "cambio be nuevo" > "$WSSCOPE_DIR/backend/NEW.md"
+git -C "$WSSCOPE_DIR" add frontend/README.md > /dev/null 2>&1
+assert_blocked_cmd "pre-commit-guard: status.showUntrackedFiles=no no debe ocultar workspace nuevo tocado → corren los dos (backend falla y bloquea)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
+_wsscope_assert_markers "pre-commit-guard: showUntrackedFiles=no — ambos workspaces corrieron" yes yes
+_wsscope_npm_cleanup
+
 echo ""
 # --- pre-commit-guard.sh: workspace scoping (monorepo pnpm) ---
 echo "--- pre-commit-guard.sh: workspace scoping (monorepo pnpm) ---"

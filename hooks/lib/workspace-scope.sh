@@ -203,7 +203,7 @@ _workspace_scope_match() {
   [ "${#_WS_DIRS[@]}" -eq 0 ] && return 1
 
   local files
-  files=$(git status --porcelain --no-renames 2>/dev/null) || return 1
+  files=$(git status --porcelain --no-renames --untracked-files=all 2>/dev/null) || return 1
   [ -z "$files" ] && return 1
 
   local line path dir matched outside=false
