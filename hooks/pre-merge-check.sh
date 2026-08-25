@@ -196,6 +196,21 @@ ANCHOR_STARTS_BACKTICK=false
 # determinables — sale con status != 0 y el caller bloquea (mismo camino
 # que ya existía para el timeout de alarm(5)). Una ventana indeterminada
 # no es una ventana: no se adivina ni de más ni de menos.
+#
+# [security, ronda 5] El chequeo de arriba no cubre un cierre o separador
+# ESCAPADO ("\)", "\}", "\;", "\|", "\&" — sobreviven igual a
+# guard_sanitize, que no toca backslashes) en profundidad cero: el
+# contador nunca pasa de cero, así que nada queda "desbalanceado" para el
+# chequeo anterior, pero la ventana corta ahí igual, silenciosa, antes
+# del --repo real. Tres direcciones de la misma raíz (cortar de más,
+# cortar de menos, cerrar escapado) por intentar adivinar el límite sobre
+# texto que ya perdió estructura en el saneo — en vez de una cuarta
+# regla que adivine mejor y destape un cuarto espejo, decisión del
+# usuario: cualquier backslash que llegue al tokenizer dentro de la
+# ventana consumida (los ocho caracteres de arriba no cambian, no hay
+# estado nuevo) hace la ventana indeterminada. Un backslash DENTRO de un
+# span quoted no llega nunca acá — guard_sanitize ya lo colapsó a un
+# espacio antes de esta etapa.
 MERGE_WINDOW=$(printf '%s' "$MERGE_WINDOW_FULL" | perl -0777 -e '
 BEGIN { alarm 5 }
 my $anchor_backtick = $ARGV[0];
@@ -230,11 +245,14 @@ while ($s =~ /\G(\$\(|\$\{|[(){}`;|&]|[^(){}`;|&]+)/gc) {
 if ($paren_depth != 0 || $brace_depth != 0 || $backtick_state ne "none") {
   exit 1;
 }
+if (substr($s, 0, $stop_pos) =~ /\\/) {
+  exit 1;
+}
 print substr($s, 0, $stop_pos);
 ' "$ANCHOR_STARTS_BACKTICK")
 MERGE_WINDOW_STATUS=$?
 if [ "$MERGE_WINDOW_STATUS" -ne 0 ]; then
-  block "Blocked: no pude determinar los límites de la invocación real de gh pr merge (el cálculo de la ventana falló, superó el tiempo límite, o quedó indeterminada por un paréntesis/llave/backtick sin cerrar) — el guard no verifica a ciegas."
+  block "Blocked: no pude determinar los límites de la invocación real de gh pr merge (el cálculo de la ventana falló, superó el tiempo límite, quedó indeterminada por un paréntesis/llave/backtick sin cerrar, o encontró un backslash) — el guard no verifica a ciegas."
 fi
 
 # [security, ronda 3] PR_NUMBER se extrae de la MISMA ventana que --repo

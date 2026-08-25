@@ -1629,6 +1629,38 @@ assert_pre_merge_blocked "gh pr merge [security]: backtick sin cerrar dentro de 
   'gh pr merge 45 --repo real/repo --body `hi ; gh pr merge 1 --repo evil/x' \
   "no pude determinar los límites" "offline"
 
+# [security HIGH, ronda 5] La ronda 4 solo atrapa un ABRIDOR sin cerrar
+# (contador > 0 al salir del loop). No atrapa un CIERRE o SEPARADOR
+# escapado ("\)", "\;", "\|" — sobreviven igual a guard_sanitize, que no
+# toca backslashes) en profundidad cero: el contador nunca pasa de cero
+# ahí, nada queda "desbalanceado" para el chequeo de la ronda 4, pero la
+# ventana corta en ese punto igual, silenciosa, antes del --repo real —
+# verificado end-to-end con un gh falso que distingue real/repo del cwd
+# antes de este fix. Tercera dirección de la misma raíz que las rondas 2
+# y 3 (cortar de más, cortar de menos, cerrar escapado): intentar
+# adivinar el límite sobre texto que ya perdió estructura en el saneo.
+# Decisión del usuario, no una cuarta regla que adivine mejor: cualquier
+# backslash que llegue al tokenizer dentro de la ventana consumida hace
+# la ventana indeterminada — bloquea, sin agregar estado nuevo al parser
+# ni tocar las 8 clases de caracteres que ya trackea.
+assert_pre_merge_blocked "gh pr merge [security]: paréntesis de cierre escapado en profundidad cero bloquea (el contador nunca se desbalancea)" \
+  'gh pr merge 45 --body foo\) --repo real/repo' \
+  "no pude determinar los límites" "offline"
+assert_pre_merge_blocked "gh pr merge [security]: punto y coma escapado en profundidad cero bloquea (el contador nunca se desbalancea)" \
+  'gh pr merge 45 --jq .a\; --repo real/repo' \
+  "no pude determinar los límites" "offline"
+assert_pre_merge_blocked "gh pr merge [security]: pipe escapado en profundidad cero bloquea (el contador nunca se desbalancea)" \
+  'gh pr merge 45 --body foo\| --repo real/repo' \
+  "no pude determinar los límites" "offline"
+
+# [security, ronda 5] Falso bloqueo a evitar: un backslash DENTRO de un
+# span quoted no debe alcanzar nunca al tokenizer — guard_sanitize ya lo
+# colapsó a un espacio antes de esta etapa. Si este test bloqueara, el
+# chequeo de arriba estaría atrapando comandos normales, no solo los
+# maliciosos.
+assert_pre_merge_continue "gh pr merge [security]: backslash DENTRO de comillas no llega al tokenizer (no bloquea, no es falso positivo)" \
+  'gh pr merge 45 --body "línea con \n adentro" --repo real/repo'
+
 # [security, ronda 3, punto 2 — ambos reviewers] PR_NUMBER tiene que salir
 # de la MISMA ventana que --repo, no del comando completo. Con dos
 # invocaciones reales encadenadas ("gh pr merge 1 --repo a/b || gh pr
