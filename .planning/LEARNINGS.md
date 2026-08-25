@@ -34,6 +34,29 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-08-25] PR #63 — Cómo el orchestrator le escribe al usuario y le pide decisiones
+
+**Métricas:**
+- Review rounds: 2
+- Hallazgos security: 3 (critical: 0, high: 0, medium: 1, low: 2)
+- Hallazgos qa-frontend: 0 (no aplica)
+- Hallazgos qa-backend: 3 (1 bloqueante, 2 sugerencias) en ronda 1; N/A por scope en ronda 2
+- Errores de build/CI: 0 (este repo no tiene Actions)
+- Self-reflection atrapó: nada — el DoD anti-drift NO se corrió antes de pedir review, y eso fue el bloqueante
+- Lotes ejecutados: 1 / Tareas: 2
+- Devs involucrados: ninguno
+
+**Qué salió bien:**
+- El pedido del usuario venía con su razón: "muchas veces me pierdo con todo lo que dices y no sé cuándo necesitas algo de mí". Esa frase es el criterio de aceptación de la regla, y quedó en el cuerpo del PR.
+- security verificó que la regla de opciones **refuerza** el invariante de aprobación explícita en vez de debilitarlo: seleccionar una opción es un acto afirmativo, mientras que un "ok, dale" ambiguo en prosa podía pasar por consentimiento.
+- El bloqueante de qa-backend fue el caso perfecto: el runbook prescribía una pregunta **en prosa citada entre comillas** justo en el paso que la regla nueva convierte en pregunta con opciones.
+
+**Qué causó re-work:**
+- No corrí el DoD anti-drift antes de pedir review, en un cambio que el propio DoD clasifica como cambio de flujo. Lo encontró QA. El grep tardó diez segundos cuando finalmente lo corrí.
+- Escribí la regla de brevedad sin acotar su alcance: habilitaba reportar un CRITICAL en una línea, sin riesgo ni remediación.
+
+**Patrón potencial:** sí, dos. (1) **El DoD anti-drift se saltea justo en los cambios chicos** — "son dos bullets" fue la excusa implícita, y el cambio de dos bullets contradecía un paso del runbook. 2ª aparición contando el PR #61, donde el espejo de `paths:` se rompió por lo mismo. Candidato: volverlo un paso explícito del checklist pre-review, no una sección del runbook que hay que recordar. (2) **`qa-backend` cambia de criterio de scope entre rondas** ante documentación normativa — 2ª aparición (PR #59 y este). Ya está en follow-ups: o se fija el criterio en su prompt, o se define quién revisa cambios de metodología.
+
 ### [2026-08-25] PR #58 — Scoping del pre-commit por workspace, y una garantía que se falseó tres veces
 
 **Métricas:**

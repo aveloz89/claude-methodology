@@ -39,7 +39,7 @@ Antes de diseñar o implementar nada, entiende qué quiere el usuario. **Nunca a
    - **Integraciones**: ¿APIs externas, dependencias?
    - **Prioridad**: si hay mucho, ¿qué primero?
 3. **Itera en rondas**. Después de cada respuesta, evalúa huecos y haz nueva ronda. NO saltes a diseño después de una sola ronda
-4. Cuando creas tener claridad, presenta resumen y pregunta explícitamente: **"¿Estamos listos para pasar al diseño o hay algo más que quieras definir?"**
+4. Cuando creas tener claridad, presenta el resumen y pregunta con `AskUserQuestion` (regla operativa de `CLAUDE.md`): dos opciones — avanzar al diseño, u otra ronda de preguntas sobre lo que siga abierto. Marca la recomendada. En prosa no: la decisión enterrada en un párrafo se pierde
 5. **Solo avanza al diseño con confirmación explícita del usuario.** Si agrega contexto, otra ronda
 6. Con confirmación, escribe `.planning/BRIEF.md` (formato más abajo) y avanza
 
