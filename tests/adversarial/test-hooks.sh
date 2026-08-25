@@ -1235,17 +1235,17 @@ assert_pre_merge_blocked "GraphQL body with null repository still blocks (fail-c
 # null/false del resto, y 0 no es ninguno de los dos).
 assert_pre_merge_continue "Valid GraphQL response with 0 unresolved threads still passes" "gh pr merge 45" ""
 
-# Caso 6: fail-closed sin dependencias (#50) — antes, si faltaba perl o jq,
-# la sustitución/parseo devolvía vacío, el grep no matcheaba, y el hook
-# emitía {"continue":true}: cualquier gh pr merge pasaba sin verificar. El
-# bloqueo se emite con printf, sin depender de jq (la propia herramienta
-# que puede faltar).
+# Caso 6: fail-closed sin dependencias (#50, extendido a grep en la
+# retro del PR #60) — antes, si faltaba perl o jq, la sustitución/parseo
+# devolvía vacío, el grep no matcheaba, y el hook emitía {"continue":true}:
+# cualquier gh pr merge pasaba sin verificar. El bloqueo se emite con
+# printf, sin depender de jq (la propia herramienta que puede faltar).
 assert_pre_merge_missing_dep_blocks() {
   local test_name="$1" restricted_path="$2"
   TOTAL=$((TOTAL + 1))
   local output
   output=$(echo '{"tool_input":{"command":"gh pr merge 5"}}' | PATH="$restricted_path" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-  if [ "$output" = '{"decision":"block","reason":"pre-merge-check no operativo: falta perl o jq"}' ]; then
+  if [ "$output" = '{"decision":"block","reason":"pre-merge-check no operativo: falta perl, jq o grep"}' ]; then
     echo -e "${GREEN}PASS${NC}: $test_name"
     PASS=$((PASS + 1))
   else
@@ -1274,8 +1274,24 @@ done
 assert_pre_merge_missing_dep_blocks "pre-merge-check bloquea fail-closed sin jq en PATH (#50)" "$NO_JQ_PMC_BIN"
 rm -rf "$NO_JQ_PMC_BIN"
 
-# Con ambos disponibles (PATH normal): comportamiento intacto.
-assert_pre_merge_continue "pre-merge-check con perl y jq disponibles: comportamiento normal intacto (#50)" "git status"
+# PATH sin grep: bash + perl + jq, sin grep. El check de dependencias del
+# guard solo verificaba perl y jq (#50) — grep quedó afuera, y de él
+# depende tanto el gate del saneo degradado como el camino dominante
+# (línea ~119, el match de "es una invocación real"). Sin grep en PATH, la
+# ausencia se manifiesta como "command not found" (exit 127) en ese `if !
+# echo ... | grep -qE ...`, que `!` invierte a verdadero: el guard sale por
+# la rama de "no es una invocación real" y responde {"continue":true} —
+# fail-open, no fail-closed, para CUALQUIER gh pr merge real.
+NO_GREP_PMC_BIN=$(mktemp -d)
+for cmd in bash jq perl; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_GREP_PMC_BIN/$cmd"
+done
+assert_pre_merge_missing_dep_blocks "pre-merge-check bloquea fail-closed sin grep en PATH (antes fallaba abierto)" "$NO_GREP_PMC_BIN"
+rm -rf "$NO_GREP_PMC_BIN"
+
+# Con las tres disponibles (PATH normal): comportamiento intacto.
+assert_pre_merge_continue "pre-merge-check con perl, jq y grep disponibles: comportamiento normal intacto (#50)" "git status"
 
 # [security LOW-2] "perl falló en tiempo de ejecución" y "perl ausente"
 # tienen que ser el MISMO estado para este guard: bloquea. Los otros dos

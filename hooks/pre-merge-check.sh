@@ -41,16 +41,20 @@
 #      seguro.
 #
 # Endurecido 2026-08-13 (fail-closed sin dependencias, #50):
-#   5. Todo lo anterior depende de perl (saneo del comando) y jq (parseo del
-#      JSON de entrada y de las respuestas de gh). Antes, si faltaba
-#      cualquiera de los dos, la sustitución/parseo devolvía vacío, el grep
-#      no matcheaba, y el hook emitía {"continue":true} en silencio:
-#      cualquier gh pr merge pasaba sin verificar — justo lo contrario del
-#      diseño fail-closed que este header declara. Ahora se verifica al
-#      inicio, antes de leer stdin, y se bloquea sin depender de jq (la
-#      propia herramienta que puede faltar).
-if ! command -v perl > /dev/null 2>&1 || ! command -v jq > /dev/null 2>&1; then
-  printf '{"decision":"block","reason":"pre-merge-check no operativo: falta perl o jq"}\n'
+#   5. Todo lo anterior depende de perl (saneo del comando), jq (parseo del
+#      JSON de entrada y de las respuestas de gh) y grep (el gate del saneo
+#      degradado y el camino dominante que decide "esto es una invocación
+#      real"). Antes, si faltaba cualquiera de los dos primeros, la
+#      sustitución/parseo devolvía vacío, el grep no matcheaba, y el hook
+#      emitía {"continue":true} en silencio: cualquier gh pr merge pasaba
+#      sin verificar — justo lo contrario del diseño fail-closed que este
+#      header declara. grep se sumó al check en la retro del PR #60: sin
+#      él, "command not found" hace que el `if !` de las líneas de match
+#      de abajo se evalúe como éxito, con el mismo resultado de fail-open.
+#      Ahora los tres se verifican al inicio, antes de leer stdin, y se
+#      bloquea sin depender de jq (la propia herramienta que puede faltar).
+if ! command -v perl > /dev/null 2>&1 || ! command -v jq > /dev/null 2>&1 || ! command -v grep > /dev/null 2>&1; then
+  printf '{"decision":"block","reason":"pre-merge-check no operativo: falta perl, jq o grep"}\n'
   exit 0
 fi
 
