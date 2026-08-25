@@ -34,6 +34,32 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-08-25] PR #60 — ReDoS en guard_sanitize, y el fail-open que escondía
+
+**Métricas:**
+- Review rounds: 3
+- Hallazgos security: 7 (critical: 0, high: 0, medium: 1, low: 6) + el descubrimiento de un fail-open preexistente en el código viejo
+- Hallazgos qa-frontend: 0 (no aplica)
+- Hallazgos qa-backend: 5 (2 bloqueantes, 3 sugerencias — 2 aplicadas, 1 diferida)
+- Errores de build/CI: 0 (este repo no tiene Actions)
+- Self-reflection atrapó: el dev distinguió shellcheck preexistente de regresión propia, y rechazó tres veces un system-reminder que le pedía usar heredocs con el ReDoS activo
+- Lotes ejecutados: 1 / Tareas: 4
+- Devs involucrados: backend-dev (dos invocaciones; la primera abortada sin commits)
+
+**Qué salió bien:**
+- **El bug lo encontró el usuario, no el sistema**: "la mac está super caliente". 128 tests adversariales en verde mientras el sanitizador se colgaba con entrada ordinaria. Ningún test, ningún hook, ningún monitor lo veía.
+- Los dos reviewers verificaron **ejecutando**: security corrió 12 payloads contra `bash` real para saber cuáles ejecuta y cuáles trata como literal; QA reconstruyó el regex viejo desde `dev` y borró el fix para comprobar que el test se ponía rojo. Todo lo que se encontró salió de ahí, nada de lectura.
+- La pregunta del brief ("¿el regex nuevo sanea de más?") se respondió al revés de lo esperado y destapó un **fail-open real** del regex viejo: dos heredocs con el mismo delimitador se tragaban un `--admin` en 9ms, en silencio, desde que se escribió la lib.
+- Segunda aplicación de la regla del PR #59: la retro viaja en el branch.
+
+**Qué causó re-work:**
+- Describí mal el exploit al dev (delimitadores distintos en vez del mismo); él lo verificó y me corrigió antes de escribir el test. Después security **retiró su propia tabla** por la misma razón: había marcado "HIDES" donde era "TIMEOUT".
+- Pedí meter `pre-merge-check.sh` al scope sin decir dónde iba el check. Quedó bloqueando cualquier comando ante un saneo fallido — `ls -la` incluido. MEDIUM de la ronda 2, daño colateral mío.
+- Mi propio watchdog usó `ps -o etimes=`, que no existe en macOS: nunca mató nada y dejó una hora de CPU ardiendo mientras yo lo daba por activo.
+- Diagnostiqué el primer intento del dev como "atrapado en el bug que fue a arreglar". Narrativa redonda y falsa: la evidencia estaba en el mismo `ps` que ya había mirado — esos procesos corrían el regex **viejo**, y el archivo ya tenía el nuevo.
+
+**Patrón potencial:** sí, tres. (1) **"Verificar contra el sistema real antes de afirmar" — 5ª aparición**, con cinco instancias dentro de esta sola sesión (mi nota sobre `post-pr-create.sh`, el commit del dev con "5 casos verificados", el test del huérfano, mi `etimes`, la tabla de security). La regla de 3 se alcanzó en el PR #55 y la propuesta **sigue sin escribirse**: el grep confirma que no existe en `rules/`. Registrar el patrón cinco veces no lo corrige. (2) **"El test que protege un fix debe romperse si borras el fix"** — criterio mecánico, verificable, que cazó un bloqueante que dos rondas de lectura no habrían visto. 1ª aparición como criterio explícito; candidato a regla o al prompt de los QA. (3) La suite adversarial no ejercita a los guards con entrada patológica: prueba qué bloquean, no cómo se comportan con input hostil. El ReDoS vivió ahí, en verde.
+
 ### [2026-08-24] PR #59 — La retro viaja en el branch del PR, no en un PR aparte
 
 **Métricas:**
