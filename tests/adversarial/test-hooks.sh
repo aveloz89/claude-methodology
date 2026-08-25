@@ -929,6 +929,30 @@ else
 fi
 rm -rf "$WSLIB_DIR"
 
+# Caso [follow-up, review PR #58 ronda 3]: entrada literal declarada pero
+# sin package.json (workspace inexistente o mal declarado) — a diferencia
+# de la rama de glob (test de arriba), que ya filtraba por
+# -f "$glob/package.json", la rama de igualdad exacta la agregaba a
+# _WS_DIRS sin chequear nada. Con un "-w ghost" inválido, npm sale con
+# error y el commit se bloquea por una razón que no es "los tests
+# fallaron" — sigue siendo fail-closed, pero por el motivo equivocado.
+WSLIB_DIR=$(mktemp -d)
+mkdir -p "$WSLIB_DIR/frontend"
+echo '{"workspaces": ["frontend", "ghost"]}' > "$WSLIB_DIR/package.json"
+touch "$WSLIB_DIR/frontend/package.json"
+# "ghost" no existe como directorio en absoluto.
+WSLIB_RC=0
+WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs && printf '%s\n' "${_WS_DIRS[@]}" | sort) || WSLIB_RC=$?
+TOTAL=$((TOTAL + 1))
+if [ "$WSLIB_RC" -eq 0 ] && [ "$WSLIB_OUT" = "frontend" ]; then
+  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs ignora una entrada literal sin package.json (consistente con la rama de glob)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs ignora una entrada literal sin package.json (rc=$WSLIB_RC, out=[$WSLIB_OUT])"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSLIB_DIR"
+
 # Caso: glob de un solo nivel al final ("packages/*") se expande a los
 # subdirectorios reales que tienen su propio package.json — un subdirectorio
 # SIN package.json (ej. un README suelto) no cuenta como workspace.
@@ -1235,17 +1259,17 @@ assert_pre_merge_blocked "GraphQL body with null repository still blocks (fail-c
 # null/false del resto, y 0 no es ninguno de los dos).
 assert_pre_merge_continue "Valid GraphQL response with 0 unresolved threads still passes" "gh pr merge 45" ""
 
-# Caso 6: fail-closed sin dependencias (#50) — antes, si faltaba perl o jq,
-# la sustitución/parseo devolvía vacío, el grep no matcheaba, y el hook
-# emitía {"continue":true}: cualquier gh pr merge pasaba sin verificar. El
-# bloqueo se emite con printf, sin depender de jq (la propia herramienta
-# que puede faltar).
+# Caso 6: fail-closed sin dependencias (#50, extendido a grep en la
+# retro del PR #60) — antes, si faltaba perl o jq, la sustitución/parseo
+# devolvía vacío, el grep no matcheaba, y el hook emitía {"continue":true}:
+# cualquier gh pr merge pasaba sin verificar. El bloqueo se emite con
+# printf, sin depender de jq (la propia herramienta que puede faltar).
 assert_pre_merge_missing_dep_blocks() {
   local test_name="$1" restricted_path="$2"
   TOTAL=$((TOTAL + 1))
   local output
   output=$(echo '{"tool_input":{"command":"gh pr merge 5"}}' | PATH="$restricted_path" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-  if [ "$output" = '{"decision":"block","reason":"pre-merge-check no operativo: falta perl o jq"}' ]; then
+  if [ "$output" = '{"decision":"block","reason":"pre-merge-check no operativo: falta perl, jq o grep"}' ]; then
     echo -e "${GREEN}PASS${NC}: $test_name"
     PASS=$((PASS + 1))
   else
@@ -1274,8 +1298,24 @@ done
 assert_pre_merge_missing_dep_blocks "pre-merge-check bloquea fail-closed sin jq en PATH (#50)" "$NO_JQ_PMC_BIN"
 rm -rf "$NO_JQ_PMC_BIN"
 
-# Con ambos disponibles (PATH normal): comportamiento intacto.
-assert_pre_merge_continue "pre-merge-check con perl y jq disponibles: comportamiento normal intacto (#50)" "git status"
+# PATH sin grep: bash + perl + jq, sin grep. El check de dependencias del
+# guard solo verificaba perl y jq (#50) — grep quedó afuera, y de él
+# depende tanto el gate del saneo degradado como el camino dominante
+# (línea ~119, el match de "es una invocación real"). Sin grep en PATH, la
+# ausencia se manifiesta como "command not found" (exit 127) en ese `if !
+# echo ... | grep -qE ...`, que `!` invierte a verdadero: el guard sale por
+# la rama de "no es una invocación real" y responde {"continue":true} —
+# fail-open, no fail-closed, para CUALQUIER gh pr merge real.
+NO_GREP_PMC_BIN=$(mktemp -d)
+for cmd in bash jq perl; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_GREP_PMC_BIN/$cmd"
+done
+assert_pre_merge_missing_dep_blocks "pre-merge-check bloquea fail-closed sin grep en PATH (antes fallaba abierto)" "$NO_GREP_PMC_BIN"
+rm -rf "$NO_GREP_PMC_BIN"
+
+# Con las tres disponibles (PATH normal): comportamiento intacto.
+assert_pre_merge_continue "pre-merge-check con perl, jq y grep disponibles: comportamiento normal intacto (#50)" "git status"
 
 # [security LOW-2] "perl falló en tiempo de ejecución" y "perl ausente"
 # tienen que ser el MISMO estado para este guard: bloquea. Los otros dos
@@ -1363,6 +1403,413 @@ assert_pre_merge_unrelated_not_blocked "pre-merge-check [security]: perl falland
 assert_pre_merge_unrelated_not_blocked "pre-merge-check [security]: perl fallando NO bloquea 'cat README.md' (no menciona gh/pr/merge)" "cat README.md"
 assert_pre_merge_unrelated_not_blocked "pre-merge-check [security]: perl fallando NO bloquea 'git status' (no menciona gh/pr/merge)" "git status"
 rm -rf "$FAKE_PERL_FAILS_UNRELATED_DIR"
+
+# Caso 7 (follow-up 2026-08-24): --repo <owner>/<name> explícito en el
+# comando interceptado. Antes, el guard detectaba el repo SIEMPRE con `gh
+# repo view` sobre el cwd de la sesión — un `gh pr merge <N> --repo
+# otro/repo` real quedaba bloqueado fail-closed porque `gh pr view` corría
+# contra el repo local, donde ese PR no existe (no hay "cd" posible al cwd
+# del comando: este hook corre en la raíz de la sesión). Fake gh dedicado:
+# "repo view" SIEMPRE falla (simula un cwd que no resuelve al repo
+# objetivo) — si el guard igual continúa/bloquea por otra razón, es porque
+# usó el --repo explícito en vez de llamar a gh repo view. Los otros tres
+# subcomandos (pr view / api graphql / pr checks) solo responden con éxito
+# si reciben exactamente el owner/name esperado — así se prueba que el
+# valor viaja de punta a punta, no solo que el guard "no explotó".
+FAKE_GH_REPO_FLAG_DIR=$(mktemp -d)
+cat > "$FAKE_GH_REPO_FLAG_DIR/gh" <<'FAKE_GH_REPO_FLAG_EOF'
+#!/bin/bash
+case "$1 $2" in
+  "repo view")
+    exit 1
+    ;;
+  "pr view")
+    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo "$@" | grep -q -- "owner=aveloz89" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo "$@" | grep -q -- "name=easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
+    printf 'some-check\tpass\t1s\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_REPO_FLAG_EOF
+chmod +x "$FAKE_GH_REPO_FLAG_DIR/gh"
+
+assert_pre_merge_repo_flag_continue() {
+  local test_name="$1" cmd="$2"
+  TOTAL=$((TOTAL + 1))
+  local json output
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$FAKE_GH_REPO_FLAG_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  if echo "$output" | grep -q '"continue":true'; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pre_merge_repo_flag_continue "gh pr merge --repo <owner>/<name> usa el repo explícito, no gh repo view (cwd offline)" \
+  "gh pr merge 179 --repo aveloz89/easy-quotes"
+assert_pre_merge_repo_flag_continue "gh pr merge --repo=<owner>/<name> (forma con signo igual) usa el repo explícito" \
+  "gh pr merge 179 --repo=aveloz89/easy-quotes"
+
+# [security, ronda 2] -R en sus tres formas (espacio, pegado, "="):
+# verificado contra `gh help pr merge` (-R, --repo es la MISMA flag que
+# --repo, no una alternativa distinta) y contra GitHub real (ver commit).
+# Reusa el mismo fake gh: el valor resuelto tiene que llegar idéntico a
+# gh pr view/checks/graphql sin importar qué forma escribió el usuario.
+assert_pre_merge_repo_flag_continue "gh pr merge -R <owner>/<name> (forma corta con espacio) usa el repo explícito" \
+  "gh pr merge 179 -R aveloz89/easy-quotes"
+assert_pre_merge_repo_flag_continue "gh pr merge -R<owner>/<name> (forma corta pegada, sin espacio) usa el repo explícito" \
+  "gh pr merge 179 -Raveloz89/easy-quotes"
+assert_pre_merge_repo_flag_continue "gh pr merge -R=<owner>/<name> (forma corta con signo igual) usa el repo explícito" \
+  "gh pr merge 179 -R=aveloz89/easy-quotes"
+rm -rf "$FAKE_GH_REPO_FLAG_DIR"
+
+# [security HIGH, ronda 2] Anclaje: un --repo de OTRO subcomando en el
+# mismo compuesto no debe ganarle al repo real del merge. Reproducido con
+# el mismo gh falso que argumentó el hallazgo: "repo view" resuelve el cwd
+# a un repo VÁLIDO conocido (aveloz89/claude-methodology) — pr
+# view/checks/graphql solo responden con éxito si reciben ESE repo, y
+# fallan si reciben el decoy (victima/otro), aunque el decoy tenga forma
+# válida. Antes de este fix, el primer --repo del string completo ganaba
+# sin importar a qué subcomando pertenecía — este test fallaba (bloqueaba
+# verificando victima/otro, que no existe para este fake) contra esa
+# versión.
+FAKE_GH_ANCHOR_DIR=$(mktemp -d)
+cat > "$FAKE_GH_ANCHOR_DIR/gh" <<'FAKE_GH_ANCHOR_EOF'
+#!/bin/bash
+case "$1 $2" in
+  "repo view")
+    echo "aveloz89/claude-methodology"
+    ;;
+  "pr view")
+    echo "$@" | grep -q -- "--repo aveloz89/claude-methodology" || { echo "unexpected args (repo decoy leaked): $*" >&2; exit 1; }
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo "$@" | grep -q -- "owner=aveloz89" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo "$@" | grep -q -- "name=claude-methodology" || { echo "unexpected args (repo decoy leaked): $*" >&2; exit 1; }
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    echo "$@" | grep -q -- "--repo aveloz89/claude-methodology" || { echo "unexpected args (repo decoy leaked): $*" >&2; exit 1; }
+    printf 'some-check\tpass\t1s\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_ANCHOR_EOF
+chmod +x "$FAKE_GH_ANCHOR_DIR/gh"
+
+assert_pre_merge_anchor_continue() {
+  local test_name="$1" cmd="$2"
+  TOTAL=$((TOTAL + 1))
+  local json output
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$FAKE_GH_ANCHOR_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  if echo "$output" | grep -q '"continue":true'; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pre_merge_anchor_continue "gh pr merge [security]: --repo de OTRO subcomando (gh pr list) no gana sobre el repo del cwd" \
+  "gh pr list --repo victima/otro && gh pr merge 45"
+assert_pre_merge_anchor_continue "gh pr merge [security]: --repo de un subcomando DESPUÉS del merge (tras &&) tampoco gana" \
+  "gh pr merge 45 && gh pr list --repo victima/otro"
+rm -rf "$FAKE_GH_ANCHOR_DIR"
+
+# [security HIGH, ronda 3] La ventana anclada de la ronda 2 cortaba en el
+# primer ";"/"|"/"&"/")"/"}"/backtick que aparecía, sin distinguir un
+# separador de comando real de un delimitador de expansión que ABRE
+# adentro de la propia ventana ($(...), ${...}, o un backtick que abre a
+# mitad de la ventana) — perdía el --repo real que viene después de esa
+# expansión y caía al repo del cwd sin verificar nada. Mismo estilo de
+# fake gh que el de anclaje: "repo view" resuelve a un cwd VÁLIDO
+# (cwd/repo) distinto del --repo real (real/repo) — pr view/checks/
+# graphql solo responden con éxito si reciben real/repo, y fallan si
+# reciben cwd/repo. Reproducido con el hook real antes de este fix (los
+# tres comandos de abajo daban {"continue":true} habiendo verificado
+# cwd/repo, no real/repo).
+FAKE_GH_BALANCE_DIR=$(mktemp -d)
+cat > "$FAKE_GH_BALANCE_DIR/gh" <<'FAKE_GH_BALANCE_EOF'
+#!/bin/bash
+case "$1 $2" in
+  "repo view")
+    echo "cwd/repo"
+    ;;
+  "pr view")
+    echo "$@" | grep -q -- "--repo real/repo" || { echo "unexpected args (la expansion se comio el --repo real): $*" >&2; exit 1; }
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo "$@" | grep -q -- "owner=real" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo "$@" | grep -q -- "name=repo" || { echo "unexpected args (la expansion se comio el --repo real): $*" >&2; exit 1; }
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    echo "$@" | grep -q -- "--repo real/repo" || { echo "unexpected args (la expansion se comio el --repo real): $*" >&2; exit 1; }
+    printf 'some-check\tpass\t1s\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_BALANCE_EOF
+chmod +x "$FAKE_GH_BALANCE_DIR/gh"
+
+assert_pre_merge_balance_continue() {
+  local test_name="$1" cmd="$2"
+  TOTAL=$((TOTAL + 1))
+  local json output
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$FAKE_GH_BALANCE_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  if echo "$output" | grep -q '"continue":true'; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pre_merge_balance_continue "gh pr merge [security]: \$(...) antes de --repo no corta la ventana (usa el repo real, no el cwd)" \
+  'gh pr merge 45 --match-head-commit $(git rev-parse HEAD) --repo real/repo'
+assert_pre_merge_balance_continue "gh pr merge [security]: \${VAR} antes de --repo no corta la ventana (usa el repo real, no el cwd)" \
+  'gh pr merge 45 --match-head-commit ${SHA} --repo real/repo'
+assert_pre_merge_balance_continue "gh pr merge [security]: backtick que abre a mitad de la ventana no la corta (usa el repo real, no el cwd)" \
+  'gh pr merge 45 --subject `date` --repo real/repo'
+
+# Regresión: el propio anchor puede ser un "(" o un backtick que ENVUELVE
+# todo el merge — ESE cierre sí tiene que cortar la ventana (si no
+# cortara, "real/repo)" o "real/repo\`" quedaría pegado como un solo
+# token y fallaría la validación de forma en vez de resolver limpio).
+assert_pre_merge_balance_continue "gh pr merge [security]: subshell que envuelve todo el merge sigue cortando en su propio cierre" \
+  '(gh pr merge 45 --repo real/repo)'
+assert_pre_merge_balance_continue "gh pr merge [security]: backtick que envuelve todo el merge sigue cortando en su propio cierre" \
+  '`gh pr merge 45 --repo real/repo`'
+rm -rf "$FAKE_GH_BALANCE_DIR"
+
+# [security HIGH, ronda 4] Imagen espejo del bug de la ronda 3: el
+# contador solo cortaba al llegar a un CIERRE con profundidad cero, nunca
+# miraba su propio estado al llegar a fin de ventana. Un abridor que
+# sobrevive a guard_sanitize sin su cierre (un "\(" escapado, o una llave
+# suelta como "a{b" — ninguno de los dos es heredoc, quoted span ni
+# continuación, así que el saneo los deja intactos) dejaba el contador en
+# >0 para siempre: ";"/"|"/"&" dejan de cortar (exigen los tres contadores
+# en cero), la ventana se come la invocación siguiente completa, y con
+# "gana la última" el --repo del vecino le gana al real. Reproducido con
+# el hook real antes de este fix: los tres daban {"continue":true}
+# habiendo verificado el repo de la SEGUNDA invocación (evil/x), no la
+# primera (real/repo) — regresión directa del commit de la ronda 3 (con
+# el patrón de esa ronda, "(" no estaba en la clase de corte y el ";" sí
+# cortaba, dando la ventana correcta).
+assert_pre_merge_blocked "gh pr merge [security]: paréntesis escapado sin cerrar dentro de la ventana bloquea (no deja que el ; deje de cortar)" \
+  'gh pr merge 45 --repo real/repo --body \( ; gh pr merge 1 --repo evil/x' \
+  "no pude determinar los límites" "offline"
+assert_pre_merge_blocked "gh pr merge [security]: llave suelta sin cerrar dentro de la ventana bloquea (no deja que el ; deje de cortar)" \
+  'gh pr merge 45 --repo real/repo --jq .a{b ; gh pr merge 1 --repo evil/x' \
+  "no pude determinar los límites" "offline"
+assert_pre_merge_blocked "gh pr merge [security]: backtick sin cerrar dentro de la ventana bloquea (no deja que el ; deje de cortar)" \
+  'gh pr merge 45 --repo real/repo --body `hi ; gh pr merge 1 --repo evil/x' \
+  "no pude determinar los límites" "offline"
+
+# [security HIGH, ronda 5] La ronda 4 solo atrapa un ABRIDOR sin cerrar
+# (contador > 0 al salir del loop). No atrapa un CIERRE o SEPARADOR
+# escapado ("\)", "\;", "\|" — sobreviven igual a guard_sanitize, que no
+# toca backslashes) en profundidad cero: el contador nunca pasa de cero
+# ahí, nada queda "desbalanceado" para el chequeo de la ronda 4, pero la
+# ventana corta en ese punto igual, silenciosa, antes del --repo real —
+# verificado end-to-end con un gh falso que distingue real/repo del cwd
+# antes de este fix. Tercera dirección de la misma raíz que las rondas 2
+# y 3 (cortar de más, cortar de menos, cerrar escapado): intentar
+# adivinar el límite sobre texto que ya perdió estructura en el saneo.
+# Decisión del usuario, no una cuarta regla que adivine mejor: cualquier
+# backslash que llegue al tokenizer dentro de la ventana consumida hace
+# la ventana indeterminada — bloquea, sin agregar estado nuevo al parser
+# ni tocar las 8 clases de caracteres que ya trackea.
+assert_pre_merge_blocked "gh pr merge [security]: paréntesis de cierre escapado en profundidad cero bloquea (el contador nunca se desbalancea)" \
+  'gh pr merge 45 --body foo\) --repo real/repo' \
+  "no pude determinar los límites" "offline"
+assert_pre_merge_blocked "gh pr merge [security]: punto y coma escapado en profundidad cero bloquea (el contador nunca se desbalancea)" \
+  'gh pr merge 45 --jq .a\; --repo real/repo' \
+  "no pude determinar los límites" "offline"
+assert_pre_merge_blocked "gh pr merge [security]: pipe escapado en profundidad cero bloquea (el contador nunca se desbalancea)" \
+  'gh pr merge 45 --body foo\| --repo real/repo' \
+  "no pude determinar los límites" "offline"
+
+# [security, ronda 5] Falso bloqueo a evitar: un backslash DENTRO de un
+# span quoted no debe alcanzar nunca al tokenizer — guard_sanitize ya lo
+# colapsó a un espacio antes de esta etapa. Si este test bloqueara, el
+# chequeo de arriba estaría atrapando comandos normales, no solo los
+# maliciosos.
+assert_pre_merge_continue "gh pr merge [security]: backslash DENTRO de comillas no llega al tokenizer (no bloquea, no es falso positivo)" \
+  'gh pr merge 45 --body "línea con \n adentro" --repo real/repo'
+
+# [security, ronda 3, punto 2 — ambos reviewers] PR_NUMBER tiene que salir
+# de la MISMA ventana que --repo, no del comando completo. Con dos
+# invocaciones reales encadenadas ("gh pr merge 1 --repo a/b || gh pr
+# merge 45 --repo real/repo"), el número y el repo tienen que salir de la
+# invocación de la IZQUIERDA (la primera anclada) — nunca una mezcla de
+# "número de la primera, repo de la segunda" ni viceversa. El fake gh
+# solo responde con éxito a PR#1 contra a/b; si alguno de los dos datos
+# se filtrara de la segunda invocación, este test fallaría.
+FAKE_GH_PRNUM_DIR=$(mktemp -d)
+cat > "$FAKE_GH_PRNUM_DIR/gh" <<'FAKE_GH_PRNUM_EOF'
+#!/bin/bash
+case "$1 $2" in
+  "repo view")
+    exit 1
+    ;;
+  "pr view")
+    [ "$3" = "1" ] || { echo "unexpected PR number (se filtro la segunda invocacion): $*" >&2; exit 1; }
+    echo "$@" | grep -q -- "--repo a/b" || { echo "unexpected repo (se filtro la segunda invocacion): $*" >&2; exit 1; }
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo "$@" | grep -q -- "name=b" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    [ "$3" = "1" ] || { echo "unexpected PR number (se filtro la segunda invocacion): $*" >&2; exit 1; }
+    echo "$@" | grep -q -- "--repo a/b" || { echo "unexpected repo (se filtro la segunda invocacion): $*" >&2; exit 1; }
+    printf 'some-check\tpass\t1s\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_PRNUM_EOF
+chmod +x "$FAKE_GH_PRNUM_DIR/gh"
+
+TOTAL=$((TOTAL + 1))
+PRNUM_JSON=$(jq -n --arg cmd 'gh pr merge 1 --repo a/b || gh pr merge 45 --repo real/repo' '{tool_input: {command: $cmd}}')
+PRNUM_OUTPUT=$(echo "$PRNUM_JSON" | PATH="$FAKE_GH_PRNUM_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+if echo "$PRNUM_OUTPUT" | grep -q '"continue":true'; then
+  echo -e "${GREEN}PASS${NC}: gh pr merge [security]: PR_NUMBER y --repo salen de la MISMA ventana (dos invocaciones encadenadas, gana la primera en ambos)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: gh pr merge [security]: PR_NUMBER y --repo salen de la MISMA ventana (output: $PRNUM_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$FAKE_GH_PRNUM_DIR"
+
+
+# [security HIGH, ronda 2] Duplicado: gana la ÚLTIMA ocurrencia dentro de
+# la ventana anclada, igual que gh real (verificado contra GitHub real,
+# ver commit). Mismo estilo de fake gh que el de anclaje: solo responde
+# con éxito al repo que DEBERÍA ganar; si el guard tomara la primera
+# ocurrencia en vez de la última, este test fallaría.
+FAKE_GH_DUP_DIR=$(mktemp -d)
+cat > "$FAKE_GH_DUP_DIR/gh" <<'FAKE_GH_DUP_EOF'
+#!/bin/bash
+case "$1 $2" in
+  "repo view")
+    exit 1
+    ;;
+  "pr view")
+    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args (no ganó el ultimo --repo): $*" >&2; exit 1; }
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo "$@" | grep -q -- "name=easy-quotes" || { echo "unexpected args (no ganó el ultimo --repo): $*" >&2; exit 1; }
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args (no ganó el ultimo --repo): $*" >&2; exit 1; }
+    printf 'some-check\tpass\t1s\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_DUP_EOF
+chmod +x "$FAKE_GH_DUP_DIR/gh"
+
+assert_pre_merge_dup_continue() {
+  local test_name="$1" cmd="$2"
+  TOTAL=$((TOTAL + 1))
+  local json output
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$FAKE_GH_DUP_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  if echo "$output" | grep -q '"continue":true'; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pre_merge_dup_continue "gh pr merge [security]: --repo duplicado, el decoy va PRIMERO y el real gana por ser el último" \
+  "gh pr merge 179 --repo aveloz89/claude-methodology --repo aveloz89/easy-quotes"
+assert_pre_merge_dup_continue "gh pr merge [security]: --repo/-R mezclados, -R al final gana igual que gh real" \
+  "gh pr merge 179 --repo aveloz89/claude-methodology -R aveloz89/easy-quotes"
+rm -rf "$FAKE_GH_DUP_DIR"
+
+# El caso inverso (decoy AL FINAL) prueba que NO seguimos tomando el
+# primero: si el guard tomara el primero, este bloquearía verificando
+# aveloz89/claude-methodology#179 (inexistente en offline) en vez de dar
+# error por el decoy que va después — ambos caminos bloquean hoy (offline
+# no resuelve nada), así que se verifica contra GitHub real en su lugar,
+# más abajo con FAKE_GH_MODE apagado. Ver verificación end-to-end en el
+# reporte (no se agrega un tercer fake gh solo para este ángulo — ya está
+# cubierto por los dos asserts de arriba, que prueban las dos direcciones
+# de "cuál gana": primero-decoy-último-real y --repo/-R mezclados).
+
+# [security HIGH, ronda 2] Valor destruido por guard_sanitize: un --repo
+# comillado colapsa a un espacio ANTES de esta extracción — comillar es
+# una forma normal de escribir el comando, no evasión. El guard tiene que
+# BLOQUEAR (no adivinar el repo del cwd) y el mensaje no debe reflejar la
+# flag siguiente como si fuera el valor.
+assert_pre_merge_blocked "gh pr merge [security]: --repo comillado (saneo destruye el valor) bloquea, no adivina el cwd" \
+  "gh pr merge 5 --repo 'aveloz89/easy-quotes'" "sin un valor owner/name utilizable" "offline"
+assert_pre_merge_blocked "gh pr merge [security]: --repo comillado + flag detrás no culpa a esa flag por la forma inválida" \
+  "gh pr merge 5 --repo 'a/b' --squash" "sin un valor owner/name utilizable ('')" "offline"
+
+# --repo malformado (sin "/", el único separador owner/name válido):
+# fail-closed sin necesidad de tocar gh — la validación de forma corre
+# antes de cualquier consulta, así que ni siquiera hace falta un fake gh
+# especial para probarla (usa el fake gh general de esta sección).
+assert_pre_merge_blocked "gh pr merge --repo malformado (sin owner/name) bloquea fail-closed sin consultar gh" \
+  "gh pr merge 179 --repo not-a-valid-repo" "sin un valor owner/name utilizable" "offline"
+
+# [security LOW, ronda 2] El valor reflejado en el reason se trunca a 64
+# chars — un token de 300 chars no debe volver entero al usuario.
+LONG_REPO_VALUE=$(printf 'a%.0s' $(seq 1 300))
+assert_pre_merge_blocked "gh pr merge [security]: valor de --repo malformado y largo se trunca en el mensaje de bloqueo" \
+  "gh pr merge 179 --repo $LONG_REPO_VALUE" "$(printf 'a%.0s' $(seq 1 64))..." "offline"
+TOTAL=$((TOTAL + 1))
+LONG_REPO_OUTPUT=$(jq -n --arg cmd "gh pr merge 179 --repo $LONG_REPO_VALUE" '{tool_input: {command: $cmd}}' | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="offline" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+if ! echo "$LONG_REPO_OUTPUT" | grep -qF "$LONG_REPO_VALUE"; then
+  echo -e "${GREEN}PASS${NC}: gh pr merge [security]: el reason NO contiene el token de 300 chars completo"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: gh pr merge [security]: el reason NO contiene el token de 300 chars completo (output: $LONG_REPO_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+
+# [doc, ronda 2 punto 4] La forma de tres segmentos "[HOST/]OWNER/REPO"
+# que gh documenta para Enterprise queda fuera del regex de validación a
+# propósito (dos segmentos exactos) — fail-closed, no una vulnerabilidad,
+# pero con test para que quede verificado y no solo comentado.
+assert_pre_merge_blocked "gh pr merge [doc]: --repo de 3 segmentos (github.enterprise.com/owner/repo) bloquea fail-closed" \
+  "gh pr merge 179 --repo github.enterprise.com/owner/repo" "sin un valor owner/name utilizable" "offline"
 
 rm -rf "$FAKE_GH_DIR"
 
@@ -1804,6 +2251,76 @@ else
   echo -e "${RED}FAIL${NC}: guard_sanitize: el alarm interno es 5s (margen contra degradaciones espurias)"
   FAIL=$((FAIL + 1))
 fi
+
+echo ""
+
+# --- guard-matching.sh: entrada hostil para las otras dos reglas de saneo
+# (spans quoted, continuaciones de línea) + un caso de tamaño combinado ---
+# El bloque de arriba cubre heredocs (PR #60). guard_sanitize aplica dos
+# reglas más sobre texto no confiable que nunca se probaron con input
+# grande o deliberadamente inconcluso — mismo tipo de gap que dejó pasar
+# el cuelgue de heredocs (128 tests en verde, guard colgado). Techo
+# acordado para esta ronda: comillas + continuaciones + un caso de
+# tamaño combinado, nada más — cualquier otra superficie que aparezca acá
+# se reporta, no se cubre en este PR.
+echo "--- guard-matching.sh: entrada hostil (comillas, continuaciones, tamaño) ---"
+
+# (a) Comilla simple SIN terminar, grande: [^\x27]* consume todo el string
+# de forma greedy y luego backtrackea de a un carácter buscando el cierre
+# — O(n) por construcción (char class negado, sin ambigüedad de
+# partición como la de heredocs), pero nunca medido ni persistido contra
+# un tamaño real. Sin cierre, ningún span matchea: el texto queda intacto
+# (misma dirección segura que un heredoc sin terminador).
+UNTERMINATED_SINGLE_QUOTE_LARGE="echo '$(printf 'a%.0s' $(seq 1 150000))"
+assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla simple sin terminar (150k chars) no cuelga y queda sin cambios" \
+  "$UNTERMINATED_SINGLE_QUOTE_LARGE" \
+  "$UNTERMINATED_SINGLE_QUOTE_LARGE"
+
+# (b) Comilla doble SIN terminar, grande, con el contenido íntegro en
+# pares "a\" — estresa la alternativa \\. (escape) del char class en vez
+# de la alternativa [^"\\], por si alguna de las dos formas de matchear
+# un mismo carácter genera una ambigüedad de partición que la otra no
+# tiene.
+UNTERMINATED_DOUBLE_QUOTE_LARGE="echo \"$(printf 'a\%.0s' $(seq 1 50000))"
+assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla doble sin terminar con backslashes (50k pares) no cuelga y queda sin cambios" \
+  "$UNTERMINATED_DOUBLE_QUOTE_LARGE" \
+  "$UNTERMINATED_DOUBLE_QUOTE_LARGE"
+
+# (c) Comilla simple grande que SÍ cierra al final: complementa (a) —
+# confirma que cerrar al final de un span largo no es más caro que nunca
+# cerrar, y que el contenido se sanea igual que un span chico (todo el
+# span colapsa a un solo espacio).
+CLOSING_SINGLE_QUOTE_LARGE="echo '$(printf 'a%.0s' $(seq 1 100000))' done"
+assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla simple grande que cierra se sanea a un solo espacio" \
+  "$CLOSING_SINGLE_QUOTE_LARGE" \
+  "echo   done"
+
+# (d) Cadena larga de continuaciones backslash-newline: la regla en sí es
+# un solo s/// sin cuantificadores anidados (sin riesgo de ReDoS por
+# construcción — a diferencia de la regla de heredocs), pero nunca se
+# midió contra una cadena realista ni se verificó que TODAS las
+# continuaciones se unan (no solo la primera o la última).
+CONT_LINES=$(printf 'seg%s\\\n' $(seq 1 20000))
+CONTINUATION_CHAIN_LARGE="${CONT_LINES}"$'\n'"end"
+CONTINUATION_CHAIN_EXPECTED=$(printf 'seg%s ' $(seq 1 20000))"end"
+assert_guard_sanitize_bounded "guard_sanitize [continuations]: cadena larga de continuaciones (20k) no cuelga y se unen todas" \
+  "$CONTINUATION_CHAIN_LARGE" \
+  "$CONTINUATION_CHAIN_EXPECTED"
+
+# (e) [tamaño] Payload combinado (~600KB) mezclando las tres reglas en el
+# mismo string, en un solo perl -0777: confirma que combinarlas no genera
+# un efecto de composición cuadrático que ninguna regla por separado
+# muestra. Sin $expected: el foco es tiempo acotado, no exactitud byte a
+# byte — la corrección de cada regla ya la cubren (a)-(d) y el bloque de
+# heredocs de arriba.
+SIZE_Q=$(printf 'a%.0s' $(seq 1 300000))
+SIZE_CONT=$(printf 'seg%s\\\n' $(seq 1 15000))
+SIZE_HD=$(printf 'linea %s de relleno\n' $(seq 1 8000))
+SIZE_PAYLOAD="git commit -m '${SIZE_Q}' && ${SIZE_CONT}"$'\n'"cmd && cat <<EOF
+${SIZE_HD}EOF
+"
+assert_guard_sanitize_bounded "guard_sanitize [size]: payload combinado ~600KB (comillas + continuaciones + heredoc) se mantiene acotado en tiempo" \
+  "$SIZE_PAYLOAD"
 
 echo ""
 

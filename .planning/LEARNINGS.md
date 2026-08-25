@@ -34,6 +34,32 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-08-25] PR #64 — Barrido de los ocho follow-ups, y cinco rondas sobre el mismo parser
+
+**Métricas:**
+- Review rounds: 4 de security (3 bloqueadas), 2 de qa-backend (1 bloqueada) — más 5 rondas de fixes sobre el ítem del `--repo`
+- Hallazgos security: 14 (critical: 0, high: 5, medium: 3, low: 6)
+- Hallazgos qa-frontend: 0 (no aplica)
+- Hallazgos qa-backend: 5 (3 bloqueantes, 2 sugerencias)
+- Errores de build/CI: 0 (este repo no tiene Actions)
+- Self-reflection atrapó: el dev distinguió shellcheck preexistente de regresión propia en cada ronda; corrigió su propio conteo mal reportado cuando QA lo marcó
+- Lotes ejecutados: 2 en paralelo / Tareas: 8
+- Devs involucrados: backend-dev (lote de hooks); el lote de documentación lo hizo el orchestrator
+
+**Qué salió bien:**
+- **Los dos lotes corrieron en paralelo sobre el mismo branch sin pisarse**, con archivos disjuntos. El dev evitó tocar `.planning/` por su cuenta al ver al orchestrator editando ahí — sin que se lo pidieran.
+- **El dev encontró la cuarta dirección del bug y la reportó sin arreglarla**, para que la decisión de scope fuera del usuario. Esa disciplina es lo que permitió elegir la regla que cerró el ciclo en vez de seguir parchando.
+- La etiqueta *no verificable* del corolario se invocó tres veces y las tres fueron legítimas — cobertura nueva, documentación de comportamiento preexistente y un comentario. Ninguna fue excusa.
+- El usuario decidió con opciones en dos bifurcaciones reales (alcance del barrido, y cómo cerrar el hueco del backslash), estrenando la regla del PR #63.
+
+**Qué causó re-work:**
+- **El fix de un fail-open introdujo otro fail-open dos veces seguidas.** Anclar la ventana dejó afuera el `--repo` real cuando había una expansión; hacer el corte consciente de balance hizo que la ventana se comiera el comando vecino. Las dos veces el síntoma fue idéntico: el guard verifica un repo que no es y responde verde.
+- **Escribí `rules/bash.md` sin ejecutar tres de sus reglas**, en el archivo contra el que se van a revisar todos los hooks. Una de ellas —el idioma `grep -cv`— habría producido guards que no miden lo que dicen medir.
+- **Mi fix de etiquetas heredó el lado muerto de una contradicción de mayo**: el scaffold creaba la etiqueta que ningún agente lee y omitía la que sí se usa. El ítem venía a cerrar exactamente ese modo de falla.
+- Cerré el PR sin sacar de `FOLLOWUPS.md` los siete ítems que el propio PR resolvía: el diff arreglaba las cosas y a la vez afirmaba que seguían pendientes.
+
+**Patrón potencial:** sí, dos. (1) **"Cuando un fix oscila entre dos errores espejo, la respuesta no es elegir mejor: es reconocer que el input no admite la decisión."** Tres rondas intentando adivinar dónde cortar la ventana; la cuarta bloqueó ante la indeterminación y cerró las cuatro direcciones con una regla. 1ª aparición formulada así, pero es la misma forma que el fallback fail-closed de `guard_sanitize` en el PR #60 — candidato a regla en `bash.md` si reaparece. (2) **El review encuentra en el trabajo del orchestrator la misma clase de error que el orchestrator marca en el de los demás** — reglas afirmadas sin ejecutar, un tracker que se contradice con su propio diff, un scaffold que hereda una contradicción sin verificarla. 3ª aparición contando los PRs #61 y #63: el orchestrator no tiene quien lo revise salvo estos dos agentes, y sistemáticamente encuentran algo.
+
 ### [2026-08-25] PR #63 — Cómo el orchestrator le escribe al usuario y le pide decisiones
 
 **Métricas:**

@@ -165,7 +165,20 @@ git push -u origin dev
 
 Pregunta al usuario si quiere el repo público o privado antes de crearlo.
 
-### 10. Configurar branch protection
+### 10. Crear las etiquetas que consumen los agentes
+
+```bash
+gh label create latent-bug            --color D93F0B --description "Bug latente detectado por sweep o durante desarrollo; lo procesa el refactor agent"
+gh label create legacy-violation      --color fbca04 --description "Código que viola reglas actuales pero es preexistente; lo procesa el refactor agent"
+gh label create controversial-fix     --color fbca04 --description "Decisión idiomática discutible detectada en self-reflection; lo procesa el refactor agent"
+gh label create stale-docs            --color d4c5f9 --description "Documentación desactualizada detectada de paso, no arreglada en el PR de origen"
+gh label create security              --color B60205 --description "Hallazgo de seguridad (review o scan)"
+gh label create flaky-test            --color fef2c0 --description "Test que falló de forma intermitente; lo trackea el e2e-runner"
+```
+
+**Por qué es un paso y no un detalle:** el agente `refactor` lee issues por estas etiquetas, y `gh issue create` **falla el comando entero** si la etiqueta no existe. Sin este paso, derivar deuda al refactor se cae en silencio y el hallazgo se pierde — pasó en este mismo repo, que tenía tres de las seis.
+
+### 11. Configurar branch protection
 
 ```bash
 gh api repos/{owner}/$1/branches/main/protection -X PUT -f ...

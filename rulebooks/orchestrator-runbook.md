@@ -570,6 +570,7 @@ O archivos `.ts` / `.js` bajo:
 
 Archivos con extensión:
 - `.py`, `.go`, `.rs`, `.cs`, `.sql`
+- `.sh`, `.bash` — hooks, libs y scripts. Se revisan contra `rules/bash.md`
 
 O archivos `.ts` / `.js` bajo:
 - `api/`, `apps/backend/`, `apps/api/`
@@ -577,6 +578,14 @@ O archivos `.ts` / `.js` bajo:
 - `services/`, `controllers/`, `routes/`, `handlers/`
 - `models/`, `lib/`, `db/`, `migrations/`
 - `workers/`, `jobs/`
+
+### Documentos normativos del sistema de agentes
+
+Un diff que toca `rules/`, `rulebooks/`, `agents/`, `skills/` o `global/CLAUDE.md` va a **`qa-backend`**, con criterio de coherencia normativa y anti-drift en vez de capas de aplicación (ver `agents/qa-backend.md`). No hay capa de aplicación que clasificar ahí: el contrato son los documentos.
+
+Sin esta entrada, un diff 100% de metodología no matchea ninguna capa y el ruteo automático no invoca a nadie — pasó en esta misma sesión, donde el review ocurrió solo porque el orchestrator lo pidió a mano.
+
+El `README.md` y el `CLAUDE.md` raíz de un proyecto **no** entran acá: son meta-documentación del repo, no reglas que los agentes consuman. La excepción es el repo de la metodología misma, donde ambos describen cómo se edita el sistema y sí van a `qa-backend`. El grep del DoD anti-drift los cubre igual, que es un mecanismo distinto: ese busca drift, este decide a quién invocar.
 
 ### Diff mixto
 
@@ -738,7 +747,7 @@ Después:
 
 Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planning/`, reglas de agentes) incluye, como parte de su Definition of Done, antes de pedir review:
 
-1. **Grep de los términos afectados** en `CLAUDE.md`, `README.md`, `rulebooks/`, `agents/` y `skills/` — cualquier mención del comportamiento viejo es candidata a quedar desactualizada.
+1. **Grep de los términos afectados** en `CLAUDE.md`, `README.md`, `rulebooks/`, `agents/`, `skills/` y `.planning/` — cualquier mención del comportamiento viejo es candidata a quedar desactualizada. `.planning/` entra en la lista porque sus documentos tienen preámbulo normativo propio: el de `LEARNINGS.md` quedó describiendo el comportamiento viejo en el PR #59 y ningún reviewer lo vio, porque el directorio no estaba acá.
 2. **Reconciliar todo documento que describa el comportamiento cambiado.** No basta con documentar el cambio en un solo archivo — el mismo hecho (p. ej. "el dev actualiza X entre tareas") suele estar descrito en más de un rulebook o en `CLAUDE.md` raíz.
 
 Este paso no es opcional ni cosmético: las 7 contradicciones de la auditoría de julio (ver `.planning/AUDIT-context-engineering.md`) eran todas de esta clase — un cambio de proceso documentado en un archivo y olvidado en otro.
