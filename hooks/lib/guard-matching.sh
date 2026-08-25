@@ -55,15 +55,33 @@ guard_sanitize() {
     # DISTINTOS (ej. 'quote the " char' ... 'end " here'). Ambos casos se
     # tragan el comando real de en medio como si fuera contenido quoted.
     # La regla de heredocs consume el cuerpo línea por línea con
-    # "(?:(?!^[ \t]*\1[ \t]*$)[^\n]*\n)*?": cada iteración avanza
-    # exactamente un salto de línea ([^\n] no puede solaparse con el "\n"
-    # que la cierra) y el cuantificador es no-greedy, así que el motor
-    # nunca tiene ambigüedad sobre dónde cortar. La versión anterior usaba
-    # ".*\n?" (con /s, "." matchea salto de línea): eso permite que cada
-    # iteración consuma un número variable de líneas, y sin terminador
-    # real el motor prueba todas las formas de repartir el texto entre
-    # iteraciones — backtracking catastrófico (con 8 líneas de relleno sin
-    # cerrar, >3s; crece sin cota visible).
+    # "(?:(?!^[ \t]*\1[ \t]*$)[^\n]*\n)*?" — dos propiedades DISTINTAS,
+    # cada una resolviendo un problema distinto de la versión anterior
+    # (".*\n?", con /s, "." matchea salto de línea):
+    #
+    #   1. [^\n] en vez de "." elimina la AMBIGÜEDAD DE PARTICIÓN: cada
+    #      iteración avanza exactamente un salto de línea, sin poder
+    #      solaparse con el "\n" que la cierra, así que el motor nunca
+    #      tiene más de una forma de repartir el texto entre iteraciones.
+    #      Es lo que garantiza TERMINACIÓN en tiempo lineal — sin esto,
+    #      ".*\n?" dejaba que cada iteración consumiera un número variable
+    #      de líneas, y sin terminador real el motor probaba todas las
+    #      formas de partir el texto: backtracking catastrófico (con 8
+    #      líneas de relleno sin cerrar, >3s; crece sin cota visible).
+    #   2. El cuantificador no-greedy ("*?" en vez de "*") elige CUÁL
+    #      terminador cierra el heredoc cuando hay más de uno disponible
+    #      con el mismo nombre de delimitador: el PRIMERO, igual que bash
+    #      de verdad. La versión greedy elegía el ÚLTIMO — dos heredocs
+    #      bien formados con el mismo delimitador (ambos "<<EOF") y un
+    #      comando real en el medio hacían que el greedy se tragara TODO
+    #      lo de en medio (incluido el comando real y el terminador
+    #      legítimo del primer heredoc) en un solo span reemplazado por un
+    #      salto de línea — un fail-open real y explotable sin necesidad
+    #      de colgar nada (ver test [security] en test-hooks.sh). Esto es
+    #      independiente de la propiedad 1: un futuro refactor podría
+    #      volver a poner "*" greedy creyendo que solo afecta performance,
+    #      sin tocar [^\n], y reintroduciría la evasión sin reintroducir
+    #      el ReDoS.
     local sanitized status
     sanitized=$(printf '%s' "$1" | perl -0777 -pe '
       BEGIN { alarm 2 }
