@@ -162,6 +162,7 @@ claude-methodology/
 │   ├── session-start-context.sh
 │   └── subagent-stop-log.sh
 ├── rules/
+│   ├── bash.md
 │   ├── csharp.md
 │   ├── css.md
 │   ├── docker.md

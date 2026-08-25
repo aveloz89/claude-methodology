@@ -187,4 +187,4 @@ El paso 1 está reforzado por `pre-commit-guard.sh`. Los demás son responsabili
 
 ## Reglas por lenguaje
 
-`rules/` tiene un archivo por lenguaje (`python.md`, `typescript.md`, `go.md`, `rust.md`, `csharp.md`, `html.md`, `css.md`, `docker.md`). Cada uno declara sus extensiones en el frontmatter `paths:` y se carga solo cuando el diff las toca — no hace falta rutear a mano. Si una extensión no tiene archivo, el código se revisa solo contra `implementation-principles.md`.
+`rules/` tiene un archivo por lenguaje (`python.md`, `typescript.md`, `go.md`, `rust.md`, `csharp.md`, `html.md`, `css.md`, `bash.md`, `docker.md`). Cada uno declara sus extensiones en el frontmatter `paths:` y se carga solo cuando el diff las toca — no hace falta rutear a mano. Si una extensión no tiene archivo, el código se revisa solo contra `implementation-principles.md`.

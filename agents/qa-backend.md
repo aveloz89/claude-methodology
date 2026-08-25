@@ -224,6 +224,7 @@ Carga **solo las rules aplicables** a las extensiones del diff:
 - `.rs` → `~/.claude/rules/rust.md`
 - `.cs` → `~/.claude/rules/csharp.md`
 - `.ts`, `.js` (en rutas backend) → `~/.claude/rules/typescript.md`
+- `.sh`, `.bash` → `~/.claude/rules/bash.md`
 
 No cargues rules de UI (`html.md`, `css.md`). Si una rule no existe, continúa sin ella.
 

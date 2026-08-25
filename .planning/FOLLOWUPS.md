@@ -13,10 +13,6 @@ Origen: [conversación / PR #N / sweep / QA review]
 
 ## Pendientes
 
-### [2026-08-25] No existe `rules/bash.md`
-Shell es el único lenguaje sin reglas idiomáticas propias en `rules/`, en un repo que es casi todo shell (hooks, libs, suite adversarial). Hasta el PR #61 ni siquiera estaba en los `paths:` de los dos documentos transversales, así que un dev tocando un hook no cargaba ninguna regla. Hoy carga `implementation-principles.md` y `self-reflection.md`, pero la revisión idiomática se omite explícitamente por falta del archivo — cada dev que tocó shell en esta sesión lo anotó como omisión justificada.
-Origen: PR #61, y las tres invocaciones de dev sobre hooks de esta sesión
-
 ### [2026-08-25] `qa-backend` cambia de criterio de scope entre rondas del mismo PR
 Ante diffs 100% de documentación normativa, acepta el encuadre "los documentos normativos son el contrato" en una ronda y devuelve N/A en la siguiente. Pasó en el PR #59 (ronda 2), y en el #63 tras haber aceptado el encuadre en la ronda 1 de ese mismo PR. Consecuencia: sus bloqueantes quedan sin re-verificar por un reviewer independiente y los verifica el orchestrator, que es quien escribió el cambio. Opciones: fijar el criterio en el prompt de `qa-backend`, o definir a quién le corresponde revisar cambios de metodología.
 Origen: retro PR #60, review PR #63
