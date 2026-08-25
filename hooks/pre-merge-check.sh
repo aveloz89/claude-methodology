@@ -71,6 +71,7 @@ fi
 source "$LIB"
 
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
+SANITIZE_STATUS=$?
 
 # "perl falló en tiempo de ejecución" y "perl ausente" (chequeado arriba,
 # antes de leer stdin) son el mismo estado para este guard: bloquea. Los
@@ -84,9 +85,33 @@ SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 # le gana la extracción a la invocación real y el guard termina
 # verificando el PR equivocado en vez de bloquear por "sin número
 # explícito", que es lo que correspondería. Ver guard_sanitize() en
-# hooks/lib/guard-matching.sh para el contrato de exit status.
-if [ $? -ne 0 ]; then
-  printf '{"decision":"block","reason":"pre-merge-check no operativo: el saneo del comando falló (perl abortó en tiempo de ejecución) — no se puede confiar en la extracción del número de PR sobre texto sin sanear"}\n'
+# hooks/lib/guard-matching.sh para el contrato de exit status. El status
+# se captura en SANITIZE_STATUS en la línea de arriba, inmediatamente
+# después de la asignación — no como un "$?" leído más abajo, que un
+# comando insertado entre medio podría pisar en silencio.
+#
+# Gate permisivo sobre el texto CRUDO (no el saneado, que no es confiable
+# acá) antes de bloquear: este guard corre sobre TODAS las llamadas Bash
+# del harness, no solo sobre merges. Sin este gate, un saneo fallido
+# bloqueaba cualquier comando — "ls -la", "cat README.md", "git status" —
+# con un mensaje sobre extracción de números de PR que para esos comandos
+# no significa nada (security, verificado empíricamente). Y es alcanzable
+# sin trampas: el regex de heredocs sigue siendo ~O(n²) en aperturas
+# "<<palabra" sin terminador — un comando legítimo lo bastante grande
+# agota el alarm(5) él solo. Si el texto ni siquiera menciona gh/pr/merge
+# no puede ser una invocación real de "gh pr merge" — no bloquea. Si SÍ
+# los menciona, no se puede confiar en la extracción sobre texto sin
+# sanear — bloquea igual que antes. Nota de security: este gate sobre
+# crudo pierde invocaciones partidas con continuación de línea, pero esa
+# limitación ya existe hoy en el camino de fallback de abajo (el check de
+# "es una invocación real", más adelante en este archivo), así que acotar
+# no empeora nada.
+if [ "$SANITIZE_STATUS" -ne 0 ]; then
+  if echo "$COMMAND" | grep -qi 'gh' && echo "$COMMAND" | grep -qi 'pr' && echo "$COMMAND" | grep -qi 'merge'; then
+    printf '{"decision":"block","reason":"pre-merge-check no operativo: el saneo del comando falló (perl abortó en tiempo de ejecución) — no se puede confiar en la extracción del número de PR sobre texto sin sanear"}\n'
+    exit 0
+  fi
+  echo '{"continue":true}'
   exit 0
 fi
 

@@ -695,6 +695,48 @@ else
 fi
 rm -rf "$FAKE_PERL_FAILS_PMC_DIR"
 
+# [security MEDIUM, ronda 2] El bloqueo de arriba corría ANTES del check
+# de "esto es una invocación real de gh pr merge" (línea ~94 en la
+# versión sin fix) — un saneo fallido bloqueaba CUALQUIER comando Bash,
+# no solo los que podrían ser un merge. Security lo verificó con "ls -la",
+# "cat README.md" y "git status": los tres recibían "decision":"block"
+# con un mensaje sobre extracción de números de PR que para esos comandos
+# no significa nada. Alcanzable sin trampas: el regex nuevo sigue siendo
+# ~O(n²) en aperturas "<<palabra" sin terminador (4000 aperturas / 122 KB
+# se come el alarm de 5s), así que un comando grande cualquiera se
+# auto-bloquea. Fix: gate permisivo sobre el texto CRUDO (que mencione
+# gh, pr Y merge) antes de decidir si el saneo fallido amerita bloquear.
+FAKE_PERL_FAILS_UNRELATED_DIR=$(mktemp -d)
+cat > "$FAKE_PERL_FAILS_UNRELATED_DIR/perl" <<'FAKE_PERL_UNRELATED_EOF'
+#!/bin/bash
+exit 142
+FAKE_PERL_UNRELATED_EOF
+chmod +x "$FAKE_PERL_FAILS_UNRELATED_DIR/perl"
+for cmd in bash jq grep cat; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$FAKE_PERL_FAILS_UNRELATED_DIR/$cmd"
+done
+
+assert_pre_merge_unrelated_not_blocked() {
+  local test_name="$1" cmd="$2"
+  TOTAL=$((TOTAL + 1))
+  local json output
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$FAKE_PERL_FAILS_UNRELATED_DIR" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  if echo "$output" | grep -q '"continue":true'; then
+    echo -e "${GREEN}PASS${NC}: $test_name"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pre_merge_unrelated_not_blocked "pre-merge-check [security]: perl fallando NO bloquea 'ls -la' (no menciona gh/pr/merge)" "ls -la"
+assert_pre_merge_unrelated_not_blocked "pre-merge-check [security]: perl fallando NO bloquea 'cat README.md' (no menciona gh/pr/merge)" "cat README.md"
+assert_pre_merge_unrelated_not_blocked "pre-merge-check [security]: perl fallando NO bloquea 'git status' (no menciona gh/pr/merge)" "git status"
+rm -rf "$FAKE_PERL_FAILS_UNRELATED_DIR"
+
 rm -rf "$FAKE_GH_DIR"
 
 echo ""
