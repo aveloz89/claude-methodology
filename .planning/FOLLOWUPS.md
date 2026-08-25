@@ -13,6 +13,10 @@ Origen: [conversación / PR #N / sweep / QA review]
 
 ## Pendientes
 
+### [2026-08-25] `qa-backend` cambia de criterio de scope entre rondas del mismo PR
+Ante diffs 100% de documentación normativa, acepta el encuadre "los documentos normativos son el contrato" en una ronda y devuelve N/A en la siguiente. Pasó en el PR #59 (ronda 2), y en el #63 tras haber aceptado el encuadre en la ronda 1 de ese mismo PR. Consecuencia: sus bloqueantes quedan sin re-verificar por un reviewer independiente y los verifica el orchestrator, que es quien escribió el cambio. Opciones: fijar el criterio en el prompt de `qa-backend`, o definir a quién le corresponde revisar cambios de metodología.
+Origen: retro PR #60, review PR #63
+
 ### [2026-08-25] Entrada literal de `workspaces` no verifica que exista `package.json`
 `hooks/lib/workspace-scope.sh:145` — la rama de entrada literal hace `_WS_DIRS+=("$glob")` sin chequear `-f "$glob/package.json"`, a diferencia de la rama de glob, que sí lo hace. Con el match por igualdad exacta agregado en el PR #58, un workspace declarado pero inexistente podría scopear a un `-w` inválido y hacer que npm salga con error. Es fail-closed (bloquea el commit, nunca corre de menos) y requiere un `package.json` mal declarado.
 Origen: review del PR #58, ronda 3 (observación fuera del delta)

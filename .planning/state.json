@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "feature": "pre-commit-workspace-scope",
-  "branch": "feature/pre-commit-workspace-scope",
-  "pr": 58,
-  "review_sha": "2b19a24",
-  "updated": "2026-08-25T17:00:46Z",
+  "feature": "user-communication-rules",
+  "branch": "feature/user-communication-rules",
+  "pr": 63,
+  "review_sha": "7552c8c",
+  "updated": "2026-08-25T17:12:30Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
@@ -14,16 +14,16 @@
     "pr": "done",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
       "id": 1,
-      "name": "workspace-scope-y-cierre-de-review",
-      "agent": "backend-dev",
+      "name": "reglas-de-comunicacion",
+      "agent": "orchestrator",
       "status": "done",
-      "tasks_done": 4,
-      "tasks_total": 4,
+      "tasks_done": 2,
+      "tasks_total": 2,
       "current_task": null
     }
   ]
