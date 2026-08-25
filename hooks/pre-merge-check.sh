@@ -211,6 +211,24 @@ ANCHOR_STARTS_BACKTICK=false
 # estado nuevo) hace la ventana indeterminada. Un backslash DENTRO de un
 # span quoted no llega nunca acá — guard_sanitize ya lo colapsó a un
 # espacio antes de esta etapa.
+#
+# [security, ronda 5] Dependencia no obvia de la que depende que esta
+# regla del backslash sea viable sin bloquear la forma más común de
+# este flujo: guard_sanitize une las continuaciones de línea
+# (s/\\\n\s*/ /g en hooks/lib/guard-matching.sh:97, la regla de "join"
+# que corre ANTES que la de heredocs y la de quotes) reemplazando cada
+# backslash-seguido-de-salto-de-línea por un espacio — así que un
+# "gh pr merge 45 <barra invertida al final>" con el resto en la línea
+# siguiente llega a SANITIZED_COMMAND, y por lo tanto a
+# MERGE_WINDOW_FULL, ya sin backslash y sin salto de línea, unido en una
+# sola línea. Si esa unión no corriera antes de esta etapa
+# (guard_sanitize deshabilitado, o un refactor futuro que cambie el
+# orden de sus reglas o mueva este chequeo antes del saneo), el
+# backslash de CADA línea continuada llegaría intacto al tokenizer y el
+# chequeo de arriba bloquearía TODO merge multilínea — el over-block más
+# común posible en este flujo, no un caso de borde. Verificado contra 22
+# formas reales de merge (incluida la continuación a 3 líneas): pasan
+# hoy porque esta unión ya ocurrió antes de llegar acá.
 MERGE_WINDOW=$(printf '%s' "$MERGE_WINDOW_FULL" | perl -0777 -e '
 BEGIN { alarm 5 }
 my $anchor_backtick = $ARGV[0];
