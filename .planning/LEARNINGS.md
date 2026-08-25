@@ -1,6 +1,6 @@
 # Learnings
 
-Retrospectivas post-merge. El orchestrator **prepend** una entrada (más reciente arriba) después de cada PR mergeado.
+Retro por PR mergeado. El orchestrator **prepend** una entrada (más reciente arriba) en la Fase 4, como último commit del branch del PR — antes del merge, nunca en un PR aparte.
 
 ## Formato de entrada
 
@@ -33,6 +33,31 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 ## Entradas
 
 (Las entradas se agregan aquí, la más reciente arriba)
+
+### [2026-08-24] PR #59 — La retro viaja en el branch del PR, no en un PR aparte
+
+**Métricas:**
+- Review rounds: 2
+- Hallazgos security: 7 (critical: 0, high: 0, medium: 1, low: 6) + 1 bug funcional fuera de scope de seguridad
+- Hallazgos qa-frontend: 0 (no aplica — sin frontend en el diff)
+- Hallazgos qa-backend: 3 (1 bloqueante, 2 sugerencias — 1 aplicada, 1 diferida con razón)
+- Errores de build/CI: 0 (este repo no tiene GitHub Actions)
+- Self-reflection atrapó: n/a — sin dev, el diff lo escribió el orchestrator
+- Lotes ejecutados: 1 / Tareas: 1
+- Devs involucrados: ninguno
+
+**Qué salió bien:**
+- El review dual sobre un diff 100% markdown pagó su costo dos veces: cazó una contradicción semántica con el modo multi-PR que ningún grep detecta, y una afirmación falsa sobre qué hook cubre qué.
+- Verificar el comando nuevo del check 4 **ejecutándolo** contra rangos de commits reales (no leyéndolo) confirmó el `0`/`N` esperado y la guarda de `review_sha` vacío.
+- El cambio se estrenó a sí mismo: esta entrada viaja en el branch del PR #59.
+- El origen fue un dato medido, no una intuición: 7m23s de runners de easy-quotes por 47 líneas de markdown.
+
+**Qué causó re-work:**
+- Afirmé que `post-pr-create.sh` ya cubría el commit de retro **sin leer el hook**. Corre en `gh pr create` y no vuelve a mirar el branch. Prevenible con 30 segundos de lectura; costó una ronda de fixes y, mientras existió, dejó una ventana real (push post-review sin ningún guard de contenido).
+- Reescribí de paso la cardinalidad de LEARNINGS ("por cada merge exitoso" → "por feature") sin que nadie lo pidiera. Rompió el modo multi-PR y fue el único bloqueante del PR: un cambio no pedido, adyacente al pedido.
+- El DoD anti-drift se cumplió y aun así no alcanzó: el grep de términos encuentra residuos léxicos, no contradicciones semánticas. La contradicción la encontró un reviewer leyendo el flujo completo. Y el propio `LEARNINGS.md` decía "retrospectivas post-merge" — quedó fuera del grep porque `.planning/` no estaba en la lista de directorios del DoD.
+
+**Patrón potencial:** sí, dos. (1) **"Verificar contra el sistema real antes de afirmar" — 4ª aparición** (PR #49: `stat` en Docker; PR #54: repo público; PR #55: CLI del plugin; PR #59: comportamiento de `post-pr-create.sh`). La regla de 3 se dio por alcanzada en el PR #55, con propuesta concreta de agregarla a `rules/implementation-principles.md` o al prompt del architect — y **nunca se implementó**: el grep confirma que no existe. Que el patrón reaparezca es la evidencia de que registrarlo no lo corrige. (2) qa-backend cambió de criterio entre rondas del mismo PR — revisó coherencia normativa en la ronda 1 y en la ronda 2 se declaró fuera de scope por ser markdown. Un diff de proceso no tiene reviewer con mandato claro; 1ª aparición, si se repite hay que definir a quién le toca.
 
 ### [2026-08-14] PR #56 — Review dual pre-push (Fase 2.6): el PR nace revisado
 

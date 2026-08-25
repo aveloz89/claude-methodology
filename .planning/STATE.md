@@ -4,15 +4,16 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** align-atomic-commits — alinear la letra de la regla de commits con la práctica real (commit por tarea) y recalibrar la heurística de corte de PRs
-- **Última actualización:** 2026-08-14
+- **Feature:** retro-before-merge — la retro deja de ser un PR aparte: se escribe en la Fase 4 y viaja como último commit del branch del feature, antes del merge
+- **Última actualización:** 2026-08-24
 
 ## Decisiones
 
-- [D-01] Brainstorming/design/docs saltados: cambio de redacción de 3 archivos, alcance mapeado por grep (8 puntos), sin decisiones estructurales; el diff ES documentación.
-- [D-02] La decisión histórica del 2026-07-24 en pr-workflow NO se reescribe — se enmienda con nota fechada 2026-08-14 (los registros de decisiones no se falsifican).
-- [D-03] La heurística de corte deja de contar commits (commits atómicos = más navegabilidad, no menos) — la señal es el diff irrevisable: >1000 LoC de naturaleza mixta sin agrupación navegable en el PR body.
-- [D-04] Tracker de sesión omitido (criterio del harness: <3 pasos no se trackea).
+- [D-01] Brainstorming/design/docs saltados: cambio de flujo en 3 archivos, alcance mapeado por grep (DoD anti-drift del runbook); el diff ES documentación. Lo escribió el orchestrator, sin delegar a un dev.
+- [D-02] El merge sale de la Fase 3 a una **Fase 5** propia en vez de renumerar el pipeline entero: "Fase 4 = retro" conserva su número y las referencias de `agent-budget.md` siguen válidas.
+- [D-03] La retro se escribe pre-merge, no post-merge: al cerrar CI y re-reviews ya se conocen todas las métricas del template; lo único que falta es el merge. La alternativa para mantenerla post-merge (commit directo a `dev`) rompe gitflow.
+- [D-04] Hotfix urgente: la retro no bloquea el merge — su entrada viaja en el commit de integración a `dev`, que ya es un push directo sancionado por el runbook.
+- [D-05] El filtro de CI "diff sin código → sin suites" queda FUERA de este PR (objetivo distinto: `ci.yml` de cada repo + `pre-commit-guard.sh`). Sin él, el push de la retro sigue costando un run completo — está documentado como costo residual, no como supuesto.
 
 ## Blockers
 

@@ -1,9 +1,10 @@
 {
   "schema": 1,
-  "feature": "align-atomic-commits",
-  "branch": "feature/align-atomic-commits",
-  "pr": 57,
-  "updated": "2026-08-14T15:50:00Z",
+  "feature": "retro-before-merge",
+  "branch": "feature/retro-before-merge",
+  "pr": 59,
+  "review_sha": "e981e0b48b94fcd7d539ff33524853f870e25919",
+  "updated": "2026-08-25T02:42:37Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
@@ -13,18 +14,17 @@
     "pr": "done",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
       "id": 1,
-      "name": "align-wording",
-      "agent": "backend-dev",
+      "name": "retro-en-branch-del-feature",
+      "agent": "orchestrator",
       "status": "done",
-      "tasks_done": 3,
-      "tasks_total": 3,
+      "tasks_done": 1,
+      "tasks_total": 1,
       "current_task": null
     }
-  ],
-  "review_sha": "f9c4168f864c9cb96fe43f0ac0b1ec8c9ea88b93"
+  ]
 }
