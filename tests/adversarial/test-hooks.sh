@@ -692,6 +692,37 @@ assert_blocked_cmd "pre-commit-guard: status.showUntrackedFiles=no no debe ocult
 _wsscope_assert_markers "pre-commit-guard: showUntrackedFiles=no — ambos workspaces corrieron" yes yes
 _wsscope_npm_cleanup
 
+# Caso I [QA, PR #58]: workspace tocado que NO declara script "test" → no
+# debe bloquear el commit por un falso negativo. Depende de --if-present en
+# el comando armado por _workspace_scope_npm_cmd; sin ese flag, "npm test -w
+# frontend" falla con "Missing script: test" y el commit se bloquearía
+# aunque no hay ningún test que haya fallado de verdad.
+WSSCOPE_NOSCRIPT_DIR=$(mktemp -d)
+WSSCOPE_NOSCRIPT_DIR=$(cd "$WSSCOPE_NOSCRIPT_DIR" && pwd -P)
+(
+  cd "$WSSCOPE_NOSCRIPT_DIR" || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  mkdir -p frontend backend
+  cat > package.json <<EOF
+{ "name": "root", "private": true, "workspaces": ["frontend", "backend"], "scripts": { "test": "npm run test --workspaces --if-present" } }
+EOF
+  cat > frontend/package.json <<EOF
+{ "name": "fe", "version": "1.0.0", "scripts": {} }
+EOF
+  cat > backend/package.json <<EOF
+{ "name": "be", "version": "1.0.0", "scripts": { "test": "exit 1" } }
+EOF
+  git add -A
+  git commit -q -m init
+) > /dev/null 2>&1
+echo "cambio" > "$WSSCOPE_NOSCRIPT_DIR/frontend/README.md"
+git -C "$WSSCOPE_NOSCRIPT_DIR" add -A > /dev/null 2>&1
+assert_allowed_cmd "pre-commit-guard: npm — workspace tocado sin script \"test\" no bloquea (--if-present)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_NOSCRIPT_DIR"
+rm -rf "$WSSCOPE_NOSCRIPT_DIR"
+
 echo ""
 # --- pre-commit-guard.sh: workspace scoping (monorepo pnpm) ---
 echo "--- pre-commit-guard.sh: workspace scoping (monorepo pnpm) ---"
@@ -738,7 +769,63 @@ EOF
     FAIL=$((FAIL + 1))
   fi
 
+  # Caso pnpm adicional [sugerencia no bloqueante, PR #58]: dos workspaces
+  # tocados a la vez → corren los dos (mismo chequeo que el Caso B de npm,
+  # equivalente pnpm: confirma que el scoping no se queda pegado a un solo
+  # workspace también con --filter).
+  git -C "$WSSCOPE_PNPM_DIR" reset -q --hard > /dev/null 2>&1
+  git -C "$WSSCOPE_PNPM_DIR" clean -fdq > /dev/null 2>&1
+  rm -f "$WSSCOPE_PNPM_MARK"/*.ran
+  echo "cambio a" > "$WSSCOPE_PNPM_DIR/packages/a/index.js"
+  echo "cambio b" > "$WSSCOPE_PNPM_DIR/packages/b/index.js"
+  git -C "$WSSCOPE_PNPM_DIR" add -A > /dev/null 2>&1
+  assert_blocked_cmd "pre-commit-guard: monorepo pnpm, dos workspaces tocados → corren los dos (b falla y bloquea)" \
+    "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_PNPM_DIR"
+  TOTAL=$((TOTAL + 1))
+  if [ -f "$WSSCOPE_PNPM_MARK/a.ran" ] && [ -f "$WSSCOPE_PNPM_MARK/b.ran" ]; then
+    echo -e "${GREEN}PASS${NC}: pre-commit-guard: pnpm — scoping a dos workspaces, ambos corrieron"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: pre-commit-guard: pnpm — scoping a dos workspaces (a.ran=$( [ -f "$WSSCOPE_PNPM_MARK/a.ran" ] && echo si || echo no ), b.ran=$( [ -f "$WSSCOPE_PNPM_MARK/b.ran" ] && echo si || echo no ))"
+    FAIL=$((FAIL + 1))
+  fi
+
   rm -rf "$WSSCOPE_PNPM_DIR" "$WSSCOPE_PNPM_MARK"
+
+  # Caso pnpm [QA, PR #58]: workspace tocado que NO declara script "test" →
+  # no debe bloquear. A diferencia de npm, pnpm no necesita --if-present:
+  # "pnpm --filter ./<ws> run test" ya saltea en silencio con exit 0 un
+  # workspace sin ese script (verificado).
+  WSSCOPE_PNPM_NOSCRIPT_DIR=$(mktemp -d)
+  WSSCOPE_PNPM_NOSCRIPT_DIR=$(cd "$WSSCOPE_PNPM_NOSCRIPT_DIR" && pwd -P)
+  (
+    cd "$WSSCOPE_PNPM_NOSCRIPT_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p packages/a packages/b
+    cat > pnpm-workspace.yaml <<'YAML_EOF'
+packages:
+  - "packages/*"
+YAML_EOF
+    touch pnpm-lock.yaml
+    cat > package.json <<EOF
+{ "name": "root", "private": true, "scripts": { "test": "pnpm -r run test" } }
+EOF
+    cat > packages/a/package.json <<EOF
+{ "name": "pkg-a", "version": "1.0.0", "scripts": {} }
+EOF
+    cat > packages/b/package.json <<EOF
+{ "name": "pkg-b", "version": "1.0.0", "scripts": { "test": "exit 1" } }
+EOF
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+  echo "cambio" > "$WSSCOPE_PNPM_NOSCRIPT_DIR/packages/a/index.js"
+  git -C "$WSSCOPE_PNPM_NOSCRIPT_DIR" add -A > /dev/null 2>&1
+  assert_allowed_cmd "pre-commit-guard: pnpm — workspace tocado sin script \"test\" no bloquea (skip silencioso de pnpm)" \
+    "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_PNPM_NOSCRIPT_DIR"
+  rm -rf "$WSSCOPE_PNPM_NOSCRIPT_DIR"
 else
   echo "SKIP: pnpm no está instalado en esta máquina — se omiten los tests de scoping para pnpm"
 fi
