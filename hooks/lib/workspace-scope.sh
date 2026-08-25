@@ -144,7 +144,11 @@ _workspace_scope_npm_dirs() {
         return 1
         ;;
       *)
-        _WS_DIRS+=("$glob")
+        # Mismo chequeo que la rama de glob (arriba): un workspace
+        # declarado pero inexistente (o sin su propio package.json) no
+        # cuenta — evita scopear a un "-w" inválido que hace salir a npm
+        # con error en vez de correr los tests.
+        [ -f "$glob/package.json" ] && _WS_DIRS+=("$glob")
         ;;
     esac
   done <<< "$globs"

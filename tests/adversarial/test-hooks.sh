@@ -929,6 +929,30 @@ else
 fi
 rm -rf "$WSLIB_DIR"
 
+# Caso [follow-up, review PR #58 ronda 3]: entrada literal declarada pero
+# sin package.json (workspace inexistente o mal declarado) — a diferencia
+# de la rama de glob (test de arriba), que ya filtraba por
+# -f "$glob/package.json", la rama de igualdad exacta la agregaba a
+# _WS_DIRS sin chequear nada. Con un "-w ghost" inválido, npm sale con
+# error y el commit se bloquea por una razón que no es "los tests
+# fallaron" — sigue siendo fail-closed, pero por el motivo equivocado.
+WSLIB_DIR=$(mktemp -d)
+mkdir -p "$WSLIB_DIR/frontend"
+echo '{"workspaces": ["frontend", "ghost"]}' > "$WSLIB_DIR/package.json"
+touch "$WSLIB_DIR/frontend/package.json"
+# "ghost" no existe como directorio en absoluto.
+WSLIB_RC=0
+WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs && printf '%s\n' "${_WS_DIRS[@]}" | sort) || WSLIB_RC=$?
+TOTAL=$((TOTAL + 1))
+if [ "$WSLIB_RC" -eq 0 ] && [ "$WSLIB_OUT" = "frontend" ]; then
+  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs ignora una entrada literal sin package.json (consistente con la rama de glob)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs ignora una entrada literal sin package.json (rc=$WSLIB_RC, out=[$WSLIB_OUT])"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$WSLIB_DIR"
+
 # Caso: glob de un solo nivel al final ("packages/*") se expande a los
 # subdirectorios reales que tienen su propio package.json — un subdirectorio
 # SIN package.json (ej. un README suelto) no cuenta como workspace.
