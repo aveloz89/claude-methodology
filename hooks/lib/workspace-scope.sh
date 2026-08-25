@@ -17,19 +17,14 @@
 # nunca peor que hoy. Ningún modo de falla de esta lib bloquea un commit ni
 # hace que se corran MENOS tests de los que se corrían antes de que existiera.
 #
-# Esa garantía depende por completo de que `git status` reporte TODOS los
-# archivos con cambios locales, uno por uno — por eso el llamado usa
-# --untracked-files=all: sin ese flag, un directorio enteramente sin
-# trackear se colapsa en una sola entrada (?? dir/), que puede matchear un
-# workspace padre sin matchear uno anidado adentro (workspace anidado
-# excluido en silencio), y status.showUntrackedFiles=no en la config del
-# usuario hace directamente invisibles los untracked (workspace entero
-# excluido en silencio) — ambos casos, cubiertos por test, verificados
-# end-to-end contra un `git` real. Único modo de falla conocido y ya seguro
-# por diseño (no un bug, cae a la suite completa a propósito): un path con
-# espacios llega C-quoteado en la salida de `--porcelain` y nunca matchea
-# ningún workspace, así que se trata como "outside" y aborta hacia el
-# fallback completo.
+# Esa garantía depende de que `git status` reporte cada archivo con cambios
+# locales que SÍ puede ver, y de que el loop de _workspace_scope_match
+# interprete bien cada línea que reporta — NO de que vea absolutamente
+# todo (archivos ignorados por .gitignore quedan fuera, ver más abajo).
+# El comentario de _workspace_scope_match tiene el detalle verificado caso
+# por caso de qué reporta `git status` y cómo se procesa, más el costo
+# medido de recorrerlo — no repetido acá para no duplicarlo y que se
+# desincronice.
 #
 # Uso:
 #   source hooks/lib/workspace-scope.sh
@@ -213,13 +208,45 @@ _workspace_scope_pnpm_dirs() {
 # easy-quotes): si algún archivo cambiado cae FUERA de todos los workspaces
 # declarados, se aborta (return 1) y el caller corre todo.
 #
-# Nota sobre paths con espacios: git los C-quotea en la salida de
-# `--porcelain` (ej. `?? "frontend/my dir/file.txt"`, comillas literales
-# incluidas en el string — pasa sea cual sea core.quotepath, que solo
-# afecta no-ASCII, no espacios; verificado). Esas comillas nunca matchean
-# ningún "$dir"/*, así que el archivo cae como "outside" y toda la
-# resolución aborta — comportamiento seguro (cae al fallback completo,
-# nunca corre de menos) pero no evidente, así que queda anotado acá.
+# NO cubre archivos ignorados por .gitignore o .git/info/exclude: nunca
+# aparecen en `git status`, con o sin --untracked-files=all (verificado:
+# tocar un archivo en un workspace gitignoreado no aparece en el output).
+# Impacto bajo — ese archivo no entra al commit salvo `git add -f` — pero
+# es la razón por la que ningún comentario de este archivo dice "TODOS
+# los archivos" sin matiz.
+#
+# Con esa salvedad, esto es lo que `git status --untracked-files=all`
+# reporta y cómo se procesa cada línea, verificado end-to-end contra un
+# `git` real caso por caso (no una garantía general — dos rondas de review
+# de seguridad encontraron contraejemplos acá, así que esta lista es lo
+# verificado hasta ahora, no una promesa de exhaustividad):
+#   - Directorio enteramente sin trackear: se colapsa en una sola entrada
+#     (?? dir/) que puede matchear un workspace padre sin matchear uno
+#     anidado adentro — por eso --untracked-files=all, que expande a
+#     archivos individuales.
+#   - status.showUntrackedFiles=no en la config del usuario: sin ese
+#     flag, esconde los untracked por completo (un flag de línea de
+#     comandos gana sobre ~/.gitconfig).
+#   - Submódulo con cambios locales adentro: se reporta SIN slash final
+#     (" M dir", a diferencia del directorio colapsado de arriba, que sí
+#     lo lleva) — el match de abajo matchea "$dir" por igualdad exacta,
+#     además del glob "$dir"/*, para cubrir este caso.
+#   - Path con espacios: llega C-quoteado en la salida de `--porcelain`
+#     (comillas literales en el string, sea cual sea core.quotepath, que
+#     solo afecta no-ASCII) y nunca matchea ningún workspace — se trata
+#     como "outside" y aborta hacia el fallback completo. Seguro por
+#     diseño, no un bug.
+#
+# Costo medido (macOS, `time`, repo temporal real): --untracked-files=all
+# en sí, sobre `git status`, cuesta ~9ms -> ~20ms con 20k archivos
+# untracked reales (sin diferencia medible por archivos ignorados, que ni
+# se listan). El loop de bash de esta función, que itera cada línea
+# reportada contra cada dir de _WS_DIRS, es el costo dominante en ese
+# mismo peor caso (node_modules de 20k archivos SIN gitignorear): ~0.31s
+# en total para _workspace_scope_npm_dirs + _workspace_scope_match juntos.
+# Escala con líneas reportadas × workspaces declarados — aceptable para un
+# pre-commit incluso en ese peor caso, pero no gratis; un node_modules sin
+# gitignorear ya es en sí un problema aparte de este hook.
 _workspace_scope_match() {
   _WS_TOUCHED=()
   [ "${#_WS_DIRS[@]}" -eq 0 ] && return 1

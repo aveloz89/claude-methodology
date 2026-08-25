@@ -1035,10 +1035,11 @@ _wslib_pnpm_case() {
   dir=$(cd "$dir" && pwd -P)
   fakebin=$(mktemp -d)
   echo '{"name": "root"}' > "$dir/package.json"
-  cat > "$fakebin/pnpm" <<EOF
-#!/bin/bash
-$fake_body
-EOF
+  # printf en vez de heredoc con delimitador sin comillas: $fake_body es
+  # texto crudo (fixture con "$(pwd)" incluido a propósito en un caso), y
+  # printf '%s' nunca lo re-interpreta como sintaxis de shell al escribir
+  # — se evalúa recién cuando el fake pnpm se ejecuta, en su propio cwd.
+  printf '#!/bin/bash\n%s\n' "$fake_body" > "$fakebin/pnpm"
   chmod +x "$fakebin/pnpm"
   local rc=0
   local out
