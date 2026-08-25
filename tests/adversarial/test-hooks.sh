@@ -1100,10 +1100,10 @@ assert_bam_blocked "block-admin-merge [security]: gh pr merge --admin entre dos 
   "$TWO_HEREDOCS_ADMIN_PAYLOAD"
 
 # (c) Watchdog interno: si perl encuentra un patológico futuro no
-# anticipado, "BEGIN { alarm 2 }" lo mata en vez de dejarlo colgado. Un
+# anticipado, "BEGIN { alarm 5 }" lo mata en vez de dejarlo colgado. Un
 # fake perl que sale con 142 (el mismo código que deja un SIGALRM real sin
 # handler, ver redos.sh) simula ese timeout sin depender de un cuelgue de
-# 2s de verdad. Dirección de la degradación (igual razonamiento que "perl
+# 5s de verdad. Dirección de la degradación (igual razonamiento que "perl
 # no disponible" arriba): si perl muere, guard_sanitize NO puede devolver
 # la cadena vacía (el grep de cada guard no matchearía nada → fail-open
 # silencioso) — tiene que devolver el comando SIN sanear, la dirección
