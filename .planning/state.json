@@ -1,29 +1,29 @@
 {
   "schema": 1,
-  "feature": "retro-before-merge",
-  "branch": "feature/retro-before-merge",
-  "pr": 59,
-  "review_sha": "e981e0b48b94fcd7d539ff33524853f870e25919",
-  "updated": "2026-08-25T05:12:11Z",
+  "feature": "guard-sanitize-redos",
+  "branch": "fix/guard-sanitize-redos",
+  "pr": null,
+  "review_sha": "723207c",
+  "updated": "2026-08-25T09:07:24Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
     "implementation": "done",
     "docs": "skipped",
     "review": "done",
-    "pr": "done",
+    "pr": "pending",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
       "id": 1,
-      "name": "retro-en-branch-del-feature",
-      "agent": "orchestrator",
+      "name": "redos-fix-y-watchdog",
+      "agent": "backend-dev",
       "status": "done",
-      "tasks_done": 1,
-      "tasks_total": 1,
+      "tasks_done": 4,
+      "tasks_total": 4,
       "current_task": null
     }
   ]
