@@ -723,6 +723,24 @@ assert_allowed_cmd "pre-commit-guard: npm — workspace tocado sin script \"test
   "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_NOSCRIPT_DIR"
 rm -rf "$WSSCOPE_NOSCRIPT_DIR"
 
+# Caso J [sugerencia no bloqueante, PR #58]: un path con espacios llega
+# C-quoteado en `git status --porcelain` (verificado: "?? \"frontend/my
+# dir/file.txt\"", con comillas literales incluidas en el path, sea cual
+# sea core.quotepath — ese setting solo afecta no-ASCII, no espacios). Las
+# comillas literales hacen que el path nunca matchee ningún "$dir"/* de
+# _WS_DIRS, así que _workspace_scope_match lo marca "outside" y cae
+# siempre al fallback completo — comportamiento seguro (nunca corre de
+# menos) pero no evidente, documentado acá y en el comentario de la lib.
+_wsscope_npm_setup
+_wsscope_npm_reset
+mkdir -p "$WSSCOPE_DIR/frontend/my dir"
+echo "cambio" > "$WSSCOPE_DIR/frontend/my dir/file.txt"
+git -C "$WSSCOPE_DIR" add -A > /dev/null 2>&1
+assert_blocked_cmd "pre-commit-guard: path con espacios cae al fallback completo (backend falla y bloquea, no scoping)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
+_wsscope_assert_markers "pre-commit-guard: path con espacios — fallback completo, corrieron los dos" yes yes
+_wsscope_npm_cleanup
+
 echo ""
 # --- pre-commit-guard.sh: workspace scoping (monorepo pnpm) ---
 echo "--- pre-commit-guard.sh: workspace scoping (monorepo pnpm) ---"

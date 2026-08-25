@@ -198,6 +198,14 @@ _workspace_scope_pnpm_dirs() {
 # Regla conservadora (calca la de .github/workflows/ci.yml, PR #122 de
 # easy-quotes): si algún archivo cambiado cae FUERA de todos los workspaces
 # declarados, se aborta (return 1) y el caller corre todo.
+#
+# Nota sobre paths con espacios: git los C-quotea en la salida de
+# `--porcelain` (ej. `?? "frontend/my dir/file.txt"`, comillas literales
+# incluidas en el string — pasa sea cual sea core.quotepath, que solo
+# afecta no-ASCII, no espacios; verificado). Esas comillas nunca matchean
+# ningún "$dir"/*, así que el archivo cae como "outside" y toda la
+# resolución aborta — comportamiento seguro (cae al fallback completo,
+# nunca corre de menos) pero no evidente, así que queda anotado acá.
 _workspace_scope_match() {
   _WS_TOUCHED=()
   [ "${#_WS_DIRS[@]}" -eq 0 ] && return 1
