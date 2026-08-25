@@ -156,6 +156,14 @@ Todo workflow de Actions debe tener:
 
 **Mitigación del riesgo en `dev`:** un conflicto semántico entre dos PRs (cada uno verde por separado, rotos combinados) se detecta minutos después del merge porque `ci.yml` también corre en push a `dev`. `dev` es rama de integración — romperla un rato es tolerable y el fix es barato.
 
+### 5.7 La retro viaja en el branch del feature
+
+La entrada de `LEARNINGS.md` se escribe en la Fase 4 y se commitea **en el branch del feature, como último commit antes del merge**. Nunca en un PR aparte.
+
+**Por qué:** un PR solo para la retro paga un run completo de CI y una ronda de PR sin cambiar una línea de código. Medido: el PR #179 de easy-quotes — 47 líneas de markdown bajo `.planning/` — disparó 7m23s de runners con backend, frontend, docker-prod y core-isolation completos. Es el mismo modo de falla que la regla 5.1 corrigió para docs, con la retro afuera.
+
+**Costo residual:** el push de la retro es el último del branch y cuesta un run mientras el workflow corra las suites para cualquier diff. Un filtro de "diff sin código (`.planning/**`) → sin suites", con el job agregador reportando verde para que branch protection no se quede esperando, lo baja a segundos.
+
 ## Verificación pre-merge
 
 Los 4 checks obligatorios antes de cada merge (threads, reviews, CI y evidencia del review dual pre-push), y el comando de merge según el tipo de branch, están en `rulebooks/orchestrator-runbook.md`, sección "Comandos `gh` específicos".

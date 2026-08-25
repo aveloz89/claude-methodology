@@ -124,7 +124,7 @@ Cada grupo de lotes (con su propio `**PR:**` declarado) corre sobre branch propi
 
 1. Crear branch desde dev
 2. Invocar lotes del grupo (último con `last_batch=true`)
-3. Fase 2.5 (docs) → Fase 2.6 (review local) → Fase 2.7 (push + PR) → Fase 2.8 (CI) → Fase 3 (post-PR) → merge
+3. Fase 2.5 (docs) → Fase 2.6 (review local) → Fase 2.7 (push + PR) → Fase 2.8 (CI) → Fase 3 (post-PR) → Fase 4 (retro) → Fase 5 (merge)
 4. Pasar al siguiente grupo
 
 #### Si un dev reporta `BUDGET LIMIT — ver HANDOFF.md`
@@ -200,31 +200,50 @@ gh pr checks <number> --watch --fail-fast
 
 **Cuándo NO monitorear CI**: el proyecto no tiene GitHub Actions, o el usuario lo pide explícitamente.
 
-### Fase 3: Post-PR (re-reviews condicionales, E2E, merge)
+### Fase 3: Post-PR (re-reviews condicionales, E2E)
 
 El review dual ya ocurrió en Fase 2.6, antes del push: **el PR nació revisado**. Esta fase cubre solo lo que requiere el PR abierto:
 
 1. **Re-review condicional**: SOLO si la Fase 2.8 obligó fixes que cambian código ya revisado. Acotado al delta del fix, re-lanzando **solo los reviewers de la capa afectada**. Los fixes que salgan de esta ronda siguen la regla de un push por ronda (skill `pr-workflow`, regla 5.2). Append de la ronda al registro `.planning/reviews/PR-<N>.md`. Si CI pasó a la primera (caso normal), esta sub-fase es no-op
 2. **Si el PR es a `main` (release)**: invoca `e2e-runner` en Modo B antes de la verificación pre-merge (ver sección "Pre-release E2E" más abajo)
-3. Cuando no queda nada pendiente (re-reviews limpios si los hubo, `e2e-runner` si era PR a main), ejecuta la **verificación pre-merge** (4 checks en sección "Comandos `gh` específicos")
-4. Solo si las verificaciones pasan, mergea con el comando apropiado según el tipo de branch:
-   - `feature/*` o `hotfix/*` → `gh pr merge <number> --merge --delete-branch`
-   - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `CLAUDE.md`)
-5. Si era hotfix (PR a main), después del merge integra a dev (procedimiento más abajo)
-6. Actualiza `.planning/state.json` (`phases.merge` a `done`) y `.planning/STATE.md` si hay una decisión o aprendizaje que registrar
+3. Cuando no queda nada pendiente (re-reviews limpios si los hubo, `e2e-runner` si era PR a main), avanza a la **Fase 4**: la retro se escribe y se commitea en este mismo branch, antes del merge
 
 **PRs fuera del flujo** (sin review pre-push — el checkpoint del hook `post-pr-create` lo señala): skill `review-pr` (ver también "Flujo: revisar PR existente" más abajo).
 
-### Fase 4: Learn (post-merge)
+### Fase 4: Learn (retro, antes del merge)
 
-Después de cada merge exitoso, retrospectiva breve:
+La retro cierra el feature y **viaja en el branch del feature**, como último commit antes del merge — nunca en un PR aparte (skill `pr-workflow`, regla 5.7). En este punto ya se conocen todas las métricas del template: rondas de review, hallazgos por reviewer, errores de CI, lotes, devs. Lo único que falta es el merge, que ocurre a continuación.
 
 1. Recolecta métricas: rounds de review, hallazgos por reviewer, errores de build, si self-reflection atrapó algo antes
 2. Identifica aprendizajes: qué salió bien, qué causó re-work
 3. Prepend a `.planning/LEARNINGS.md` — más reciente arriba (formato más abajo)
-4. **Regla de 3**: si un patrón aparece en 3+ entradas de LEARNINGS, sugiere al usuario agregar regla en `rules/` o modificar un agente
+4. Commitea y pushea al branch del PR:
 
-**Cuándo saltar Learn**: hotfixes urgentes (retro después), tareas triviales (typos, bumps de dependencias).
+```bash
+git commit -m "planning: registrar retro del PR #<N> en LEARNINGS"
+git push
+```
+
+5. Espera CI verde sobre el HEAD nuevo — branch protection valida el último SHA, no el que ya estaba verde
+6. **Regla de 3**: si un patrón aparece en 3+ entradas de LEARNINGS, sugiere al usuario agregar regla en `rules/` o modificar un agente
+
+**No dispara re-review**: el delta es solo `.planning/`, exactamente el delta que el checkpoint de `post-pr-create.sh` y el check 4 de la verificación pre-merge (`review_sha` ancestro de HEAD) ya toleran.
+
+**Costo de CI**: este push cuesta un run completo mientras el workflow del repo corra las suites para cualquier diff. Un filtro de "diff sin código → sin suites", con el job agregador reportando verde para no dejar a branch protection esperando, lo baja a segundos: es la contraparte natural de esta regla.
+
+**Cuándo saltar Learn**:
+
+- **Hotfix urgente**: no bloquees el merge con la retro. Si igual quieres registrarla, la entrada viaja en el commit de integración a `dev` (paso posterior del hotfix, Fase 5)
+- **Tareas triviales** (typos, bumps de dependencias): sin retro
+
+### Fase 5: Merge y cierre
+
+1. Ejecuta la **verificación pre-merge** (4 checks en sección "Comandos `gh` específicos")
+2. Solo si las verificaciones pasan, mergea con el comando apropiado según el tipo de branch:
+   - `feature/*` o `hotfix/*` → `gh pr merge <number> --merge --delete-branch`
+   - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `CLAUDE.md`)
+3. Si era hotfix (PR a main), después del merge integra a dev (procedimiento más abajo)
+4. Actualiza `.planning/state.json` (`phases.merge` a `done`) y `.planning/STATE.md` si hay una decisión o aprendizaje que registrar
 
 ---
 
@@ -336,12 +355,12 @@ Al recibir el plan de lotes del architect, crea:
 2. **Una tarea de review por PR del plan**: `Review dual local (security + qa-*)` — bloqueada por (`addBlockedBy`) los lotes que contiene el PR.
 3. **Una tarea por PR del plan**: `Abrir PR <n> + CI` — bloqueada por la tarea de review dual local.
 4. **Una tarea de E2E** por cada PR que toque UI: `E2E visual en navegador` — bloqueada por la tarea del PR. Solo se elimina si el usuario renuncia explícitamente a la E2E (y esa renuncia queda registrada en STATE.md como deuda consciente).
-5. **Una tarea final**: `Merge + retro de fase (LEARNINGS + STATE handoff)` — bloqueada por todo lo anterior.
+5. **Una tarea final**: `Retro + merge (LEARNINGS en el branch, luego merge)` — bloqueada por todo lo anterior.
 
 ### Reglas de actualización
 
 - `in_progress` al LANZAR el trabajo (dev invocado, reviews lanzados, E2E iniciada).
-- `completed` SOLO cuando el hito ocurrió de verdad: lote = commits del lote hechos (locales — los devs no pushean) y reporte del dev recibido; review dual local = veredictos limpios + sugerencias aplicadas + registro commiteado; PR/CI = PR creado + registro reconciliado (`PR-<N>.md`) + CI verde; E2E = checklist ejecutada con hallazgos resueltos; merge+retro = mergeado Y retro commiteada.
+- `completed` SOLO cuando el hito ocurrió de verdad: lote = commits del lote hechos (locales — los devs no pushean) y reporte del dev recibido; review dual local = veredictos limpios + sugerencias aplicadas + registro commiteado; PR/CI = PR creado + registro reconciliado (`PR-<N>.md`) + CI verde; E2E = checklist ejecutada con hallazgos resueltos; retro+merge = retro commiteada y pusheada al branch, CI verde y PR mergeado.
 - Los blockers de reviews/E2E se resuelven dentro de la tarea en curso (fixes en el mismo PR) — NO crean tareas nuevas, salvo que generen trabajo fuera del PR (fix-PR posterior o issue), en cuyo caso sí se agrega la tarea.
 - Si el usuario pausa la fase, las tareas quedan en su estado actual y HANDOFF.md/state.json registran el corte exacto (el tracker no persiste entre sesiones; al retomar, se recrea desde HANDOFF.md + STATE.md + state.json).
 - Fases con un solo paso trivial no necesitan tracker (criterio general del harness: <3 pasos no se trackea).
@@ -498,7 +517,7 @@ Pasos exactos cuando el hook `session-start-context.sh` detecta `HANDOFF.md` (ve
 
 ### `LEARNINGS.md` (acumulativo)
 
-**Prepend** una entrada por cada merge exitoso (más reciente arriba):
+**Prepend** una entrada por feature (más reciente arriba). Se escribe en la Fase 4 y viaja en el **último commit del branch del feature**, antes del merge — nunca en un PR aparte:
 
 ```markdown
 ## [YYYY-MM-DD] PR #N — [título corto de la feature]

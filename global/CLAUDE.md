@@ -90,19 +90,21 @@ Fase 2.6:  Review dual local → security-reviewer + qa-* sobre el diff local  [
 Fase 2.7:  Push + PR        → lo haces tú: push + gh pr create + reconciliación del registro
 Fase 2.8:  Monitoreo CI     → gh pr checks --watch --fail-fast
 Fase 3:    Post-PR          → re-reviews SOLO si CI obligó fixes sobre código ya revisado
-                              + e2e-runner Modo B si PR a main + pre-merge + merge
-Fase 4:    Learn (post-merge)
+                              + e2e-runner Modo B si PR a main
+Fase 4:    Learn (retro)    → LEARNINGS commiteada en el branch del feature: último
+                              commit antes del merge, nunca un PR aparte
+Fase 5:    Merge y cierre   → verificación pre-merge + merge + cierre de STATE
 ```
 
 **Reglas clave del flujo:**
 
 - **Setup del branch lo haces tú una sola vez** (`git checkout dev && git checkout -b feature/<slug>`). Los devs trabajan sobre ese branch existente, no crean nuevos.
 - **Modo single-PR (default)**: todos los lotes en el mismo branch, último lote con `last_batch=true`; después vienen docs (Fase 2.5), review dual local (Fase 2.6) y push + PR (Fase 2.7, lo haces tú).
-- **Presupuesto de CI**: repos privados, minutos contados. Un push por ronda de review (rondas post-PR; las de Fase 2.6 no pushean), docs en el push inicial, reproducir el check fallido localmente antes de re-push. Detalle en la skill `pr-workflow`, regla 5.
+- **Presupuesto de CI**: repos privados, minutos contados. Un push por ronda de review (rondas post-PR; las de Fase 2.6 no pushean), docs en el push inicial, retro en el último commit del branch (nunca un PR aparte), reproducir el check fallido localmente antes de re-push. Detalle en la skill `pr-workflow`, regla 5.
 - **Modo multi-PR**: solo si el architect lo justificó. Cada grupo con su branch + PR.
 - **Orden cuando hay db-specialist**: db-specialist primero (schema), luego backend-dev (consume schema), luego frontend-dev. Pueden paralelizar back/front si son archivos disjuntos.
 - **Validación del plan del architect**: cada lote ≤5 tareas, max 3 reintentos de validación, después escalar al usuario.
-- **Tracker de tareas de sesión (obligatorio, sin que el usuario lo pida)**: al cerrar el diseño con el architect, creas el listado de tareas visible con las herramientas nativas del harness (TaskCreate/TaskUpdate): una tarea por lote + una por etapa del pipeline (review dual local, PR+CI, E2E si toca UI, merge+retro), con dependencias entre ellas. Actualizas el estado en vivo (`in_progress` al lanzar, `completed` solo cuando el hito realmente ocurrió) — el usuario sigue el progreso sin preguntarte. No reemplaza `.planning/STATE.md` ni `.planning/state.json` (el estado persistente entre sesiones sigue viviendo ahí); el tracker es la visibilidad de ESTA sesión. Formato exacto en `~/.claude/rulebooks/orchestrator-runbook.md`.
+- **Tracker de tareas de sesión (obligatorio, sin que el usuario lo pida)**: al cerrar el diseño con el architect, creas el listado de tareas visible con las herramientas nativas del harness (TaskCreate/TaskUpdate): una tarea por lote + una por etapa del pipeline (review dual local, PR+CI, E2E si toca UI, retro+merge), con dependencias entre ellas. Actualizas el estado en vivo (`in_progress` al lanzar, `completed` solo cuando el hito realmente ocurrió) — el usuario sigue el progreso sin preguntarte. No reemplaza `.planning/STATE.md` ni `.planning/state.json` (el estado persistente entre sesiones sigue viviendo ahí); el tracker es la visibilidad de ESTA sesión. Formato exacto en `~/.claude/rulebooks/orchestrator-runbook.md`.
 - **Fixes en el mismo PR/branch** — nunca branch nuevo para correcciones post-review.
 - **Re-lanzar solo los reviewers que marcaron issues** (no los que aprobaron).
 - **Conflicto entre reviewers**: security gana en seguridad, QA gana en UX/accesibilidad/contratos, y si es zona gris escalas al usuario. Detalle y matices en `governance-playbook.md` §7.
@@ -113,7 +115,7 @@ Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`
 
 ## Estado persistente: `.planning/`
 
-`STATE.md` (decisiones, blockers, prosa libre) · `state.json` (estado mutable enumerable: fase, lotes, progreso — ver runbook) · `BRIEF.md` (brainstorming) · `DESIGN.md` (architect) · `ARCHITECTURE.md` (decisiones recurrentes, persistente) · `HANDOFF.md` (solo si hay trabajo pausado) · `LEARNINGS.md` (retrospectivas post-merge, acumulativo) · `reviews/` (pre-PR: `pre-pr-<slug>.md`; al crear el PR se reconcilia a `PR-{N}.md` — ver runbook). Formatos en el runbook.
+`STATE.md` (decisiones, blockers, prosa libre) · `state.json` (estado mutable enumerable: fase, lotes, progreso — ver runbook) · `BRIEF.md` (brainstorming) · `DESIGN.md` (architect) · `ARCHITECTURE.md` (decisiones recurrentes, persistente) · `HANDOFF.md` (solo si hay trabajo pausado) · `LEARNINGS.md` (retro por feature, acumulativo) · `reviews/` (pre-PR: `pre-pr-<slug>.md`; al crear el PR se reconcilia a `PR-{N}.md` — ver runbook). Formatos en el runbook.
 
 **Una feature a la vez**: `.planning/` refleja la feature activa actual. No se trabajan features en paralelo. Si surge un hotfix urgente durante una feature, pausas (ver "Pause / Resume") antes de cambiar de branch.
 
