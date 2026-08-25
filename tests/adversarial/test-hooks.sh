@@ -822,6 +822,12 @@ assert_guard_sanitize_bounded() {
   while kill -0 "$pid" 2>/dev/null; do
     elapsed=$(( $(date +%s) - start_ts ))
     if [ "$elapsed" -ge "$REDOS_WATCHDOG_SECONDS" ]; then
+      # pkill -P mata a los HIJOS directos del subshell (printf y perl del
+      # pipe dentro de guard_sanitize) antes de matar el subshell mismo —
+      # kill -9 "$pid" solo mataba el wrapper, dejando el perl real
+      # huérfano corriendo sin límite (regression QA, ver
+      # assert_watchdog_no_orphan_perl más abajo).
+      pkill -9 -P "$pid" 2>/dev/null || true
       kill -9 "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
       echo -e "${RED}FAIL${NC}: $test_name (no terminó en ${REDOS_WATCHDOG_SECONDS}s — backtracking catastrófico)"
@@ -843,6 +849,61 @@ assert_guard_sanitize_bounded() {
   fi
   rm -f "$out_file"
 }
+
+# Regression QA: el "kill -9 $pid" de assert_guard_sanitize_bounded mata el
+# subshell wrapper, pero el perl real del pipe ("printf | perl") es un
+# HIJO de ese subshell, no el propio $pid — sobrevive corriendo sin límite
+# (huérfano). Se reproduce con un guard_sanitize mockeado que invoca perl
+# real con un sleep largo — determinístico, no depende de resucitar el
+# ReDoS del regex (que ya no cuelga tras el fix). El marcador
+# "watchdog-leak-test-marker" en argv evita falsos positivos/negativos por
+# otros procesos perl del sistema o de otros tests de esta misma suite.
+WATCHDOG_LEAK_TEST_SECONDS=1
+WATCHDOG_LEAK_MARKER="watchdog-leak-test-marker"
+
+assert_watchdog_no_orphan_perl() {
+  local test_name="$1"
+  TOTAL=$((TOTAL + 1))
+
+  local pid start_ts elapsed
+  (
+    # shellcheck source=../../hooks/lib/guard-matching.sh
+    source "$HOOKS_DIR/lib/guard-matching.sh"
+    guard_sanitize() { printf '' | perl -e 'sleep 30' "$WATCHDOG_LEAK_MARKER"; }
+    guard_sanitize "unused"
+  ) > /dev/null 2>&1 &
+  pid=$!
+  start_ts=$(date +%s)
+
+  # Da tiempo a que el subshell realmente lance el perl real antes de
+  # medir — evita un falso PASS por matar el subshell antes de que el
+  # hijo exista.
+  sleep 0.3
+
+  while kill -0 "$pid" 2>/dev/null; do
+    elapsed=$(( $(date +%s) - start_ts ))
+    if [ "$elapsed" -ge "$WATCHDOG_LEAK_TEST_SECONDS" ]; then
+      pkill -9 -P "$pid" 2>/dev/null || true
+      kill -9 "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      break
+    fi
+    sleep 0.1
+  done
+
+  # Margen para que el kill se propague antes de verificar.
+  sleep 0.3
+  if pgrep -f "$WATCHDOG_LEAK_MARKER" > /dev/null 2>&1; then
+    echo -e "${RED}FAIL${NC}: $test_name (quedó un perl huérfano corriendo tras el kill)"
+    FAIL=$((FAIL + 1))
+    pkill -9 -f "$WATCHDOG_LEAK_MARKER" 2>/dev/null || true
+  else
+    echo -e "${GREEN}PASS${NC}: $test_name (no queda ningún perl corriendo tras el kill)"
+    PASS=$((PASS + 1))
+  fi
+}
+
+assert_watchdog_no_orphan_perl "assert_guard_sanitize_bounded: matar el pid del subshell también mata al perl hijo del pipe (no deja huérfanos)"
 
 # (a) Heredoc sin terminador: nunca cierra — el saneo tiene que devolver
 # igual dentro del bound (regex en tiempo lineal), no colgarse esperando
