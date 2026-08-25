@@ -4,7 +4,7 @@
   "branch": "fix/guard-sanitize-redos",
   "pr": 60,
   "review_sha": "723207c",
-  "updated": "2026-08-25T09:08:04Z",
+  "updated": "2026-08-25T09:11:26Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
@@ -14,7 +14,7 @@
     "pr": "done",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "pending"
+    "merge": "done"
   },
   "batches": [
     {
