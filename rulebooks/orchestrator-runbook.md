@@ -212,7 +212,7 @@ El review dual ya ocurrió en Fase 2.6, antes del push: **el PR nació revisado*
 
 ### Fase 4: Learn (retro, antes del merge)
 
-La retro cierra el feature y **viaja en el branch del feature**, como último commit antes del merge — nunca en un PR aparte (skill `pr-workflow`, regla 5.7). En este punto ya se conocen todas las métricas del template: rondas de review, hallazgos por reviewer, errores de CI, lotes, devs. Lo único que falta es el merge, que ocurre a continuación.
+La retro cierra el PR y **viaja en su propio branch**, como último commit antes del merge — nunca en un PR aparte (skill `pr-workflow`, regla 5.7). En modo multi-PR cada grupo hace su Fase 4: una entrada de LEARNINGS por PR mergeado. En este punto ya se conocen todas las métricas del template: rondas de review, hallazgos por reviewer, errores de CI, lotes, devs. Lo único que falta es el merge, que ocurre a continuación.
 
 1. Recolecta métricas: rounds de review, hallazgos por reviewer, errores de build, si self-reflection atrapó algo antes
 2. Identifica aprendizajes: qué salió bien, qué causó re-work
@@ -227,19 +227,21 @@ git push
 5. Espera CI verde sobre el HEAD nuevo — branch protection valida el último SHA, no el que ya estaba verde
 6. **Regla de 3**: si un patrón aparece en 3+ entradas de LEARNINGS, sugiere al usuario agregar regla en `rules/` o modificar un agente
 
-**No dispara re-review**: el delta es solo `.planning/`, exactamente el delta que el checkpoint de `post-pr-create.sh` y el check 4 de la verificación pre-merge (`review_sha` ancestro de HEAD) ya toleran.
+**El commit de retro toca SOLO `.planning/`** — es la norma, no una expectativa. Con el delta acotado ahí, no dispara re-review; si incluye cualquier otra cosa, vuelve a la Fase 2.6 antes de mergear.
+
+Es el único punto del flujo donde el contenido de un push post-review no lo mira ningún hook: `post-pr-create.sh` valida el delta contra `review_sha` al crearse el PR (Fase 2.7) y no vuelve a mirar el branch. Por eso el check 4 de la verificación pre-merge incluye el mismo test de contenido (ver "Comandos `gh` específicos").
 
 **Costo de CI**: este push cuesta un run completo mientras el workflow del repo corra las suites para cualquier diff. Un filtro de "diff sin código → sin suites", con el job agregador reportando verde para no dejar a branch protection esperando, lo baja a segundos: es la contraparte natural de esta regla.
 
 **Cuándo saltar Learn**:
 
-- **Hotfix urgente**: no bloquees el merge con la retro. Si igual quieres registrarla, la entrada viaja en el commit de integración a `dev` (paso posterior del hotfix, Fase 5)
+- **Hotfix urgente**: no bloquees el merge con la retro. Si igual quieres registrarla, la entrada va en un **commit propio** posterior a la integración a `dev` (paso final del hotfix, Fase 5) — nunca amendeada al merge commit: así queda revisable y revertible por separado
 - **Tareas triviales** (typos, bumps de dependencias): sin retro
 
 ### Fase 5: Merge y cierre
 
 1. Ejecuta la **verificación pre-merge** (4 checks en sección "Comandos `gh` específicos")
-2. Solo si las verificaciones pasan, mergea con el comando apropiado según el tipo de branch:
+2. Solo si las verificaciones pasan **y el usuario aprobó el merge explícitamente** (invariante 3 de `CLAUDE.md`: no se infiere de CI verde), mergea con el comando apropiado según el tipo de branch:
    - `feature/*` o `hotfix/*` → `gh pr merge <number> --merge --delete-branch`
    - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `CLAUDE.md`)
 3. Si era hotfix (PR a main), después del merge integra a dev (procedimiento más abajo)
@@ -517,7 +519,7 @@ Pasos exactos cuando el hook `session-start-context.sh` detecta `HANDOFF.md` (ve
 
 ### `LEARNINGS.md` (acumulativo)
 
-**Prepend** una entrada por feature (más reciente arriba). Se escribe en la Fase 4 y viaja en el **último commit del branch del feature**, antes del merge — nunca en un PR aparte:
+**Prepend** una entrada por PR mergeado (más reciente arriba) — en modo multi-PR, cada grupo corre su propia Fase 4 y deja su entrada. Se escribe en la Fase 4 y viaja en el **último commit del branch del PR**, antes del merge — nunca en un PR aparte:
 
 ```markdown
 ## [YYYY-MM-DD] PR #N — [título corto de la feature]
@@ -621,6 +623,10 @@ git merge-base --is-ancestor "$(jq -r '.review_sha // empty' .planning/state.jso
 # exit 0 = el SHA revisado es ancestro del HEAD del branch. Si falta el
 # registro, la fase no está en "done", o review_sha está ausente o no es
 # ancestro → NO mergear
+git diff --name-only "$(jq -r '.review_sha // empty' .planning/state.json)"..HEAD | grep -v '^\.planning/'
+# NO debe imprimir nada: el único delta legítimo post-review es registro y
+# retro, ambos bajo .planning/. Cualquier otro path = código que entró sin
+# revisar después del review dual → volver a Fase 2.6, no mergear
 ```
 
 **Si cualquiera de las 4 falla, NO mergear.** Reportar al usuario qué bloquea.
@@ -642,6 +648,9 @@ Después de mergear un hotfix a main:
 ```bash
 git checkout dev && git pull origin dev
 git merge origin/main --no-ff
+# si la retro quedó pendiente por urgencia (Fase 4): editar .planning/LEARNINGS.md
+# y commitearla APARTE, después del merge de integración — nunca amendeada a él
+git commit -m "planning: registrar retro del hotfix #<N> en LEARNINGS"
 git push origin dev
 ```
 

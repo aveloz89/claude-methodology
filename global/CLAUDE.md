@@ -91,8 +91,8 @@ Fase 2.7:  Push + PR        → lo haces tú: push + gh pr create + reconciliaci
 Fase 2.8:  Monitoreo CI     → gh pr checks --watch --fail-fast
 Fase 3:    Post-PR          → re-reviews SOLO si CI obligó fixes sobre código ya revisado
                               + e2e-runner Modo B si PR a main
-Fase 4:    Learn (retro)    → LEARNINGS commiteada en el branch del feature: último
-                              commit antes del merge, nunca un PR aparte
+Fase 4:    Learn (retro)    → LEARNINGS commiteada en el branch del PR: último commit
+                              antes del merge, nunca un PR aparte
 Fase 5:    Merge y cierre   → verificación pre-merge + merge + cierre de STATE
 ```
 
@@ -115,7 +115,7 @@ Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`
 
 ## Estado persistente: `.planning/`
 
-`STATE.md` (decisiones, blockers, prosa libre) · `state.json` (estado mutable enumerable: fase, lotes, progreso — ver runbook) · `BRIEF.md` (brainstorming) · `DESIGN.md` (architect) · `ARCHITECTURE.md` (decisiones recurrentes, persistente) · `HANDOFF.md` (solo si hay trabajo pausado) · `LEARNINGS.md` (retro por feature, acumulativo) · `reviews/` (pre-PR: `pre-pr-<slug>.md`; al crear el PR se reconcilia a `PR-{N}.md` — ver runbook). Formatos en el runbook.
+`STATE.md` (decisiones, blockers, prosa libre) · `state.json` (estado mutable enumerable: fase, lotes, progreso — ver runbook) · `BRIEF.md` (brainstorming) · `DESIGN.md` (architect) · `ARCHITECTURE.md` (decisiones recurrentes, persistente) · `HANDOFF.md` (solo si hay trabajo pausado) · `LEARNINGS.md` (retro por PR mergeado, acumulativo) · `reviews/` (pre-PR: `pre-pr-<slug>.md`; al crear el PR se reconcilia a `PR-{N}.md` — ver runbook). Formatos en el runbook.
 
 **Una feature a la vez**: `.planning/` refleja la feature activa actual. No se trabajan features en paralelo. Si surge un hotfix urgente durante una feature, pausas (ver "Pause / Resume") antes de cambiar de branch.
 
