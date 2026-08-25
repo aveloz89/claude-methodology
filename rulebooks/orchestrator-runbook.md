@@ -585,6 +585,8 @@ Un diff que toca `rules/`, `rulebooks/`, `agents/`, `skills/` o `global/CLAUDE.m
 
 Sin esta entrada, un diff 100% de metodología no matchea ninguna capa y el ruteo automático no invoca a nadie — pasó en esta misma sesión, donde el review ocurrió solo porque el orchestrator lo pidió a mano.
 
+El `README.md` y el `CLAUDE.md` raíz de un proyecto **no** entran acá: son meta-documentación del repo, no reglas que los agentes consuman. La excepción es el repo de la metodología misma, donde ambos describen cómo se edita el sistema y sí van a `qa-backend`. El grep del DoD anti-drift los cubre igual, que es un mecanismo distinto: ese busca drift, este decide a quién invocar.
+
 ### Diff mixto
 
 Si el diff (local o de PR) tiene archivos de ambas capas → lanzar **ambos QAs en paralelo**.

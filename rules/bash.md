@@ -29,7 +29,7 @@ Buena parte del shell de este sistema son **hooks que deciden si un comando se e
 
 - **`set -euo pipefail`** en scripts que ejecutan trabajo. **No** en hooks que deben decidir y responder siempre: ahí un `set -e` mata el script antes de que emita su veredicto, y el harness recibe silencio en vez de un bloqueo
 - **Capturá `$?` en la línea inmediatamente siguiente** a lo que querés medir. Cualquier comando en medio —incluido un `echo`— lo pisa. Y `local var=$(cmd)` enmascara el status con el del propio `local`: declarar y asignar en líneas separadas
-- **El exit code de un pipeline es el del último comando.** `pipefail` devuelve el del último que **falló**, no el del primero: si te importa el primero, `${PIPESTATUS[0]}` es la única respuesta exacta
+- **El exit code de un pipeline es el del último comando.** `pipefail` devuelve el del último que **falló**, no el del primero: si te importa el primero, leelo de `${PIPESTATUS[0]}`
 - **Ojo con los exit codes invertidos**: `grep -q` sale 1 cuando no encuentra, que suele ser el caso *bueno*. Encadenar eso con `&&` o bajo `set -e` produce falsos rojos. Y elegí el idioma según lo que estás preguntando: `grep -c <patrón>` cuenta lo que **sí** matchea —compararlo contra 0 responde "no hay ninguna ocurrencia de X"—, mientras que `grep -cv <patrón-permitido>` cuenta lo que **no** matchea —compararlo contra 0 responde "todo lo que hay cae dentro de lo permitido"—. Confundirlos da un check que no mide lo que dice medir: el conteo de `grep -cv X` puede ser idéntico sobre un archivo con X y sobre uno sin X, porque no lleva información sobre la presencia del patrón
 
 ## Portabilidad
