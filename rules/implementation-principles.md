@@ -153,14 +153,16 @@ Un test que pasa con y sin el fix no protege nada — y es peor que no tenerlo, 
 
 **Cuándo aplica:** cuando el diff arregla un defecto **y eso está declarado** — en el commit, en el PR o en el reporte del dev. No se infiere de la forma del diff.
 
-**Cuándo NO aplica.** Se reporta como *no verificable* y se sustituye por inspección del test — nunca se convierte en bloqueante:
+**Cuándo NO aplica.** La ausencia de evidencia rojo→verde no bloquea por sí sola; **la inspección del test sí puede bloquear**. Quien invoque la excepción nombra cuál de las dos aplica y en qué `archivo:línea`, para que el reviewer pueda disputarla en vez de aceptarla a ciegas:
 
 - Revertir no compila o rompe la sintaxis (cambios de un token, de firma o de tipo). Ahí la suite se pondría roja por la razón equivocada y el check pasaría vacío: es el peor resultado posible, porque simula justo la verificación que este principio quiere instalar.
 - El cambio no tiene suite asociada: configuración, infra declarativa, documentación.
 
 Si el fix consistió en **borrar** código, revertir significa restaurarlo: el corolario vale igual mientras el árbol siga compilando.
 
-**Quién lo verifica en review:** el QA **no** modifica el árbol de trabajo — es read-only por diseño. Exige la evidencia rojo→verde del dev e inspecciona que el test no reimplemente por dentro el código que dice proteger. Bloquea si la evidencia no existe, o si la inspección muestra que el test seguiría verde sin el fix. Si necesita comprobarlo por su cuenta, lo hace sobre un `git worktree` desechable, jamás sobre el árbol del PR.
+**Quién lo verifica en review:** el QA **no** modifica el árbol de trabajo — es read-only por diseño. Exige la evidencia rojo→verde del dev e inspecciona que el test no reimplemente por dentro el código que dice proteger. Bloquea si la evidencia no existe, o si la inspección muestra que el test seguiría verde sin el fix. Si necesita comprobarlo por su cuenta, lo hace sobre un `git worktree` desechable —jamás sobre el árbol del PR— y lo elimina al terminar (`git worktree remove`).
+
+Y **debe** comprobarlo cuando el "revertir no compila" del dev no se sostiene a la vista del hunk: si el fix es una constante, un valor o una condición —y no un cambio de tipo o de firma—, revertirlo compila, así que la excepción no aplica. Ese es el último resquicio por el que la etiqueta *no verificable* podría usarse para no cubrir un fix que sí era cubrible.
 
 **Self-check antes de commitear:**
 
