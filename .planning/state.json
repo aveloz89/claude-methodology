@@ -1,29 +1,38 @@
 {
   "schema": 1,
-  "feature": "user-communication-rules",
-  "branch": "feature/user-communication-rules",
-  "pr": 63,
-  "review_sha": "7552c8c",
-  "updated": "2026-08-25T17:14:21Z",
+  "feature": "followups-sweep",
+  "branch": "feature/followups-sweep",
+  "pr": null,
+  "review_sha": "a84e8b5",
+  "updated": "2026-08-25T19:41:18Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
     "implementation": "done",
     "docs": "skipped",
     "review": "done",
-    "pr": "done",
+    "pr": "pending",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
       "id": 1,
-      "name": "reglas-de-comunicacion",
+      "name": "hooks-y-tests",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 4,
+      "tasks_total": 4,
+      "current_task": null
+    },
+    {
+      "id": 2,
+      "name": "documentacion-normativa",
       "agent": "orchestrator",
       "status": "done",
-      "tasks_done": 2,
-      "tasks_total": 2,
+      "tasks_done": 4,
+      "tasks_total": 4,
       "current_task": null
     }
   ]
