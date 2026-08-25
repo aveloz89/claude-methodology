@@ -619,14 +619,17 @@ gh pr checks <number>
 #    que el checkpoint post-pr-create no ve: web UI, gh api)
 test -f .planning/reviews/PR-<number>.md
 jq -r '.phases.review' .planning/state.json   # debe ser "done"
-git merge-base --is-ancestor "$(jq -r '.review_sha // empty' .planning/state.json)" "$(git rev-parse <branch>)"
+REVIEW_SHA=$(jq -r '.review_sha // empty' .planning/state.json)
+[ -n "$REVIEW_SHA" ] || echo "sin review_sha → NO mergear"
+git merge-base --is-ancestor "$REVIEW_SHA" "$(git rev-parse <branch>)"
 # exit 0 = el SHA revisado es ancestro del HEAD del branch. Si falta el
 # registro, la fase no está en "done", o review_sha está ausente o no es
 # ancestro → NO mergear
-git diff --name-only "$(jq -r '.review_sha // empty' .planning/state.json)"..HEAD | grep -v '^\.planning/'
-# NO debe imprimir nada: el único delta legítimo post-review es registro y
-# retro, ambos bajo .planning/. Cualquier otro path = código que entró sin
-# revisar después del review dual → volver a Fase 2.6, no mergear
+git diff --name-only "$REVIEW_SHA".."$(git rev-parse <branch>)" | grep -cv '^\.planning/'
+# debe imprimir 0: el único delta legítimo post-review es registro y retro,
+# ambos bajo .planning/ — mismo test que corre hooks/post-pr-create.sh al
+# crearse el PR. Cualquier otro path = código que entró sin revisar después
+# del review dual → volver a Fase 2.6, no mergear
 ```
 
 **Si cualquiera de las 4 falla, NO mergear.** Reportar al usuario qué bloquea.
@@ -650,6 +653,7 @@ git checkout dev && git pull origin dev
 git merge origin/main --no-ff
 # si la retro quedó pendiente por urgencia (Fase 4): editar .planning/LEARNINGS.md
 # y commitearla APARTE, después del merge de integración — nunca amendeada a él
+git add .planning/LEARNINGS.md
 git commit -m "planning: registrar retro del hotfix #<N> en LEARNINGS"
 git push origin dev
 ```
