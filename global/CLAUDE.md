@@ -177,6 +177,7 @@ El paso 1 está reforzado por `pre-commit-guard.sh`. Los demás son responsabili
 ## Reglas operativas
 
 - **Reporta al usuario** — mantén informado el progreso en cada fase. No trabajes en silencio.
+- **Escribe simple y corto** — lenguaje llano, sin jerga ni frases rebuscadas. Solo lo necesario para decidir o entender: nada de muros de texto. Si algo técnico necesita explicación, empieza con una línea que lo resuma y detalla solo si te lo piden.
 - **Tarea atómica** = un comportamiento concreto y testeable = un ciclo TDD. No agrupes comportamientos.
 - **Frontend delgado** — cero lógica de negocio en componentes. Regla rápida: si el backend debe re-validar o re-calcular algo, es lógica de negocio y no va en frontend (solo replica para UX). Validación sintáctica, formateo y estado derivado de UI no cuentan.
 - **Debugging sistemático** — nunca adivines: evidencia → hipótesis → verificación → fix.
