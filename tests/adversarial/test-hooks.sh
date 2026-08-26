@@ -1088,6 +1088,27 @@ _wslib_pnpm_case "cuando \"pnpm list -r\" falla (exit != 0) con stdout no vacío
 _wslib_pnpm_case "cuando \"pnpm list -r\" devuelve stdout vacío" 'exit 0'
 _wslib_pnpm_case "cuando \"pnpm list -r\" devuelve JSON malformado" 'echo "{not valid json"'
 
+# Caso con JSON válido y no vacío, pero con contenido extra después en el
+# mismo stdout (así ensucian --json corepack/npm en la práctica): jq
+# procesa el array completo (JSON válido, no está roto) y ya emitió su
+# salida antes de toparse con la basura y fallar el parseo del siguiente
+# documento — "$rels" queda no vacío, el chequeo de vacío no lo atrapa.
+# Sin el "|| return 1" del pipeline de jq esto pasaría como éxito.
+_wslib_pnpm_case "cuando \"pnpm list -r\" devuelve JSON válido seguido de contenido extra en stdout" \
+  'echo "[{\"path\": \"$(pwd)/packages/a\"}]"; echo "esto no es json"'
+
+# Caso con un elemento sin campo "path": hoy jq revienta al intentar
+# startswith() sobre null y el pipeline entero falla (rc != 0), así que
+# el "|| return 1" restaurado lo atrapa. Este test no protege el guard
+# —protege el filtro—: si alguien suaviza ".path" a ".path? // empty"
+# (se ve como un endurecimiento inocuo), jq saltea el elemento en
+# silencio en vez de fallar, "$rels" queda no vacío pero incompleto y
+# ningún guard tiene nada que atrapar. El caso de arriba (JSON + basura)
+# no cubre esto: su fixture sigue fallando el parseo aunque el filtro
+# cambie.
+_wslib_pnpm_case "cuando \"pnpm list -r\" devuelve un elemento sin campo \"path\"" \
+  'echo "[{\"path\": \"$(pwd)/packages/a\"}, {\"nopath\": true}]"'
+
 # Caso: yarn nunca se resuelve con confianza (ver comentario en
 # workspace_scope_resolve) — documentado explícitamente, no un olvido.
 WSLIB_DIR=$(mktemp -d)

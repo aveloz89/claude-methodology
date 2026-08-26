@@ -173,8 +173,11 @@ _workspace_scope_pnpm_dirs() {
   local root_path list_json rels
   root_path=$(pwd -P) || return 1
   list_json=$(pnpm list -r --depth -1 --json 2>/dev/null) || return 1
-  [ -z "$list_json" ] && return 1
 
+  # jq emite salida por elemento a medida que la procesa: si falla en el
+  # elemento N (o al leer basura después de un JSON completo), los N-1
+  # anteriores ya salieron y "$rels" queda no vacío pero truncado — el
+  # chequeo de abajo no lo detecta, por eso este guard es necesario.
   rels=$(printf '%s' "$list_json" | jq -r --arg root "$root_path" '
     .[]
     | .path
