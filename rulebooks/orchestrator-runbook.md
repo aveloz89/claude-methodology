@@ -774,7 +774,7 @@ Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planni
 
    Leelo como si el diff fuera de otro. Si la regla nueva tiene un criterio verificable —"el test se rompe al revertir", "el enunciado accionable sigue en su lugar"— corrélo sobre tu propio cambio antes de pedir review.
 
-   **Dejá artefacto**, como los otros pasos: el paso 1 deja la salida de un grep y el corolario del principio 5 deja un rojo→verde, pero este se cumple diciendo "lo releí". Nombrá en el cuerpo del PR qué regla introduce el diff y qué encontró la relectura — **incluido "nada"**. Sin eso no es verificable, y lo no verificable se saltea.
+   **Dejá artefacto**, como los otros pasos: el paso 1 deja la salida de un grep y el corolario del principio 5 deja un rojo→verde, pero este se cumple diciendo "lo releí". Nombrá qué regla introduce el diff y qué encontró la relectura — **incluido "nada"**— donde el reviewer lo vaya a ver: en Fase 2.6 viaja en el paquete de contexto del handoff, porque el PR todavía no existe; en reviews post-PR, en el cuerpo del PR. Sin eso no es verificable, y lo no verificable se saltea.
 
 Este paso no es opcional ni cosmético: las 7 contradicciones de la auditoría de julio (ver `.planning/AUDIT-context-engineering.md`) eran todas de esta clase — un cambio de proceso documentado en un archivo y olvidado en otro.
 
