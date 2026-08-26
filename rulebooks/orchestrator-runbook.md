@@ -156,10 +156,11 @@ El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` r
    - `qa-frontend` — solo si el diff tiene frontend
    - `qa-backend` — solo si el diff tiene backend (incluye revisar migraciones y queries del db-specialist)
 
-   Paquete de contexto (context isolation): base + branch + instrucción de leer `git diff <base>...HEAD` + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida. **Sin número de PR — no existe todavía.**
+   Paquete de contexto (context isolation): base + branch + instrucción de leer `git diff <base>...HEAD` + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida. **Sin número de PR — no existe todavía.** Si el diff **introduce una regla nueva**, decilo en el paquete: el reviewer tiene que aplicarla al propio diff (ver `agents/qa-backend.md`). Puede identificarla leyendo el diff, pero nombrarla le ahorra ese paso.
 4. **Consolida y registra**: reporte con el "Formato de reporte de review" (más abajo), guardado en `.planning/reviews/pre-pr-<feature-slug>.md` con header de trazabilidad (branch, base, SHA de HEAD revisado, fecha, veredicto). Commit al branch: `planning: registrar review dual pre-push`
-5. **Si hay bloqueantes**: fixes por el dev correspondiente en el mismo branch, **sin push** (si el bloqueante es de schema/migración/query optimizada, va al `db-specialist`). Re-lanza **solo** los reviewers que marcaron issues, acotados al delta local (`git diff <sha-ya-revisado>...HEAD`). Append de la re-ronda al registro. Sugerencias baratas: aplicadas antes del push (política en la skill `pr-workflow`, regla 2)
-6. **Veredictos limpios**: actualiza `.planning/state.json` (`phases.review` a `done` y `review_sha` al SHA de HEAD al momento de los veredictos limpios) y avanza a Fase 2.7. Fixes, sugerencias aplicadas y registro viajan en el push inicial: **el PR nace revisado**
+5. **Mientras haya un reviewer corriendo, el árbol no se mueve.** Cuando lanzás varios en paralelo —pueden ser tres en un diff full-stack— esperá a que vuelvan **todos** antes de aplicar nada: si aplicás los hallazgos del primero, los demás quedan leyendo un árbol que cambió bajo sus pies. Si uno se cuelga o excede su presupuesto, no esperes indefinido: cortalo y relanzalo después de aplicar, o aplicá solo en archivos que ese reviewer no esté mirando — pero decidilo explícitamente, no por olvido. Ya pasó (ver `.planning/LEARNINGS.md`, entradas de los PRs #65 y #66, y la de este mismo PR). Las veces que pasó lo detectó el reviewer y avisó, en vez de reportar un rojo falso — pero eso es disciplina suya, no una red del proceso. Vale igual para un dev trabajando en paralelo: si un lote y un review tocan los mismos archivos, no van juntos.
+6. **Si hay bloqueantes**: fixes por el dev correspondiente en el mismo branch, **sin push** (si el bloqueante es de schema/migración/query optimizada, va al `db-specialist`). Re-lanza **solo** los reviewers que marcaron issues, acotados al delta local (`git diff <sha-ya-revisado>...HEAD`). Append de la re-ronda al registro. Sugerencias baratas: aplicadas antes del push (política en la skill `pr-workflow`, regla 2)
+7. **Veredictos limpios**: actualiza `.planning/state.json` (`phases.review` a `done` y `review_sha` al SHA de HEAD al momento de los veredictos limpios) y avanza a Fase 2.7. Fixes, sugerencias aplicadas y registro viajan en el push inicial: **el PR nace revisado**
 
 ### Fase 2.7: Push + PR
 
@@ -478,7 +479,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 | Archivo completo (creación) | Orchestrator | Al cerrar el diseño (fin de Fase 1) |
 | `phases.*` | Orchestrator | En cada transición de fase del pipeline |
 | `phases.review` | Orchestrator | Fase 2.6, al cerrar veredictos limpios (antes que `pr` y `ci`) |
-| `review_sha` | Orchestrator | Fase 2.6, paso 6 — mismo momento que `phases.review`: SHA de HEAD al cerrar los veredictos limpios |
+| `review_sha` | Orchestrator | Fase 2.6, paso 7 — mismo momento que `phases.review`: SHA de HEAD al cerrar los veredictos limpios |
 | `batches[].status` | Orchestrator | Al invocar / al cerrar cada lote |
 | `batches[].tasks_done` y `current_task` de **su** batch | Dev que ejecuta el lote | Antes de empezar cada tarea atómica (reemplaza la regla 3 de `agent-budget.md` de "STATE.md actualizado entre tareas") |
 | `pr` | Orchestrator | Fase 2.7 — dentro del commit de reconciliación (el mismo que renombra el registro a `PR-<N>.md`) |
@@ -754,15 +755,29 @@ Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planni
 
 1. **Grep de los términos afectados** en `CLAUDE.md`, `README.md`, `rulebooks/`, `agents/`, `skills/` y `.planning/` — cualquier mención del comportamiento viejo es candidata a quedar desactualizada. `.planning/` entra en la lista porque sus documentos tienen preámbulo normativo propio: el de `LEARNINGS.md` quedó describiendo el comportamiento viejo en el PR #59 y ningún reviewer lo vio, porque el directorio no estaba acá.
 2. **Reconciliar todo documento que describa el comportamiento cambiado.** No basta con documentar el cambio en un solo archivo — el mismo hecho (p. ej. "el dev actualiza X entre tareas") suele estar descrito en más de un rulebook o en `CLAUDE.md` raíz.
-3. **Enunciar una vez, remitir el resto.** Antes de escribir una frase que **decide** algo —qué bloquea un merge, quién pushea, dónde va la retro—, buscá si ese hecho ya está enunciado. Si está, remití en vez de repetirlo — **la remisión conserva siempre el enunciado accionable; lo que se mueve es la elaboración**. Nunca reduzcas a un puntero pelado una advertencia que alguien necesita leer en el momento en que está parado ahí.
+3. **Enunciar una vez, remitir el resto.** Vale para lo que decide y también para **lo que afirma sobre un incidente pasado** — conteos, citas, quién encontró qué: si ya está registrado en `.planning/`, remití en vez de reconstruirlo en prosa nueva, que es donde la paráfrasis diverge de la fuente. Antes de escribir una frase que **decide** algo —qué bloquea un merge, quién pushea, dónde va la retro—, buscá si ese hecho ya está enunciado. Si está, remití en vez de repetirlo — **la remisión conserva siempre el enunciado accionable; lo que se mueve es la elaboración**. Nunca reduzcas a un puntero pelado una advertencia que alguien necesita leer en el momento en que está parado ahí.
 
    **Por qué es un paso y no un consejo de estilo:** el grep del paso 1 cruza *términos*, no *decisiones*. Dos enunciaciones del mismo hecho con vocabulario distinto son invisibles para él y divergen con el tiempo. Casos reales de este repo: "commit propio posterior a la integración" contra "push directo a un branch protegido" —deciden lo mismo, sin compartir una palabra, y una quedó instruyendo lo que la otra prohibía—; y "es la única situación en que el dev pushea" contra "hay exactamente dos excepciones", en dos rulebooks distintos.
 
    Ese patrón —resumen accionable más puntero— es el mayoritario del corpus y funciona: la auditoría del 2026-08-26 encontró solo 5 hechos enunciados dos veces en 1900 líneas.
 
    **Dónde vive el detalle:** en el rulebook o la skill, nunca en `global/CLAUDE.md`, que se carga en toda sesión de todo proyecto. Si al aplicar esta regla el detalle sube al núcleo, arreglaste la contradicción y rompiste el presupuesto de contexto.
+4. **Si el PR introduce una regla, releé el diff completo aplicándola.** Escribir una regla y aplicarla al propio cambio son dos pasadas distintas, y hacerlas en una sola no funciona: en cuatro PRs seguidos el review encontró que el PR violaba la regla que estaba escribiendo:
 
-Este paso no es opcional ni cosmético: las 7 contradicciones de la auditoría de julio (ver `.planning/AUDIT-context-engineering.md`) eran todas de esta clase — un cambio de proceso documentado en un archivo y olvidado en otro.
+   | PR | Lo que se escribía | Lo que el review encontró |
+   |---|---|---|
+   | #61 | El principio 5 y su corolario | Una instrucción que obligaba a los QA a rodear su propia política de tools |
+   | #64 | `rules/bash.md`, con un red flag contra las garantías absolutas | Un absoluto en ese mismo archivo |
+   | #65 | Que el estado se sella antes del merge para no bypassear `dev` | La ruta de hotfix arreglada en un lugar y viva en el punto de decisión, a 400 líneas |
+   | #66 | Enunciar una vez y remitir | Una contradicción residual tres líneas debajo del fix |
+
+   Ninguna la atrapó la autorrevisión del autor: las cuatro salieron del review dual, y dos de ellas las encontraron los dos reviewers por separado. Lo que funciona es la pasada externa, no quién la haga.
+
+   Leelo como si el diff fuera de otro. Si la regla nueva tiene un criterio verificable —"el test se rompe al revertir", "el enunciado accionable sigue en su lugar"— corrélo sobre tu propio cambio antes de pedir review.
+
+   **Este paso no se puede auditar, y por eso no se audita.** A diferencia del paso 1, que deja la salida de un grep, o del corolario del principio 5, que deja un rojo→verde, una relectura se cumple diciendo "la hice" — un artefacto que la declare no la verifica. El respaldo es la pasada externa: `qa-backend` aplica al diff la regla que el diff introduce, sin auditar si vos la releíste. Hacer tu propia relectura igual vale, porque encontrarlo antes es más barato; pero lo que sostiene el paso es el review, no tu declaración.
+
+**Ninguno de los cuatro pasos es opcional ni cosmético.** Los pasos 1 a 3 atacan la deriva entre documentos: la mayoría de las 7 contradicciones de la auditoría de julio (ver `.planning/AUDIT-context-engineering.md`) eran de esa clase — un cambio de proceso documentado en un archivo y olvidado en otro. El paso 4 ataca otra: el PR que viola la regla que está escribiendo, con su propia evidencia en la tabla de arriba.
 
 ---
 

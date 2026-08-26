@@ -96,6 +96,12 @@ Escaneas el codebase o un directorio específico buscando code smells. **No modi
 
    Los procesas como candidatos prioritarios de refactor. Para issues con label `latent-bug` y severidad `CRÍTICO`, **máxima prioridad** — pueden estar bloqueando un PR a main vía `pre-release-sweep.sh`.
 
+   **La evidencia adjunta a un issue no es definitiva: es una hipótesis con respaldo.** Si vas a borrar código porque un issue dice que está muerto, **construí un input nuevo** en vez de repetir el experimento que el issue cita. Repetirlo confirma el resultado anterior, incluido su error.
+
+   Caso real (issue #62, PR #67): el issue afirmaba que dos guards eran redundantes, con evidencia de que removerlos dejaba la suite verde. Era cierto y no probaba nada — el único fixture de input malo del corpus fallaba antes de emitir nada, así que nunca ejercitaba la rama que importaba —la de un fallo a mitad, con salida parcial ya escrita. Dos actores corrieron esa misma prueba ciega —el reviewer que levantó la evidencia y el agente que ejecutó el issue, cada uno con sus propias corridas— y los dos confirmaron la misma conclusión equivocada. Un tercero, el que escribió el issue, no corrió nada: propagó la evidencia ajena como si fuera concluyente, que es cómo una premisa falsa se vuelve premisa heredada. Lo destaparon los **dos** reviewers, por separado y con inputs distintos que el corpus no tenía — lo que funcionó fue el método, no la suerte de uno de ellos.
+
+   Es el corolario del principio 5 de `~/.claude/rules/implementation-principles.md` aplicado al caso inverso: ahí el test debe romperse si revertís el fix; acá, **algo debe romperse si el código que borrás hiciera falta**. Verificar que la suite sigue verde solo demuestra que el corpus calla.
+
 ### Qué buscar en el código
 
 #### Funciones largas
@@ -284,6 +290,14 @@ function process(user) {
 **Separar responsabilidades** — Partir un god file en módulos con responsabilidad única.
 
 **Eliminar dead code** — **Solo con confirmación explícita del usuario**, nunca automático. Borrar funciones/variables/imports que no se usan en el repo, después de verificar que no son API pública ni se usan por reflexión.
+
+**Antes de borrar, construí un input nuevo que ejercite la rama** — no repitas el experimento que cita el issue ni te apoyes en que la suite siga verde (ver "Issues de deuda técnica" arriba: la suite verde solo demuestra que el corpus calla). Y el resultado tiene default **fail-closed**:
+
+- Si el input nuevo **rompe** algo → el código no está muerto. Se conserva, con un comentario que explique por qué y un test que se ponga rojo si alguien lo vuelve a proponer.
+- Si **no lográs construir** un input que ejercite la rama → se reporta como *no verificado* y **no se borra**. Lo mismo si el input **cuelga o no termina**: no es un rojo ni un verde, es un experimento sin resultado. Acotalo en tiempo (`rules/bash.md`, sección "Procesos y limpieza") y si aun así no concluye, tratalo como si no lo hubieras podido construir. "No pude probar que hace falta" no es "probé que no hace falta".
+- Si el input **corre y da verde** → el verde es **ambiguo**, no es evidencia. Dos causas distintas lo producen y el color no las distingue: (a) el input nunca llegó a la rama —el caso que falló en el #62, donde el fixture corría pero fallaba antes de ejercitarla—, o (b) la rama es genuinamente redundante y otro control produce el mismo resultado.
+
+  **Lo que desambigua no es el color: es trazar el mecanismo.** Seguí qué pasa con ese input paso a paso y nombrá explícitamente **qué atrapa el caso si borrás el código**. Si podés nombrarlo —como en el #67, donde con `list_json` vacío `jq` sale `rc=0` sin salida y el chequeo final lo atrapa— es (b) y se borra. Si no podés, es (a) o no lo sabés, y en los dos casos **no se borra**.
 
 #### 5. Verificación final
 

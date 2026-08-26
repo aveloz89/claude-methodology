@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "feature": "dead-guards-pnpm-dirs",
-  "branch": "refactor/dead-guards-pnpm-dirs",
-  "pr": 67,
-  "review_sha": "09bc4f9",
-  "updated": "2026-08-26T16:29:44Z",
+  "feature": "close-process-gaps",
+  "branch": "feature/close-process-gaps",
+  "pr": 68,
+  "review_sha": "efcbc65",
+  "updated": "2026-08-26T17:58:54Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
@@ -19,11 +19,11 @@
   "batches": [
     {
       "id": 1,
-      "name": "issue-62-guards-muertos",
-      "agent": "refactor",
+      "name": "cierre-de-huecos-de-proceso",
+      "agent": "orchestrator",
       "status": "done",
-      "tasks_done": 1,
-      "tasks_total": 1,
+      "tasks_done": 5,
+      "tasks_total": 5,
       "current_task": null
     }
   ]

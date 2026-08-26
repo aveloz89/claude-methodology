@@ -34,6 +34,31 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-08-26] PR #68 — Diez rondas para cerrar cinco huecos, y el patrón que las explica
+
+**Métricas:**
+- Review rounds: 6 de security (4 bloqueadas), 4 de qa-backend (3 bloqueadas)
+- Hallazgos security: 11 (critical: 0, high: 4, medium: 2, low: 5)
+- Hallazgos qa-backend: 9 (5 bloqueantes, 4 sugerencias)
+- Errores de build/CI: 0 (este repo no tiene Actions)
+- Self-reflection atrapó: **un defecto, el primero del PR que no vino de un reviewer** — el cierre de sección en singular, encontrado aplicando el paso 4 al propio diff
+- Lotes ejecutados: 1 / Tareas: 5
+- Devs involucrados: ninguno
+
+**Qué salió bien:**
+- **Las reglas se sostuvieron.** De nueve hallazgos, seis fueron conteos, citas o atribuciones parafraseadas de memoria; ninguno un error en la regla misma. El contenido normativo aguantó diez rondas de ataque.
+- **Preguntarle al reviewer por el alcance, no solo por defectos.** En la ronda 4 le pedí a security que dijera si el problema de fondo era el alcance y no el texto, y su respuesta —que la cláusula de enforcement tenía dos problemas estructurales— reescribió el enforcement entero. Ninguna de las rondas anteriores podía darme eso, porque solo le había pedido buscar defectos.
+- **El diagnóstico final lo dio qa-backend y era mejor que el mío.** Propuse "escribir menos narrativa"; corrigió a "no reconstruir incidentes pasados, remitir a donde están escritos", que es el paso 3 aplicado a un caso que nadie estaba cubriendo.
+- El paso 4 encontró su primer defecto en su propio diff, que es la única evidencia de que funciona.
+
+**Qué causó re-work:**
+- **Seis de nueve hallazgos fueron números que afirmé sin verificar**: "tres actores", "tres experimentos", "pasó tres veces en #65, #66 y #67" —citando un PR que fue otra cosa—, "las cuatro las atrapó un reviewer". Prosa de respaldo escrita de memoria para que la regla sonara fundada.
+- **Escribí una cláusula de enforcement inejecutable**: pedía verificar un artefacto en superficies que no existen cuando el reviewer corre.
+- **La cláusula fail-closed no cubría el caso que la motivó** — enumeraba dos salidas y el fallo real era la tercera.
+- **Moví el árbol bajo un reviewer tres veces**, siempre por lo mismo: security vuelve primero, aplico, y el otro queda leyendo algo que cambió.
+
+**Patrón potencial:** sí, dos. (1) **La prosa de respaldo es donde fallan los documentos normativos, no las reglas.** Un conteo de apariciones o una cita de PR escritos de memoria divergen de la fuente; la regla, que se piensa, aguanta. La respuesta no es escribir menos sino remitir en vez de parafrasear — ya codificado en el paso 3 extendido de este PR. 1ª aparición formulada así, pero explica seis de los nueve hallazgos. (2) **Pedirle al reviewer que evalúe el alcance produce hallazgos que pedirle defectos no produce.** Diez rondas de "encontrá defectos" nunca podían decir "el texto está bien, lo que está mal es que intentes esto acá". 1ª aparición; candidato para el prompt de los reviewers si reaparece.
+
 ### [2026-08-26] PR #67 — El issue de deuda estaba medio equivocado, y era mío
 
 **Métricas:**
@@ -55,7 +80,7 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 - **El agente que lo ejecutó verificó de nuevo y llegó al mismo error**, porque verificó contra el mismo corpus. La instrucción "verificá la evidencia vos mismo" fue correcta pero insuficiente: no dije contra qué.
 - Casi mergeamos un fail-open silencioso en la lib que decide cuántos tests corre el pre-commit.
 
-**Patrón potencial:** sí, dos. (1) **Un issue de deuda técnica con evidencia adjunta se lee como si la evidencia fuera definitiva.** El que lo ejecuta hereda la premisa y, si re-verifica con el mismo método, confirma el error en vez de detectarlo. 1ª aparición formulada así — candidato para el prompt del agente `refactor`: al ejecutar un issue con evidencia, construir un input nuevo, no repetir el experimento citado. (2) **Verificar contra un corpus de tests no confirma una afirmación sobre el código: confirma que el corpus calla.** Es el complemento exacto del corolario del principio 5 —que exige que el test se rompa al revertir el fix— aplicado al caso inverso: cuando se borra código, hay que probar que algo se rompería si el código hiciera falta. 1ª aparición.
+**Patrón potencial:** sí, dos. (1) **Un issue de deuda técnica con evidencia adjunta se lee como si la evidencia fuera definitiva.** *(Corrección del 2026-08-26, sin reescribir lo de arriba: esta entrada dice "tres actores corriendo la misma prueba ciega" y son dos los que corrieron — el tercero, quien escribió el issue, propagó evidencia ajena sin ejecutar nada. Lo encontró qa-backend aplicando el paso 4 del DoD.)* El que lo ejecuta hereda la premisa y, si re-verifica con el mismo método, confirma el error en vez de detectarlo. 1ª aparición formulada así — candidato para el prompt del agente `refactor`: al ejecutar un issue con evidencia, construir un input nuevo, no repetir el experimento citado. (2) **Verificar contra un corpus de tests no confirma una afirmación sobre el código: confirma que el corpus calla.** Es el complemento exacto del corolario del principio 5 —que exige que el test se rompa al revertir el fix— aplicado al caso inverso: cuando se borra código, hay que probar que algo se rompería si el código hiciera falta. 1ª aparición.
 
 ### [2026-08-26] PR #66 — Enunciar cada hecho una vez, y la regla que se duplicó a sí misma
 
