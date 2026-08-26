@@ -66,10 +66,10 @@ Cada invocación tiene un DoD explícito:
 > 1. Parar de implementar nuevas tareas
 > 2. Si hay código a medio escribir, commitearlo con prefijo `wip:`
 > 3. Escribir `.planning/HANDOFF.md` con: tarea en curso, qué falta, decisiones tomadas
-> 4. **Push del branch** — es la única situación en que el dev pushea. Sin push, el HANDOFF y los commits parciales viven solo en el working tree local y una invocación nueva no los ve
+> 4. **Push del branch** — una de las dos excepciones a "el dev no pushea" (inventario completo en `dev-common.md`). Sin push, el HANDOFF y los commits parciales viven solo en el working tree local y una invocación nueva no los ve
 > 5. Reportar al orchestrator: `BUDGET LIMIT — N de M tareas completadas, ver HANDOFF.md`
 
-El paso 4 es la excepción explícita a "el dev no pushea": el costo de un run de CI extra es menor que el de perder el trabajo del lote.
+El paso 4 se justifica solo por costo: un run de CI extra es más barato que perder el trabajo del lote.
 
 El fallback es frágil (requiere que el agente monitoree su propio progreso) pero garantiza salida ordenada en vez de corte abrupto.
 

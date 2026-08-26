@@ -144,10 +144,8 @@ Build falla en main o dev después de merge
 
 ```
 El context-monitor avisa que el contexto está en 25% (critical)
-  → Paso 1: Crear HANDOFF.md con estado actual
-  → Paso 2: Commit/push de todo el trabajo en progreso
-  → Paso 3: Informar al usuario que debe iniciar nueva sesión
-  → Paso 4: En la nueva sesión, leer HANDOFF.md y retomar
+  → Paso 1: Aplicar el procedimiento de Pause / Resume de CLAUDE.md
+  → Paso 2: Informar al usuario que debe iniciar nueva sesión
 ```
 
 ## 10. Budget agotado en una invocación de agente

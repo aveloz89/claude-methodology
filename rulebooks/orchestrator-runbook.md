@@ -196,7 +196,7 @@ gh pr checks <number> --watch --fail-fast
   - El agente corrige en el **mismo branch del PR**. **Antes de pushear, debe reproducir el check fallido localmente y verlo pasar** (presupuesto de CI: un run fallido cuesta lo mismo que uno verde)
   - Si el fix cambia código ya revisado en Fase 2.6, anótalo: al quedar CI verde dispara el re-review acotado de la Fase 3
   - Vuelve a monitorear
-- **Máximo 3 intentos de fix automático.** Después de 3, escala al usuario con contexto completo
+- **Máximo 3 intentos de fix automático.** Cuenta cada ciclo "diagnóstico → fix → push → CI": si el fix introduce un error nuevo no presente antes (regresión), ese intento **no cuenta** y reinicias el diagnóstico. Si el mismo error persiste tras 3 ciclos genuinos, escalas al usuario con contexto completo
 
 **Cuándo NO monitorear CI**: el proyecto no tiene GitHub Actions, o el usuario lo pide explícitamente.
 
@@ -226,7 +226,7 @@ git push
 ```
 
 6. Espera CI verde sobre el HEAD nuevo — branch protection valida el último SHA, no el que ya estaba verde
-7. **Regla de 3**: si un patrón aparece en 3+ entradas de LEARNINGS, sugiere al usuario agregar regla en `rules/` o modificar un agente
+7. **Regla de 3**: si un patrón aparece en 3+ entradas de LEARNINGS, súbelo al usuario — las opciones y el criterio están en la sección `LEARNINGS.md` más abajo
 
 **Por qué el estado se sella acá y no después del merge:** escribirlo post-merge obliga a commitear sobre `dev`, que en cualquier repo con branch protection es un push directo a un branch protegido — el bypass que la metodología prohíbe en todos los demás lugares. Sellarlo en el commit de retro elimina esa escritura del flujo. El costo es que `phases.merge` se marca `done` segundos antes de que el merge ocurra: si el merge no llega a pasar, el estado queda adelantado. **Esa ventana no se detectaba sola**: `session-end-check.sh` compara mtimes y nunca mira `phases`, y `session-start-context.sh` reportaba `Fase activa: ninguna` — enmascaraba el desfase en vez de señalarlo. Por eso el mismo cambio agrega el aviso al arranque cuando el estado está sellado y seguimos parados en el branch del feature. Es un desfase de segundos, con aviso, contra un bypass sistemático.
 
@@ -754,6 +754,13 @@ Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planni
 
 1. **Grep de los términos afectados** en `CLAUDE.md`, `README.md`, `rulebooks/`, `agents/`, `skills/` y `.planning/` — cualquier mención del comportamiento viejo es candidata a quedar desactualizada. `.planning/` entra en la lista porque sus documentos tienen preámbulo normativo propio: el de `LEARNINGS.md` quedó describiendo el comportamiento viejo en el PR #59 y ningún reviewer lo vio, porque el directorio no estaba acá.
 2. **Reconciliar todo documento que describa el comportamiento cambiado.** No basta con documentar el cambio en un solo archivo — el mismo hecho (p. ej. "el dev actualiza X entre tareas") suele estar descrito en más de un rulebook o en `CLAUDE.md` raíz.
+3. **Enunciar una vez, remitir el resto.** Antes de escribir una frase que **decide** algo —qué bloquea un merge, quién pushea, dónde va la retro—, buscá si ese hecho ya está enunciado. Si está, remití en vez de repetirlo — **la remisión conserva siempre el enunciado accionable; lo que se mueve es la elaboración**. Nunca reduzcas a un puntero pelado una advertencia que alguien necesita leer en el momento en que está parado ahí.
+
+   **Por qué es un paso y no un consejo de estilo:** el grep del paso 1 cruza *términos*, no *decisiones*. Dos enunciaciones del mismo hecho con vocabulario distinto son invisibles para él y divergen con el tiempo. Casos reales de este repo: "commit propio posterior a la integración" contra "push directo a un branch protegido" —deciden lo mismo, sin compartir una palabra, y una quedó instruyendo lo que la otra prohibía—; y "es la única situación en que el dev pushea" contra "hay exactamente dos excepciones", en dos rulebooks distintos.
+
+   Ese patrón —resumen accionable más puntero— es el mayoritario del corpus y funciona: la auditoría del 2026-08-26 encontró solo 5 hechos enunciados dos veces en 1900 líneas.
+
+   **Dónde vive el detalle:** en el rulebook o la skill, nunca en `global/CLAUDE.md`, que se carga en toda sesión de todo proyecto. Si al aplicar esta regla el detalle sube al núcleo, arreglaste la contradicción y rompiste el presupuesto de contexto.
 
 Este paso no es opcional ni cosmético: las 7 contradicciones de la auditoría de julio (ver `.planning/AUDIT-context-engineering.md`) eran todas de esta clase — un cambio de proceso documentado en un archivo y olvidado en otro.
 
