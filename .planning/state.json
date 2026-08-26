@@ -1,29 +1,29 @@
 {
   "schema": 1,
-  "feature": "state-facts-once",
-  "branch": "feature/state-facts-once",
-  "pr": 66,
-  "review_sha": "359251d",
-  "updated": "2026-08-26T07:19:07Z",
+  "feature": "dead-guards-pnpm-dirs",
+  "branch": "refactor/dead-guards-pnpm-dirs",
+  "pr": null,
+  "review_sha": "09bc4f9",
+  "updated": "2026-08-26T16:28:46Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
     "implementation": "done",
     "docs": "skipped",
     "review": "done",
-    "pr": "done",
+    "pr": "pending",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
       "id": 1,
-      "name": "auditoria-y-reconciliacion",
-      "agent": "orchestrator",
+      "name": "issue-62-guards-muertos",
+      "agent": "refactor",
       "status": "done",
-      "tasks_done": 6,
-      "tasks_total": 6,
+      "tasks_done": 1,
+      "tasks_total": 1,
       "current_task": null
     }
   ]
