@@ -238,7 +238,7 @@ Es el único punto del flujo donde el contenido de un push post-review no lo mir
 
 **Cuándo saltar Learn**:
 
-- **Hotfix urgente**: no bloquees el merge con la retro. Si igual quieres registrarla, la entrada va en un **commit propio** posterior a la integración a `dev` (paso final del hotfix, Fase 5) — nunca amendeada al merge commit: así queda revisable y revertible por separado
+- **Hotfix urgente**: no bloquees el merge con la retro. Si igual quieres registrarla, va en el **branch del hotfix, antes del merge a `main`**, igual que en el flujo de feature — nunca sobre `dev` después de la integración, que es un push directo a un branch protegido (ver el procedimiento de integración más abajo). El sellado del estado sigue las mismas reglas: en el branch, antes del merge
 - **Tareas triviales** (typos, bumps de dependencias): sin retro
 
 **Si se salta Learn, el sellado del estado NO se salta.** Va igual en un commit propio de `.planning/` antes del merge — lo que se omite es la entrada de LEARNINGS, no el cierre. Sin eso, `phases.merge` quedaría en `pending` sobre algo ya mergeado, que es el espejo del problema que este orden resuelve.
