@@ -758,7 +758,7 @@ Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planni
 
    **Por qué es un paso y no un consejo de estilo:** el grep del paso 1 cruza *términos*, no *decisiones*. Dos enunciaciones del mismo hecho con vocabulario distinto son invisibles para él y divergen con el tiempo. Casos reales de este repo: "commit propio posterior a la integración" contra "push directo a un branch protegido" —deciden lo mismo, sin compartir una palabra, y una quedó instruyendo lo que la otra prohibía—; y "es la única situación en que el dev pushea" contra "hay exactamente dos excepciones", en dos rulebooks distintos.
 
-   **Lo que SÍ es correcto** —y es el patrón mayoritario del corpus— es un resumen accionable con puntero explícito al detalle. Lo que no va es re-enumerar el contenido completo en el segundo lugar.
+   Ese patrón —resumen accionable más puntero— es el mayoritario del corpus y funciona: la auditoría del 2026-08-26 encontró solo 5 hechos enunciados dos veces en 1900 líneas.
 
    **Dónde vive el detalle:** en el rulebook o la skill, nunca en `global/CLAUDE.md`, que se carga en toda sesión de todo proyecto. Si al aplicar esta regla el detalle sube al núcleo, arreglaste la contradicción y rompiste el presupuesto de contexto.
 
