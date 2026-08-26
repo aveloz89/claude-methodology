@@ -770,7 +770,7 @@ Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planni
    | #65 | Que el estado se sella antes del merge para no bypassear `dev` | La ruta de hotfix arreglada en un lugar y viva en el punto de decisión, a 400 líneas |
    | #66 | Enunciar una vez y remitir | Una contradicción residual tres líneas debajo del fix |
 
-   Las cuatro las atrapó un reviewer, ninguna la autorrevisión del autor.
+   Ninguna la atrapó la autorrevisión del autor: las cuatro salieron del review dual, y dos de ellas las encontraron los dos reviewers por separado. Lo que funciona es la pasada externa, no quién la haga.
 
    Leelo como si el diff fuera de otro. Si la regla nueva tiene un criterio verificable —"el test se rompe al revertir", "el enunciado accionable sigue en su lugar"— corrélo sobre tu propio cambio antes de pedir review.
 
