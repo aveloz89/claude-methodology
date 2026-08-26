@@ -754,6 +754,13 @@ Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planni
 
 1. **Grep de los términos afectados** en `CLAUDE.md`, `README.md`, `rulebooks/`, `agents/`, `skills/` y `.planning/` — cualquier mención del comportamiento viejo es candidata a quedar desactualizada. `.planning/` entra en la lista porque sus documentos tienen preámbulo normativo propio: el de `LEARNINGS.md` quedó describiendo el comportamiento viejo en el PR #59 y ningún reviewer lo vio, porque el directorio no estaba acá.
 2. **Reconciliar todo documento que describa el comportamiento cambiado.** No basta con documentar el cambio en un solo archivo — el mismo hecho (p. ej. "el dev actualiza X entre tareas") suele estar descrito en más de un rulebook o en `CLAUDE.md` raíz.
+3. **Enunciar una vez, remitir el resto.** Antes de escribir una frase que **decide** algo —qué bloquea un merge, quién pushea, dónde va la retro—, buscá si ese hecho ya está enunciado. Si está, remitì en vez de repetirlo.
+
+   **Por qué es un paso y no un consejo de estilo:** el grep del paso 1 cruza *términos*, no *decisiones*. Dos enunciaciones del mismo hecho con vocabulario distinto son invisibles para él y divergen con el tiempo. Casos reales de este repo: "commit propio posterior a la integración" contra "push directo a un branch protegido" —deciden lo mismo, sin compartir una palabra, y una quedó instruyendo lo que la otra prohibía—; y "es la única situación en que el dev pushea" contra "hay exactamente dos excepciones", en dos rulebooks distintos.
+
+   **Lo que SÍ es correcto** —y es el patrón mayoritario del corpus— es un resumen accionable con puntero explícito al detalle. Lo que no va es re-enumerar el contenido completo en el segundo lugar.
+
+   **Dónde vive el detalle:** en el rulebook o la skill, nunca en `global/CLAUDE.md`, que se carga en toda sesión de todo proyecto. Si al aplicar esta regla el detalle sube al núcleo, arreglaste la contradicción y rompiste el presupuesto de contexto.
 
 Este paso no es opcional ni cosmético: las 7 contradicciones de la auditoría de julio (ver `.planning/AUDIT-context-engineering.md`) eran todas de esta clase — un cambio de proceso documentado en un archivo y olvidado en otro.
 
