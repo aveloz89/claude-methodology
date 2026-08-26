@@ -98,7 +98,7 @@ Escaneas el codebase o un directorio específico buscando code smells. **No modi
 
    **La evidencia adjunta a un issue no es definitiva: es una hipótesis con respaldo.** Si vas a borrar código porque un issue dice que está muerto, **construí un input nuevo** en vez de repetir el experimento que el issue cita. Repetirlo confirma el resultado anterior, incluido su error.
 
-   Caso real (issue #62, PR #67): el issue afirmaba que dos guards eran redundantes, con evidencia de que removerlos dejaba la suite verde. Era cierto y no probaba nada — el único fixture de input malo del corpus rompía en el primer carácter, así que nunca ejercitaba la rama que importaba. Tres actores distintos corrieron esa misma prueba ciega y los tres confirmaron la misma conclusión equivocada. Lo destapó un reviewer construyendo un input que el corpus no tenía.
+   Caso real (issue #62, PR #67): el issue afirmaba que dos guards eran redundantes, con evidencia de que removerlos dejaba la suite verde. Era cierto y no probaba nada — el único fixture de input malo del corpus fallaba antes de emitir nada, así que nunca ejercitaba la rama que importaba —la de un fallo a mitad, con salida parcial ya escrita. Tres actores distintos corrieron esa misma prueba ciega y los tres confirmaron la misma conclusión equivocada. Lo destaparon los **dos** reviewers, por separado y con inputs distintos que el corpus no tenía — lo que funcionó fue el método, no la suerte de uno de ellos.
 
    Es el corolario del principio 5 de `~/.claude/rules/implementation-principles.md` aplicado al caso inverso: ahí el test debe romperse si revertís el fix; acá, **algo debe romperse si el código que borrás hiciera falta**. Verificar que la suite sigue verde solo demuestra que el corpus calla.
 
@@ -290,6 +290,11 @@ function process(user) {
 **Separar responsabilidades** — Partir un god file en módulos con responsabilidad única.
 
 **Eliminar dead code** — **Solo con confirmación explícita del usuario**, nunca automático. Borrar funciones/variables/imports que no se usan en el repo, después de verificar que no son API pública ni se usan por reflexión.
+
+**Antes de borrar, construí un input nuevo que ejercite la rama** — no repitas el experimento que cita el issue ni te apoyes en que la suite siga verde (ver "Issues de deuda técnica" arriba: la suite verde solo demuestra que el corpus calla). Y el resultado tiene default **fail-closed**:
+
+- Si el input nuevo **rompe** algo → el código no está muerto. Se conserva, con un comentario que explique por qué y un test que se ponga rojo si alguien lo vuelve a proponer.
+- Si **no lográs construir** un input que ejercite la rama → se reporta como *no verificado* y **no se borra**. "No pude probar que hace falta" no es "probé que no hace falta".
 
 #### 5. Verificación final
 

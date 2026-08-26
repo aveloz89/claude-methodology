@@ -761,9 +761,20 @@ Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planni
    Ese patrón —resumen accionable más puntero— es el mayoritario del corpus y funciona: la auditoría del 2026-08-26 encontró solo 5 hechos enunciados dos veces en 1900 líneas.
 
    **Dónde vive el detalle:** en el rulebook o la skill, nunca en `global/CLAUDE.md`, que se carga en toda sesión de todo proyecto. Si al aplicar esta regla el detalle sube al núcleo, arreglaste la contradicción y rompiste el presupuesto de contexto.
-4. **Si el PR introduce una regla, releé el diff completo aplicándola.** Escribir una regla y aplicarla al propio cambio son dos pasadas distintas, y hacerlas en una sola no funciona: en los PRs #61, #65 y #66 el review encontró que el PR violaba la regla que estaba escribiendo — una instrucción que obligaba a los QA a rodear su política de tools, un absoluto en un archivo cuya propia sección de red flags los desaconseja, y una contradicción residual tres líneas debajo del fix. Las tres las atrapó un reviewer, ninguna la autorrevisión del autor.
+4. **Si el PR introduce una regla, releé el diff completo aplicándola.** Escribir una regla y aplicarla al propio cambio son dos pasadas distintas, y hacerlas en una sola no funciona: en cuatro PRs seguidos el review encontró que el PR violaba la regla que estaba escribiendo:
+
+   | PR | Lo que se escribía | Lo que el review encontró |
+   |---|---|---|
+   | #61 | El principio 5 y su corolario | Una instrucción que obligaba a los QA a rodear su propia política de tools |
+   | #64 | `rules/bash.md`, con un red flag contra las garantías absolutas | Un absoluto en ese mismo archivo |
+   | #65 | Que el estado se sella antes del merge para no bypassear `dev` | La ruta de hotfix arreglada en un lugar y viva en el punto de decisión, a 400 líneas |
+   | #66 | Enunciar una vez y remitir | Una contradicción residual tres líneas debajo del fix |
+
+   Las cuatro las atrapó un reviewer, ninguna la autorrevisión del autor.
 
    Leelo como si el diff fuera de otro. Si la regla nueva tiene un criterio verificable —"el test se rompe al revertir", "el enunciado accionable sigue en su lugar"— corrélo sobre tu propio cambio antes de pedir review.
+
+   **Dejá artefacto**, como los otros pasos: el paso 1 deja la salida de un grep y el corolario del principio 5 deja un rojo→verde, pero este se cumple diciendo "lo releí". Nombrá en el cuerpo del PR qué regla introduce el diff y qué encontró la relectura — **incluido "nada"**. Sin eso no es verificable, y lo no verificable se saltea.
 
 Este paso no es opcional ni cosmético: las 7 contradicciones de la auditoría de julio (ver `.planning/AUDIT-context-engineering.md`) eran todas de esta clase — un cambio de proceso documentado en un archivo y olvidado en otro.
 
