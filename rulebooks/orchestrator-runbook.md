@@ -776,7 +776,7 @@ Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planni
 
    **Este paso no se puede auditar, y por eso no se audita.** A diferencia del paso 1, que deja la salida de un grep, o del corolario del principio 5, que deja un rojo→verde, una relectura se cumple diciendo "la hice" — un artefacto que la declare no la verifica. El respaldo es la pasada externa: `qa-backend` aplica al diff la regla que el diff introduce, sin auditar si vos la releíste. Hacer tu propia relectura igual vale, porque encontrarlo antes es más barato; pero lo que sostiene el paso es el review, no tu declaración.
 
-Este paso no es opcional ni cosmético: las 7 contradicciones de la auditoría de julio (ver `.planning/AUDIT-context-engineering.md`) eran todas de esta clase — un cambio de proceso documentado en un archivo y olvidado en otro.
+**Ninguno de los cuatro pasos es opcional ni cosmético.** Las 7 contradicciones de la auditoría de julio (ver `.planning/AUDIT-context-engineering.md`) eran todas de esta clase — un cambio de proceso documentado en un archivo y olvidado en otro.
 
 ---
 
