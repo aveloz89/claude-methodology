@@ -1,38 +1,29 @@
 {
   "schema": 1,
-  "feature": "followups-sweep",
-  "branch": "feature/followups-sweep",
-  "pr": 64,
-  "review_sha": "a84e8b5",
-  "updated": "2026-08-25T23:49:29Z",
+  "feature": "seal-state-before-merge",
+  "branch": "feature/seal-state-before-merge",
+  "pr": null,
+  "review_sha": "80f9c0f",
+  "updated": "2026-08-26T01:36:41Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
     "implementation": "done",
     "docs": "skipped",
     "review": "done",
-    "pr": "done",
+    "pr": "pending",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
       "id": 1,
-      "name": "hooks-y-tests",
+      "name": "sellado-y-mitigacion",
       "agent": "backend-dev",
       "status": "done",
-      "tasks_done": 4,
-      "tasks_total": 4,
-      "current_task": null
-    },
-    {
-      "id": 2,
-      "name": "documentacion-normativa",
-      "agent": "orchestrator",
-      "status": "done",
-      "tasks_done": 4,
-      "tasks_total": 4,
+      "tasks_done": 2,
+      "tasks_total": 2,
       "current_task": null
     }
   ]
