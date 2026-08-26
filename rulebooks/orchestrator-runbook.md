@@ -228,7 +228,7 @@ git push
 6. Espera CI verde sobre el HEAD nuevo — branch protection valida el último SHA, no el que ya estaba verde
 7. **Regla de 3**: si un patrón aparece en 3+ entradas de LEARNINGS, sugiere al usuario agregar regla en `rules/` o modificar un agente
 
-**Por qué el estado se sella acá y no después del merge:** escribirlo post-merge obliga a commitear sobre `dev`, que en cualquier repo con branch protection es un push directo a un branch protegido — el bypass que la metodología prohíbe en todos los demás lugares. Sellarlo en el commit de retro elimina esa escritura del flujo. El costo es que `phases.merge` se marca `done` segundos antes de que el merge ocurra: si el merge no llega a pasar, el estado queda adelantado, y eso lo detecta el hook de STATE desactualizado al arrancar la próxima sesión. Es un desfase de segundos contra un bypass sistemático.
+**Por qué el estado se sella acá y no después del merge:** escribirlo post-merge obliga a commitear sobre `dev`, que en cualquier repo con branch protection es un push directo a un branch protegido — el bypass que la metodología prohíbe en todos los demás lugares. Sellarlo en el commit de retro elimina esa escritura del flujo. El costo es que `phases.merge` se marca `done` segundos antes de que el merge ocurra: si el merge no llega a pasar, el estado queda adelantado. **Esa ventana no se detectaba sola**: `session-end-check.sh` compara mtimes y nunca mira `phases`, y `session-start-context.sh` reportaba `Fase activa: ninguna` — enmascaraba el desfase en vez de señalarlo. Por eso el mismo cambio agrega el aviso al arranque cuando el estado está sellado y seguimos parados en el branch del feature. Es un desfase de segundos, con aviso, contra un bypass sistemático.
 
 **El commit de retro toca SOLO `.planning/`** — es la norma, no una expectativa. Con el delta acotado ahí, no dispara re-review; si incluye cualquier otra cosa, vuelve a la Fase 2.6 antes de mergear.
 
@@ -241,7 +241,9 @@ Es el único punto del flujo donde el contenido de un push post-review no lo mir
 - **Hotfix urgente**: no bloquees el merge con la retro. Si igual quieres registrarla, la entrada va en un **commit propio** posterior a la integración a `dev` (paso final del hotfix, Fase 5) — nunca amendeada al merge commit: así queda revisable y revertible por separado
 - **Tareas triviales** (typos, bumps de dependencias): sin retro
 
-### Fase 5: Merge y cierre
+**Si se salta Learn, el sellado del estado NO se salta.** Va igual en un commit propio de `.planning/` antes del merge — lo que se omite es la entrada de LEARNINGS, no el cierre. Sin eso, `phases.merge` quedaría en `pending` sobre algo ya mergeado, que es el espejo del problema que este orden resuelve.
+
+### Fase 5: Merge
 
 1. Ejecuta la **verificación pre-merge** (4 checks en sección "Comandos `gh` específicos")
 2. Solo si las verificaciones pasan **y el usuario aprobó el merge explícitamente** (invariante 3 de `CLAUDE.md`: no se infiere de CI verde), mergea con el comando apropiado según el tipo de branch:
@@ -249,7 +251,7 @@ Es el único punto del flujo donde el contenido de un push post-review no lo mir
    - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `CLAUDE.md`)
 3. Si era hotfix (PR a main), después del merge integra a dev (procedimiento más abajo)
 
-**No hay paso de cierre de estado**: `state.json` y `STATE.md` ya quedaron sellados en el commit de retro (Fase 4, paso 4). Después del merge no se escribe nada en `.planning/`, y por lo tanto no se commitea sobre `dev`.
+**No hay paso de cierre de estado**: `state.json` y `STATE.md` ya quedaron sellados en el commit de retro (Fase 4, paso 4). En el flujo de feature no queda escritura en `.planning/` después del merge, y por lo tanto no se commitea sobre `dev`. La integración de un hotfix a `dev` es la excepción, y tiene su propio procedimiento más abajo.
 
 ---
 
@@ -665,12 +667,10 @@ Después de mergear un hotfix a main:
 ```bash
 git checkout dev && git pull origin dev
 git merge origin/main --no-ff
-# si la retro quedó pendiente por urgencia (Fase 4): editar .planning/LEARNINGS.md
-# y commitearla APARTE, después del merge de integración — nunca amendeada a él
-git add .planning/LEARNINGS.md
-git commit -m "planning: registrar retro del hotfix #<N> en LEARNINGS"
 git push origin dev
 ```
+
+**La retro del hotfix no va acá.** Si la escribís, va en el branch del hotfix antes del merge a `main`, igual que en el flujo de feature (Fase 4). Commitearla después, sobre `dev`, es el mismo push directo a un branch protegido que este orden elimina — y el merge de integración de arriba ya es la única excepción sancionada, precisamente porque no hay otra forma de llevar el hotfix a `dev`.
 
 ---
 
