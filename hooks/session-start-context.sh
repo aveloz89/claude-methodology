@@ -106,6 +106,20 @@ if [ -d ".planning" ]; then
     ' .planning/state.json 2>/dev/null)
     ACTIVE_STATUS=$(jq -r --arg ph "$ACTIVE_PHASE" '.phases[$ph] // "n/a"' .planning/state.json 2>/dev/null)
     echo "Fase activa: $ACTIVE_PHASE ($ACTIVE_STATUS)"
+    # Estado sellado (todas las fases done/skipped) pero seguimos parados en
+    # el branch del feature, no en la base: es el desfase de "el merge se
+    # sella en el commit de retro, antes de que el merge ocurra" (ver
+    # rulebooks/orchestrator-runbook.md). session-end-check.sh no lo cubre
+    # (compara mtimes, nunca mira phases) y sin este aviso "ninguna" se leía
+    # como "no queda nada pendiente". No se consulta gh: solo git local.
+    if [ "$ACTIVE_PHASE" = "ninguna" ]; then
+      SEAL_BRANCH=$(git branch --show-current 2>/dev/null)
+      if [ "$SEAL_BRANCH" != "main" ] && [ "$SEAL_BRANCH" != "dev" ]; then
+        SEAL_PR=$(jq -r '.pr // "ninguno"' .planning/state.json 2>/dev/null)
+        echo ""
+        echo "⚠️ Estado sellado (todas las fases en done/skipped) pero seguimos en el branch del feature ($SEAL_BRANCH), no en la base. PR: $SEAL_PR. Verifica si el merge ya ocurrió (git log / GitHub) antes de asumir que no queda nada pendiente."
+      fi
+    fi
     # name es texto libre (lo escribe el architect/orchestrator): cada batch
     # se pasa completo en base64 (una línea, sin saltos, por construcción de
     # la codificación) para poder leer línea a línea aunque name traiga un

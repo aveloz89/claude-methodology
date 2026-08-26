@@ -3329,6 +3329,88 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Caso: estado sellado (todas las fases en done/skipped, como queda tras el
+# commit de retro) pero el branch actual sigue siendo el del feature, no la
+# base — el desfase real: si el merge todavía no ocurrió, session-end-check.sh
+# nunca mira "phases" (compara mtimes) y por lo tanto no lo detecta, y sin
+# este aviso "Fase activa: ninguna" se leía como "no queda nada pendiente".
+# El aviso debe nombrar el branch actual y el PR de state.json.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/seal-test) > /dev/null 2>&1
+cat > "$SANDBOX_REPO/.planning/state.json" <<'STATE_JSON_EOF'
+{
+  "schema": 1,
+  "feature": "seal-test",
+  "branch": "feature/seal-test",
+  "pr": 77,
+  "updated": "2026-08-25T00:00:00Z",
+  "phases": {
+    "brainstorming": "skipped",
+    "design": "skipped",
+    "implementation": "done",
+    "docs": "skipped",
+    "pr": "done",
+    "ci": "skipped",
+    "review": "done",
+    "e2e": "skipped",
+    "merge": "done"
+  },
+  "batches": []
+}
+STATE_JSON_EOF
+OUTPUT_SEALED_FEATURE=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+sandbox_cleanup
+
+TOTAL=$((TOTAL + 1))
+if echo "$OUTPUT_SEALED_FEATURE" | grep -q "Fase activa: ninguna" \
+  && echo "$OUTPUT_SEALED_FEATURE" | grep -qF "Estado sellado" \
+  && echo "$OUTPUT_SEALED_FEATURE" | grep -qF "feature/seal-test" \
+  && echo "$OUTPUT_SEALED_FEATURE" | grep -qF "PR: 77"; then
+  echo -e "${GREEN}PASS${NC}: SessionStart avisa si el estado está sellado y seguimos en el branch del feature"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart avisa si el estado está sellado y seguimos en el branch del feature (output: $OUTPUT_SEALED_FEATURE)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: mismo estado sellado, pero ya estamos en la base (dev) — el aviso NO
+# debe aparecer, el comportamiento para este caso no cambia.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b dev) > /dev/null 2>&1
+cat > "$SANDBOX_REPO/.planning/state.json" <<'STATE_JSON_EOF'
+{
+  "schema": 1,
+  "feature": "seal-test",
+  "branch": "feature/seal-test",
+  "pr": 77,
+  "updated": "2026-08-25T00:00:00Z",
+  "phases": {
+    "brainstorming": "skipped",
+    "design": "skipped",
+    "implementation": "done",
+    "docs": "skipped",
+    "pr": "done",
+    "ci": "skipped",
+    "review": "done",
+    "e2e": "skipped",
+    "merge": "done"
+  },
+  "batches": []
+}
+STATE_JSON_EOF
+OUTPUT_SEALED_BASE=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+sandbox_cleanup
+
+TOTAL=$((TOTAL + 1))
+if echo "$OUTPUT_SEALED_BASE" | grep -q "Fase activa: ninguna" \
+  && ! echo "$OUTPUT_SEALED_BASE" | grep -qF "Estado sellado"; then
+  echo -e "${GREEN}PASS${NC}: SessionStart no avisa si el estado está sellado pero ya estamos en la base (dev)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart no avisa si el estado está sellado pero ya estamos en la base (dev) (output: $OUTPUT_SEALED_BASE)"
+  FAIL=$((FAIL + 1))
+fi
+
 # Caso: sanitización de títulos de "gh issue list" (#51) — un título de
 # issue de terceros con caracteres de control, un salto de línea embebido
 # (que podría confundirse con el límite entre dos issues) y una instrucción
