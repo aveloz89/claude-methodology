@@ -34,6 +34,29 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-08-26] PR #67 — El issue de deuda estaba medio equivocado, y era mío
+
+**Métricas:**
+- Review rounds: 2 de security (1 bloqueada), 3 de qa-backend (2 bloqueadas)
+- Hallazgos security: 2 (critical: 0, high: 1, medium: 0, low: 1)
+- Hallazgos qa-backend: 5 bloqueantes en total entre las dos rondas
+- Errores de build/CI: 0 (este repo no tiene Actions)
+- Self-reflection atrapó: el agente `refactor` verificó por su cuenta antes de borrar, como se le pidió — pero contra un corpus ciego
+- Lotes ejecutados: 1 / Tareas: 1
+- Devs involucrados: agente `refactor`
+
+**Qué salió bien:**
+- **Los reviewers no repitieron el experimento: construyeron inputs nuevos.** Eso fue lo único que rompió el ciclo. Tres actores distintos —qa-backend en el PR #58, yo al escribir el issue, y el agente refactor al ejecutarlo— llegaron a la misma conclusión equivocada corriendo la misma prueba ciega.
+- La verificación de dos pasos que exigí antes de aceptar el fixture nuevo demostró que no era cobertura redundante: con el guard quitado los dos tests dan rojo, pero con el filtro suavizado solo el nuevo lo da.
+- El agente `refactor` reportó su propio error de origen al corregirlo, en vez de solo aplicar el fix.
+
+**Qué causó re-work:**
+- **Escribí un issue de deuda con evidencia que no probaba lo que yo creía.** "Removí cada guard y la suite quedó en 176/176" es cierto y a la vez irrelevante: el único fixture de JSON malo rompía en el primer carácter, así que `jq` nunca emitía salida parcial y las dos ramas eran indistinguibles.
+- **El agente que lo ejecutó verificó de nuevo y llegó al mismo error**, porque verificó contra el mismo corpus. La instrucción "verificá la evidencia vos mismo" fue correcta pero insuficiente: no dije contra qué.
+- Casi mergeamos un fail-open silencioso en la lib que decide cuántos tests corre el pre-commit.
+
+**Patrón potencial:** sí, dos. (1) **Un issue de deuda técnica con evidencia adjunta se lee como si la evidencia fuera definitiva.** El que lo ejecuta hereda la premisa y, si re-verifica con el mismo método, confirma el error en vez de detectarlo. 1ª aparición formulada así — candidato para el prompt del agente `refactor`: al ejecutar un issue con evidencia, construir un input nuevo, no repetir el experimento citado. (2) **Verificar contra un corpus de tests no confirma una afirmación sobre el código: confirma que el corpus calla.** Es el complemento exacto del corolario del principio 5 —que exige que el test se rompa al revertir el fix— aplicado al caso inverso: cuando se borra código, hay que probar que algo se rompería si el código hiciera falta. 1ª aparición.
+
 ### [2026-08-26] PR #66 — Enunciar cada hecho una vez, y la regla que se duplicó a sí misma
 
 **Métricas:**

@@ -4,7 +4,7 @@
   "branch": "refactor/dead-guards-pnpm-dirs",
   "pr": 67,
   "review_sha": "09bc4f9",
-  "updated": "2026-08-26T16:29:40Z",
+  "updated": "2026-08-26T16:29:44Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
@@ -14,7 +14,7 @@
     "pr": "done",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "pending"
+    "merge": "done"
   },
   "batches": [
     {
