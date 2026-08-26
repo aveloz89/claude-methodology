@@ -91,9 +91,9 @@ Fase 2.7:  Push + PR        → lo haces tú: push + gh pr create + reconciliaci
 Fase 2.8:  Monitoreo CI     → gh pr checks --watch --fail-fast
 Fase 3:    Post-PR          → re-reviews SOLO si CI obligó fixes sobre código ya revisado
                               + e2e-runner Modo B si PR a main
-Fase 4:    Learn (retro)    → LEARNINGS commiteada en el branch del PR: último commit
-                              antes del merge, nunca un PR aparte
-Fase 5:    Merge y cierre   → verificación pre-merge + merge + cierre de STATE
+Fase 4:    Learn (retro)    → LEARNINGS + estado sellado en el branch del PR: último
+                              commit antes del merge, nunca un PR aparte
+Fase 5:    Merge             → verificación pre-merge + merge. No escribe en .planning/
 ```
 
 **Reglas clave del flujo:**
