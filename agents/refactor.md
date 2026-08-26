@@ -100,7 +100,7 @@ Escaneas el codebase o un directorio específico buscando code smells. **No modi
 
    Caso real (issue #62, PR #67): el issue afirmaba que dos guards eran redundantes, con evidencia de que removerlos dejaba la suite verde. Era cierto y no probaba nada — el único fixture de input malo del corpus rompía en el primer carácter, así que nunca ejercitaba la rama que importaba. Tres actores distintos corrieron esa misma prueba ciega y los tres confirmaron la misma conclusión equivocada. Lo destapó un reviewer construyendo un input que el corpus no tenía.
 
-   Regla práctica al borrar código: **probá que algo se rompería si ese código hiciera falta.** Verificar que la suite sigue verde solo demuestra que el corpus calla.
+   Es el corolario del principio 5 de `~/.claude/rules/implementation-principles.md` aplicado al caso inverso: ahí el test debe romperse si revertís el fix; acá, **algo debe romperse si el código que borrás hiciera falta**. Verificar que la suite sigue verde solo demuestra que el corpus calla.
 
 ### Qué buscar en el código
 
