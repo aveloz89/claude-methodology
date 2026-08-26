@@ -295,7 +295,9 @@ function process(user) {
 
 - Si el input nuevo **rompe** algo → el código no está muerto. Se conserva, con un comentario que explique por qué y un test que se ponga rojo si alguien lo vuelve a proponer.
 - Si **no lográs construir** un input que ejercite la rama → se reporta como *no verificado* y **no se borra**. "No pude probar que hace falta" no es "probé que no hace falta".
-- Si el input **corre y da verde** → eso todavía no es evidencia de nada. Es el caso que falló en el #62: el fixture existía y corría, pero nunca llegaba a la rama. **El verde solo cuenta si podés demostrar que el input alcanzó la rama**: borrá el código y confirmá que ese mismo input **se pone rojo**. Si no se pone rojo, no probaste que el código sobra — probaste que tu input no llega. Alternativa válida cuando el borrado no es reversible en el momento: trazar el mecanismo y nombrar **qué otro control** atrapa el caso, que es lo que cerró el guard de `list_json` en el #67.
+- Si el input **corre y da verde** → el verde es **ambiguo**, no es evidencia. Dos causas distintas lo producen y el color no las distingue: (a) el input nunca llegó a la rama —el caso que falló en el #62, donde el fixture corría pero fallaba antes de ejercitarla—, o (b) la rama es genuinamente redundante y otro control produce el mismo resultado.
+
+  **Lo que desambigua no es el color: es trazar el mecanismo.** Seguí qué pasa con ese input paso a paso y nombrá explícitamente **qué atrapa el caso si borrás el código**. Si podés nombrarlo —como en el #67, donde con `list_json` vacío `jq` sale `rc=0` sin salida y el chequeo final lo atrapa— es (b) y se borra. Si no podés, es (a) o no lo sabés, y en los dos casos **no se borra**.
 
 #### 5. Verificación final
 
