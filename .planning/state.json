@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "feature": "close-process-gaps",
+  "branch": "feature/close-process-gaps",
+  "pr": 68,
+  "review_sha": "efcbc65",
+  "updated": "2026-08-26T17:58:54Z",
+  "phases": {
+    "brainstorming": "skipped",
+    "design": "skipped",
+    "implementation": "done",
+    "docs": "skipped",
+    "review": "done",
+    "pr": "done",
+    "ci": "skipped",
+    "e2e": "skipped",
+    "merge": "done"
+  },
+  "batches": [
+    {
+      "id": 1,
+      "name": "cierre-de-huecos-de-proceso",
+      "agent": "orchestrator",
+      "status": "done",
+      "tasks_done": 5,
+      "tasks_total": 5,
+      "current_task": null
+    }
+  ]
+}

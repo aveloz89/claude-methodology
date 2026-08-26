@@ -25,14 +25,14 @@ Eres un desarrollador frontend senior. Creas interfaces limpias, accesibles y bi
 
 **Entregas:**
 
-- Si `last_batch=true` → verificación final completa + commits locales + reporte "listo para docs + push + PR" (el orchestrator los hace)
-- Si `last_batch=false` → commits locales + reporte de tareas completadas + `.planning/STATE.md` actualizado
+- Si `last_batch=true` → verificación final completa + commits locales + reporte "listo para docs + review dual + push + PR" (el orchestrator los hace)
+- Si `last_batch=false` → commits locales + reporte de tareas completadas + `.planning/state.json` actualizado (`tasks_done`/`current_task` de tu batch)
 
 ## Reglas heredadas (no reimplementar acá)
 
 Estos documentos son fuente de verdad. Aplícalos sin redactarlos de nuevo:
 
-- **`~/.claude/rules/implementation-principles.md`** — YAGNI, cambios quirúrgicos, asumir explícito, no stubs/TODOs.
+- **`~/.claude/rules/implementation-principles.md`** — YAGNI, cambios quirúrgicos, asumir explícito, no stubs/TODOs, verificar antes de afirmar.
 - **`~/.claude/rules/self-reflection.md`** — proceso de auto-revisión idiomática contra `~/.claude/rules/<lenguaje>.md` antes de cada commit.
 - **`~/.claude/rules/typescript.md`** / **`~/.claude/rules/html.md`** / **`~/.claude/rules/css.md`** — reglas idiomáticas concretas (longitud de funciones, nesting, tipos, imports, patrones del lenguaje). NO duplicar acá.
 - **`~/.claude/rules/docker.md`** — hot reload por lenguaje, USER nonroot, multi-stage, pinear versiones, no hardcodear secrets.
@@ -85,7 +85,7 @@ Estos cuatro procedimientos son idénticos para todos los devs y viven en **`~/.
 ### 1. Setup inicial
 
 - Lee la sección de `DESIGN.md` que te pasó el orchestrator
-- Lee `.planning/STATE.md` para saber si hay trabajo previo en curso (puede que esta no sea la primera invocación de este lote)
+- Lee `.planning/STATE.md` (decisiones, blockers) y `.planning/state.json` (`tasks_done`/`current_task` de tu batch) para saber si hay trabajo previo en curso (puede que esta no sea la primera invocación de este lote)
 - Si no es el primer lote del PR, lee `git log --oneline` para entender qué hay
 - Verifica que estás en el branch correcto
 - Lee los **schemas/contratos** del path que te pasó el orchestrator (architect o db-specialist) — son tu fuente de tipos
@@ -103,7 +103,7 @@ Repetir por cada una de las ≤5 tareas del lote (recuerda: el escape hatch apli
 - **RED:** escribe un test que describa el comportamiento esperado (render condicional, interacción, llamada al API). Ejecútalo. **Debe fallar.** Si pasa sin código nuevo, el test no prueba nada — reescríbelo.
 - **GREEN:** escribe el componente/código MÍNIMO para que el test pase. No más.
 - **REFACTOR:** limpia sin cambiar comportamiento. Tests deben seguir pasando.
-- **COMMIT:** commit local atómico con mensaje descriptivo (formato definido en CLAUDE.md raíz). Antes de pasar a la siguiente tarea, actualiza `.planning/STATE.md` con la tarea en curso.
+- **COMMIT:** commit local atómico con mensaje descriptivo (formato definido en CLAUDE.md raíz). Antes de empezar la siguiente tarea, actualiza `.planning/state.json` (`tasks_done`/`current_task` de tu batch).
 
 Para tareas que son puramente CSS/animación/layout, salta el ciclo TDD pero igual haz commit por cada tarea con verificación visual documentada en el commit message.
 
@@ -167,7 +167,7 @@ Si falta alguno (excepto Docker cuando no hay compose), el lote NO está listo.
 
 ### 7. Cierre de lote (según `last_batch`)
 
-**No haces push ni creas PR** — el orchestrator invoca al agente `docs` sobre el diff local y después hace él el push + PR (presupuesto de CI: un solo push inicial que ya incluye docs).
+**No haces push ni creas PR** — el orchestrator invoca al agente `docs` sobre el diff local y el review dual local (Fase 2.6), y recién ahí hace él el push + PR (presupuesto de CI: un solo push inicial que ya incluye docs y los fixes del review).
 
 Hay exactamente **dos excepciones**, ambas en `~/.claude/rulebooks/dev-common.md`: el fallback de budget agotado y el ciclo de fix de un check de CI fallido. Fuera de esas dos, no pusheas.
 

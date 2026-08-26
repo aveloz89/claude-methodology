@@ -8,11 +8,6 @@ paths:
   - "**/compose.yml"
   - "**/compose.*.yml"
   - "**/.dockerignore"
-agents:
-  - backend-dev
-  - frontend-dev
-  - qa-backend
-  - qa-frontend
 ---
 
 # Docker Review Rules
@@ -42,7 +37,7 @@ Reglas idiomáticas para Dockerfiles y archivos de compose. Las leen `backend-de
 - **`USER nonroot` en producción** — Crear un usuario sin privilegios y usarlo antes del `CMD`/`ENTRYPOINT`. Nunca correr como root en runtime.
   - Node: `USER node` (ya viene en la imagen oficial).
   - Python/Go/otros: crear con `RUN adduser --disabled-password --gecos "" --uid 1001 appuser`.
-  - Excepción: contenedores de **dev** pueden necesitar root para hot reload con bind mounts en Linux (problema de UID mismatch). Documentar con comentario.
+  - Excepción: contenedores de **dev** con bind mounts en Linux pueden sufrir UID mismatch. Preferir alinear el UID con `--build-arg UID=$(id -u)` al crear el usuario; root solo si el build arg no resuelve el problema, documentado con comentario.
 - **`COPY --chown=<user>:<group>`** para mantener ownership correcto al copiar al stage final.
 - **No hardcodear secrets** — Nada de `ENV API_KEY=...`, ni copiar `.env` a la imagen. Pasar por `--secret`, env vars del runtime, o secret managers.
 - **No instalar herramientas de debug en producción** — `curl`, `wget`, `bash` solo en imagen de desarrollo. (Para healthchecks, ver sección "Healthchecks" abajo — hay alternativas que no requieren `wget`/`curl`.)
@@ -155,7 +150,7 @@ Usar la librería del stack (Pino en Node, structlog en Python, zap en Go, slog 
 - **Toda variable nueva va a `.env.example`** con valor de ejemplo o placeholder explicativo (no en `.env`, que está gitignored). Esto lo escribe el architect; el dev solo agrega referencia en el compose.
 - **No defaults hardcodeados de secrets** — `DATABASE_PASSWORD: ${DB_PASS}` sin default; si falta, que falle al arrancar.
 - **Validar requeridas al arranque** — El servicio falla rápido si falta una env var crítica, no espera al primer request.
-- **Convenciones de nombre** — Mayúsculas con guion bajo (`DATABASE_URL`, no `databaseUrl`). URLs completas con esquema (`postgres://...`) mejor que piezas separadas.
+- **Convenciones de nombre** — Mayúsculas con guion bajo (`DATABASE_URL`, no `databaseUrl`). URL completa con esquema (`postgres://...`) cuando aplique; piezas separadas (`DB_HOST`/`DB_PORT`/`DB_USER`/`DB_PASS`) cuando se rotan independientemente.
 
 ## Builds reproducibles
 

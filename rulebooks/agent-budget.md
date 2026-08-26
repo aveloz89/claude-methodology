@@ -26,7 +26,7 @@ Causa raíz: la invocación no podía caber el trabajo completo, pero nadie redu
 - **Orchestrator:** valida que cada lote ≤5 tareas y que la estrategia de PR está declarada. Si un lote excede el cap, devuelve el plan al architect — **no improvisa la partición**. Sigue el plan literalmente: en single-PR, invoca devs lote por lote sobre el mismo branch y crea un único PR al final; en multi-PR, un branch + PR por grupo.
 
 **Ejemplos:**
-- Feature con 28 tareas backend secuencialmente dependientes → architect entrega 6 lotes de ≤5 tareas en estrategia **single-PR**. El orchestrator invoca al backend-dev 6 veces sobre el mismo branch (commits per-tarea acumulándose), push + PR + CI + review **una sola vez**.
+- Feature con 28 tareas backend secuencialmente dependientes → architect entrega 6 lotes de ≤5 tareas en estrategia **single-PR**. El orchestrator invoca al backend-dev 6 veces sobre el mismo branch (commits per-tarea acumulándose), review local + push + PR + CI **una sola vez**.
 - Feature con 2 servicios independientes (cada uno ~10 tareas backend, sin overlap de archivos, shippeables solos) → architect podría justificar **multi-PR** (2 PRs paralelos), pero también es válido un único PR con 4 lotes. El default sigue siendo single-PR salvo justificación.
 - 5 tareas + 2 "extras" agregados después por el usuario → no son extras, vuelven al architect como input para un nuevo lote (o ajuste del plan).
 
@@ -50,11 +50,11 @@ RED → GREEN → REFACTOR → COMMIT → siguiente tarea
 
 Lint, build y self-review ocurren al cierre de la invocación, después de todos los commits per-tarea. Si self-review encuentra violaciones, se corrigen en commits adicionales.
 
-**El dev no pushea ni abre PR.** Al terminar el último lote, el orchestrator invoca `docs` sobre el diff local y recién ahí hace push + PR. Ver `rulebooks/orchestrator-runbook.md`, Fases 2.5–2.7.
+**El dev no pushea ni abre PR.** Al terminar el último lote, el orchestrator invoca `docs` sobre el diff local, corre el review dual local y recién ahí hace push + PR. Ver `rulebooks/orchestrator-runbook.md`, Fases 2.5–2.7.
 
-### 3. STATE.md actualizado entre tareas
+### 3. state.json actualizado entre tareas
 
-El dev actualiza `.planning/STATE.md` con la tarea en curso *antes* de empezarla. Si la invocación se corta a mitad, la próxima sabe exactamente dónde quedó.
+El dev actualiza `.planning/state.json` (`tasks_done` y `current_task` de **su** batch) *antes* de empezar cada tarea. Si la invocación se corta a mitad, la próxima sabe exactamente dónde quedó. `STATE.md` queda para prosa (decisiones, blockers) — no lo toca el dev entre tareas. Detalle del schema y del reparto en `rulebooks/orchestrator-runbook.md`, sección "STATE.md + state.json".
 
 ### 4. Definition of done con fallback de budget
 
@@ -66,10 +66,10 @@ Cada invocación tiene un DoD explícito:
 > 1. Parar de implementar nuevas tareas
 > 2. Si hay código a medio escribir, commitearlo con prefijo `wip:`
 > 3. Escribir `.planning/HANDOFF.md` con: tarea en curso, qué falta, decisiones tomadas
-> 4. **Push del branch** — es la única situación en que el dev pushea. Sin push, el HANDOFF y los commits parciales viven solo en el working tree local y una invocación nueva no los ve
+> 4. **Push del branch** — una de las dos excepciones a "el dev no pushea" (inventario completo en `dev-common.md`). Sin push, el HANDOFF y los commits parciales viven solo en el working tree local y una invocación nueva no los ve
 > 5. Reportar al orchestrator: `BUDGET LIMIT — N de M tareas completadas, ver HANDOFF.md`
 
-El paso 4 es la excepción explícita a "el dev no pushea": el costo de un run de CI extra es menor que el de perder el trabajo del lote.
+El paso 4 se justifica solo por costo: un run de CI extra es más barato que perder el trabajo del lote.
 
 El fallback es frágil (requiere que el agente monitoree su propio progreso) pero garantiza salida ordenada en vez de corte abrupto.
 
@@ -78,6 +78,33 @@ El fallback es frágil (requiere que el agente monitoree su propio progreso) per
 - **Orchestrator:** antes de invocar a un dev, cuenta tareas y parte si excede el cap. Si recibe `BUDGET LIMIT`, retoma el trabajo en una nueva invocación leyendo HANDOFF.md
 - **Devs:** commit por tarea, no al final; aplicar el fallback si el budget se acaba
 - **QA agents:** un PR con un único commit gigante cubriendo múltiples tareas atómicas es señal del anti-patrón de commit-al-final — márquenlo
+- **Cómo medir invocaciones reales** (lotes ejecutados, devs involucrados): ver "Cómo se mide" abajo — el log de `SubagentStop` es la fuente de datos para la retro de Fase 4.
+
+## Cómo se mide
+
+Cada invocación de un subagente que termina dispara el hook `hooks/subagent-stop-log.sh` (evento `SubagentStop`), que appendea una línea JSONL a un log global — no scoped a un repo ni a una feature, así que sirve para medir el budget en cualquier proyecto donde se use la metodología.
+
+- **Ubicación:** `~/.claude/methodology/logs/subagent-invocations.jsonl` (rota a `subagent-invocations.jsonl.old` al superar ~1MB, pisando el `.old` anterior — techo duro de ~2MB totales).
+- **Schema por línea:**
+
+```json
+{"ts":"2026-08-13T18:30:00Z","agent":"backend-dev","session":"abc-123","repo":"/Users/alas/Proyectos/miapp","branch":"feature/x","transcript":"/path/al/transcript.jsonl"}
+```
+
+| Campo | Contenido | Puede ser `null` |
+|---|---|---|
+| `ts` | Timestamp UTC ISO-8601 del cierre del subagente | no |
+| `agent` | Tipo de agente invocado (`backend-dev`, `qa-backend`, etc.) | no — fallback `"unknown"` |
+| `session` | ID de sesión del harness | sí |
+| `repo` | Toplevel del repo git donde corrió el subagente | sí (si no había repo git) |
+| `branch` | Branch activo al momento de la invocación | sí |
+| `transcript` | Path al transcript del subagente (útil para post-mortem de cortes `BUDGET LIMIT`) | sí |
+
+- **Query de ejemplo** (invocaciones por agente en el repo actual, para llenar las métricas de `LEARNINGS.md` en la retro de Fase 4):
+
+```bash
+jq -s '[.[] | select(.repo == "'"$(git rev-parse --show-toplevel)"'")] | group_by(.agent) | map({agent: .[0].agent, invocaciones: length})' ~/.claude/methodology/logs/subagent-invocations.jsonl
+```
 
 ## Relación con otros rulebooks
 

@@ -15,8 +15,9 @@ Detalle operativo del flujo de orchestration. **Lectura bajo demanda**: el compo
 7. [Comandos `gh` específicos](#comandos-gh-específicos)
 8. [Formato de reporte de review](#formato-de-reporte-de-review)
 9. [Pre-release E2E (Modo B del e2e-runner)](#pre-release-e2e-modo-b-del-e2e-runner)
-10. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
-11. [Flujo: revisar PR existente sin pasar por el flow completo](#flujo-revisar-pr-existente-sin-pasar-por-el-flow-completo)
+10. [Anti-drift: DoD de cambios de proceso](#anti-drift-dod-de-cambios-de-proceso)
+11. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
+12. [Flujo: revisar PR existente sin pasar por el flow completo](#flujo-revisar-pr-existente-sin-pasar-por-el-flow-completo)
 
 ---
 
@@ -38,7 +39,7 @@ Antes de diseñar o implementar nada, entiende qué quiere el usuario. **Nunca a
    - **Integraciones**: ¿APIs externas, dependencias?
    - **Prioridad**: si hay mucho, ¿qué primero?
 3. **Itera en rondas**. Después de cada respuesta, evalúa huecos y haz nueva ronda. NO saltes a diseño después de una sola ronda
-4. Cuando creas tener claridad, presenta resumen y pregunta explícitamente: **"¿Estamos listos para pasar al diseño o hay algo más que quieras definir?"**
+4. Cuando creas tener claridad, presenta el resumen y pregunta con `AskUserQuestion` (regla operativa de `CLAUDE.md`): dos opciones — avanzar al diseño, u otra ronda de preguntas sobre lo que siga abierto. Marca la recomendada. En prosa no: la decisión enterrada en un párrafo se pierde
 5. **Solo avanza al diseño con confirmación explícita del usuario.** Si agrega contexto, otra ronda
 6. Con confirmación, escribe `.planning/BRIEF.md` (formato más abajo) y avanza
 
@@ -106,7 +107,7 @@ Todos los lotes corren sobre el mismo branch; un único PR al final.
    - Por cada lote, invoca al dev correspondiente con context isolation y flag **`last_batch=false`**
    - El dev hace commit por tarea y termina sin push ni PR
    - Esperas el reporte del dev antes de pasar al siguiente lote
-2. **El último lote** se invoca con flag **`last_batch=true`**: el dev cierra la implementación con la verificación final completa y termina **sin push ni PR** — después vienen docs (Fase 2.5) y push + PR (Fase 2.7, los haces tú)
+2. **El último lote** se invoca con flag **`last_batch=true`**: el dev cierra la implementación con la verificación final completa y termina **sin push ni PR** — después vienen docs (Fase 2.5), review dual local (Fase 2.6) y push + PR (Fase 2.7, los haces tú)
 3. **Orden esperado cuando hay db-specialist**:
    - `db-specialist` primero (siempre): schema, migraciones, queries, tests de DB
    - `backend-dev` después (necesita el schema)
@@ -123,7 +124,7 @@ Cada grupo de lotes (con su propio `**PR:**` declarado) corre sobre branch propi
 
 1. Crear branch desde dev
 2. Invocar lotes del grupo (último con `last_batch=true`)
-3. Fase 2.5 (docs) → Fase 2.7 (push + PR) → Fase 2.8 (CI) → Fase 3 → merge
+3. Fase 2.5 (docs) → Fase 2.6 (review local) → Fase 2.7 (push + PR) → Fase 2.8 (CI) → Fase 3 (post-PR) → Fase 4 (retro) → Fase 5 (merge)
 4. Pasar al siguiente grupo
 
 #### Si un dev reporta `BUDGET LIMIT — ver HANDOFF.md`
@@ -142,18 +143,41 @@ Invoca `build-resolver` con: error completo, branch, archivos afectados. Resuelv
 
 Cuando el último lote reporta completado, invoca `docs` con: branch, base branch y la instrucción de leer el diff local (`git diff <base>...HEAD`). El `docs` genera/actualiza docs y **commitea al branch SIN pushear** — su commit viaja en el push inicial (presupuesto de CI: evita un run de Actions solo por docs).
 
-Si reporta "sin cambios necesarios", avanza directo a Fase 2.7.
+Si reporta "sin cambios necesarios", avanza directo a Fase 2.6.
+
+### Fase 2.6: Review dual local (pre-push)
+
+El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` revisan el diff local y las rondas de fixes suceden sin pushear nada. El PR nace revisado y el caso normal cuesta un solo run de CI. `<base>` = branch base del PR futuro (normalmente `dev`).
+
+1. **Clasifica el diff local por capa**: `git diff --name-only <base>...HEAD` + sección "Clasificación del diff por capa" más abajo
+2. **Presupuesta el review proporcional al diff**: `git diff --shortstat <base>...HEAD` para additions+deletions; misma tabla y mandato de cierre que la skill `review-pr` (paso 3) — el presupuesto proporcional aplica igual en pre-PR
+3. **Lanza en paralelo** (single message, multiple Agent calls):
+   - `security-reviewer` — siempre
+   - `qa-frontend` — solo si el diff tiene frontend
+   - `qa-backend` — solo si el diff tiene backend (incluye revisar migraciones y queries del db-specialist)
+
+   Paquete de contexto (context isolation): base + branch + instrucción de leer `git diff <base>...HEAD` + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida. **Sin número de PR — no existe todavía.** Si el diff **introduce una regla nueva**, decilo en el paquete: el reviewer tiene que aplicarla al propio diff (ver `agents/qa-backend.md`). Puede identificarla leyendo el diff, pero nombrarla le ahorra ese paso.
+4. **Consolida y registra**: reporte con el "Formato de reporte de review" (más abajo), guardado en `.planning/reviews/pre-pr-<feature-slug>.md` con header de trazabilidad (branch, base, SHA de HEAD revisado, fecha, veredicto). Commit al branch: `planning: registrar review dual pre-push`
+5. **Mientras haya un reviewer corriendo, el árbol no se mueve.** Cuando lanzás varios en paralelo —pueden ser tres en un diff full-stack— esperá a que vuelvan **todos** antes de aplicar nada: si aplicás los hallazgos del primero, los demás quedan leyendo un árbol que cambió bajo sus pies. Si uno se cuelga o excede su presupuesto, no esperes indefinido: cortalo y relanzalo después de aplicar, o aplicá solo en archivos que ese reviewer no esté mirando — pero decidilo explícitamente, no por olvido. Ya pasó (ver `.planning/LEARNINGS.md`, entradas de los PRs #65 y #66, y la de este mismo PR). Las veces que pasó lo detectó el reviewer y avisó, en vez de reportar un rojo falso — pero eso es disciplina suya, no una red del proceso. Vale igual para un dev trabajando en paralelo: si un lote y un review tocan los mismos archivos, no van juntos.
+6. **Si hay bloqueantes**: fixes por el dev correspondiente en el mismo branch, **sin push** (si el bloqueante es de schema/migración/query optimizada, va al `db-specialist`). Re-lanza **solo** los reviewers que marcaron issues, acotados al delta local (`git diff <sha-ya-revisado>...HEAD`). Append de la re-ronda al registro. Sugerencias baratas: aplicadas antes del push (política en la skill `pr-workflow`, regla 2)
+7. **Veredictos limpios**: actualiza `.planning/state.json` (`phases.review` a `done` y `review_sha` al SHA de HEAD al momento de los veredictos limpios) y avanza a Fase 2.7. Fixes, sugerencias aplicadas y registro viajan en el push inicial: **el PR nace revisado**
 
 ### Fase 2.7: Push + PR
 
-Lo haces tú (es orquestación git, no código):
+Lo haces tú (es orquestación git, no código). El push, la creación del PR y la **reconciliación del registro de review** son una sola secuencia inmediata (segundos entre `create` y el segundo push):
 
 ```bash
 git push -u origin <branch>
-gh pr create --base dev --title "<título>" --body "<resumen de lotes + decisiones>"
+gh pr create --base dev --title "<título>" --body "<resumen de lotes + decisiones>"   # body incluye veredictos del review pre-push
+git mv .planning/reviews/pre-pr-<feature-slug>.md .planning/reviews/PR-<N>.md
+# actualizar .planning/state.json: pr = N
+git commit -m "planning: vincular review pre-push al PR #<N>"
+git push
 ```
 
-El body del PR lo armas desde `.planning/` (BRIEF/DESIGN) y los reportes de los devs: qué se implementó, decisiones ambiguas resueltas durante los lotes, y sección `## Self-reflection — pendientes` si algún dev la reportó.
+Costo de la secuencia: con la `concurrency` + `cancel-in-progress: true` de la skill `pr-workflow` (regla 5.5, obligatoria en todos los repos), el run del evento `opened` se cancela a los segundos y solo completa el del `synchronize` — neto: **un run completo de CI**, igual que el ideal. En repos sin Actions, gratis. Si un repo no cumple 5.5, arreglar el workflow es prerequisito de esta secuencia.
+
+El body del PR lo armas desde `.planning/` (BRIEF/DESIGN), los reportes de los devs y el registro del review pre-push: qué se implementó, decisiones ambiguas resueltas durante los lotes, veredictos del review dual (Fase 2.6), y sección `## Self-reflection — pendientes` si algún dev la reportó.
 
 ### Fase 2.8: Monitoreo de CI
 
@@ -171,43 +195,64 @@ gh pr checks <number> --watch --fail-fast
     - Tests o lint → dev que creó el PR
     - Tests de DB que fallan por schema/migración → `db-specialist`
   - El agente corrige en el **mismo branch del PR**. **Antes de pushear, debe reproducir el check fallido localmente y verlo pasar** (presupuesto de CI: un run fallido cuesta lo mismo que uno verde)
+  - Si el fix cambia código ya revisado en Fase 2.6, anótalo: al quedar CI verde dispara el re-review acotado de la Fase 3
   - Vuelve a monitorear
-- **Máximo 3 intentos de fix automático.** Después de 3, escala al usuario con contexto completo
+- **Máximo 3 intentos de fix automático.** Cuenta cada ciclo "diagnóstico → fix → push → CI": si el fix introduce un error nuevo no presente antes (regresión), ese intento **no cuenta** y reinicias el diagnóstico. Si el mismo error persiste tras 3 ciclos genuinos, escalas al usuario con contexto completo
 
 **Cuándo NO monitorear CI**: el proyecto no tiene GitHub Actions, o el usuario lo pide explícitamente.
 
-### Fase 3: Revisión
+### Fase 3: Post-PR (re-reviews condicionales, E2E)
 
-1. Lee el diff completo: `gh pr diff <number>`
-2. **Clasifica el diff por capa** (criterios completos en sección "Clasificación del diff por capa" más abajo)
-3. **Lanza en paralelo** (context isolation: solo PR number, branch, diff, archivos):
-   - `security-reviewer` — siempre
-   - `qa-frontend` — solo si el PR tiene frontend
-   - `qa-backend` — solo si el PR tiene backend (incluye revisar migraciones y queries del db-specialist)
-4. Consolida hallazgos
-5. Si hay bloqueantes:
-   - Asigna fixes al dev correspondiente (mismo branch del PR). Si el bloqueante es de schema/migración/query optimizada, va al `db-specialist`
-   - **Un push por ronda**: los devs commitean sin pushear; cuando todos los fixes de la ronda (blockers + sugerencias auto-aplicadas de todos los reviewers) están commiteados, pusheas una sola vez (presupuesto de CI)
-   - Re-lanza **solo los reviewers que marcaron issues** (no los que aprobaron)
-   - Repite hasta que todos aprueben
-6. **Si el PR es a `main` (release)**: invoca `e2e-runner` en Modo B antes de la verificación pre-merge (ver sección "Pre-release E2E" más abajo)
-7. Cuando todos aprueben (incluyendo `e2e-runner` si era PR a main), ejecuta la **verificación pre-merge** (3 comandos `gh` en sección "Comandos `gh` específicos")
-8. Solo si las verificaciones pasan, mergea con el comando apropiado según el tipo de branch:
-   - `feature/*` o `hotfix/*` → `gh pr merge <number> --merge --delete-branch`
-   - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `CLAUDE.md`)
-9. Si era hotfix (PR a main), después del merge integra a dev (procedimiento más abajo)
-10. Actualiza `.planning/STATE.md` con resultado
+El review dual ya ocurrió en Fase 2.6, antes del push: **el PR nació revisado**. Esta fase cubre solo lo que requiere el PR abierto:
 
-### Fase 4: Learn (post-merge)
+1. **Re-review condicional**: SOLO si la Fase 2.8 obligó fixes que cambian código ya revisado. Acotado al delta del fix, re-lanzando **solo los reviewers de la capa afectada**. Los fixes que salgan de esta ronda siguen la regla de un push por ronda (skill `pr-workflow`, regla 5.2). Append de la ronda al registro `.planning/reviews/PR-<N>.md`. Si CI pasó a la primera (caso normal), esta sub-fase es no-op
+2. **Si el PR es a `main` (release)**: invoca `e2e-runner` en Modo B antes de la verificación pre-merge (ver sección "Pre-release E2E" más abajo)
+3. Cuando no queda nada pendiente (re-reviews limpios si los hubo, `e2e-runner` si era PR a main), avanza a la **Fase 4**: la retro se escribe y se commitea en este mismo branch, antes del merge
 
-Después de cada merge exitoso, retrospectiva breve:
+**PRs fuera del flujo** (sin review pre-push — el checkpoint del hook `post-pr-create` lo señala): skill `review-pr` (ver también "Flujo: revisar PR existente" más abajo).
+
+### Fase 4: Learn (retro, antes del merge)
+
+La retro cierra el PR y **viaja en su propio branch**, como último commit antes del merge — nunca en un PR aparte (skill `pr-workflow`, regla 5.7). En modo multi-PR cada grupo hace su Fase 4: una entrada de LEARNINGS por PR mergeado. En este punto ya se conocen todas las métricas del template: rondas de review, hallazgos por reviewer, errores de CI, lotes, devs. Lo único que falta es el merge, que ocurre a continuación.
 
 1. Recolecta métricas: rounds de review, hallazgos por reviewer, errores de build, si self-reflection atrapó algo antes
 2. Identifica aprendizajes: qué salió bien, qué causó re-work
 3. Prepend a `.planning/LEARNINGS.md` — más reciente arriba (formato más abajo)
-4. **Regla de 3**: si un patrón aparece en 3+ entradas de LEARNINGS, sugiere al usuario agregar regla en `rules/` o modificar un agente
+4. **Sella el estado en el mismo commit**: `.planning/state.json` con `phases.merge` en `done`, y `.planning/STATE.md` si hay una decisión o aprendizaje que registrar. No queda nada que escribir después del merge
+5. Commitea y pushea al branch del PR:
 
-**Cuándo saltar Learn**: hotfixes urgentes (retro después), tareas triviales (typos, bumps de dependencias).
+```bash
+git commit -m "planning: registrar retro del PR #<N> y cerrar el estado"
+git push
+```
+
+6. Espera CI verde sobre el HEAD nuevo — branch protection valida el último SHA, no el que ya estaba verde
+7. **Regla de 3**: si un patrón aparece en 3+ entradas de LEARNINGS, súbelo al usuario — las opciones y el criterio están en la sección `LEARNINGS.md` más abajo
+
+**Por qué el estado se sella acá y no después del merge:** escribirlo post-merge obliga a commitear sobre `dev`, que en cualquier repo con branch protection es un push directo a un branch protegido — el bypass que la metodología prohíbe en todos los demás lugares. Sellarlo en el commit de retro elimina esa escritura del flujo. El costo es que `phases.merge` se marca `done` segundos antes de que el merge ocurra: si el merge no llega a pasar, el estado queda adelantado. **Esa ventana no se detectaba sola**: `session-end-check.sh` compara mtimes y nunca mira `phases`, y `session-start-context.sh` reportaba `Fase activa: ninguna` — enmascaraba el desfase en vez de señalarlo. Por eso el mismo cambio agrega el aviso al arranque cuando el estado está sellado y seguimos parados en el branch del feature. Es un desfase de segundos, con aviso, contra un bypass sistemático.
+
+**El commit de retro toca SOLO `.planning/`** — es la norma, no una expectativa. Con el delta acotado ahí, no dispara re-review; si incluye cualquier otra cosa, vuelve a la Fase 2.6 antes de mergear.
+
+Es el único punto del flujo donde el contenido de un push post-review no lo mira ningún hook: `post-pr-create.sh` valida el delta contra `review_sha` al crearse el PR (Fase 2.7) y no vuelve a mirar el branch. Por eso el check 4 de la verificación pre-merge incluye el mismo test de contenido (ver "Comandos `gh` específicos").
+
+**Costo de CI**: este push cuesta un run completo mientras el workflow del repo corra las suites para cualquier diff. Un filtro de "diff sin código → sin suites", con el job agregador reportando verde para no dejar a branch protection esperando, lo baja a segundos: es la contraparte natural de esta regla.
+
+**Cuándo saltar Learn**:
+
+- **Hotfix urgente**: no bloquees el merge con la retro. Si igual quieres registrarla, va en el **branch del hotfix, antes del merge a `main`**, igual que en el flujo de feature — nunca sobre `dev` después de la integración, que es un push directo a un branch protegido (ver el procedimiento de integración más abajo). El sellado del estado sigue las mismas reglas: en el branch, antes del merge
+- **Tareas triviales** (typos, bumps de dependencias): sin retro
+
+**Si se salta Learn, el sellado del estado NO se salta.** Va igual en un commit propio de `.planning/` antes del merge — lo que se omite es la entrada de LEARNINGS, no el cierre. Sin eso, `phases.merge` quedaría en `pending` sobre algo ya mergeado, que es el espejo del problema que este orden resuelve.
+
+### Fase 5: Merge
+
+1. Ejecuta la **verificación pre-merge** (4 checks en sección "Comandos `gh` específicos")
+2. Solo si las verificaciones pasan **y el usuario aprobó el merge explícitamente** (invariante 3 de `CLAUDE.md`: no se infiere de CI verde), mergea con el comando apropiado según el tipo de branch:
+   - `feature/*` o `hotfix/*` → `gh pr merge <number> --merge --delete-branch`
+   - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `CLAUDE.md`)
+3. Si era hotfix (PR a main), después del merge integra a dev (procedimiento más abajo)
+
+**No hay paso de cierre de estado**: `state.json` y `STATE.md` ya quedaron sellados en el commit de retro (Fase 4, paso 4). En el flujo de feature no queda escritura en `.planning/` después del merge, y por lo tanto no se commitea sobre `dev`. La integración de un hotfix a `dev` es la excepción, y tiene su propio procedimiento más abajo.
 
 ---
 
@@ -248,7 +293,7 @@ Cada subagente recibe un paquete de contexto, **no el historial completo**:
 
 - `architect` recibe: `BRIEF.md` completo + tarea ("diseña la solución para esto").
 - `backend-dev` / `frontend-dev` reciben: sección de `DESIGN.md` correspondiente al lote + lista de tareas TDD del lote + `rules/<lenguaje>.md` aplicable.
-- `security-reviewer` / `qa-*` reciben: diff completo del PR + `DESIGN.md` + `BRIEF.md` (necesitan saber qué se quería para juzgar si el código lo cumple).
+- `security-reviewer` / `qa-*` reciben: **la fuente del diff, que la parametriza el orchestrator** — diff local (`git diff <base>...HEAD`) en Fase 2.6 (default del flujo, no existe PR todavía); diff del PR (`gh pr diff <N>`) solo en re-reviews post-PR y PRs fuera del flujo — + `DESIGN.md` + `BRIEF.md` (necesitan saber qué se quería para juzgar si el código lo cumple).
 - `db-specialist` recibe: `DESIGN.md` (sección de datos) + schema actual.
 
 **Quien construye el paquete eres tú**, no el agente que va a recibirlo.
@@ -260,7 +305,7 @@ Cada subagente recibe un paquete de contexto, **no el historial completo**:
 - **Sección de DESIGN.md** correspondiente al lote (no DESIGN completo)
 - **Branch en el que trabajar** (sin `git checkout` desde cero)
 - **Flag `last_batch=true|false`** explícito
-- **Si no es el primer lote**: instrucción de leer `git log` y `.planning/STATE.md` para entender qué hay
+- **Si no es el primer lote**: instrucción de leer `git log`, `.planning/STATE.md` y `.planning/state.json` para entender qué hay
 - `rules/<lenguaje>.md` aplicable
 
 **NO incluyas:**
@@ -298,7 +343,7 @@ Rules aplicables:
 - ~/.claude/rules/<lenguaje>.md
 - ~/.claude/rules/docker.md (si aplica)
 
-Si no es el primer lote: lee `git log` y `.planning/STATE.md` antes de empezar.
+Si no es el primer lote: lee `git log`, `.planning/STATE.md` y `.planning/state.json` antes de empezar.
 
 Si last_batch=false: NO push, NO PR. Reporta completado.
 Si last_batch=true: verificación final completa del branch y reporta listo.
@@ -309,23 +354,24 @@ NO push ni PR en ningún caso — el orchestrator corre docs y hace push + PR.
 
 ## Tracker de tareas de sesión (TaskCreate/TaskUpdate)
 
-Visibilidad en vivo del pipeline de la fase para el usuario. Se crea SIEMPRE al cerrar el diseño con el architect (sin que el usuario lo pida) y se mantiene actualizado durante toda la fase. No sustituye a `.planning/STATE.md`: el tracker vive solo en la sesión; STATE.md sigue siendo el estado persistente y el nivel de detalle fino.
+Visibilidad en vivo del pipeline de la fase para el usuario. Se crea SIEMPRE al cerrar el diseño con el architect (sin que el usuario lo pida) y se mantiene actualizado durante toda la fase. No sustituye a `.planning/STATE.md` ni a `.planning/state.json`: el tracker vive solo en la sesión; STATE.md (decisiones, blockers) y state.json (fase, lotes, progreso) siguen siendo el estado persistente entre sesiones.
 
 ### Estructura estándar del listado
 
 Al recibir el plan de lotes del architect, crea:
 
 1. **Una tarea por lote** — subject: `Lote N: <resumen corto del contenido>`. Si el plan es multi-PR, indica a qué PR pertenece en la descripción.
-2. **Una tarea por PR del plan**: `Abrir PR <n> + reviews (security + qa-*) + CI` — bloqueada por (`addBlockedBy`) los lotes que contiene.
-3. **Una tarea de E2E** por cada PR que toque UI: `E2E visual en navegador` — bloqueada por la tarea del PR. Solo se elimina si el usuario renuncia explícitamente a la E2E (y esa renuncia queda registrada en STATE.md como deuda consciente).
-4. **Una tarea final**: `Merge + retro de fase (LEARNINGS + STATE handoff)` — bloqueada por todo lo anterior.
+2. **Una tarea de review por PR del plan**: `Review dual local (security + qa-*)` — bloqueada por (`addBlockedBy`) los lotes que contiene el PR.
+3. **Una tarea por PR del plan**: `Abrir PR <n> + CI` — bloqueada por la tarea de review dual local.
+4. **Una tarea de E2E** por cada PR que toque UI: `E2E visual en navegador` — bloqueada por la tarea del PR. Solo se elimina si el usuario renuncia explícitamente a la E2E (y esa renuncia queda registrada en STATE.md como deuda consciente).
+5. **Una tarea final**: `Retro + merge (LEARNINGS en el branch, luego merge)` — bloqueada por todo lo anterior.
 
 ### Reglas de actualización
 
 - `in_progress` al LANZAR el trabajo (dev invocado, reviews lanzados, E2E iniciada).
-- `completed` SOLO cuando el hito ocurrió de verdad: lote = commits pusheados y reporte del dev recibido; PR/reviews = veredictos limpios + sugerencias aplicadas + CI verde; E2E = checklist ejecutada con hallazgos resueltos; merge+retro = mergeado Y retro commiteada.
+- `completed` SOLO cuando el hito ocurrió de verdad: lote = commits del lote hechos (locales — los devs no pushean) y reporte del dev recibido; review dual local = veredictos limpios + sugerencias aplicadas + registro commiteado; PR/CI = PR creado + registro reconciliado (`PR-<N>.md`) + CI verde; E2E = checklist ejecutada con hallazgos resueltos; retro+merge = retro commiteada y pusheada al branch, CI verde y PR mergeado.
 - Los blockers de reviews/E2E se resuelven dentro de la tarea en curso (fixes en el mismo PR) — NO crean tareas nuevas, salvo que generen trabajo fuera del PR (fix-PR posterior o issue), en cuyo caso sí se agrega la tarea.
-- Si el usuario pausa la fase, las tareas quedan en su estado actual y STATE.md registra el corte exacto (el tracker no persiste entre sesiones; al retomar, se recrea desde STATE.md).
+- Si el usuario pausa la fase, las tareas quedan en su estado actual y HANDOFF.md/state.json registran el corte exacto (el tracker no persiste entre sesiones; al retomar, se recrea desde HANDOFF.md + STATE.md + state.json).
 - Fases con un solo paso trivial no necesitan tracker (criterio general del harness: <3 pasos no se trackea).
 
 ---
@@ -367,43 +413,85 @@ Al recibir el plan de lotes del architect, crea:
 [Si no se generó, omitir esta sección]
 ```
 
-### `STATE.md`
+### `STATE.md` + `state.json`
+
+**Regla de reparto:** prosa en `STATE.md`, estado enumerable en `state.json`. Si un dato tiene un valor de un enum cerrado o se usa para calcular progreso (fase, status de un lote, contador de tareas), va en `state.json`; si es texto libre que explica un porqué (una decisión, un blocker), va en `STATE.md`.
+
+`STATE.md` pierde las secciones "Estado actual" y "Progreso" (migran al JSON) y gana una línea de puntero:
 
 ```markdown
-## Estado actual
-
-- **Feature:** [nombre]
-- **Fase:** [brainstorming | diseño | implementación | review | completado]
-- **Branch:** [nombre del branch activo]
-- **PR:** [número si existe]
-- **Última actualización:** [timestamp]
-
-## Progreso
-- [x] Brainstorming completado
-- [x] Diseño aprobado
-- [ ] DB implementada (si aplica db-specialist)
-- [ ] Backend implementado
-- [ ] Frontend implementado
-- [ ] PR creado
-- [ ] CI verde
-- [ ] Documentación actualizada
-- [ ] Review aprobado
-- [ ] Mergeado
-
 ## Decisiones
 - [D-01] [decisión tomada durante brainstorming/diseño]
 - [D-02] ...
 
 ## Blockers
 - [ninguno | descripción del blocker]
+
+---
+El estado mutable (fase, lotes, progreso) vive en `state.json`.
 ```
 
-**Cuándo actualizar:**
-- Al completar cada fase
-- Al crear un PR
-- Al recibir resultados de review
-- Al encontrar un blocker
+**Schema de `state.json` (contrato — versión 1):**
+
+```json
+{
+  "schema": 1,
+  "feature": "slug-corto-de-la-feature",
+  "branch": "feature/slug",
+  "pr": null,
+  "review_sha": null,
+  "updated": "2026-08-13T18:30:00Z",
+  "phases": {
+    "brainstorming": "done",
+    "design": "in_progress",
+    "implementation": "pending",
+    "docs": "pending",
+    "review": "pending",
+    "pr": "pending",
+    "ci": "pending",
+    "e2e": "skipped",
+    "merge": "pending"
+  },
+  "batches": [
+    {
+      "id": 1,
+      "name": "pre-compact-snapshot",
+      "agent": "backend-dev",
+      "status": "in_progress",
+      "tasks_done": 2,
+      "tasks_total": 5,
+      "current_task": "3: no-op limpio sin .planning"
+    }
+  ]
+}
+```
+
+- **Enum de status** (`phases.*` y `batches[].status`): `pending | in_progress | done | failed | skipped`. Ningún otro valor.
+- `phases` es un objeto de **claves fijas** — siempre las 9 de arriba, presentes todas (`skipped` para las que no aplican, p. ej. `e2e` sin UI). Claves fijas = mutación mínima ("cambiar un valor"), menos corruptible que un array.
+- `batches` refleja el plan del architect: `id`/`name`/`agent` los siembra el orchestrator al cerrar el diseño; `status`/`tasks_done`/`current_task` mutan durante la ejecución.
+- **Orden de transiciones**: `review` pasa a `done` en la Fase 2.6, **antes** que `pr` y `ci` — el review dual ocurre pre-push. Es la evidencia que el hook `post-pr-create.sh` verifica al crearse el PR (CASO A: `phases.review == "done"`, `branch` igual al actual, y `review_sha` ancestro de HEAD con delta posterior solo bajo `.planning/`).
+- **`review_sha`** (opcional, **sin bump de schema** — hooks viejos lo ignoran): SHA de HEAD al momento de los veredictos limpios de la Fase 2.6. Ancla la evidencia de review a los commits realmente revisados: si después del review entra cualquier commit que toque algo fuera de `.planning/` (los commits legítimos post-review son registro/reconciliación), el checkpoint deja de dar CASO A.
+
+**Quién escribe qué:**
+
+| Campo | Quién escribe | Cuándo |
+|---|---|---|
+| Archivo completo (creación) | Orchestrator | Al cerrar el diseño (fin de Fase 1) |
+| `phases.*` | Orchestrator | En cada transición de fase del pipeline |
+| `phases.review` | Orchestrator | Fase 2.6, al cerrar veredictos limpios (antes que `pr` y `ci`) |
+| `review_sha` | Orchestrator | Fase 2.6, paso 7 — mismo momento que `phases.review`: SHA de HEAD al cerrar los veredictos limpios |
+| `batches[].status` | Orchestrator | Al invocar / al cerrar cada lote |
+| `batches[].tasks_done` y `current_task` de **su** batch | Dev que ejecuta el lote | Antes de empezar cada tarea atómica (reemplaza la regla 3 de `agent-budget.md` de "STATE.md actualizado entre tareas") |
+| `pr` | Orchestrator | Fase 2.7 — dentro del commit de reconciliación (el mismo que renombra el registro a `PR-<N>.md`) |
+| `phases.merge` | Orchestrator | Fase 4 — dentro del commit de retro, **antes** del merge. Post-merge no se escribe en `.planning/`: hacerlo obliga a commitear sobre `dev` |
+| `updated` | Quien haga la escritura | En toda escritura al archivo |
+
+**Cuándo actualizar `STATE.md`:**
+- Al tomar una decisión nueva (`[D-NN]`)
+- Al encontrar o resolver un blocker
 - Al pausar o retomar
+
+**Cuándo actualizar `state.json`:** ver tabla de arriba — cada transición de fase o lote, y entre cada tarea atómica del dev activo.
 
 ### `HANDOFF.md`
 
@@ -425,9 +513,21 @@ Al recibir el plan de lotes del architect, crea:
 1. [instrucción paso a paso de cómo continuar]
 ```
 
+### Retomar (resume)
+
+Pasos exactos cuando el hook `session-start-context.sh` detecta `HANDOFF.md` (ver "Pause / Resume" en `CLAUDE.md` raíz para el resumen):
+
+1. **Leer** `HANDOFF.md` + `STATE.md` + `state.json` — el HANDOFF da el corte exacto, `STATE.md` las decisiones, `state.json` la fase y el lote activos.
+2. **Smoke test ANTES de tocar código.** Misma detección de runner que `hooks/pre-commit-guard.sh`:
+   - Node: si hay `package.json` con `scripts.test` no vacío, corre con el gestor que indica el lockfile (`pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, si no → npm).
+   - Python: si hay `pytest.ini`, `pyproject.toml` o `setup.py` y `pytest` está en PATH, corre `pytest`.
+   - **Sin runner detectado** → se omite explícitamente y se anota en el reporte al usuario (no es un fallo, es contexto ausente).
+   - **Rojo** → diagnosticar ANTES de retomar la tarea pendiente. El rojo puede ser el bug no documentado que cortó la sesión anterior, no una regresión de este momento.
+3. **Eliminar `HANDOFF.md`** solo una vez confirmado el estado (verde, o sin runner y anotado) — recién ahí retomar la tarea marcada como `current_task` en `state.json`.
+
 ### `LEARNINGS.md` (acumulativo)
 
-**Prepend** una entrada por cada merge exitoso (más reciente arriba):
+**Prepend** una entrada por PR mergeado (más reciente arriba) — en modo multi-PR, cada grupo corre su propia Fase 4 y deja su entrada. Se escribe en la Fase 4 y viaja en el **último commit del branch del PR**, antes del merge — nunca en un PR aparte:
 
 ```markdown
 ## [YYYY-MM-DD] PR #N — [título corto de la feature]
@@ -478,6 +578,7 @@ O archivos `.ts` / `.js` bajo:
 
 Archivos con extensión:
 - `.py`, `.go`, `.rs`, `.cs`, `.sql`
+- `.sh`, `.bash` — hooks, libs y scripts. Se revisan contra `rules/bash.md`
 
 O archivos `.ts` / `.js` bajo:
 - `api/`, `apps/backend/`, `apps/api/`
@@ -486,9 +587,17 @@ O archivos `.ts` / `.js` bajo:
 - `models/`, `lib/`, `db/`, `migrations/`
 - `workers/`, `jobs/`
 
-### PR mixto
+### Documentos normativos del sistema de agentes
 
-Si tiene archivos de ambas capas → lanzar **ambos QAs en paralelo**.
+Un diff que toca `rules/`, `rulebooks/`, `agents/`, `skills/` o `global/CLAUDE.md` va a **`qa-backend`**, con criterio de coherencia normativa y anti-drift en vez de capas de aplicación (ver `agents/qa-backend.md`). No hay capa de aplicación que clasificar ahí: el contrato son los documentos.
+
+Sin esta entrada, un diff 100% de metodología no matchea ninguna capa y el ruteo automático no invoca a nadie — pasó en esta misma sesión, donde el review ocurrió solo porque el orchestrator lo pidió a mano.
+
+El `README.md` y el `CLAUDE.md` raíz de un proyecto **no** entran acá: son meta-documentación del repo, no reglas que los agentes consuman. La excepción es el repo de la metodología misma, donde ambos describen cómo se edita el sistema y sí van a `qa-backend`. El grep del DoD anti-drift los cubre igual, que es un mecanismo distinto: ese busca drift, este decide a quién invocar.
+
+### Diff mixto
+
+Si el diff (local o de PR) tiene archivos de ambas capas → lanzar **ambos QAs en paralelo**.
 
 **Nota sobre DB**: archivos bajo `db/`, `migrations/`, `schema/` los revisa `qa-backend`. No hay un `qa-db` separado — el qa-backend valida que las migraciones del db-specialist sean consistentes con lo que el backend-dev consume.
 
@@ -510,10 +619,10 @@ gh run view <run-id> --log-failed
 ### Verificación pre-merge (OBLIGATORIO antes de cada merge)
 
 ```bash
-# 1. Comentarios sin resolver
-gh api repos/{owner}/{repo}/pulls/<number>/comments \
-  --jq '[.[] | select(.in_reply_to_id == null)] | length'
-# Si > 0, revisar si están resueltos
+# 1. Threads de review sin resolver (inline; los comentarios generales del PR no bloquean)
+gh api graphql -f query='query { repository(owner: "{owner}", name: "{repo}") { pullRequest(number: <number>) { reviewThreads(first: 100) { nodes { isResolved } } } } }' \
+  --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length'
+# Si > 0, resolver o responder los threads antes de mergear
 
 # 2. Reviews bloqueantes
 gh pr view <number> --json reviewDecision --jq '.reviewDecision'
@@ -522,11 +631,27 @@ gh pr view <number> --json reviewDecision --jq '.reviewDecision'
 # 3. CI checks
 gh pr checks <number>
 # Todos en ✓
+
+# 4. Evidencia del review dual pre-push (cierra los caminos de creación de PR
+#    que el checkpoint post-pr-create no ve: web UI, gh api)
+test -f .planning/reviews/PR-<number>.md
+jq -r '.phases.review' .planning/state.json   # debe ser "done"
+REVIEW_SHA=$(jq -r '.review_sha // empty' .planning/state.json)
+[ -n "$REVIEW_SHA" ] || echo "sin review_sha → NO mergear"
+git merge-base --is-ancestor "$REVIEW_SHA" "$(git rev-parse <branch>)"
+# exit 0 = el SHA revisado es ancestro del HEAD del branch. Si falta el
+# registro, la fase no está en "done", o review_sha está ausente o no es
+# ancestro → NO mergear
+git diff --name-only "$REVIEW_SHA".."$(git rev-parse <branch>)" | grep -cv '^\.planning/'
+# debe imprimir 0: el único delta legítimo post-review es registro y retro,
+# ambos bajo .planning/ — mismo test que corre hooks/post-pr-create.sh al
+# crearse el PR. Cualquier otro path = código que entró sin revisar después
+# del review dual → volver a Fase 2.6, no mergear
 ```
 
-**Si cualquiera de las 3 falla, NO mergear.** Reportar al usuario qué bloquea.
+**Si cualquiera de las 4 falla, NO mergear.** Reportar al usuario qué bloquea.
 
-Solo si las 3 pasan, mergea según el tipo de branch:
+Solo si las 4 pasan, mergea según el tipo de branch:
 
 ```bash
 # feature/* o hotfix/* (branch desechable)
@@ -546,14 +671,16 @@ git merge origin/main --no-ff
 git push origin dev
 ```
 
+**La retro del hotfix no va acá.** Si la escribís, va en el branch del hotfix antes del merge a `main`, igual que en el flujo de feature (Fase 4). Commitearla después, sobre `dev`, es el mismo push directo a un branch protegido que este orden elimina — y el merge de integración de arriba ya es la única excepción sancionada, precisamente porque no hay otra forma de llevar el hotfix a `dev`.
+
 ---
 
 ## Formato de reporte de review
 
-Para `gh pr comment <number> --body "<reporte>"`:
+El mismo formato sirve para las dos rondas: **pre-PR** (Fase 2.6 — no hay PR todavía: el reporte vive solo en el registro local) y **post-PR** (re-reviews de Fase 3 y PRs fuera del flujo — ahí además se comenta con `gh pr comment <number> --body "<reporte>"`; ese comando aplica SOLO post-PR).
 
 ```markdown
-## Review: PR #[number] — [title]
+## Review: [PR #<number> | pre-push <branch>] — [title]
 
 ### Resumen
 [Qué hace este PR en 1-2 oraciones]
@@ -577,7 +704,15 @@ Para `gh pr comment <number> --body "<reporte>"`:
 - [ ] ...
 ```
 
-Guardar copia en `.planning/reviews/PR-<number>.md`.
+**Registro (convención dual + reconciliación):**
+
+| Momento | Archivo | Quién lo escribe |
+|---|---|---|
+| Fase 2.6 (pre-PR) | `.planning/reviews/pre-pr-<feature-slug>.md` | Orchestrator (consolidación) |
+| Fase 2.7 (al crear el PR) | `git mv` → `.planning/reviews/PR-<N>.md` + `state.json.pr = N`, commit `planning: vincular review pre-push al PR #<N>` | Orchestrator |
+| Fase 3 / skill `review-pr` (post-PR) | Append `## Re-review <fecha>` a `PR-<N>.md` (convención existente, sin cambio) | Orchestrator / skill |
+
+`<feature-slug>` = campo `feature` de `state.json`. **Header obligatorio del registro pre-PR**: branch, base, SHA de HEAD revisado, fecha, veredicto — sin él, el re-review acotado al delta no tiene ancla. La reconciliación es un rename y no dos convenciones permanentes porque los re-reviews post-PR hacen append a `PR-<N>.md`: sin el rename, la historia de review de un mismo PR quedaría fragmentada en dos archivos.
 
 ---
 
@@ -614,6 +749,38 @@ Después:
 
 ---
 
+## Anti-drift: DoD de cambios de proceso
+
+Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planning/`, reglas de agentes) incluye, como parte de su Definition of Done, antes de pedir review:
+
+1. **Grep de los términos afectados** en `CLAUDE.md`, `README.md`, `rulebooks/`, `agents/`, `skills/` y `.planning/` — cualquier mención del comportamiento viejo es candidata a quedar desactualizada. `.planning/` entra en la lista porque sus documentos tienen preámbulo normativo propio: el de `LEARNINGS.md` quedó describiendo el comportamiento viejo en el PR #59 y ningún reviewer lo vio, porque el directorio no estaba acá.
+2. **Reconciliar todo documento que describa el comportamiento cambiado.** No basta con documentar el cambio en un solo archivo — el mismo hecho (p. ej. "el dev actualiza X entre tareas") suele estar descrito en más de un rulebook o en `CLAUDE.md` raíz.
+3. **Enunciar una vez, remitir el resto.** Vale para lo que decide y también para **lo que afirma sobre un incidente pasado** — conteos, citas, quién encontró qué: si ya está registrado en `.planning/`, remití en vez de reconstruirlo en prosa nueva, que es donde la paráfrasis diverge de la fuente. Antes de escribir una frase que **decide** algo —qué bloquea un merge, quién pushea, dónde va la retro—, buscá si ese hecho ya está enunciado. Si está, remití en vez de repetirlo — **la remisión conserva siempre el enunciado accionable; lo que se mueve es la elaboración**. Nunca reduzcas a un puntero pelado una advertencia que alguien necesita leer en el momento en que está parado ahí.
+
+   **Por qué es un paso y no un consejo de estilo:** el grep del paso 1 cruza *términos*, no *decisiones*. Dos enunciaciones del mismo hecho con vocabulario distinto son invisibles para él y divergen con el tiempo. Casos reales de este repo: "commit propio posterior a la integración" contra "push directo a un branch protegido" —deciden lo mismo, sin compartir una palabra, y una quedó instruyendo lo que la otra prohibía—; y "es la única situación en que el dev pushea" contra "hay exactamente dos excepciones", en dos rulebooks distintos.
+
+   Ese patrón —resumen accionable más puntero— es el mayoritario del corpus y funciona: la auditoría del 2026-08-26 encontró solo 5 hechos enunciados dos veces en 1900 líneas.
+
+   **Dónde vive el detalle:** en el rulebook o la skill, nunca en `global/CLAUDE.md`, que se carga en toda sesión de todo proyecto. Si al aplicar esta regla el detalle sube al núcleo, arreglaste la contradicción y rompiste el presupuesto de contexto.
+4. **Si el PR introduce una regla, releé el diff completo aplicándola.** Escribir una regla y aplicarla al propio cambio son dos pasadas distintas, y hacerlas en una sola no funciona: en cuatro PRs seguidos el review encontró que el PR violaba la regla que estaba escribiendo:
+
+   | PR | Lo que se escribía | Lo que el review encontró |
+   |---|---|---|
+   | #61 | El principio 5 y su corolario | Una instrucción que obligaba a los QA a rodear su propia política de tools |
+   | #64 | `rules/bash.md`, con un red flag contra las garantías absolutas | Un absoluto en ese mismo archivo |
+   | #65 | Que el estado se sella antes del merge para no bypassear `dev` | La ruta de hotfix arreglada en un lugar y viva en el punto de decisión, a 400 líneas |
+   | #66 | Enunciar una vez y remitir | Una contradicción residual tres líneas debajo del fix |
+
+   Ninguna la atrapó la autorrevisión del autor: las cuatro salieron del review dual, y dos de ellas las encontraron los dos reviewers por separado. Lo que funciona es la pasada externa, no quién la haga.
+
+   Leelo como si el diff fuera de otro. Si la regla nueva tiene un criterio verificable —"el test se rompe al revertir", "el enunciado accionable sigue en su lugar"— corrélo sobre tu propio cambio antes de pedir review.
+
+   **Este paso no se puede auditar, y por eso no se audita.** A diferencia del paso 1, que deja la salida de un grep, o del corolario del principio 5, que deja un rojo→verde, una relectura se cumple diciendo "la hice" — un artefacto que la declare no la verifica. El respaldo es la pasada externa: `qa-backend` aplica al diff la regla que el diff introduce, sin auditar si vos la releíste. Hacer tu propia relectura igual vale, porque encontrarlo antes es más barato; pero lo que sostiene el paso es el review, no tu declaración.
+
+**Ninguno de los cuatro pasos es opcional ni cosmético.** Los pasos 1 a 3 atacan la deriva entre documentos: la mayoría de las 7 contradicciones de la auditoría de julio (ver `.planning/AUDIT-context-engineering.md`) eran de esa clase — un cambio de proceso documentado en un archivo y olvidado en otro. El paso 4 ataca otra: el PR que viola la regla que está escribiendo, con su propia evidencia en la tabla de arriba.
+
+---
+
 ## Errores comunes y cómo manejarlos
 
 | Situación | Acción |
@@ -623,11 +790,13 @@ Después:
 | Dev (cualquiera) reporta `BUDGET LIMIT` | Leer `HANDOFF.md`, reinvocar al mismo dev con tareas restantes, anotar en `LEARNINGS.md` |
 | Dev reporta error de build/CI | `build-resolver` con error completo + branch + archivos. Max 3 fixes automáticos |
 | Reviewer reporta bloqueante | Asignar fix al dev del lote correspondiente en mismo branch. Re-lanzar solo el reviewer que reportó. Repetir hasta aprobación |
-| `gh pr merge` falla | Verificar las 3 condiciones de pre-merge. Reportar cuál bloquea |
+| PR creado sin review pre-push (el checkpoint del hook `post-pr-create` lo señala) | Tratarlo como PR fuera del flujo: skill `review-pr` sobre `gh pr diff` |
+| `gh pr merge` falla | Verificar las 4 condiciones de pre-merge. Reportar cuál bloquea |
 | Healthcheck Docker falla antes de E2E pre-release | Escalar al dev del servicio fallando antes de lanzar `e2e-runner` Modo B |
 | Hotfix mergeado pero falló integración a dev | Conflicto manual. Escalar al usuario con detalles del conflicto |
 | Migración del db-specialist falla en CI | Asignar fix al db-specialist (no a backend-dev) — es su scope |
 | Backend-dev intenta crear migración compleja (no simple) | Devolver: "esto califica como complejo según los criterios. Reasignar al db-specialist" |
+| Estado de `.planning/` corrupto o inconsistente post-compact | Restaurar desde el snapshot más reciente en `~/.claude/methodology/snapshots/<slug>/` (los crea el hook `PreCompact`) |
 
 ---
 
@@ -639,3 +808,5 @@ Cuando el usuario pide revisar un PR que no salió de este flujo:
 2. `gh pr diff <number>`
 3. Clasifica el diff (sección "Clasificación del diff por capa") y lanza los reviewers correspondientes en paralelo
 4. Consolida y comenta en el PR: `gh pr comment <number> --body "<reporte>"` (formato en sección "Formato de reporte de review")
+
+El registro se guarda **directo en `.planning/reviews/PR-<N>.md`** — acá no hay archivo `pre-pr-*` que reconciliar: el PR ya existía antes del review.

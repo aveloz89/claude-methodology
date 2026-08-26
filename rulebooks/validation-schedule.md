@@ -7,6 +7,7 @@ Proceso para validar periódicamente que los agentes no han degradado en calidad
 - **Antes de cada release** — validación completa de todos los agentes
 - **Mensualmente** — validación completa (lo que ocurra primero)
 - **Después de modificar un agente** — validación del agente modificado
+- **Trimestralmente, o al cambiar de modelo base** — stress-test de supuestos del harness (cadencia distinta, ver sección abajo)
 
 ## Proceso
 
@@ -31,6 +32,19 @@ Proceso para validar periódicamente que los agentes no han degradado en calidad
 | 2+ expected behaviors no cumplidos | Investigar y ajustar prompt del agente |
 | Red flag observado | Investigar inmediatamente, ajustar prompt |
 | Agente ignora instrucciones del prompt | Escalar — puede ser un cambio en el modelo base |
+
+## Stress-test trimestral de supuestos del harness
+
+Distinto de la validación de arriba (que mide si un agente sigue su prompt): esto mide si una pieza de **andamiaje** — texto que compensaba las limitaciones de un modelo anterior — sigue siendo necesaria con el modelo actual.
+
+Cada trimestre, o al cambiar de modelo base:
+
+1. **Elegir UNA pieza de andamiaje** — un template de reporte, la sección de detalle de un agente, un hook informativo.
+2. **Quitarla en un branch** (nunca en `main`/`dev`).
+3. **Correr `tests/adversarial/` + un prompt canónico de `tests/validation/`** contra esa pieza.
+4. **Evaluar:**
+   - El comportamiento **sobrevive** sin la pieza → PR que la poda.
+   - **No sobrevive** → documentar en `tests/validation/VALIDATION-LOG.md` que sigue siendo necesaria, con la evidencia del fallo.
 
 ## Qué NO es validación
 

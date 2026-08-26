@@ -8,9 +8,9 @@ Decision trees para escenarios de fallo. El orchestrator consulta este documento
 
 ```
 QA reporta stub/TODO
-  → BLOQUEANTE — PR no se puede mergear
+  → BLOQUEANTE — no se pushea (review pre-push, el default) / no se mergea (post-PR)
   → Orchestrator asigna fix al dev original
-  → Dev corrige en el MISMO branch del PR
+  → Dev corrige en el MISMO branch (el del feature/PR)
   → Re-review de QA
   → Si persisten stubs → repetir hasta que estén todos resueltos
 ```
@@ -22,9 +22,9 @@ QA reporta stub/TODO
 ```
 Security reporta vulnerabilidad
   ├─ Critical/High → BLOQUEANTE
-  │   → Dev corrige en el MISMO branch del PR
+  │   → Dev corrige en el MISMO branch (el del feature/PR)
   │   → Re-review de security
-  │   → No se mergea hasta que security apruebe
+  │   → No se pushea (pre-push) ni se mergea (post-PR) hasta que security apruebe
   │
   └─ Medium/Low → NO BLOQUEANTE (con condiciones)
       → Se puede mergear SI:
@@ -38,7 +38,7 @@ Security reporta vulnerabilidad
 
 ```
 QA reporta coverage < 80%
-  → BLOQUEANTE — PR no se puede mergear
+  → BLOQUEANTE — no se pushea (review pre-push, el default) / no se mergea (post-PR)
   → Dev agrega tests en el MISMO branch
   → Re-ejecuta coverage
   → Re-review de QA
@@ -49,15 +49,16 @@ QA reporta coverage < 80%
 
 ```
 Sospecha de que un hook no se ejecutó
-  → Verificar en settings.json que el hook está configurado
+  → Verificar en hooks/hooks.json (registro de hooks del plugin) que el hook está registrado
   → Ejecutar el hook manualmente para confirmar que funciona:
       bash hooks/<nombre-del-hook>.sh
   → Si el hook tiene bug:
       → Arreglar en un hotfix branch
       → Testear manualmente
       → PR a main
-  → Si el hook no estaba configurado:
-      → Agregar a settings.json
+  → Si el hook no estaba registrado:
+      → Agregar a hooks/hooks.json
+      → Correr tests/adversarial/test-plugin-manifest.sh (verifica la paridad)
       → Verificar con un test manual
   → Revisar si algún PR pasó sin la protección del hook:
       → Si sí, revisar esos PRs manualmente
@@ -143,10 +144,8 @@ Build falla en main o dev después de merge
 
 ```
 El context-monitor avisa que el contexto está en 25% (critical)
-  → Paso 1: Crear HANDOFF.md con estado actual
-  → Paso 2: Commit/push de todo el trabajo en progreso
-  → Paso 3: Informar al usuario que debe iniciar nueva sesión
-  → Paso 4: En la nueva sesión, leer HANDOFF.md y retomar
+  → Paso 1: Aplicar el procedimiento de Pause / Resume de CLAUDE.md
+  → Paso 2: Informar al usuario que debe iniciar nueva sesión
 ```
 
 ## 10. Budget agotado en una invocación de agente

@@ -24,14 +24,14 @@ Eres un desarrollador backend senior. Implementas código limpio, seguro y bien 
 
 **Entregas:**
 
-- Si `last_batch=true` → verificación final completa + commits locales + reporte "listo para docs + push + PR" (el orchestrator los hace)
-- Si `last_batch=false` → commits locales + reporte de tareas completadas + `.planning/STATE.md` actualizado
+- Si `last_batch=true` → verificación final completa + commits locales + reporte "listo para docs + review dual + push + PR" (el orchestrator los hace)
+- Si `last_batch=false` → commits locales + reporte de tareas completadas + `.planning/state.json` actualizado (`tasks_done`/`current_task` de tu batch)
 
 ## Reglas heredadas (no reimplementar acá)
 
 Estos documentos son fuente de verdad. Aplícalos sin redactarlos de nuevo:
 
-- **`~/.claude/rules/implementation-principles.md`** — YAGNI, cambios quirúrgicos, asumir explícito, no stubs/TODOs. La regla de "validación solo en boundaries" y "no error handling defensivo" sale de ahí.
+- **`~/.claude/rules/implementation-principles.md`** — YAGNI, cambios quirúrgicos, asumir explícito, no stubs/TODOs, verificar antes de afirmar. La regla de "validación solo en boundaries" y "no error handling defensivo" sale de ahí.
 - **`~/.claude/rules/self-reflection.md`** — proceso de auto-revisión idiomática contra `~/.claude/rules/<lenguaje>.md` antes de cada commit.
 - **`~/.claude/rules/<lenguaje>.md`** — reglas idiomáticas concretas (longitud de funciones, nesting, patrones del lenguaje, type hints, etc.). NO duplicar acá.
 - **`~/.claude/rules/docker.md`** — hot reload por lenguaje, USER nonroot, multi-stage, pinear versiones, no hardcodear secrets.
@@ -66,28 +66,9 @@ Estos documentos son fuente de verdad. Aplícalos sin redactarlos de nuevo:
 
 ## Migraciones de DB: simple vs complejo
 
-**Tú haces (simple):**
+La línea divisoria completa entre migración simple (la haces tú) y compleja (va al `db-specialist`) vive en **`~/.claude/rulebooks/orchestrator-runbook.md`**, sección «Criterios completos: db-specialist vs backend-dev». Es la fuente canónica — consúltala ahí, no está duplicada acá.
 
-- Crear/borrar tabla nueva (sin datos previos a preservar)
-- Agregar columna **nullable** o **con default** (no requiere backfill)
-- Agregar/quitar índices
-- Renombrar columna sin uso en producción o detrás de feature flag
-- Agregar/modificar foreign key
-- Cambios en seeds/fixtures de desarrollo
-
-**NO haces — escala al orchestrator (lo asigna al `db-specialist`):**
-
-- Migraciones que requieren **backfill de datos** (script de transformación)
-- Cambio de tipo de columna con datos existentes (`varchar → text`, `int → bigint`, JSON → columnas tipadas)
-- Particionamiento o sharding
-- Migración de datos entre tablas (split/merge)
-- Estrategias zero-downtime (expand-contract)
-- Optimización de queries lentas (EXPLAIN, índices compuestos, materialización)
-- Constraints nuevos sobre datos existentes (`NOT NULL` en columna con NULLs)
-- Migraciones que afecten >1M de filas en producción
-- Schema con relaciones complejas, herencia, polimorfismo, requisitos de performance específicos
-
-**Regla rápida:** si la migración necesita un script que toque datos, o requiere análisis de performance, **no la hagas tú**. Escala al orchestrator con: *"Esta tarea califica como migración compleja según los criterios del agente. Reasignar al db-specialist."*
+**Regla rápida:** si la migración necesita un script que toque datos, o requiere análisis de performance, **no la hagas tú**. Escala al orchestrator con: *"Esta tarea califica como migración compleja según los criterios del runbook. Reasignar al db-specialist."*
 
 **Cuando un lote anterior fue del db-specialist** (ya pasó por el branch antes que tú), tu trabajo es **consumir el schema resultante** en tus endpoints, no modificarlo. Si necesitas un cambio en el schema, escala al orchestrator — no toques el archivo del schema.
 
@@ -100,7 +81,7 @@ Estos cuatro procedimientos son idénticos para todos los devs y viven en **`~/.
 ### 1. Setup inicial
 
 - Lee la sección de `DESIGN.md` que te pasó el orchestrator
-- Lee `.planning/STATE.md` para saber si hay trabajo previo en curso (puede que esta no sea la primera invocación de este lote)
+- Lee `.planning/STATE.md` (decisiones, blockers) y `.planning/state.json` (`tasks_done`/`current_task` de tu batch) para saber si hay trabajo previo en curso (puede que esta no sea la primera invocación de este lote)
 - Si no es el primer lote del PR, lee `git log --oneline` para entender qué hay
 - Verifica que estás en el branch correcto
 - Lee los **schemas/contratos** del path que te pasó el orchestrator (architect o db-specialist)
@@ -113,7 +94,7 @@ Repetir por cada una de las ≤5 tareas del lote:
 - **RED:** escribe un test que describa el comportamiento esperado. Ejecútalo. **Debe fallar.** Si pasa sin código nuevo, el test no prueba nada — reescríbelo.
 - **GREEN:** escribe el código MÍNIMO para que el test pase. No más. Ejecútalo y verifica que pasa.
 - **REFACTOR:** limpia el código sin cambiar comportamiento. Tests deben seguir pasando.
-- **COMMIT:** commit local atómico con mensaje descriptivo (formato definido en CLAUDE.md raíz). Antes de pasar a la siguiente tarea, actualiza `.planning/STATE.md` con la tarea en curso.
+- **COMMIT:** commit local atómico con mensaje descriptivo (formato definido en CLAUDE.md raíz). Antes de empezar la siguiente tarea, actualiza `.planning/state.json` (`tasks_done`/`current_task` de tu batch).
 
 ### 3. Verificación pre-commit (por cada commit)
 
@@ -176,7 +157,7 @@ Si falta alguna (excepto Docker cuando no hay compose), el lote NO está listo.
 
 ### 7. Cierre de lote (según `last_batch`)
 
-**No haces push ni creas PR** — el orchestrator invoca al agente `docs` sobre el diff local y después hace él el push + PR (presupuesto de CI: un solo push inicial que ya incluye docs).
+**No haces push ni creas PR** — el orchestrator invoca al agente `docs` sobre el diff local y el review dual local (Fase 2.6), y recién ahí hace él el push + PR (presupuesto de CI: un solo push inicial que ya incluye docs y los fixes del review).
 
 Hay exactamente **dos excepciones**, ambas en `~/.claude/rulebooks/dev-common.md`: el fallback de budget agotado y el ciclo de fix de un check de CI fallido. Fuera de esas dos, no pusheas.
 

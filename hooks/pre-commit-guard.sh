@@ -2,12 +2,42 @@
 # Pre-commit guard: Detecta si Claude va a hacer git commit
 # y verifica que los tests pasen primero.
 # Recibe JSON en stdin con tool_input del comando Bash.
+#
+# Matching endurecido (#47): el match se sanea (spans quoted/heredoc) y se
+# ancla a posición de comando en vez de al string completo — mismo helper
+# que usa pre-merge-check.sh. Ver hooks/lib/guard-matching.sh.
+#
+# Fail-closed sin jq (cierra #50 para este guard): sin jq, el parseo de
+# COMMAND más abajo devuelve vacío, el grep nunca matchea, y el guard
+# pasaba en silencio — un commit pasaba sin correr tests. CAMBIA el
+# contrato de este hook: antes, sin jq, pasaba.
+if ! command -v jq > /dev/null 2>&1; then
+  echo "BLOCKED: pre-commit-guard no operativo: falta jq" >&2
+  exit 2
+fi
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
+# Resolución del path del lib sin depender de un binario externo (dirname):
+# "${0%/*}" es el idioma de shell para dirname cuando $0 trae al menos un
+# "/" — siempre el caso dado cómo el harness invoca los hooks. Fail-closed si
+# el lib no existe o no es legible: un `source` fallido dejaría el resto
+# del script corriendo con guard_sanitize()/GUARD_ANCHOR indefinidos, y el
+# guard pasaría en silencio (mismo fail-open que #50). Mismo mecanismo de
+# bloqueo que usa este hook para tests fallando: stderr + exit 2.
+LIB="${0%/*}/lib/guard-matching.sh"
+if [ ! -r "$LIB" ]; then
+  echo "BLOCKED: pre-commit-guard no operativo: falta hooks/lib/guard-matching.sh" >&2
+  exit 2
+fi
+# shellcheck source=lib/guard-matching.sh
+source "$LIB"
+
+SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
+
 # Solo interceptar comandos git commit
-if ! echo "$COMMAND" | grep -qE '^\s*git\s+commit'; then
+if ! echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+commit"; then
   exit 0
 fi
 
@@ -25,8 +55,32 @@ if [ -f "package.json" ]; then
   if jq -e '.scripts.test' package.json > /dev/null 2>&1; then
     TEST_CMD=$(jq -r '.scripts.test' package.json)
     if [ "$TEST_CMD" != "null" ] && [ "$TEST_CMD" != "" ] && [ "$TEST_CMD" != "echo \"Error: no test specified\" && exit 1" ]; then
-      echo "Running tests before commit ($PKG_MGR)..." >&2
-      $PKG_MGR test 2>&1
+      # Scoping por workspace en monorepos: correr "$PKG_MGR test" en la
+      # raíz de un monorepo dispara TODAS las suites en cada commit, aunque
+      # el commit toque un solo workspace. hooks/lib/workspace-scope.sh
+      # resuelve, con criterio conservador, si el commit se puede acotar a
+      # los workspaces realmente tocados.
+      #
+      # A diferencia de guard-matching.sh más arriba, esta lib NO es
+      # fail-closed: si no existe, no es legible, o no logra resolver un
+      # subconjunto con confianza, simplemente no se activa el scoping y se
+      # sigue el camino de siempre ($PKG_MGR test) — nunca bloquea el
+      # commit por su ausencia.
+      SCOPED=false
+      WS_LIB="${0%/*}/lib/workspace-scope.sh"
+      if [ -r "$WS_LIB" ]; then
+        # shellcheck source=lib/workspace-scope.sh
+        source "$WS_LIB"
+        workspace_scope_resolve "$PKG_MGR" && SCOPED=true
+      fi
+
+      if [ "$SCOPED" = true ]; then
+        echo "Running tests before commit ($PKG_MGR, workspace(s): $WORKSPACE_SCOPE_LABEL)..." >&2
+        "${WORKSPACE_SCOPE_CMD[@]}" 2>&1
+      else
+        echo "Running tests before commit ($PKG_MGR)..." >&2
+        $PKG_MGR test 2>&1
+      fi
       if [ $? -ne 0 ]; then
         echo "BLOCKED: Tests failed. Fix tests before committing." >&2
         exit 2
