@@ -96,6 +96,12 @@ Escaneas el codebase o un directorio específico buscando code smells. **No modi
 
    Los procesas como candidatos prioritarios de refactor. Para issues con label `latent-bug` y severidad `CRÍTICO`, **máxima prioridad** — pueden estar bloqueando un PR a main vía `pre-release-sweep.sh`.
 
+   **La evidencia adjunta a un issue no es definitiva: es una hipótesis con respaldo.** Si vas a borrar código porque un issue dice que está muerto, **construí un input nuevo** en vez de repetir el experimento que el issue cita. Repetirlo confirma el resultado anterior, incluido su error.
+
+   Caso real (issue #62, PR #67): el issue afirmaba que dos guards eran redundantes, con evidencia de que removerlos dejaba la suite verde. Era cierto y no probaba nada — el único fixture de input malo del corpus rompía en el primer carácter, así que nunca ejercitaba la rama que importaba. Tres actores distintos corrieron esa misma prueba ciega y los tres confirmaron la misma conclusión equivocada. Lo destapó un reviewer construyendo un input que el corpus no tenía.
+
+   Regla práctica al borrar código: **probá que algo se rompería si ese código hiciera falta.** Verificar que la suite sigue verde solo demuestra que el corpus calla.
+
 ### Qué buscar en el código
 
 #### Funciones largas
