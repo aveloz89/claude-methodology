@@ -4,7 +4,7 @@
   "branch": "feature/state-facts-once",
   "pr": 66,
   "review_sha": "359251d",
-  "updated": "2026-08-26T07:19:05Z",
+  "updated": "2026-08-26T07:19:07Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
@@ -14,7 +14,7 @@
     "pr": "done",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "pending"
+    "merge": "done"
   },
   "batches": [
     {

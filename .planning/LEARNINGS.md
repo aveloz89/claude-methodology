@@ -34,6 +34,30 @@ Formato canónico vive en `rulebooks/orchestrator-runbook.md`. Si ahí cambia, e
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-08-26] PR #66 — Enunciar cada hecho una vez, y la regla que se duplicó a sí misma
+
+**Métricas:**
+- Review rounds: 1 (los dos reviewers aprobaron en la primera, con hallazgos aplicados)
+- Hallazgos security: 2 (critical: 0, high: 0, medium: 1, low: 1)
+- Hallazgos qa-backend: 2 sugerencias, 0 bloqueantes — más la auditoría previa, que encontró los 5 casos
+- Errores de build/CI: 0 (este repo no tiene Actions)
+- Self-reflection atrapó: nada — la contradicción residual la encontró security, no mi autorrevisión
+- Lotes ejecutados: 1 / Tareas: 6
+- Devs involucrados: ninguno
+
+**Qué salió bien:**
+- **Auditar antes de escribir acotó el trabajo.** La auditoría dio 5 casos en 1900 líneas y confirmó que el resto del corpus ya usa el patrón correcto. Sin ese dato, la regla se habría escrito a ciegas y el PR habría sido un barrido gigante sobre un problema que no era sistémico.
+- **El fix ataca la clase, no la instancia.** Con el hecho enunciado una vez no hay nada que pueda divergir; el paso 1 del DoD sigue siendo necesario pero deja de ser la única defensa.
+- qa-backend evaluó cada remisión **desde la posición del lector en el momento de urgencia**, no en abstracto, y encontró que una de ellas mejora el caso viejo: `governance` §9 ahora remite a algo que ya está cargado, mientras que antes tenía los pasos completos dentro de un rulebook que no se autocarga.
+
+**Qué causó re-work:**
+- **La contradicción residual se coló en el propio PR que introduce la regla contra ella.** Corregí la línea 69 y dejé la 72, tres líneas abajo, diciendo lo contrario en singular definido. Ni el grep ni mi lectura la vieron; la vio security.
+- **La regla contra la duplicación tenía duplicación adentro** — dos formulaciones del mismo guardrail en el mismo párrafo.
+- **El guardrail llegaba dos párrafos después del imperativo**, así que la regla se podía aplicar mal leyendo solo su primera frase.
+- **Volví a editar un árbol que un reviewer estaba leyendo**, esta vez yo mismo, aplicando los fixes de security a mitad de la pasada de QA.
+
+**Patrón potencial:** sí, dos. (1) **Una regla nueva no se autoaplica en el PR que la introduce.** Tres veces seguidas ahora —el principio 5 en el PR #61, el sellado en el #65, la enunciación única acá— el review encontró que el PR violaba la regla que estaba escribiendo. No es descuido puntual: escribir la regla y aplicarla son dos pasadas distintas, y hacerlas en una sola no funciona. 3ª aparición: **regla de 3 alcanzada** — candidato a paso explícito del DoD ("después de escribir la regla, releé el diff completo aplicándola"). (2) **El paralelismo entre quien edita y quien revisa necesita la misma regla de archivos disjuntos que entre dos devs.** 2ª aparición contando el PR #65; las dos veces el reviewer lo manejó bien, ninguna la previno el proceso.
+
 ### [2026-08-26] PR #65 — El flujo mandaba bypassear una branch protection
 
 **Métricas:**
