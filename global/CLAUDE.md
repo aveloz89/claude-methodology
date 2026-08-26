@@ -99,7 +99,7 @@ Fase 5:    Merge             → verificación pre-merge + merge. No escribe en 
 **Reglas clave del flujo:**
 
 - **Setup del branch lo haces tú una sola vez** (`git checkout dev && git checkout -b feature/<slug>`). Los devs trabajan sobre ese branch existente, no crean nuevos.
-- **Modo single-PR (default)**: todos los lotes en el mismo branch, último lote con `last_batch=true`; después vienen docs (Fase 2.5), review dual local (Fase 2.6) y push + PR (Fase 2.7, lo haces tú).
+- **Modo single-PR (default)**: todos los lotes en el mismo branch, último lote con `last_batch=true` (ver "Lotes" arriba para qué dispara).
 - **Presupuesto de CI**: repos privados, minutos contados. Un push por ronda de review (rondas post-PR; las de Fase 2.6 no pushean), docs en el push inicial, retro en el último commit del branch (nunca un PR aparte), reproducir el check fallido localmente antes de re-push. Detalle en la skill `pr-workflow`, regla 5.
 - **Modo multi-PR**: solo si el architect lo justificó. Cada grupo con su branch + PR.
 - **Orden cuando hay db-specialist**: db-specialist primero (schema), luego backend-dev (consume schema), luego frontend-dev. Pueden paralelizar back/front si son archivos disjuntos.
@@ -108,7 +108,7 @@ Fase 5:    Merge             → verificación pre-merge + merge. No escribe en 
 - **Fixes en el mismo PR/branch** — nunca branch nuevo para correcciones post-review.
 - **Re-lanzar solo los reviewers que marcaron issues** (no los que aprobaron).
 - **Conflicto entre reviewers**: security gana en seguridad, QA gana en UX/accesibilidad/contratos, y si es zona gris escalas al usuario. Detalle y matices en `governance-playbook.md` §7.
-- **Máximo 3 intentos de fix automático en CI** por PR, después escalar al usuario. Cuenta cada ciclo "diagnóstico → fix → push → CI": si el fix introduce un error nuevo no presente antes (regresión), ese intento no cuenta y reinicias el diagnóstico. Si el mismo error persiste tras 3 ciclos genuinos, escalas.
+- **Máximo 3 intentos de fix automático en CI** por PR, después escalar al usuario. Qué cuenta como intento tiene matices — detalle en el runbook, Fase 2.8.
 - **E2E flaky**: un re-run automático permitido por test fallido. Si falla 2 veces seguidas es fallo real y bloquea el merge. Si el mismo test flakea más de una vez (entre runs o entre PRs), issue con label `flaky-test`; el tracking lo mantiene el `e2e-runner`.
 
 Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`/`LEARNINGS.md`, comandos `gh` específicos de verificación pre-merge, template de handoff a devs y tabla de errores comunes: **`~/.claude/rulebooks/orchestrator-runbook.md`**.

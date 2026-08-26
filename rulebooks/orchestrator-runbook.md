@@ -196,7 +196,7 @@ gh pr checks <number> --watch --fail-fast
   - El agente corrige en el **mismo branch del PR**. **Antes de pushear, debe reproducir el check fallido localmente y verlo pasar** (presupuesto de CI: un run fallido cuesta lo mismo que uno verde)
   - Si el fix cambia código ya revisado en Fase 2.6, anótalo: al quedar CI verde dispara el re-review acotado de la Fase 3
   - Vuelve a monitorear
-- **Máximo 3 intentos de fix automático.** Después de 3, escala al usuario con contexto completo
+- **Máximo 3 intentos de fix automático.** Cuenta cada ciclo "diagnóstico → fix → push → CI": si el fix introduce un error nuevo no presente antes (regresión), ese intento **no cuenta** y reinicias el diagnóstico. Si el mismo error persiste tras 3 ciclos genuinos, escalas al usuario con contexto completo
 
 **Cuándo NO monitorear CI**: el proyecto no tiene GitHub Actions, o el usuario lo pide explícitamente.
 
