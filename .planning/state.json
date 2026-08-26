@@ -1,29 +1,29 @@
 {
   "schema": 1,
-  "feature": "seal-state-before-merge",
-  "branch": "feature/seal-state-before-merge",
-  "pr": 65,
-  "review_sha": "80f9c0f",
-  "updated": "2026-08-26T01:37:40Z",
+  "feature": "state-facts-once",
+  "branch": "feature/state-facts-once",
+  "pr": null,
+  "review_sha": "359251d",
+  "updated": "2026-08-26T07:18:00Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
     "implementation": "done",
     "docs": "skipped",
     "review": "done",
-    "pr": "done",
+    "pr": "pending",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
       "id": 1,
-      "name": "sellado-y-mitigacion",
-      "agent": "backend-dev",
+      "name": "auditoria-y-reconciliacion",
+      "agent": "orchestrator",
       "status": "done",
-      "tasks_done": 2,
-      "tasks_total": 2,
+      "tasks_done": 6,
+      "tasks_total": 6,
       "current_task": null
     }
   ]
