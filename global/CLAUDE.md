@@ -115,7 +115,7 @@ Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`
 
 ## Estado persistente: `.planning/`
 
-`STATE.md` (decisiones, blockers, prosa libre) · `state.json` (estado mutable enumerable: fase, lotes, progreso — ver runbook) · `BRIEF.md` (brainstorming) · `DESIGN.md` (architect) · `ARCHITECTURE.md` (decisiones recurrentes, persistente) · `HANDOFF.md` (solo si hay trabajo pausado) · `learnings/PR-<N>.md` (una retro por PR mergeado, un archivo cada una) · `reviews/` (pre-PR: `pre-pr-<slug>.md`; al crear el PR se reconcilia a `PR-{N}.md` — ver runbook). Formatos en el runbook.
+`STATE.md` (decisiones, blockers, prosa libre) · `state.json` (estado mutable enumerable: fase, lotes, progreso — ver runbook) · `BRIEF.md` (brainstorming) · `DESIGN.md` (architect) · `ARCHITECTURE.md` (decisiones recurrentes, persistente) · `HANDOFF.md` (solo si hay trabajo pausado) · `learnings/PR-<N>.md` (una retro por PR mergeado, un archivo cada una) · `reviews/` (pre-PR: `pre-pr-<slug>.md`; al crear el PR se reconcilia a `PR-<N>.md` — ver runbook). Formatos en el runbook.
 
 **Una feature a la vez**: `.planning/` refleja la feature activa actual. No se trabajan features en paralelo. Si surge un hotfix urgente durante una feature, pausas (ver "Pause / Resume") antes de cambiar de branch.
 

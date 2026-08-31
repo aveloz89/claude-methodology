@@ -188,7 +188,7 @@ gh pr view <number> --json mergeable,mergeStateStatus
 gh pr checks <number> --watch --fail-fast
 ```
 
-**El chequeo de `mergeable` va primero y no es opcional.** GitHub **no crea ninguna corrida** en un PR con conflictos —no puede calcular el merge commit—, así que `gh pr checks` responde "no checks reported" indefinidamente y un `--watch` se queda esperando algo que nunca va a llegar. El síntoma se lee igual que "CI encolado", que es lo que lo vuelve caro: se confunde un bloqueo permanente con una demora. Si sale `CONFLICTING`/`DIRTY`, resuelve el conflicto (mergeá la base al branch, nunca `--force`) y recién entonces esperá checks.
+**El chequeo de `mergeable` va primero y no es opcional.** GitHub **no crea ninguna corrida** en un PR con conflictos —no puede calcular el merge commit—, así que `gh pr checks` responde "no checks reported" indefinidamente y un `--watch` se queda esperando algo que nunca va a llegar. El síntoma se lee igual que "CI encolado", que es lo que lo vuelve caro: se confunde un bloqueo permanente con una demora. Si sale `CONFLICTING`/`DIRTY`, resuelve el conflicto (mergeá la base al branch, nunca `--force`) y recién entonces esperá checks. Si sale `UNKNOWN`, GitHub todavía está calculando el merge: reintentá — `UNKNOWN` no es verde.
 
 - Si todos pasan → Fase 3
 - Si falla algún check:
@@ -229,7 +229,13 @@ git commit -m "planning: registrar retro del PR #<N> y cerrar el estado"
 git push
 ```
 
-6. Espera CI verde sobre el HEAD nuevo — branch protection valida el último SHA, no el que ya estaba verde
+6. **Confirma `mergeable` ANTES de esperar CI**, igual que en la Fase 2.8 — y con más razón acá: este push llega después de que otros PRs hayan podido mergear a la base, así que es el punto del flujo donde un conflicto es MÁS probable, no menos:
+
+```bash
+gh pr view <number> --json mergeable,mergeStateStatus
+```
+
+Si sale `CONFLICTING`/`DIRTY`, mergeá la base al branch y resolvé antes de seguir; no esperes checks que no van a existir. Recién entonces: espera CI verde sobre el HEAD nuevo — branch protection valida el último SHA, no el que ya estaba verde
 7. **Regla de 3**: si un patrón aparece en 3+ retros, súbelo al usuario — las opciones y el criterio están en la sección de retros más abajo
 
 **Por qué el estado se sella acá y no después del merge:** escribirlo post-merge obliga a commitear sobre `dev`, que en cualquier repo con branch protection es un push directo a un branch protegido — el bypass que la metodología prohíbe en todos los demás lugares. Sellarlo en el commit de retro elimina esa escritura del flujo. El costo es que `phases.merge` se marca `done` segundos antes de que el merge ocurra: si el merge no llega a pasar, el estado queda adelantado. **Esa ventana no se detectaba sola**: `session-end-check.sh` compara mtimes y nunca mira `phases`, y `session-start-context.sh` reportaba `Fase activa: ninguna` — enmascaraba el desfase en vez de señalarlo. Por eso el mismo cambio agrega el aviso al arranque cuando el estado está sellado y seguimos parados en el branch del feature. Es un desfase de segundos, con aviso, contra un bypass sistemático.
@@ -534,7 +540,7 @@ Pasos exactos cuando el hook `session-start-context.sh` detecta `HANDOFF.md` (ve
 
 **Un archivo por PR mergeado, nombrado por su número.** No hay archivo acumulativo ni índice: el listado del directorio ordena solo y no existe ningún punto común donde dos PRs concurrentes puedan chocar. En modo multi-PR, cada grupo corre su propia Fase 4 y deja su archivo. Se escribe en la Fase 4 y viaja en el **último commit del branch del PR**, antes del merge — nunca en un PR aparte.
 
-**Por qué no es un archivo acumulativo.** Lo fue, con *prepend* al tope, y esa forma conflictúa **siempre** entre dos PRs abiertos a la vez: los dos insertan en el mismo punto del mismo archivo. Peor, el conflicto no se ve al escribirlo sino al mergear el primero, dejando al segundo bloqueado sin checks (ver Fase 2.8). Es la misma forma que ya había fallado con los reportes de review cuando varios reviewers corren en paralelo, donde un proyecto lo resolvió igual: **un archivo por escritor concurrente**. El runbook todavía manda un único `pre-pr-<feature-slug>.md` para reviews; corregirlo toca `post-pr-create.sh` y sus tests, así que va aparte. Un proyecto que venga del formato viejo deja su `LEARNINGS.md` como archivo histórico y no vuelve a escribir en él.
+**Por qué no es un archivo acumulativo.** Lo fue, con *prepend* al tope, y esa forma conflictúa **siempre** entre dos PRs abiertos a la vez: los dos insertan en el mismo punto del mismo archivo. Peor, el conflicto no se ve al escribirlo sino al mergear el primero, dejando al segundo bloqueado sin checks (ver Fase 2.8). Es la misma forma que ya había fallado con los reportes de review cuando varios reviewers corren en paralelo, donde un proyecto (easy-quotes, tras los PRs #184/#186) lo resolvió igual: **un archivo por escritor concurrente**. El runbook todavía manda un único `pre-pr-<feature-slug>.md` para reviews; corregirlo toca `post-pr-create.sh` y sus tests, así que va aparte. Un proyecto que venga del formato viejo deja su `LEARNINGS.md` como archivo histórico y no vuelve a escribir en él.
 
 Formato de cada archivo:
 
@@ -637,7 +643,13 @@ gh api graphql -f query='query { repository(owner: "{owner}", name: "{repo}") { 
 gh pr view <number> --json reviewDecision --jq '.reviewDecision'
 # Debe ser "APPROVED" o vacío. "CHANGES_REQUESTED" → NO mergear
 
-# 3. CI checks
+# 3. CI checks — `mergeable` PRIMERO: un PR en conflicto no genera corridas,
+#    así que `gh pr checks` diría "no checks reported" para siempre y el
+#    check se leería como "todavía no corrió" en vez de "está bloqueado"
+gh pr view <number> --json mergeable,mergeStateStatus
+# MERGEABLE + CLEAN/BLOCKED. Si es CONFLICTING/DIRTY → resolver el conflicto,
+# no mergear. Si es UNKNOWN, GitHub aún está calculando: reintentar, nunca
+# interpretarlo como verde
 gh pr checks <number>
 # Todos en ✓
 
