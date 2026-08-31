@@ -131,3 +131,41 @@ No. Fase 2.8 explica el mecanismo completo (por qué GitHub no genera corridas, 
 ### Veredicto
 
 **CAMBIOS NECESARIOS.** Los dos puntos originales del bloqueante están resueltos. Quedan dos cosas antes de aprobar: (1) corregir la atribución de la cita en `orchestrator-runbook.md:537` — mover `#184/#186` a la cláusula de la retro (o quitarla de ahí) y citar `PR #178` para los reportes de review, y (2) aplicar el mismo chequeo de `mergeable` en "Comandos `gh` específicos" → "Monitoreo de CI", el tercer lugar que quedó sin tocar.
+
+---
+
+## Re-review — commit `2ed4af8` (delta `4a526c1..HEAD`)
+
+### Verificación de fixes
+
+- **[RESUELTO] Atribución de la cita.** `rulebooks/orchestrator-runbook.md:543` ahora dice "un proyecto (easy-quotes, tras el PR #178)" para el incidente de reportes de review pisándose. Coincide con lo que verifiqué en la ronda anterior contra `easy-quotes/.planning/LEARNINGS.md:212` (la entrada de PR #178 abarca las líneas 177–219; la 212 cae adentro). Correcto.
+- **[RESUELTO] Tercer lugar — "Comandos `gh` específicos" → "Monitoreo de CI".** Ahora antepone `gh pr view <number> --json mergeable,mergeStateStatus`, trata `CONFLICTING/DIRTY` y `UNKNOWN` en el comentario, y remite a "Fase 2.8 y Fase 4, paso 6" en vez de repetir la explicación completa — mismo patrón de remisión que ya había validado como correcto (no redundante) en Fase 4 paso 6.
+
+### Búsqueda de un cuarto lugar (criterio propio, no solo repetir el grep anterior)
+
+Grep amplio de todo patrón de "esperar/consultar CI" — `gh pr checks`, `--watch`, `gh run`, `CI verde`, `mergeable`, `checks -R`, `monitorea(r) CI`, `sondea/poll/hasta que.*verde/hasta que.*pase` — sobre **todo** el corpus (`global/`, `rulebooks/`, `agents/*.md` los 12, `skills/*.md` las 4, `README.md`), no solo `orchestrator-runbook.md`:
+
+- `skills/review-pr/SKILL.md` — no consulta CI en ningún paso (solo re-lanza reviewers, no toca merge ni checks).
+- `agents/e2e-runner.md`, `agents/build-resolver.md`, `agents/docs.md` — sin instrucciones de esperar/consultar `gh pr checks`.
+- `rulebooks/governance-playbook.md`, `rulebooks/agent-budget.md` — sin menciones.
+- `skills/pr-workflow/SKILL.md` — las únicas menciones de "CI verde" son históricas/contextuales (por qué docs se movió antes del push, ventana de vulnerabilidades en `dev`), no instrucciones de espera.
+
+**Un candidato descartado, no un cuarto lugar real:** `global/CLAUDE.md:91`, la línea del diagrama ASCII (`Fase 2.8: Monitoreo CI → gh pr checks --watch --fail-fast`). La descarté porque es un resumen de una línea por fase, con el mismo nivel de terseza que las 13 líneas vecinas del mismo diagrama (ninguna lista su procedimiento completo — Fase 2.7 tampoco muestra `git mv` ni el mensaje de commit), y el propio DoD anti-drift de este archivo dice explícitamente "dónde vive el detalle: en el rulebook..., nunca en `global/CLAUDE.md`... si el detalle sube al núcleo, rompiste el presupuesto de contexto". Aplicar ahí el mismo bloque de 3 líneas contradiría esa regla en vez de reforzarla. No es un cuarto lugar — es la única línea del corpus donde el patrón viejo sigue visible, y está donde tiene que estar.
+
+**No encontré un cuarto lugar real.**
+
+### Otras citas del delta con atribución floja
+
+Ninguna. Además de re-verificar `#178` (arriba), re-verifiqué por curiosidad la única otra cita numérica del corpus que queda cerca de este texto — `skills/pr-workflow/SKILL.md:163`, "el PR #179 de easy-quotes... 47 líneas... 7m23s de runners con backend, frontend, docker-prod y core-isolation completos" — **no es parte de este delta** (no tocada en ninguna de las tres rondas), pero la corrí contra el PR real de todas formas: `gh pr view 179` da 47 líneas exactas (43 + 4), y `gh run view` del único run de esa branch da `19:48:09 → 19:55:32`, exactamente 7m23s, con los 4 jobs nombrados. Sigue siendo correcta. No hay más números para verificar en el delta de esta ronda.
+
+### Nuevos issues introducidos
+
+Ninguno.
+
+### Nota al margen (no bloqueante, para la retro de este PR)
+
+El error de atribución de la ronda anterior — una afirmación sobre un incidente que no se verificó antes de escribirla, en el mismo párrafo que predica "remití en vez de reconstruir" — es la misma familia que la tabla del DoD paso 4 de este archivo documenta para los PR #61/#64/#65/#66. Vale la pena que la eventual retro de este PR (`PR-<N>.md`) lo registre como el patrón potencial correspondiente, aunque no es algo que yo deba forzar en este review.
+
+### Veredicto
+
+**APROBADO.**
