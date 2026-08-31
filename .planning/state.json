@@ -1,29 +1,29 @@
 {
   "schema": 1,
-  "feature": "close-process-gaps",
-  "branch": "feature/close-process-gaps",
-  "pr": 68,
-  "review_sha": "efcbc65",
-  "updated": "2026-08-26T17:58:54Z",
+  "feature": "retros-por-archivo",
+  "branch": "fix/retros-por-archivo",
+  "pr": 70,
+  "review_sha": "2ed4af8",
+  "updated": "2026-08-31T00:00:00Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
     "implementation": "done",
-    "docs": "skipped",
+    "docs": "n/a",
     "review": "done",
     "pr": "done",
-    "ci": "skipped",
-    "e2e": "skipped",
-    "merge": "done"
+    "ci": "n/a",
+    "e2e": "n/a",
+    "merge": "pending"
   },
   "batches": [
     {
       "id": 1,
-      "name": "cierre-de-huecos-de-proceso",
+      "name": "retros-por-archivo",
       "agent": "orchestrator",
       "status": "done",
-      "tasks_done": 5,
-      "tasks_total": 5,
+      "tasks_done": 3,
+      "tasks_total": 3,
       "current_task": null
     }
   ]

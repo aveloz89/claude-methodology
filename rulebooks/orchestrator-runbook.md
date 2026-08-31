@@ -133,7 +133,7 @@ El plan del architect debió evitar esto. Si pasa:
 
 1. Lee `.planning/HANDOFF.md`
 2. Reinvoca al mismo dev con SOLO las tareas restantes
-3. Documenta el corte en `.planning/LEARNINGS.md` para que el architect ajuste sus particiones futuras
+3. Documenta el corte en la retro del PR (`.planning/learnings/PR-<N>.md`) para que el architect ajuste sus particiones futuras
 
 #### Si un dev reporta error de build/compilación que no puede resolver
 
@@ -158,7 +158,7 @@ El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` r
 
    Paquete de contexto (context isolation): base + branch + instrucción de leer `git diff <base>...HEAD` + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida. **Sin número de PR — no existe todavía.** Si el diff **introduce una regla nueva**, decilo en el paquete: el reviewer tiene que aplicarla al propio diff (ver `agents/qa-backend.md`). Puede identificarla leyendo el diff, pero nombrarla le ahorra ese paso.
 4. **Consolida y registra**: reporte con el "Formato de reporte de review" (más abajo), guardado en `.planning/reviews/pre-pr-<feature-slug>.md` con header de trazabilidad (branch, base, SHA de HEAD revisado, fecha, veredicto). Commit al branch: `planning: registrar review dual pre-push`
-5. **Mientras haya un reviewer corriendo, el árbol no se mueve.** Cuando lanzás varios en paralelo —pueden ser tres en un diff full-stack— esperá a que vuelvan **todos** antes de aplicar nada: si aplicás los hallazgos del primero, los demás quedan leyendo un árbol que cambió bajo sus pies. Si uno se cuelga o excede su presupuesto, no esperes indefinido: cortalo y relanzalo después de aplicar, o aplicá solo en archivos que ese reviewer no esté mirando — pero decidilo explícitamente, no por olvido. Ya pasó (ver `.planning/LEARNINGS.md`, entradas de los PRs #65 y #66, y la de este mismo PR). Las veces que pasó lo detectó el reviewer y avisó, en vez de reportar un rojo falso — pero eso es disciplina suya, no una red del proceso. Vale igual para un dev trabajando en paralelo: si un lote y un review tocan los mismos archivos, no van juntos.
+5. **Mientras haya un reviewer corriendo, el árbol no se mueve.** Cuando lanzás varios en paralelo —pueden ser tres en un diff full-stack— esperá a que vuelvan **todos** antes de aplicar nada: si aplicás los hallazgos del primero, los demás quedan leyendo un árbol que cambió bajo sus pies. Si uno se cuelga o excede su presupuesto, no esperes indefinido: cortalo y relanzalo después de aplicar, o aplicá solo en archivos que ese reviewer no esté mirando — pero decidilo explícitamente, no por olvido. Ya pasó (ver las retros de los PRs #65 y #66, y la de este mismo PR). Las veces que pasó lo detectó el reviewer y avisó, en vez de reportar un rojo falso — pero eso es disciplina suya, no una red del proceso. Vale igual para un dev trabajando en paralelo: si un lote y un review tocan los mismos archivos, no van juntos.
 6. **Si hay bloqueantes**: fixes por el dev correspondiente en el mismo branch, **sin push** (si el bloqueante es de schema/migración/query optimizada, va al `db-specialist`). Re-lanza **solo** los reviewers que marcaron issues, acotados al delta local (`git diff <sha-ya-revisado>...HEAD`). Append de la re-ronda al registro. Sugerencias baratas: aplicadas antes del push (política en la skill `pr-workflow`, regla 2)
 7. **Veredictos limpios**: actualiza `.planning/state.json` (`phases.review` a `done` y `review_sha` al SHA de HEAD al momento de los veredictos limpios) y avanza a Fase 2.7. Fixes, sugerencias aplicadas y registro viajan en el push inicial: **el PR nace revisado**
 
@@ -181,11 +181,14 @@ El body del PR lo armas desde `.planning/` (BRIEF/DESIGN), los reportes de los d
 
 ### Fase 2.8: Monitoreo de CI
 
-Después de que se crea el PR:
+Después de que se crea el PR, y **antes** de ponerte a esperar checks:
 
 ```bash
+gh pr view <number> --json mergeable,mergeStateStatus
 gh pr checks <number> --watch --fail-fast
 ```
+
+**El chequeo de `mergeable` va primero y no es opcional.** GitHub **no crea ninguna corrida** en un PR con conflictos —no puede calcular el merge commit—, así que `gh pr checks` responde "no checks reported" indefinidamente y un `--watch` se queda esperando algo que nunca va a llegar. El síntoma se lee igual que "CI encolado", que es lo que lo vuelve caro: se confunde un bloqueo permanente con una demora. Si sale `CONFLICTING`/`DIRTY`, resuelve el conflicto (mergeá la base al branch, nunca `--force`) y recién entonces esperá checks. Si sale `UNKNOWN`, GitHub todavía está calculando el merge: reintentá — `UNKNOWN` no es verde.
 
 - Si todos pasan → Fase 3
 - Si falla algún check:
@@ -213,11 +216,11 @@ El review dual ya ocurrió en Fase 2.6, antes del push: **el PR nació revisado*
 
 ### Fase 4: Learn (retro, antes del merge)
 
-La retro cierra el PR y **viaja en su propio branch**, como último commit antes del merge — nunca en un PR aparte (skill `pr-workflow`, regla 5.7). En modo multi-PR cada grupo hace su Fase 4: una entrada de LEARNINGS por PR mergeado. En este punto ya se conocen todas las métricas del template: rondas de review, hallazgos por reviewer, errores de CI, lotes, devs. Lo único que falta es el merge, que ocurre a continuación.
+La retro cierra el PR y **viaja en su propio branch**, como último commit antes del merge — nunca en un PR aparte (skill `pr-workflow`, regla 5.7). En modo multi-PR cada grupo hace su Fase 4: una retro por PR mergeado, cada una en su archivo. En este punto ya se conocen todas las métricas del template: rondas de review, hallazgos por reviewer, errores de CI, lotes, devs. Lo único que falta es el merge, que ocurre a continuación.
 
 1. Recolecta métricas: rounds de review, hallazgos por reviewer, errores de build, si self-reflection atrapó algo antes
 2. Identifica aprendizajes: qué salió bien, qué causó re-work
-3. Prepend a `.planning/LEARNINGS.md` — más reciente arriba (formato más abajo)
+3. Escribe la retro en `.planning/learnings/PR-<N>.md` — un archivo por PR, nunca un archivo compartido (formato más abajo)
 4. **Sella el estado en el mismo commit**: `.planning/state.json` con `phases.merge` en `done`, y `.planning/STATE.md` si hay una decisión o aprendizaje que registrar. No queda nada que escribir después del merge
 5. Commitea y pushea al branch del PR:
 
@@ -226,10 +229,18 @@ git commit -m "planning: registrar retro del PR #<N> y cerrar el estado"
 git push
 ```
 
-6. Espera CI verde sobre el HEAD nuevo — branch protection valida el último SHA, no el que ya estaba verde
-7. **Regla de 3**: si un patrón aparece en 3+ entradas de LEARNINGS, súbelo al usuario — las opciones y el criterio están en la sección `LEARNINGS.md` más abajo
+6. **Confirma `mergeable` ANTES de esperar CI**, igual que en la Fase 2.8 — y con más razón acá: este push llega después de que otros PRs hayan podido mergear a la base, así que es el punto del flujo donde un conflicto es MÁS probable, no menos:
+
+```bash
+gh pr view <number> --json mergeable,mergeStateStatus
+```
+
+Si sale `CONFLICTING`/`DIRTY`, mergeá la base al branch y resolvé antes de seguir; no esperes checks que no van a existir. Recién entonces: espera CI verde sobre el HEAD nuevo — branch protection valida el último SHA, no el que ya estaba verde
+7. **Regla de 3**: si un patrón aparece en 3+ retros, súbelo al usuario — las opciones y el criterio están en la sección de retros más abajo
 
 **Por qué el estado se sella acá y no después del merge:** escribirlo post-merge obliga a commitear sobre `dev`, que en cualquier repo con branch protection es un push directo a un branch protegido — el bypass que la metodología prohíbe en todos los demás lugares. Sellarlo en el commit de retro elimina esa escritura del flujo. El costo es que `phases.merge` se marca `done` segundos antes de que el merge ocurra: si el merge no llega a pasar, el estado queda adelantado. **Esa ventana no se detectaba sola**: `session-end-check.sh` compara mtimes y nunca mira `phases`, y `session-start-context.sh` reportaba `Fase activa: ninguna` — enmascaraba el desfase en vez de señalarlo. Por eso el mismo cambio agrega el aviso al arranque cuando el estado está sellado y seguimos parados en el branch del feature. Es un desfase de segundos, con aviso, contra un bypass sistemático.
+
+**Si hay dos PRs abiertos a la vez, sella y mergea uno antes de sellar el otro.** La retro ya no colisiona (cada una es su propio archivo), pero `state.json` describe **una** feature activa y se reescribe entero: dos sellados en vuelo conflictúan siempre, y el conflicto aparece recién al mergear el primero, cuando el segundo ya pasó CI. Es el mismo invariante de "una feature a la vez" del `CLAUDE.md` global, aplicado al cierre.
 
 **El commit de retro toca SOLO `.planning/`** — es la norma, no una expectativa. Con el delta acotado ahí, no dispara re-review; si incluye cualquier otra cosa, vuelve a la Fase 2.6 antes de mergear.
 
@@ -242,7 +253,7 @@ Es el único punto del flujo donde el contenido de un push post-review no lo mir
 - **Hotfix urgente**: no bloquees el merge con la retro. Si igual quieres registrarla, va en el **branch del hotfix, antes del merge a `main`**, igual que en el flujo de feature — nunca sobre `dev` después de la integración, que es un push directo a un branch protegido (ver el procedimiento de integración más abajo). El sellado del estado sigue las mismas reglas: en el branch, antes del merge
 - **Tareas triviales** (typos, bumps de dependencias): sin retro
 
-**Si se salta Learn, el sellado del estado NO se salta.** Va igual en un commit propio de `.planning/` antes del merge — lo que se omite es la entrada de LEARNINGS, no el cierre. Sin eso, `phases.merge` quedaría en `pending` sobre algo ya mergeado, que es el espejo del problema que este orden resuelve.
+**Si se salta Learn, el sellado del estado NO se salta.** Va igual en un commit propio de `.planning/` antes del merge — lo que se omite es la retro, no el cierre. Sin eso, `phases.merge` quedaría en `pending` sobre algo ya mergeado, que es el espejo del problema que este orden resuelve.
 
 ### Fase 5: Merge
 
@@ -364,7 +375,7 @@ Al recibir el plan de lotes del architect, crea:
 2. **Una tarea de review por PR del plan**: `Review dual local (security + qa-*)` — bloqueada por (`addBlockedBy`) los lotes que contiene el PR.
 3. **Una tarea por PR del plan**: `Abrir PR <n> + CI` — bloqueada por la tarea de review dual local.
 4. **Una tarea de E2E** por cada PR que toque UI: `E2E visual en navegador` — bloqueada por la tarea del PR. Solo se elimina si el usuario renuncia explícitamente a la E2E (y esa renuncia queda registrada en STATE.md como deuda consciente).
-5. **Una tarea final**: `Retro + merge (LEARNINGS en el branch, luego merge)` — bloqueada por todo lo anterior.
+5. **Una tarea final**: `Retro + merge (retro en el branch, luego merge)` — bloqueada por todo lo anterior.
 
 ### Reglas de actualización
 
@@ -525,9 +536,13 @@ Pasos exactos cuando el hook `session-start-context.sh` detecta `HANDOFF.md` (ve
    - **Rojo** → diagnosticar ANTES de retomar la tarea pendiente. El rojo puede ser el bug no documentado que cortó la sesión anterior, no una regresión de este momento.
 3. **Eliminar `HANDOFF.md`** solo una vez confirmado el estado (verde, o sin runner y anotado) — recién ahí retomar la tarea marcada como `current_task` en `state.json`.
 
-### `LEARNINGS.md` (acumulativo)
+### Retros: `.planning/learnings/PR-<N>.md` (un archivo por PR)
 
-**Prepend** una entrada por PR mergeado (más reciente arriba) — en modo multi-PR, cada grupo corre su propia Fase 4 y deja su entrada. Se escribe en la Fase 4 y viaja en el **último commit del branch del PR**, antes del merge — nunca en un PR aparte:
+**Un archivo por PR mergeado, nombrado por su número.** No hay archivo acumulativo ni índice: el listado del directorio ordena solo y no existe ningún punto común donde dos PRs concurrentes puedan chocar. En modo multi-PR, cada grupo corre su propia Fase 4 y deja su archivo. Se escribe en la Fase 4 y viaja en el **último commit del branch del PR**, antes del merge — nunca en un PR aparte.
+
+**Por qué no es un archivo acumulativo.** Lo fue, con *prepend* al tope, y esa forma conflictúa **siempre** entre dos PRs abiertos a la vez: los dos insertan en el mismo punto del mismo archivo. Peor, el conflicto no se ve al escribirlo sino al mergear el primero, dejando al segundo bloqueado sin checks (ver Fase 2.8). Es la misma forma que ya había fallado con los reportes de review cuando varios reviewers corren en paralelo, donde un proyecto (easy-quotes, tras el PR #178) lo resolvió igual: **un archivo por escritor concurrente**. El runbook todavía manda un único `pre-pr-<feature-slug>.md` para reviews; corregirlo toca `post-pr-create.sh` y sus tests, así que va aparte. Un proyecto que venga del formato viejo deja su `LEARNINGS.md` como archivo histórico y no vuelve a escribir en él.
+
+Formato de cada archivo:
 
 ```markdown
 ## [YYYY-MM-DD] PR #N — [título corto de la feature]
@@ -552,7 +567,7 @@ Pasos exactos cuando el hook `session-start-context.sh` detecta `HANDOFF.md` (ve
 - [descripción del patrón observado]
 ```
 
-**Regla de 3**: si un mismo patrón aparece en 3+ entradas, sugerir al usuario:
+**Regla de 3**: si un mismo patrón aparece en 3+ retros, sugerir al usuario:
 
 - Agregar regla en `rules/` (si es idiomático/calidad)
 - Modificar prompt de un agente (si es de proceso)
@@ -608,6 +623,13 @@ Si el diff (local o de PR) tiene archivos de ambas capas → lanzar **ambos QAs 
 ### Monitoreo de CI
 
 ```bash
+# SIEMPRE primero: un PR en conflicto no genera corridas, así que el watch
+# de abajo esperaría indefinidamente algo que nunca va a existir, con el
+# mismo aspecto que "CI encolado" (ver Fase 2.8 y Fase 4, paso 6)
+gh pr view <number> --json mergeable,mergeStateStatus
+# CONFLICTING/DIRTY → resolver el conflicto antes de esperar checks
+# UNKNOWN → GitHub sigue calculando: reintentar, no es verde
+
 # Esperar a que terminen los checks (modo watch, falla rápido)
 gh pr checks <number> --watch --fail-fast
 
@@ -628,7 +650,13 @@ gh api graphql -f query='query { repository(owner: "{owner}", name: "{repo}") { 
 gh pr view <number> --json reviewDecision --jq '.reviewDecision'
 # Debe ser "APPROVED" o vacío. "CHANGES_REQUESTED" → NO mergear
 
-# 3. CI checks
+# 3. CI checks — `mergeable` PRIMERO: un PR en conflicto no genera corridas,
+#    así que `gh pr checks` diría "no checks reported" para siempre y el
+#    check se leería como "todavía no corrió" en vez de "está bloqueado"
+gh pr view <number> --json mergeable,mergeStateStatus
+# MERGEABLE + CLEAN/BLOCKED. Si es CONFLICTING/DIRTY → resolver el conflicto,
+# no mergear. Si es UNKNOWN, GitHub aún está calculando: reintentar, nunca
+# interpretarlo como verde
 gh pr checks <number>
 # Todos en ✓
 
@@ -787,7 +815,7 @@ Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planni
 |-----------|--------|
 | Architect entrega plan con lote >5 | Devolver con mensaje específico (ver agent prompt). Max 3 retries, después escalar |
 | Architect entrega plan con backend-dev antes que db-specialist en feature con DB compleja | Devolver al architect: "el orden es incorrecto, db-specialist va primero porque backend-dev consume el schema" |
-| Dev (cualquiera) reporta `BUDGET LIMIT` | Leer `HANDOFF.md`, reinvocar al mismo dev con tareas restantes, anotar en `LEARNINGS.md` |
+| Dev (cualquiera) reporta `BUDGET LIMIT` | Leer `HANDOFF.md`, reinvocar al mismo dev con tareas restantes, anotar en la retro |
 | Dev reporta error de build/CI | `build-resolver` con error completo + branch + archivos. Max 3 fixes automáticos |
 | Reviewer reporta bloqueante | Asignar fix al dev del lote correspondiente en mismo branch. Re-lanzar solo el reviewer que reportó. Repetir hasta aprobación |
 | PR creado sin review pre-push (el checkpoint del hook `post-pr-create` lo señala) | Tratarlo como PR fuera del flujo: skill `review-pr` sobre `gh pr diff` |

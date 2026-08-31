@@ -158,7 +158,7 @@ Todo workflow de Actions debe tener:
 
 ### 5.7 La retro viaja en el branch del PR
 
-La entrada de `LEARNINGS.md` se escribe en la Fase 4 y se commitea **en el branch del PR, como último commit antes del merge**. Nunca en un PR aparte. En modo multi-PR, una entrada por PR mergeado.
+La retro (`.planning/learnings/PR-<N>.md`, un archivo por PR) se escribe en la Fase 4 y se commitea **en el branch del PR, como último commit antes del merge**. Nunca en un PR aparte. En modo multi-PR, un archivo por PR mergeado.
 
 **Por qué:** un PR solo para la retro paga un run completo de CI y una ronda de PR sin cambiar una línea de código. Medido: el PR #179 de easy-quotes — 47 líneas de markdown bajo `.planning/` — disparó 7m23s de runners con backend, frontend, docker-prod y core-isolation completos. Es el mismo modo de falla que la regla 5.1 corrigió para docs, con la retro afuera.
 

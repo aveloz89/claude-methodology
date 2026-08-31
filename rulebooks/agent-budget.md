@@ -100,7 +100,7 @@ Cada invocación de un subagente que termina dispara el hook `hooks/subagent-sto
 | `branch` | Branch activo al momento de la invocación | sí |
 | `transcript` | Path al transcript del subagente (útil para post-mortem de cortes `BUDGET LIMIT`) | sí |
 
-- **Query de ejemplo** (invocaciones por agente en el repo actual, para llenar las métricas de `LEARNINGS.md` en la retro de Fase 4):
+- **Query de ejemplo** (invocaciones por agente en el repo actual, para llenar las métricas de la retro de Fase 4):
 
 ```bash
 jq -s '[.[] | select(.repo == "'"$(git rev-parse --show-toplevel)"'")] | group_by(.agent) | map({agent: .[0].agent, invocaciones: length})' ~/.claude/methodology/logs/subagent-invocations.jsonl

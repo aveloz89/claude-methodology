@@ -97,7 +97,7 @@ Output del agente es de baja calidad / incorrecto / incompleto
      → git log agents/<agente>.md para ver cambios
   → Paso 3: Si el prompt está correcto, hacer review manual
      → El orchestrator o el usuario revisan el output directamente
-     → Documentar el problema en .planning/LEARNINGS.md
+     → Documentar el problema en la retro del PR (.planning/learnings/PR-<N>.md)
   → Paso 4: Si es un patrón recurrente
      → Ajustar el prompt del agente
      → Agregar el caso como test de validación (tests/validation/)
@@ -167,7 +167,7 @@ Si el agente se cortó sin fallback (último mensaje truncado, sin commits):
   → Paso 1: Revisar el branch local — verificar qué quedó committeado
   → Paso 2: Si no hay commits → trabajo perdido, hay que re-invocar desde cero pero con cap de 5
   → Paso 3: Si hay commits parciales → identificar la última tarea completada y continuar desde ahí
-  → Paso 4: Documentar el corte en .planning/LEARNINGS.md (señal de que hay que reducir más el cap o partir en sub-PRs)
+  → Paso 4: Documentar el corte en la retro del PR (.planning/learnings/PR-<N>.md) (señal de que hay que reducir más el cap o partir en sub-PRs)
 ```
 
 Prevención: aplicar `rulebooks/agent-budget.md` antes de delegar (cap de 5 tareas, commit por tarea).
