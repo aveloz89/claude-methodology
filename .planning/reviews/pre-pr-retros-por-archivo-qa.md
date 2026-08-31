@@ -86,3 +86,48 @@ Un bloqueante: Fase 4 (paso 6) y el check 3 de la verificación pre-merge no apl
 - [ ] `rulebooks/orchestrator-runbook.md:537` — citar el incidente de "reportes de review pisándose" con proyecto/PR, como ya hace `skills/pr-workflow/SKILL.md:163` con el PR #179.
 - [ ] `rulebooks/orchestrator-runbook.md` (Fase 2.8) — aclarar qué hacer si `mergeable` sale `UNKNOWN` (reintentar vs. proceder).
 - [ ] `global/CLAUDE.md:118` — unificar `PR-{N}.md` → `PR-<N>.md` ya que la oración se tocó.
+
+---
+
+## Re-review — commit `4a526c1` (delta `54d3a89..HEAD`)
+
+Acotado al delta del fix, como pide el flujo de re-review. No repito el resto del review (DoD anti-drift original, coherencia multi-PR, formato de retros) — ya aprobado.
+
+### Verificación de fixes
+
+- **[RESUELTO] Bloqueante, punto 1 — Fase 4, paso 6.** Ahora empieza con `gh pr view <number> --json mergeable,mergeStateStatus`, remite explícitamente a Fase 2.8 ("igual que en la Fase 2.8") y agrega la razón específica de por qué acá el riesgo es mayor ("este push llega después de que otros PRs hayan podido mergear a la base"). Resolución idéntica y segura (mergear la base, nunca `--force`). Cierra exactamente el hueco que encontré con `gh run list` contra `easy-quotes#186`.
+- **[RESUELTO] Bloqueante, punto 2 — check 3 de la verificación pre-merge.** Mismo chequeo agregado como comentario ejecutable, con el porqué explícito ("un PR en conflicto no genera corridas... se leería como 'todavía no corrió' en vez de 'está bloqueado'"). Correcto.
+- **[RESUELTO] Sugerencia — `UNKNOWN`.** Cubierto en los tres lugares que ahora tienen el chequeo (Fase 2.8, Fase 4 paso 6 por remisión explícita, check 3 pre-merge) con instrucción de reintentar y advertencia de que no es verde.
+- **[RESUELTO] Sugerencia — cita del precedente.** Ahora nombra proyecto y PRs. **Pero la cita quedó mal atada — ver bloqueante nuevo abajo.**
+- **[RESUELTO] Nit — `PR-{N}` → `PR-<N>`.** `global/CLAUDE.md:118` unificado.
+
+### BLOQUEANTE NUEVO — cita de precedente mal atribuida (`rulebooks/orchestrator-runbook.md:537`)
+
+> "Es la misma forma que ya había fallado con los reportes de review cuando varios reviewers corren en paralelo, donde un proyecto (**easy-quotes, tras los PRs #184/#186**) lo resolvió igual: un archivo por escritor concurrente."
+
+Verifiqué la cita contra la fuente y **no corresponde**. `#184`/`#186` es el incidente de la retro (`LEARNINGS.md` con *prepend*) — el mismo que motiva este PR, no el de "reportes de review pisándose". El incidente de los reportes de review está documentado en **`easy-quotes/.planning/LEARNINGS.md:212`**, bajo el encabezado **`## [2026-08-24] PR #178 — Barrido de deuda técnica post-Stripe`** (confirmado por rango de líneas: la entrada de PR #178 empieza en la 177 y la siguiente, PR #170, en la 220 — la 212 cae adentro): *"Reviewers en paralelo escribiendo al mismo archivo de reporte... La ronda 3 usó un archivo por reviewer... que es la única forma de que 'no sobrescribas' sea una instrucción que un proceso concurrente pueda honrar."* Es una PR distinta, seis días antes, sin relación con `#184`/`#186`.
+
+Antes del fix la frase era vaga pero correcta ("un proyecto... lo resolvió"). Después del fix es precisa pero **incorrecta** — cambió una omisión por una afirmación falsa sobre un incidente pasado, justo lo que el paso 3 del propio DoD anti-drift de este archivo pide no hacer ("lo que afirma sobre un incidente pasado... si ya está registrado, remití en vez de reconstruirlo"). La cita correcta para "los reportes de review" es PR #178; `#184`/`#186` sigue siendo la cita correcta para la propia frase de la retro dos cláusulas antes (`"el conflicto no se ve al escribirlo sino al mergear el primero, dejando al segundo bloqueado sin checks (ver Fase 2.8)"`), que hoy no lleva número de PR y es donde debería estar.
+
+### Tercer lugar sin el chequeo — confirmado, existe
+
+`rulebooks/orchestrator-runbook.md`, sección **"Comandos `gh` específicos" → "Monitoreo de CI"** (línea ~625, no tocada por el diff original ni por el fix — verificado con `git diff dev..HEAD -- rulebooks/orchestrator-runbook.md | grep "Monitoreo de CI"`, sin resultados):
+
+```bash
+# Esperar a que terminen los checks (modo watch, falla rápido)
+gh pr checks <number> --watch --fail-fast
+```
+
+Es el mismo comando que Fase 2.8 y Fase 4 ya corrigieron, pero acá vive suelto, sin el chequeo de `mergeable` antes, en la sección que un orchestrator consultaría directamente como referencia rápida en vez de releer la prosa de cada fase. El fix queda incompleto mientras esta sección no tenga la misma corrección (aunque sea un `# ver mergeable primero (Fase 2.8)` con el comando, para no triplicar la explicación completa).
+
+### ¿Redundante al punto de invitar a "limpiar" uno de los dos?
+
+No. Fase 2.8 explica el mecanismo completo (por qué GitHub no genera corridas, por qué se lee como "CI encolado"). Fase 4 paso 6 no lo repite — dice **"igual que en la Fase 2.8"** y suma una razón nueva y específica de ese punto del flujo (el push llega después de que otra PR pudo mergear a la base, así que el riesgo es mayor ahí, no menor). Es remisión + elaboración nueva, no duplicación — el patrón que el propio DoD pide. El check 3 de pre-merge repite el comando en un comentario de script, lo cual es normal en una sección de tipo cookbook (no es "una decisión enunciada dos veces en prosa", es un comando ejecutable que tiene que ser autosuficiente si alguien lo copia suelto). El problema no es exceso de repetición — es la falta de ella en el tercer lugar de arriba.
+
+### Nuevos issues introducidos
+
+- La cita mal atribuida (bloqueante, arriba). No hay otros: el resto del delta es aditivo y no toca lógica ya revisada.
+
+### Veredicto
+
+**CAMBIOS NECESARIOS.** Los dos puntos originales del bloqueante están resueltos. Quedan dos cosas antes de aprobar: (1) corregir la atribución de la cita en `orchestrator-runbook.md:537` — mover `#184/#186` a la cláusula de la retro (o quitarla de ahí) y citar `PR #178` para los reportes de review, y (2) aplicar el mismo chequeo de `mergeable` en "Comandos `gh` específicos" → "Monitoreo de CI", el tercer lugar que quedó sin tocar.

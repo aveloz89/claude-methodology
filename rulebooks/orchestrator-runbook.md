@@ -540,7 +540,7 @@ Pasos exactos cuando el hook `session-start-context.sh` detecta `HANDOFF.md` (ve
 
 **Un archivo por PR mergeado, nombrado por su número.** No hay archivo acumulativo ni índice: el listado del directorio ordena solo y no existe ningún punto común donde dos PRs concurrentes puedan chocar. En modo multi-PR, cada grupo corre su propia Fase 4 y deja su archivo. Se escribe en la Fase 4 y viaja en el **último commit del branch del PR**, antes del merge — nunca en un PR aparte.
 
-**Por qué no es un archivo acumulativo.** Lo fue, con *prepend* al tope, y esa forma conflictúa **siempre** entre dos PRs abiertos a la vez: los dos insertan en el mismo punto del mismo archivo. Peor, el conflicto no se ve al escribirlo sino al mergear el primero, dejando al segundo bloqueado sin checks (ver Fase 2.8). Es la misma forma que ya había fallado con los reportes de review cuando varios reviewers corren en paralelo, donde un proyecto (easy-quotes, tras los PRs #184/#186) lo resolvió igual: **un archivo por escritor concurrente**. El runbook todavía manda un único `pre-pr-<feature-slug>.md` para reviews; corregirlo toca `post-pr-create.sh` y sus tests, así que va aparte. Un proyecto que venga del formato viejo deja su `LEARNINGS.md` como archivo histórico y no vuelve a escribir en él.
+**Por qué no es un archivo acumulativo.** Lo fue, con *prepend* al tope, y esa forma conflictúa **siempre** entre dos PRs abiertos a la vez: los dos insertan en el mismo punto del mismo archivo. Peor, el conflicto no se ve al escribirlo sino al mergear el primero, dejando al segundo bloqueado sin checks (ver Fase 2.8). Es la misma forma que ya había fallado con los reportes de review cuando varios reviewers corren en paralelo, donde un proyecto (easy-quotes, tras el PR #178) lo resolvió igual: **un archivo por escritor concurrente**. El runbook todavía manda un único `pre-pr-<feature-slug>.md` para reviews; corregirlo toca `post-pr-create.sh` y sus tests, así que va aparte. Un proyecto que venga del formato viejo deja su `LEARNINGS.md` como archivo histórico y no vuelve a escribir en él.
 
 Formato de cada archivo:
 
@@ -623,6 +623,13 @@ Si el diff (local o de PR) tiene archivos de ambas capas → lanzar **ambos QAs 
 ### Monitoreo de CI
 
 ```bash
+# SIEMPRE primero: un PR en conflicto no genera corridas, así que el watch
+# de abajo esperaría indefinidamente algo que nunca va a existir, con el
+# mismo aspecto que "CI encolado" (ver Fase 2.8 y Fase 4, paso 6)
+gh pr view <number> --json mergeable,mergeStateStatus
+# CONFLICTING/DIRTY → resolver el conflicto antes de esperar checks
+# UNKNOWN → GitHub sigue calculando: reintentar, no es verde
+
 # Esperar a que terminen los checks (modo watch, falla rápido)
 gh pr checks <number> --watch --fail-fast
 
