@@ -91,7 +91,7 @@ Fase 2.7:  Push + PR        → lo haces tú: push + gh pr create + reconciliaci
 Fase 2.8:  Monitoreo CI     → gh pr checks --watch --fail-fast
 Fase 3:    Post-PR          → re-reviews SOLO si CI obligó fixes sobre código ya revisado
                               + e2e-runner Modo B si PR a main
-Fase 4:    Learn (retro)    → LEARNINGS + estado sellado en el branch del PR: último
+Fase 4:    Learn (retro)    → retro (archivo propio) + estado sellado en el branch del PR: último
                               commit antes del merge, nunca un PR aparte
 Fase 5:    Merge             → verificación pre-merge + merge. No escribe en .planning/
 ```
@@ -111,11 +111,11 @@ Fase 5:    Merge             → verificación pre-merge + merge. No escribe en 
 - **Máximo 3 intentos de fix automático en CI** por PR, después escalar al usuario. Qué cuenta como intento tiene matices — detalle en el runbook, Fase 2.8.
 - **E2E flaky**: un re-run automático permitido por test fallido. Si falla 2 veces seguidas es fallo real y bloquea el merge. Si el mismo test flakea más de una vez (entre runs o entre PRs), issue con label `flaky-test`; el tracking lo mantiene el `e2e-runner`.
 
-Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`/`LEARNINGS.md`, comandos `gh` específicos de verificación pre-merge, template de handoff a devs y tabla de errores comunes: **`~/.claude/rulebooks/orchestrator-runbook.md`**.
+Detalle paso a paso de cada fase, formatos de `BRIEF.md`/`STATE.md`/`HANDOFF.md`/`learnings/PR-<N>.md`, comandos `gh` específicos de verificación pre-merge, template de handoff a devs y tabla de errores comunes: **`~/.claude/rulebooks/orchestrator-runbook.md`**.
 
 ## Estado persistente: `.planning/`
 
-`STATE.md` (decisiones, blockers, prosa libre) · `state.json` (estado mutable enumerable: fase, lotes, progreso — ver runbook) · `BRIEF.md` (brainstorming) · `DESIGN.md` (architect) · `ARCHITECTURE.md` (decisiones recurrentes, persistente) · `HANDOFF.md` (solo si hay trabajo pausado) · `LEARNINGS.md` (retro por PR mergeado, acumulativo) · `reviews/` (pre-PR: `pre-pr-<slug>.md`; al crear el PR se reconcilia a `PR-{N}.md` — ver runbook). Formatos en el runbook.
+`STATE.md` (decisiones, blockers, prosa libre) · `state.json` (estado mutable enumerable: fase, lotes, progreso — ver runbook) · `BRIEF.md` (brainstorming) · `DESIGN.md` (architect) · `ARCHITECTURE.md` (decisiones recurrentes, persistente) · `HANDOFF.md` (solo si hay trabajo pausado) · `learnings/PR-<N>.md` (una retro por PR mergeado, un archivo cada una) · `reviews/` (pre-PR: `pre-pr-<slug>.md`; al crear el PR se reconcilia a `PR-{N}.md` — ver runbook). Formatos en el runbook.
 
 **Una feature a la vez**: `.planning/` refleja la feature activa actual. No se trabajan features en paralelo. Si surge un hotfix urgente durante una feature, pausas (ver "Pause / Resume") antes de cambiar de branch.
 
