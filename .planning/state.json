@@ -3,14 +3,14 @@
   "feature": "hook-skip-planning-only",
   "branch": "feature/hook-skip-planning-only",
   "pr": null,
-  "review_sha": null,
-  "updated": "2026-09-12T06:00:00Z",
+  "review_sha": "28370cd",
+  "updated": "2026-09-12T08:30:00Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
-    "implementation": "in_progress",
-    "docs": "pending",
-    "review": "pending",
+    "implementation": "done",
+    "docs": "done",
+    "review": "done",
     "pr": "pending",
     "ci": "pending",
     "e2e": "skipped",
@@ -21,11 +21,20 @@
       "id": "L1",
       "name": "hook-skip-planning-y-db-por-worktree",
       "agent": "backend-dev",
-      "status": "in_progress",
-      "tasks_done": 0,
+      "status": "done",
+      "tasks_done": 3,
       "tasks_total": 3,
       "last_batch": true,
-      "depends_on": []
+      "depends_on": [],
+      "commits": [
+        "773bc76",
+        "2670933",
+        "b108ad8",
+        "c0bb1d4",
+        "af06933",
+        "2825e81",
+        "28370cd"
+      ]
     }
   ]
 }
