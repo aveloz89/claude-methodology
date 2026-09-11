@@ -125,15 +125,22 @@ _guard_planning_only_change() {
 # general) sigue fuera de alcance — esto solo evita que el salto nuevo lo
 # agrave, de "gate corriendo contra el árbol equivocado" a "sin gate".
 #
-# "cd" se ancla a posición de comando con el mismo GUARD_ANCHOR que el
-# resto del hook (no matchea como parte de otra palabra, y guard_sanitize
-# ya quitó los spans quoted/heredoc antes de esto, así que un "cd" dentro
-# de un mensaje de commit no llega ni siquiera a este punto). "-C" se
-# ancla igual porque es una opción corta de una sola letra, más propensa a
-# aparecer por casualidad; "--git-dir"/"--work-tree" son lo bastante
-# específicas como para no necesitar el mismo anclaje — un falso positivo
-# acá solo corre suites de más.
-if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}cd\s|${GUARD_ANCHOR}git\s+-C\s|--git-dir|--work-tree"; then
+# "cd"/"pushd" se anclan a posición de comando con el mismo GUARD_ANCHOR
+# que el resto del hook (no matchean como parte de otra palabra, y
+# guard_sanitize ya quitó los spans quoted/heredoc antes de esto, así que
+# una mención dentro de un mensaje de commit no llega ni siquiera a este
+# punto). El terminador de la derecha acepta blanco (argumento: "cd
+# <ruta>", "pushd <ruta>") o ";"/"&&"/fin de línea sin blanco de por medio
+# ("cd" pelado sin argumento — target implícito $HOME — o "pushd" pelado
+# sobre el tope del stack): con solo "cd\s" y sin "pushd" en la lista,
+# "pushd $WT && git commit" y "cd; git commit" tomaban el salto en
+# silencio (ni "pushd" estaba cubierto, ni un "cd" pelado seguido de ";"
+# trae el espacio que "cd\s" exigía). "-C" se ancla igual porque es una
+# opción corta de una sola letra, más propensa a aparecer por casualidad;
+# "--git-dir"/"--work-tree" son lo bastante específicas como para no
+# necesitar el mismo anclaje — un falso positivo acá solo corre suites de
+# más.
+if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}(cd|pushd)(\s|;|&&|\$)|${GUARD_ANCHOR}git\s+-C\s|--git-dir|--work-tree"; then
   : # comando redirige a otro árbol: camino normal, no se evalúa el salto
 elif _guard_planning_only_change; then
   echo "Solo cambios en .planning/: sin suites." >&2

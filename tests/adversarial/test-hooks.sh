@@ -548,6 +548,17 @@ assert_blocked_cmd "pre-commit-guard: rename de .planning/ hacia afuera → corr
   "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
 _pskip_assert_marker "pre-commit-guard: rename .planning/ → afuera — el test runner corrió" yes
 
+# (e2) Rename DENTRO de .planning/ (ambos lados bajo el prefijo) → sigue
+# saltando: mover un archivo de .planning/ a .planning/ no saca nada del
+# árbol vigilado, a diferencia de (e). El case ".planning/*" del hook
+# matchea ambos lados de la línea de rename, así que el chequeo no
+# retorna 1 por esto.
+_pskip_reset
+git -C "$PSKIP_DIR" mv .planning/a.md .planning/b.md
+assert_allowed_cmd "pre-commit-guard: rename dentro de .planning/ (ambos lados) → sigue saltando" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: rename dentro de .planning/ — el test runner NO corrió" no
+
 # Casos adicionales [security MEDIUM]: pinean invariantes hoy correctas
 # pero sin test — cualquier "simplificación" futura del glob (ej.
 # ".planning*", un "grep -q '^\.planning'") las rompería en silencio y
@@ -629,9 +640,23 @@ _pskip_assert_marker "pre-commit-guard: árbol limpio — el test runner corrió
 # cwd fuera de un repo), _guard_planning_only_change debe devolver 1
 # (camino normal) y NUNCA 0 (saltar) — mismo criterio fail-closed que el
 # resto del hook. Se simula con un "git" fake que siempre sale 1.
+#
+# El fake IMPRIME una línea de status con pinta de "solo .planning/" antes
+# de salir 1: si saliera 1 sin imprimir nada, "files" quedaría vacío
+# igual que con un árbol limpio, y el assert de abajo pasaría por
+# "[ -z "$files" ] && return 1" sin ejercitar de verdad
+# "|| return 1" — un "git" que falla CON salida (git real puede emitir
+# stderr/stdout parcial antes de un error) no lo cubriría esa rama.
+# Verificado por mutación: quitando "|| return 1" del hook, con este fake
+# (imprime y sale 1) el assert de abajo se pone en rojo (test.ran=no
+# cuando se espera yes), porque " M .planning/x.md" matchea el case
+# ".planning/*" y la función devuelve 0 (salta) en vez de 1 — con el
+# fake anterior (sin imprimir) esa misma mutación NO se detectaba, porque
+# "[ -z "$files" ] && return 1" seguía atrapando el caso por su cuenta.
 PSKIP_NOGIT_DIR=$(mktemp -d)
 cat > "$PSKIP_NOGIT_DIR/git" <<'FAKE_GIT_EOF'
 #!/bin/bash
+echo " M .planning/x.md"
 exit 1
 FAKE_GIT_EOF
 chmod +x "$PSKIP_NOGIT_DIR/git"
@@ -709,6 +734,70 @@ assert_blocked_cmd "pre-commit-guard: cd a otro worktree con código sucio → n
   "pre-commit-guard.sh" "cd $PSKIP_WT && git commit -am x" "$PATH" "$PSKIP_DIR"
 _pskip_assert_marker "pre-commit-guard: cd a otro worktree — el test runner corrió" yes
 _pskip_cleanup_worktree
+
+# (g2)-(g6) Extiende (g): "cd" no es el único comando que redirige de
+# árbol ("pushd" hace lo mismo) y el ancla "cd\s" exigía un argumento con
+# espacio detrás — un "cd" pelado (sin argumento, target implícito $HOME)
+# seguido directo de ";", "&&" (sin espacio de por medio) o fin de línea
+# no matcheaba, así que SÍ tomaba el salto sobre el árbol principal
+# (sucio solo .planning/) mientras el comando redirigía a otro lado.
+# Verificado en rojo contra el hook sin este fix: "pushd $WT && git
+# commit" y "cd; git commit" no matcheaban el chequeo de redirección.
+
+# (g2) pushd a otro worktree con código sucio → no toma el salto, corre
+# suites (mismo escenario que (g), con pushd en vez de cd).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+assert_blocked_cmd "pre-commit-guard: pushd a otro worktree con código sucio → no toma el salto, corre suites" \
+  "pre-commit-guard.sh" "pushd $PSKIP_WT && git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: pushd a otro worktree — el test runner corrió" yes
+_pskip_cleanup_worktree
+
+# (g3) "cd" pelado seguido de ";" (sin espacio de por medio) → no toma el
+# salto, corre suites. No hace falta worktree: el punto es que el patrón
+# textual detecte la redirección sin importar a dónde apunte "cd" en la
+# práctica.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+assert_blocked_cmd "pre-commit-guard: cd pelado seguido de ';' (sin espacio) → no toma el salto, corre suites" \
+  "pre-commit-guard.sh" "cd; git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: cd pelado ';' — el test runner corrió" yes
+
+# (g4) "cd" pelado seguido de "&&" sin espacio ("cd&&...", a diferencia de
+# "cd && ..." que ya matcheaba antes por el espacio) → no toma el salto,
+# corre suites.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+assert_blocked_cmd "pre-commit-guard: cd pelado seguido de '&&' sin espacio → no toma el salto, corre suites" \
+  "pre-commit-guard.sh" "cd&&git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: cd pelado '&&' sin espacio — el test runner corrió" yes
+
+# (g5) "cd" pelado seguido de newline (comando multilínea real, ej. un
+# script de dos líneas) → no toma el salto, corre suites.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+CD_BARE_NEWLINE=$(printf 'cd\ngit commit -am x')
+assert_blocked_cmd "pre-commit-guard: cd pelado seguido de newline → no toma el salto, corre suites" \
+  "pre-commit-guard.sh" "$CD_BARE_NEWLINE" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: cd pelado newline — el test runner corrió" yes
+
+# (g6) Regresión doble: "cd && git commit" (CON espacio, ya matcheaba
+# antes de este fix) sigue corriendo suites, y una mención de "cd x"
+# dentro de un string ("echo \"cd x\" && git commit") no es una
+# invocación real — guard_sanitize ya la quitó antes de este chequeo — y
+# sigue saltando con .planning/ sucio solo.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+assert_blocked_cmd "pre-commit-guard: cd && git commit (con espacio, ya cubierto) sigue corriendo suites" \
+  "pre-commit-guard.sh" "cd && git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: cd && git commit (regresión) — el test runner corrió" yes
+
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+assert_allowed_cmd "pre-commit-guard: mención de \"cd x\" dentro de un string sigue saltando" \
+  "pre-commit-guard.sh" 'echo "cd x" && git commit -am x' "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: mención de cd en string — el test runner NO corrió (sigue saltando)" no
 
 # (h) "git -C <worktree> commit": nunca llega a matchear "git\s+commit"
 # (queda "-C <ruta>" en medio) — el hook entero sale en el filtro de
