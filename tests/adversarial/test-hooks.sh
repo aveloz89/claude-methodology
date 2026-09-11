@@ -566,6 +566,90 @@ assert_allowed_cmd "pre-commit-guard: mención de git commit en heredoc sigue si
   "$PATH" "$PSKIP_DIR"
 _pskip_assert_marker "pre-commit-guard: heredoc — el test runner NO corrió (nunca se interceptó)" no
 
+# (g)-(i) [security HIGH] Worktree real: árbol principal sucio SOLO bajo
+# .planning/, pero el comando interceptado commitea en OTRO árbol (código
+# sin test) vía "cd", "git -C" o "--git-dir"/"--work-tree". Antes del fix,
+# _guard_planning_only_change (un simple "git status" en el cwd del hook)
+# no tenía forma de saber que el commit real ocurre en otro árbol: leía el
+# árbol principal, lo veía "solo .planning/" y saltaba las suites sobre un
+# commit de código real — el escenario que verificó el security reviewer
+# (Fase 2.6). Ver el comentario junto al chequeo nuevo en
+# pre-commit-guard.sh para por qué "-C"/"--git-dir"/"--work-tree" dan
+# "status quo exacto" (idéntico antes y después de este fix): esas formas
+# nunca llegan a _guard_planning_only_change porque ya rompen el match
+# "git\s+commit" del filtro de arriba (necesitan "commit" pegado a "git"
+# salvo por espacios) — es #212, legacy, fuera de alcance; (g) sí cambia
+# de comportamiento (era el bug), (h) e (i) confirman que siguen
+# igual que siempre.
+_pskip_setup_worktree() {
+  git -C "$PSKIP_DIR" branch -q pskip-wt
+  PSKIP_WT=$(mktemp -d)
+  PSKIP_WT=$(cd "$PSKIP_WT" && pwd -P)
+  git -C "$PSKIP_DIR" worktree add -q "$PSKIP_WT" pskip-wt > /dev/null 2>&1
+  echo "cambio-worktree" >> "$PSKIP_WT/src/a.js"
+}
+
+_pskip_cleanup_worktree() {
+  git -C "$PSKIP_DIR" worktree remove --force "$PSKIP_WT" > /dev/null 2>&1
+  git -C "$PSKIP_DIR" branch -q -D pskip-wt > /dev/null 2>&1
+  rm -rf "$PSKIP_WT"
+}
+
+# (g) cd a otro worktree con código sucio, árbol principal sucio solo
+# .planning/ → NO toma el salto (corre suites, bloquea: el runner siempre
+# falla). Es la reparación real del HIGH.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+assert_blocked_cmd "pre-commit-guard: cd a otro worktree con código sucio → no toma el salto del árbol principal, corre suites" \
+  "pre-commit-guard.sh" "cd $PSKIP_WT && git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: cd a otro worktree — el test runner corrió" yes
+_pskip_cleanup_worktree
+
+# (h) "git -C <worktree> commit": nunca llega a matchear "git\s+commit"
+# (queda "-C <ruta>" en medio) — el hook entero sale en el filtro de
+# arriba, exit 0 sin correr nada. Status quo exacto (#212, fuera de
+# alcance): así se comportaba antes de este PR y se sigue comportando
+# igual después.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+assert_allowed_cmd "pre-commit-guard: git -C a otro worktree — no matchea el filtro de \"git commit\", status quo (#212, sin cambio)" \
+  "pre-commit-guard.sh" "git -C $PSKIP_WT commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: git -C a otro worktree — el test runner NO corrió (nunca se interceptó)" no
+_pskip_cleanup_worktree
+
+# (i) "git --git-dir=... --work-tree=... commit": mismo motivo que (h).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+assert_allowed_cmd "pre-commit-guard: --git-dir/--work-tree a otro worktree — no matchea el filtro de \"git commit\", status quo (#212, sin cambio)" \
+  "pre-commit-guard.sh" "git --git-dir=$PSKIP_WT/.git --work-tree=$PSKIP_WT commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: --git-dir/--work-tree a otro worktree — el test runner NO corrió (nunca se interceptó)" no
+_pskip_cleanup_worktree
+
+# (j) [security HIGH, defensa en profundidad] Comando compuesto: una
+# mención de "git -C" en una invocación separada (no la que commitea)
+# convive con un "git commit" real y local en el mismo árbol sucio solo
+# .planning/. A diferencia de (h), acá SÍ se llega a
+# _guard_planning_only_change (el "git commit" del final matchea el
+# filtro de arriba sin ningún "-C" en el medio) — esto es lo único que
+# ejercita de verdad la rama "-C"/"--git-dir"/"--work-tree" del chequeo
+# nuevo (en invocación única es sintácticamente imposible que esas
+# opciones convivan con el match de "git commit", ver (h)/(i)). Ante la
+# duda, no se toma el salto: corre de más.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+assert_blocked_cmd "pre-commit-guard: mención de \"git -C\" en el mismo comando que un commit local → no toma el salto, corre suites" \
+  "pre-commit-guard.sh" "git -C /nonexistent status; git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: mención de git -C junto a un commit local — el test runner corrió" yes
+
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+assert_blocked_cmd "pre-commit-guard: mención de \"--work-tree\" en el mismo comando que un commit local → no toma el salto, corre suites" \
+  "pre-commit-guard.sh" "git --git-dir=/nonexistent/.git --work-tree=/nonexistent status; git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: mención de --work-tree junto a un commit local — el test runner corrió" yes
+
 _pskip_cleanup
 
 # --- pre-commit-guard.sh: workspace scoping (monorepo) ---

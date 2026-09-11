@@ -49,11 +49,12 @@ fi
 # markdown).
 #
 # _guard_planning_only_change calcula la unión de archivos con cambios
-# locales (staged + sin stagear + untracked) con el MISMO comando y las
-# mismas salvedades que _workspace_scope_match en
-# hooks/lib/workspace-scope.sh (ver su comentario, líneas ~199-256, para el
-# detalle verificado caso por caso de qué reporta `git status` y cómo se
-# procesa cada línea — no se repite acá para que no se desincronice). En
+# locales (staged + sin stagear + untracked) con el mismo comando que
+# _workspace_scope_match en hooks/lib/workspace-scope.sh salvo
+# --no-renames (ver más abajo por qué acá sí importa) — mismas salvedades
+# por lo demás (ver su comentario, líneas ~199-256, para el detalle
+# verificado caso por caso de qué reporta `git status` y cómo se procesa
+# cada línea — no se repite acá para que no se desincronice). En
 # particular, por qué "git status --porcelain" y no "git diff --cached":
 # este hook es PreToolUse y corre ANTES de que el comando Bash interceptado
 # se ejecute; si ese comando es "git add -A && git commit -m '...'", el
@@ -71,6 +72,17 @@ fi
 # ".planning/" (ambos lados, si es rename). Lista vacía o cualquier archivo
 # fuera → 1 (camino normal) — mismo criterio conservador que
 # workspace-scope.sh: ante la duda, corre de más, nunca de menos.
+#
+# Salvedad conocida y aceptada (igual que en workspace-scope.sh, pero acá
+# la consecuencia es mayor): un archivo gitignoreado que el propio comando
+# interceptado agrega con "git add -f" (ej. "git add -f secreto.js &&
+# git commit ...") no aparece en este "git status" porque el "add -f"
+# todavía no corrió (mismo razonamiento de timing de arriba) — en
+# workspace-scope.sh eso degrada a "corre menos workspaces de los
+# necesarios"; acá degrada a "salta las suites por completo" si el resto
+# del árbol solo tiene cambios en .planning/. No se resuelve en código
+# (miraría también "git ls-files --others --ignored", sobreingeniería para
+# un "add -f" deliberado); documentado para que quede a la vista.
 _guard_planning_only_change() {
   local files
   files=$(git status --porcelain --untracked-files=all 2>/dev/null) || return 1
@@ -99,7 +111,31 @@ _guard_planning_only_change() {
   return 0
 }
 
-if _guard_planning_only_change; then
+# _guard_planning_only_change lee "git status" del cwd del hook — pero el
+# comando interceptado puede commitear en OTRO árbol: "cd <ruta> && git
+# commit", "git -C <ruta> commit", "git --git-dir=... --work-tree=...
+# commit". En esos casos decidiría "solo .planning/" leyendo un árbol que
+# no es el que se está commiteando, y el salto anularía el gate en
+# silencio sobre un commit de código real (verificado con git worktree
+# real: árbol principal sucio solo bajo .planning/, worktree con código
+# sucio, comando "cd $WT && git commit -am x" → saltaba sin correr
+# suites). Ante cualquiera de esos patrones en el comando, no se toma el
+# salto: cae al camino normal exacto de antes de este salto (corre de más,
+# nunca de menos). #212 (este guard no sigue al árbol real del commit en
+# general) sigue fuera de alcance — esto solo evita que el salto nuevo lo
+# agrave, de "gate corriendo contra el árbol equivocado" a "sin gate".
+#
+# "cd" se ancla a posición de comando con el mismo GUARD_ANCHOR que el
+# resto del hook (no matchea como parte de otra palabra, y guard_sanitize
+# ya quitó los spans quoted/heredoc antes de esto, así que un "cd" dentro
+# de un mensaje de commit no llega ni siquiera a este punto). "-C" se
+# ancla igual porque es una opción corta de una sola letra, más propensa a
+# aparecer por casualidad; "--git-dir"/"--work-tree" son lo bastante
+# específicas como para no necesitar el mismo anclaje — un falso positivo
+# acá solo corre suites de más.
+if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}cd\s|${GUARD_ANCHOR}git\s+-C\s|--git-dir|--work-tree"; then
+  : # comando redirige a otro árbol: camino normal, no se evalúa el salto
+elif _guard_planning_only_change; then
   echo "Solo cambios en .planning/: sin suites." >&2
   exit 0
 fi
