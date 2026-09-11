@@ -156,7 +156,7 @@ El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` r
    - `qa-frontend` — solo si el diff tiene frontend
    - `qa-backend` — solo si el diff tiene backend (incluye revisar migraciones y queries del db-specialist)
 
-   Paquete de contexto (context isolation): base + branch + instrucción de leer `git diff <base>...HEAD` + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida. **Sin número de PR — no existe todavía.** Si el diff **introduce una regla nueva**, decilo en el paquete: el reviewer tiene que aplicarla al propio diff (ver `agents/qa-backend.md`). Puede identificarla leyendo el diff, pero nombrarla le ahorra ese paso.
+   Paquete de contexto (context isolation): base + branch + instrucción de leer `git diff <base>...HEAD` + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida. **Sin número de PR — no existe todavía.** Si el diff **introduce una regla nueva**, decilo en el paquete: el reviewer tiene que aplicarla al propio diff (ver `agents/qa-backend.md`). Puede identificarla leyendo el diff, pero nombrarla le ahorra ese paso. Si el reviewer corre suites desde un worktree: que exporte su propia base de test (`TEST_DATABASE_URL` o el equivalente del proyecto, ej. `<base>_<reviewer>`) para no pisar la corrida del árbol principal ni bloquear el hook de pre-commit de otro agente.
 4. **Consolida y registra**: reporte con el "Formato de reporte de review" (más abajo), guardado en `.planning/reviews/pre-pr-<feature-slug>.md` con header de trazabilidad (branch, base, SHA de HEAD revisado, fecha, veredicto). Commit al branch: `planning: registrar review dual pre-push`
 5. **Mientras haya un reviewer corriendo, el árbol no se mueve.** Cuando lanzás varios en paralelo —pueden ser tres en un diff full-stack— esperá a que vuelvan **todos** antes de aplicar nada: si aplicás los hallazgos del primero, los demás quedan leyendo un árbol que cambió bajo sus pies. Si uno se cuelga o excede su presupuesto, no esperes indefinido: cortalo y relanzalo después de aplicar, o aplicá solo en archivos que ese reviewer no esté mirando — pero decidilo explícitamente, no por olvido. Ya pasó (ver las retros de los PRs #65 y #66, y la de este mismo PR). Las veces que pasó lo detectó el reviewer y avisó, en vez de reportar un rojo falso — pero eso es disciplina suya, no una red del proceso. Vale igual para un dev trabajando en paralelo: si un lote y un review tocan los mismos archivos, no van juntos.
 6. **Si hay bloqueantes**: fixes por el dev correspondiente en el mismo branch, **sin push** (si el bloqueante es de schema/migración/query optimizada, va al `db-specialist`). Re-lanza **solo** los reviewers que marcaron issues, acotados al delta local (`git diff <sha-ya-revisado>...HEAD`). Append de la re-ronda al registro. Sugerencias baratas: aplicadas antes del push (política en la skill `pr-workflow`, regla 2)
@@ -355,6 +355,8 @@ Rules aplicables:
 - ~/.claude/rules/docker.md (si aplica)
 
 Si no es el primer lote: lee `git log`, `.planning/STATE.md` y `.planning/state.json` antes de empezar.
+
+Si trabajás o corrés suites desde un worktree: exportá tu propia base de test (`TEST_DATABASE_URL` o el equivalente del proyecto, ej. `<base>_<lote>`) para no pisar la corrida del árbol principal ni bloquear el hook de pre-commit de otro agente.
 
 Si last_batch=false: NO push, NO PR. Reporta completado.
 Si last_batch=true: verificación final completa del branch y reporta listo.
