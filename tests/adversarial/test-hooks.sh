@@ -457,6 +457,117 @@ assert_blocked_cmd "pre-commit-guard: bloquea fail-closed (exit 2) sin jq en PAT
   "$NO_JQ_PCG_BIN"
 rm -rf "$NO_JQ_PCG_BIN"
 
+# --- pre-commit-guard.sh: salto para commits de solo .planning/ ---
+echo "--- pre-commit-guard.sh: salto para commits de solo .planning/ ---"
+
+# _pskip_setup: repo git temporal con un test runner npm que SIEMPRE falla
+# (exit 1) y deja un marcador si corrió — misma técnica que
+# _wsscope_npm_setup más arriba, para distinguir "no corrió" (marcador
+# ausente) de "corrió y (falla, como siempre)".
+_pskip_setup() {
+  PSKIP_DIR=$(mktemp -d)
+  PSKIP_DIR=$(cd "$PSKIP_DIR" && pwd -P)
+  PSKIP_MARK=$(mktemp -d)
+  (
+    cd "$PSKIP_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p .planning src
+    cat > package.json <<EOF
+{ "name": "root", "private": true, "scripts": { "test": "echo ran > $PSKIP_MARK/test.ran && exit 1" } }
+EOF
+    echo "# STATE" > .planning/x.md
+    echo "# A" > .planning/a.md
+    echo "console.log(1)" > src/a.js
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+}
+
+_pskip_reset() {
+  git -C "$PSKIP_DIR" reset -q --hard > /dev/null 2>&1
+  git -C "$PSKIP_DIR" clean -fdq > /dev/null 2>&1
+  rm -f "$PSKIP_MARK/test.ran"
+}
+
+_pskip_cleanup() {
+  rm -rf "$PSKIP_DIR" "$PSKIP_MARK"
+}
+
+_pskip_assert_marker() {
+  local test_name="$1" expect="$2"
+  local got=no
+  [ -f "$PSKIP_MARK/test.ran" ] && got=yes
+  TOTAL=$((TOTAL + 1))
+  if [ "$got" = "$expect" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (test.ran=$got)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (test.ran=$got, esperado=$expect)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+_pskip_setup
+
+# (a) Solo .planning/x.md modificado → exit 0 y NO corre el test runner.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+assert_allowed_cmd "pre-commit-guard: solo .planning/ modificado → salta suites (exit 0)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: solo .planning/ modificado — el test runner NO corrió" no
+
+# (b) .planning/x.md + src/a.js → corre (bloquea: el runner siempre falla).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+echo "cambio" >> "$PSKIP_DIR/src/a.js"
+assert_blocked_cmd "pre-commit-guard: .planning/ + un archivo fuera → corre suites" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: .planning/ + un archivo fuera — el test runner corrió" yes
+
+# (c) Solo un untracked fuera de .planning/ → corre.
+_pskip_reset
+echo "nuevo" > "$PSKIP_DIR/src/b.js"
+assert_blocked_cmd "pre-commit-guard: untracked fuera de .planning/ → corre suites" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: untracked fuera de .planning/ — el test runner corrió" yes
+
+# (d) .planning/x.md modificado + untracked fuera de .planning/ → corre.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+echo "nuevo" > "$PSKIP_DIR/src/b.js"
+assert_blocked_cmd "pre-commit-guard: .planning/ modificado + untracked fuera → corre suites" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: .planning/ + untracked fuera — el test runner corrió" yes
+
+# (e) Rename de .planning/a.md a src/a.md (ambos lados evaluados) → corre.
+_pskip_reset
+git -C "$PSKIP_DIR" mv .planning/a.md src/a.md
+assert_blocked_cmd "pre-commit-guard: rename de .planning/ hacia afuera → corre suites" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: rename .planning/ → afuera — el test runner corrió" yes
+
+# (f) Comportamiento existente: una mención de "git commit" dentro de un
+# heredoc no es una invocación real y no debe interceptarse, ni aunque el
+# repo esté sucio solo bajo .planning/ (confirma que el chequeo nuevo no se
+# adelanta al guard de sanitización que ya decide esto antes).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+HEREDOC_MENTION_PSKIP=$(cat <<'CMD_EOF'
+cat <<'NOTE_EOF' > notes.txt
+git commit -m "reminder text" (do this later)
+NOTE_EOF
+CMD_EOF
+)
+assert_allowed_cmd "pre-commit-guard: mención de git commit en heredoc sigue sin interceptarse (con .planning/ sucio)" \
+  "pre-commit-guard.sh" \
+  "$HEREDOC_MENTION_PSKIP" \
+  "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: heredoc — el test runner NO corrió (nunca se interceptó)" no
+
+_pskip_cleanup
+
 # --- pre-commit-guard.sh: workspace scoping (monorepo) ---
 echo "--- pre-commit-guard.sh: workspace scoping (monorepo) ---"
 

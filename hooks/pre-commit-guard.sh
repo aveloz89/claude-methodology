@@ -41,6 +41,69 @@ if ! echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+commit"; then
   exit 0
 fi
 
+# Salto para commits que solo tocan .planning/ (regla de 3 en easy-quotes:
+# #212, #247, #253 — ver .planning/BRIEF.md de la feature que agregó esto).
+# Un commit de puro estado de planning no arriesga código de producción sin
+# test, y forzarlo a correr suites completas solo lo expone a un flake
+# ajeno al propio commit (#247: un flake bloqueó un commit de puro
+# markdown).
+#
+# _guard_planning_only_change calcula la unión de archivos con cambios
+# locales (staged + sin stagear + untracked) con el MISMO comando y las
+# mismas salvedades que _workspace_scope_match en
+# hooks/lib/workspace-scope.sh (ver su comentario, líneas ~199-256, para el
+# detalle verificado caso por caso de qué reporta `git status` y cómo se
+# procesa cada línea — no se repite acá para que no se desincronice). En
+# particular, por qué "git status --porcelain" y no "git diff --cached":
+# este hook es PreToolUse y corre ANTES de que el comando Bash interceptado
+# se ejecute; si ese comando es "git add -A && git commit -m '...'", el
+# "git add -A" todavía no corrió cuando este hook mira el índice, así que
+# mirar solo lo ya stageado subestimaría qué entra al commit.
+#
+# A diferencia de _workspace_scope_match (que usa --no-renames porque solo
+# le importa bajo qué directorio cae cada lado), este chequeo sí necesita
+# distinguir un rename: mover un archivo DE .planning/ hacia afuera (o al
+# revés) no es un cambio "solo .planning/", así que no se pasa
+# --no-renames y se evalúan ambos lados de una línea "R  old -> new".
+#
+# Devuelve 0 (sí, es un cambio solo-.planning/) solo si la lista de
+# archivos con cambios locales no está vacía y CADA UNO cae bajo
+# ".planning/" (ambos lados, si es rename). Lista vacía o cualquier archivo
+# fuera → 1 (camino normal) — mismo criterio conservador que
+# workspace-scope.sh: ante la duda, corre de más, nunca de menos.
+_guard_planning_only_change() {
+  local files
+  files=$(git status --porcelain --untracked-files=all 2>/dev/null) || return 1
+  [ -z "$files" ] && return 1
+
+  local line path
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    path="${line:3}"
+    case "$path" in
+      *' -> '*)
+        case "${path%% -> *}" in
+          .planning/*) : ;;
+          *) return 1 ;;
+        esac
+        case "${path##* -> }" in
+          .planning/*) : ;;
+          *) return 1 ;;
+        esac
+        ;;
+      .planning/*) : ;;
+      *) return 1 ;;
+    esac
+  done <<< "$files"
+
+  return 0
+}
+
+if _guard_planning_only_change; then
+  echo "Solo cambios en .planning/: sin suites." >&2
+  exit 0
+fi
+
 # Detectar el test runner del proyecto
 if [ -f "package.json" ]; then
   # Node.js project — detectar package manager
