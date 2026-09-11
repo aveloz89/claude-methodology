@@ -2,19 +2,19 @@
   "schema": 1,
   "feature": "hook-skip-planning-only",
   "branch": "feature/hook-skip-planning-only",
-  "pr": null,
+  "pr": 74,
   "review_sha": "28370cd",
-  "updated": "2026-09-12T08:30:00Z",
+  "updated": "2026-09-12T08:45:00Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
     "implementation": "done",
     "docs": "done",
     "review": "done",
-    "pr": "pending",
-    "ci": "pending",
+    "pr": "done",
+    "ci": "skipped",
     "e2e": "skipped",
-    "merge": "pending"
+    "merge": "done"
   },
   "batches": [
     {
