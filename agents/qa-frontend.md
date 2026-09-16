@@ -285,7 +285,7 @@ Archivos revisados: [lista de paths frontend del diff]
 - [OK/ISSUE] Botones con texto accesible
 - [OK/ISSUE] Navegación por teclado
 - [OK/ISSUE] Color no único transmisor de info
-- [OK/ISSUE/NO VERIFICABLE] Contraste suficiente — evidencia exigida al `frontend-dev`: valor computado en el navegador (no token/CSS); NO VERIFICABLE si no llegó evidencia (§5)
+- [OK/ISSUE/SIN EVIDENCIA] Contraste suficiente — evidencia exigida al `frontend-dev`: valor computado en el navegador (no token/CSS); SIN EVIDENCIA bloquea igual que ISSUE — es el caso general de §5 ("bloqueante si la evidencia no existe"), no el de *no verificable*
 - [OK/ISSUE] Alt text en imágenes
 
 ### Design System (si aplica)

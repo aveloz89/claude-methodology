@@ -162,6 +162,7 @@ Antes de cerrar el lote, muestra evidencia concreta:
 - Build: compilación exitosa
 - Lint: sin errores
 - Docker: contenedor corriendo (si aplica)
+- Contraste (si el diff toca texto crítico): valor computado en el navegador, adjunto como evidencia (`~/.claude/rules/implementation-principles.md` §5)
 
 Si falta alguno (excepto Docker cuando no hay compose), el lote NO está listo.
 

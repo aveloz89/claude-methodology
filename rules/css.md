@@ -56,12 +56,12 @@ Reglas idiomáticas para revisar código CSS. El agente `qa-frontend` lee este a
 
 - **`prefers-color-scheme`** — Soporte nativo con media query
 - **Variables semánticas** — `--color-bg`, `--color-text`, no `--white`, `--black`
-- **Testea contraste en ambos modos** — con el valor computado en el navegador en cada modo, no leyendo las variables (`~/.claude/rules/implementation-principles.md` §5)
+- **Testea contraste en ambos modos** — el `frontend-dev` mide el computado en el navegador en cada modo, no lee las variables, y lo deja como evidencia; `qa-frontend` la exige, no la mide (`~/.claude/rules/implementation-principles.md` §5)
 
 ## Accesibilidad
 
 - **Focus styles visibles** — Nunca `outline: none` sin alternativa (`:focus-visible` + custom style)
-- **Contraste suficiente** — WCAG AA: 4.5:1 texto normal, 3:1 texto grande; cierra con el valor computado en el navegador, no con el valor del token (`~/.claude/rules/implementation-principles.md` §5)
+- **Contraste suficiente** — WCAG AA: 4.5:1 texto normal, 3:1 texto grande; el `frontend-dev` mide el computado en el navegador, no el token, y lo deja como evidencia; `qa-frontend` la exige, no la mide (`~/.claude/rules/implementation-principles.md` §5)
 - **No `display: none` para accesibilidad** — Usa `sr-only` (visually hidden) si quieres ocultar visualmente pero mantener para screen readers
 - **Touch targets mínimo 44x44px** — Para botones y links en mobile
 

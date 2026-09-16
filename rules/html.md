@@ -29,7 +29,7 @@ Reglas idiomáticas para revisar código HTML. El agente `qa-frontend` lee este 
 - **Labels en inputs** — `<label for="email">` o `<label>` wrapeando el input. No inputs sin label
 - **`aria-label` cuando no hay texto visible** — Botones con solo ícono necesitan `aria-label`
 - **Roles explícitos solo cuando el elemento semántico no existe** — No `<nav role="navigation">` (redundante)
-- **Contraste de color suficiente** — WCAG AA mínimo (4.5:1 texto, 3:1 texto grande); cierra con el valor computado en el navegador, no con el código leído (`~/.claude/rules/implementation-principles.md` §5)
+- **Contraste de color suficiente** — WCAG AA mínimo (4.5:1 texto, 3:1 texto grande); el `frontend-dev` mide el computado en el navegador, no el código, y lo deja como evidencia; `qa-frontend` la exige, no la mide (`~/.claude/rules/implementation-principles.md` §5)
 - **Focus visible** — No `outline: none` sin alternativa. El focus ring es necesario para navegación por teclado
 - **`tabindex` con cuidado** — `tabindex="0"` para hacer focusable, `-1` para programático. Nunca `tabindex > 0`
 - **Skip navigation link** — `<a href="#main-content" class="skip-link">` para usuarios de screen reader
