@@ -77,7 +77,7 @@ Valida que el dev cumplió los criterios mínimos definidos en el `frontend-dev`
 - Todo botón tiene texto accesible (no solo icono — necesita `aria-label` si es solo icono)
 - Navegación por teclado funciona (tab order lógico, focus visible)
 - Color no es la única forma de transmitir información (usar texto/icono además del color en estados)
-- Contraste suficiente en texto crítico (referenciar al design system si define ratios concretos)
+- Contraste suficiente en texto crítico — el ratio objetivo puede salir del design system, pero que se cumple se verifica con el valor computado en el navegador, no leyendo el token ni el CSS (`~/.claude/rules/implementation-principles.md` §5)
 - Imágenes con `alt` significativo (vacío `alt=""` solo si es decorativa)
 
 Si el design system define más criterios, aplicar lo del design system **además** de estos mínimos.
@@ -86,7 +86,7 @@ Si el design system define más criterios, aplicar lo del design system **ademá
 
 Si existe `design-system/<NombreProyecto>/MASTER.md` o `design-system/<NombreProyecto>/pages/<página>.md`:
 
-- **Colores:** los valores usados en el diff deben coincidir con la paleta del design system. Hardcodeos como `#FF5733` o `bg-blue-500` cuando el design system define `--color-primary` → **bloqueante**
+- **Colores:** los valores usados en el diff deben coincidir con la paleta del design system. Hardcodeos como `#FF5733` o `bg-blue-500` cuando el design system define `--color-primary` → **bloqueante**. Que el valor coincida con el token no garantiza que se pinte — una regla más específica puede anularlo; ante duda, exige el valor computado (`~/.claude/rules/implementation-principles.md` §5)
 - **Tipografía:** font families del diff deben venir del design system. Importar Google Fonts arbitrarios no declarados → **bloqueante**
 - **Espaciado / sizing:** si el design system define un sistema de spacing (4px, 8px, 16px, etc.), valores arbitrarios → **sugerencia** (a menos que el design system los marque como obligatorios)
 - **Componentes core:** si el design system define un `<Button>` canónico y el diff crea otro `<MyButton>` que solapa → **bloqueante** (debe extender o usar el existente)
@@ -285,7 +285,7 @@ Archivos revisados: [lista de paths frontend del diff]
 - [OK/ISSUE] Botones con texto accesible
 - [OK/ISSUE] Navegación por teclado
 - [OK/ISSUE] Color no único transmisor de info
-- [OK/ISSUE] Contraste suficiente
+- [OK/ISSUE] Contraste suficiente — computado en navegador, no leído del token/CSS (§5)
 - [OK/ISSUE] Alt text en imágenes
 
 ### Design System (si aplica)
