@@ -4,18 +4,23 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** followups-sweep — cerrar los ocho follow-ups accionables en un solo PR, por pedido del usuario
-- **Última actualización:** 2026-08-25
+- **Feature:** regla-verificacion-visual — PR #75: lo visual se verifica con el valor computado en un navegador, no leyendo el archivo. Review dual APROBADO en 3 rondas; pendiente de aprobación de merge del usuario. Retro en `learnings/PR-75.md`
+- **Última actualización:** 2026-09-16
 
 ## Decisiones
 
-- [D-01] Barrido de ocho ítems en un PR, con precedente en el PR #55. La heurística de corte no cuenta commits sino diffs irrevisables: un commit atómico por ítem y el PR body agrupado por naturaleza mantienen la navegabilidad.
-- [D-02] Dos lotes en paralelo sobre el mismo branch con archivos disjuntos: el dev en `hooks/` y `tests/`, el orchestrator en `rules/`, `rulebooks/`, `agents/` y `skills/`. El dev evitó tocar `.planning/` por eso mismo, sin que se lo pidieran.
-- [D-03] El fix del `--repo` osciló cinco rondas entre cortar de más y cortar de menos. La regla final no elige mejor dónde cortar: **una ventana indeterminada no es una ventana y bloquea**. Decisión del usuario entre tres opciones, con el falso positivo aceptado (un backslash legítimo sin comillas bloquea igual).
-- [D-04] El parser de la ventana se hizo en perl y no en un loop de bash porque el dev midió que el loop es cuadrático en este intérprete: 100 KB no terminaba en 2 minutos. Perl mide lineal, con `alarm(5)` como red.
-- [D-05] `README.md` y el `CLAUDE.md` raíz quedan fuera del ruteo por capa salvo en este repo: son meta-documentación, no reglas que los agentes consuman. El grep del DoD sí los cubre — son mecanismos distintos, uno busca drift y el otro decide a quién invocar.
-- [D-06] El conteo mal reportado del dev (1 test en rojo cuando eran 3) se corrige en el registro y no reescribiendo la historia: el branch ya había avanzado y `git reset --hard` está bloqueado por hooks.
-- [D-07] Docs (Fase 2.5) saltada: cuatro de los ocho ítems SON documentación normativa, y los otros cuatro no tienen superficie documentada fuera de sus comentarios.
+- [D-01] Enunciar una vez en `rules/implementation-principles.md` §5 y remitir desde los agentes y las reglas de lenguaje. Los puntos que remiten conservan su enunciado accionable —qué medir y con qué—, nunca quedan como puntero pelado.
+- [D-02] El criterio se redacta como verificable: qué cuenta de evidencia (valor computado en el navegador, en el ancho donde se afirma) y qué no (leer el CSS, un check que puede devolver `true` sin ejercer el camino).
+- [D-03] (bloqueante de security, ronda 1) **Quien exige la evidencia no es quien la produce.** `qa-frontend` es read-only y nunca recibe un stack, así que exige el valor computado al `frontend-dev`; contraste entra a los mínimos del dev y a su lista de evidencia de cierre de lote. Una regla que sube el estándar sin nombrar al productor deja el gate incumplible.
+- [D-04] (usuario) El criterio también va donde se escribe el CSS: `rules/css.md` y `rules/html.md`, que es donde nació el incidente de easy-quotes.
+- [D-05] (ronda 3) El checklist usa la etiqueta propia `SIN EVIDENCIA`, con equivalencia explícita a `ISSUE`, y no `NO VERIFICABLE`: §5 reserva ese término a dos causas donde la evidencia ausente **no** bloquea, y reusarlo habría reproducido el hallazgo de `PR-61.md:35`.
+- [D-06] El orchestrator afirmó en un handoff que `rules/implementation-principles.md` no tiene frontmatter `paths:` y que por eso se carga en toda sesión. Es falso; lo encontró `qa-backend`. Queda registrado porque es exactamente el defecto que este PR ataca.
+
+**Pendiente propuesto (no decidido):** agregar la fila de este PR a la tabla del paso 4 del DoD anti-drift (`rulebooks/orchestrator-runbook.md`) — es el quinto caso de un PR que viola la regla que escribe, y esta vez dos veces en el mismo cambio.
+
+## Feature anterior
+
+`followups-sweep` (PR #74 y anteriores): sus decisiones y aprendizajes viven en `learnings/PR-74.md` y en los briefs archivados.
 
 ## Blockers
 
