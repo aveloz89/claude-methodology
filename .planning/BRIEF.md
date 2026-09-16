@@ -22,6 +22,8 @@ En los tres casos hubo tests en verde y review dual aprobado. Lo que faltó fue 
   1. `rules/implementation-principles.md` §5: una viñeta nueva con el criterio, en la lista de "Qué exige, en concreto".
   2. `agents/ui-ux.md`: el mismo criterio donde ya habla de contraste y del recorrido visual.
   3. `agents/qa-frontend.md`: idem, donde valida accesibilidad y design system.
+  4. `agents/frontend-dev.md` (agregado en la ronda de review, D-03): contraste entra a su lista de mínimos de accesibilidad, con su evidencia. Sin esto, el reviewer exige algo que al productor nunca se le pidió.
+  5. `rules/css.md` y `rules/html.md` (agregado por decisión del usuario, D-04): donde ya piden probar contraste, qué cuenta como evidencia, remitiendo a §5.
 - **NO incluye:**
   - Un archivo nuevo en `rules/` (sin `paths:` se volvería contexto permanente de toda sesión de todo proyecto; con `paths:` duplicaría §5).
   - Cambiar el proceso de review ni agregar un gate nuevo.
@@ -31,6 +33,10 @@ En los tres casos hubo tests en verde y review dual aprobado. Lo que faltó fue 
 
 - [D-01] **Enunciar una vez en §5 y remitir desde los dos agentes.** Es la regla de anti-drift del propio repo ("enunciar una vez, remitir el resto"), y §5 ya es el lugar de "verificar antes de afirmar". Los agentes conservan su enunciado accionable —qué medir y con qué— y remiten al principio.
 - [D-02] **El criterio se redacta como verificable**, no como consejo: qué vale de evidencia (valor computado en el navegador, en el ancho donde se afirma) y qué no (leer el archivo de CSS, un check que puede dar `true` sin ejercer el camino).
+- [D-03] (ronda de review, bloqueante de security) **Quien exige la evidencia no es quien la produce.** `qa-frontend` nunca recibe un stack corriendo y es read-only, así que su línea pide el valor computado **al `frontend-dev`**, con el patrón que el propio diff ya usaba dos secciones más abajo; el checklist admite «no verificable» como tercer estado (`implementation-principles.md:185`) para que «no llegó evidencia» no se resuelva como `OK` silencioso. Y contraste entra a los mínimos de `agents/frontend-dev.md`: la obligación se cambia en todas sus capas.
+- [D-04] (usuario, AskUserQuestion 2026-09-16) **El criterio también va donde se escribe el CSS:** `rules/css.md` y `rules/html.md`, donde ya piden probar contraste, dicen ahora qué cuenta como evidencia y remiten a §5. Es el hueco exacto que originó el incidente del PR #270. Descartadas: dejarlo solo en §5 y los dos prompts, o registrarlo como issue aparte.
+
+**Corrección factual del orchestrator (la encontró qa-backend):** en el encargo al reviewer afirmé que `rules/implementation-principles.md` no tiene frontmatter `paths:` y que por eso se carga en toda sesión de todo proyecto. Es falso: sí lo tiene, con una lista amplia de extensiones, así que entra solo cuando el diff las toca. No cambia el alcance ni la decisión D-01, pero queda registrado porque es justo el tipo de afirmación sin verificar que este PR persigue.
 
 ## Definition of Done (anti-drift del repo, `rulebooks/orchestrator-runbook.md`)
 
