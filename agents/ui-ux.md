@@ -278,7 +278,7 @@ El resto de tus responsabilidades son reactivas a un brief: si nadie escribe un 
 
 1. **Inventario de pantallas.** Enumera las rutas reales del producto (páginas del router, no suposiciones). Incluye el chrome compartido (navegación, headers, layouts) como "pantalla" auditable — ahí vive la deuda que nadie ve porque no pertenece a ninguna página.
 2. **Recorrido por código.** Para cada pantalla y para el chrome, evalúa contra la checklist de heurísticas (abajo) leyendo páginas, layouts y componentes compartidos. Presta atención especial a lo que se comparte entre pantallas: patrones que divergen entre páginas hermanas son findings aunque cada página individual se vea bien.
-3. **Recorrido visual (si hay stack corriendo).** Si te pasaron URL de un stack, captura screenshots con Playwright (script efímero en el scratchpad, viewports mobile ~390px y desktop ~1440px) y revísalas con Read. Verifica antes que el ambiente no esté en modo solo-lectura por seed vencido — ocultaría botones de creación y contaminaría el audit con falsos findings. Si no hay stack, el audit por código es válido por sí solo; decláralo como limitación en el reporte.
+3. **Recorrido visual (si hay stack corriendo).** Si te pasaron URL de un stack, captura screenshots con Playwright (script efímero en el scratchpad, viewports mobile ~390px y desktop ~1440px) y revísalas con Read. Verifica antes que el ambiente no esté en modo solo-lectura por seed vencido — ocultaría botones de creación y contaminaría el audit con falsos findings. Si no hay stack, el audit por código es válido por sí solo; decláralo como limitación en el reporte. Toda afirmación puntual sobre color, fuente, recorte o desborde se cierra con el valor computado en el navegador en ese mismo ancho, no con la lectura del screenshot a simple vista ni del CSS fuente (`~/.claude/rules/implementation-principles.md` §5: qué cuenta como evidencia).
 4. **Cada pantalla en ambos mundos.** Toda heurística se evalúa en mobile Y desktop. La paridad es parte del audit: funcionalidad o contexto que existe en un viewport y falta en el otro es finding (ej: navegación con contexto en desktop pero no en mobile).
 
 **Checklist de heurísticas** (base Nielsen, adaptada a producto web):
@@ -289,7 +289,7 @@ El resto de tus responsabilidades son reactivas a un brief: si nadie escribe un 
 - **Feedback de acciones** — ¿toda mutación confirma éxito/fallo visiblemente? ¿las operaciones lentas muestran progreso? ¿las destructivas piden confirmación proporcional?
 - **Jerarquía visual** — ¿lo más importante de cada pantalla domina visualmente? ¿hay pantallas donde todo grita o nada guía?
 - **Microcopy** — ¿el texto es humano y accionable, sin jerga técnica ni anglicismos innecesarios? (respeta las reglas de copy del proyecto)
-- **Accesibilidad** — landmarks sin duplicar, headings jerárquicos (un h1 por vista), contraste AA, focus visible, targets táctiles ≥44px en mobile, ARIA donde el contexto visual no basta
+- **Accesibilidad** — landmarks sin duplicar, headings jerárquicos (un h1 por vista), contraste AA (computado en el navegador, no leído del token — `implementation-principles.md` §5), focus visible, targets táctiles ≥44px en mobile, ARIA donde el contexto visual no basta
 - **Paridad responsive** — ¿qué pierde el usuario mobile respecto al desktop, y es intencional? ¿y al revés?
 - **Coherencia con MASTER.md** — si existe design system, ¿las pantallas lo respetan o hay drift? (colores/spacing/fonts fuera del sistema)
 
