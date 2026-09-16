@@ -1,40 +1,33 @@
 {
   "schema": 1,
-  "feature": "hook-skip-planning-only",
-  "branch": "feature/hook-skip-planning-only",
-  "pr": 74,
-  "review_sha": "28370cd",
-  "updated": "2026-09-12T08:45:00Z",
+  "feature": "regla-verificacion-visual",
+  "branch": "docs/regla-verificacion-visual",
+  "pr": null,
+  "review_sha": null,
+  "updated": "2026-09-16T00:33:01Z",
   "phases": {
     "brainstorming": "skipped",
-    "design": "skipped",
-    "implementation": "done",
-    "docs": "done",
-    "review": "done",
-    "pr": "done",
+    "design": "done",
+    "implementation": "pending",
+    "docs": "pending",
+    "review": "pending",
+    "pr": "pending",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
-      "id": "L1",
-      "name": "hook-skip-planning-y-db-por-worktree",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 3,
+      "id": "D1",
+      "name": "regla-en-p5-y-prompts",
+      "agent": "docs",
+      "status": "pending",
+      "tasks_done": 0,
       "tasks_total": 3,
+      "current_task": null,
+      "commits": [],
       "last_batch": true,
-      "depends_on": [],
-      "commits": [
-        "773bc76",
-        "2670933",
-        "b108ad8",
-        "c0bb1d4",
-        "af06933",
-        "2825e81",
-        "28370cd"
-      ]
+      "depends_on": []
     }
   ]
 }
