@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "feature": "hook-skip-planning-only",
-  "branch": "feature/hook-skip-planning-only",
-  "pr": 74,
-  "review_sha": "28370cd",
-  "updated": "2026-09-12T08:45:00Z",
+  "feature": "regla-verificacion-visual",
+  "branch": "docs/regla-verificacion-visual",
+  "pr": 75,
+  "review_sha": "d1f6d36",
+  "updated": "2026-09-16T01:24:11Z",
   "phases": {
     "brainstorming": "skipped",
-    "design": "skipped",
+    "design": "done",
     "implementation": "done",
     "docs": "done",
     "review": "done",
@@ -18,22 +18,38 @@
   },
   "batches": [
     {
-      "id": "L1",
-      "name": "hook-skip-planning-y-db-por-worktree",
-      "agent": "backend-dev",
+      "id": "D1",
+      "name": "regla-en-p5-y-prompts",
+      "agent": "docs",
       "status": "done",
       "tasks_done": 3,
       "tasks_total": 3,
-      "last_batch": true,
-      "depends_on": [],
+      "current_task": null,
       "commits": [
-        "773bc76",
-        "2670933",
-        "b108ad8",
-        "c0bb1d4",
-        "af06933",
-        "2825e81",
-        "28370cd"
+        "7607211",
+        "1a5e9e5",
+        "d1671c7"
+      ],
+      "last_batch": true,
+      "depends_on": []
+    },
+    {
+      "id": "D2",
+      "name": "bloqueante-y-detalles-del-review",
+      "agent": "docs",
+      "status": "done",
+      "tasks_done": 4,
+      "tasks_total": 4,
+      "current_task": null,
+      "commits": [
+        "2d2aeab",
+        "3f1011b",
+        "6c7c388",
+        "d1f6d36"
+      ],
+      "last_batch": true,
+      "depends_on": [
+        "D1"
       ]
     }
   ]
