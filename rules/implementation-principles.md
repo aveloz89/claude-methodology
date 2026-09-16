@@ -144,6 +144,7 @@ Aplica a todo artefacto, no solo al código: comentarios, mensajes de commit, re
 - Si afirmas que un hook o un guard cubre un caso, lee el hook y confirma **cuándo se dispara**. Ejemplo real: `post-pr-create.sh` valida el delta al crear el PR y no vuelve a mirar el branch — citarlo como cobertura de un commit posterior es falso.
 - Si escribes "verificado en N casos", que los N casos **estén en el repo**. Una verificación que vive en un harness desechable no existe para el que venga después. Esto no obliga a agregar casos —YAGNI sigue mandando sobre cuántos tests escribir—: obliga a no afirmar cobertura que el repo no tiene.
 - Si mides tiempo o performance, acota la corrida y reporta **el número**, no la impresión.
+- Si afirmas algo sobre lo que se **ve** —color, fuente, recorte de texto, desborde—, ciérralo con el valor computado **en un navegador real**, en el ancho donde lo afirmas. Leer el archivo de CSS no prueba la cascada ni la especificidad, y un check que puede devolver `true` sin ejercer el camino (como `document.fonts.check()`) tampoco es evidencia. Ejemplo real: un test leía `.clients-page__table td { color }` y no vio que esa regla anulaba el contraste que la spec pedía en tres tablas — el gris nunca llegó a pintarse.
 
 **Corolario para tests: el test que protege un fix debe romperse si se revierte el fix.**
 
