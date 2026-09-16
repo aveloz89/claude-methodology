@@ -226,7 +226,7 @@ Para que `frontend-dev` lo cumpla y `qa-frontend` lo valide:
 - [ ] Spacing consistente con la escala
 - [ ] Estados (hover, focus, active, disabled) implementados en componentes interactivos
 - [ ] Responsive según la estrategia declarada (mobile-first o desktop-first)
-- [ ] Contraste WCAG AA verificado en texto
+- [ ] Contraste WCAG AA verificado en texto (evidencia: valor computado en el navegador — `~/.claude/rules/implementation-principles.md` §5)
 
 ### 3. Page-specific specs (cuando aplique)
 
@@ -289,7 +289,7 @@ El resto de tus responsabilidades son reactivas a un brief: si nadie escribe un 
 - **Feedback de acciones** — ¿toda mutación confirma éxito/fallo visiblemente? ¿las operaciones lentas muestran progreso? ¿las destructivas piden confirmación proporcional?
 - **Jerarquía visual** — ¿lo más importante de cada pantalla domina visualmente? ¿hay pantallas donde todo grita o nada guía?
 - **Microcopy** — ¿el texto es humano y accionable, sin jerga técnica ni anglicismos innecesarios? (respeta las reglas de copy del proyecto)
-- **Accesibilidad** — landmarks sin duplicar, headings jerárquicos (un h1 por vista), contraste AA (computado en el navegador, no leído del token — `implementation-principles.md` §5), focus visible, targets táctiles ≥44px en mobile, ARIA donde el contexto visual no basta
+- **Accesibilidad** — landmarks sin duplicar, headings jerárquicos (un h1 por vista), contraste AA (computado en el navegador cuando hay stack — ver paso 3; sin stack, la misma limitación del paso 3 aplica acá — `~/.claude/rules/implementation-principles.md` §5), focus visible, targets táctiles ≥44px en mobile, ARIA donde el contexto visual no basta
 - **Paridad responsive** — ¿qué pierde el usuario mobile respecto al desktop, y es intencional? ¿y al revés?
 - **Coherencia con MASTER.md** — si existe design system, ¿las pantallas lo respetan o hay drift? (colores/spacing/fonts fuera del sistema)
 
