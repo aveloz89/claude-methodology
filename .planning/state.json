@@ -1,56 +1,33 @@
 {
   "schema": 1,
-  "feature": "regla-verificacion-visual",
-  "branch": "docs/regla-verificacion-visual",
-  "pr": 75,
-  "review_sha": "d1f6d36",
-  "updated": "2026-09-16T01:24:11Z",
+  "feature": "hook-merge-repo-y-fila-dod",
+  "branch": "fix/hook-merge-repo-y-fila-dod",
+  "pr": null,
+  "review_sha": null,
+  "updated": "2026-09-16T05:42:49Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "done",
-    "implementation": "done",
-    "docs": "done",
-    "review": "done",
-    "pr": "done",
+    "implementation": "in_progress",
+    "docs": "pending",
+    "review": "pending",
+    "pr": "pending",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
-      "id": "D1",
-      "name": "regla-en-p5-y-prompts",
-      "agent": "docs",
-      "status": "done",
-      "tasks_done": 3,
+      "id": "H1",
+      "name": "hook-repo-del-comando-y-fila-dod",
+      "agent": "backend-dev",
+      "status": "in_progress",
+      "tasks_done": 0,
       "tasks_total": 3,
       "current_task": null,
-      "commits": [
-        "7607211",
-        "1a5e9e5",
-        "d1671c7"
-      ],
+      "commits": [],
       "last_batch": true,
       "depends_on": []
-    },
-    {
-      "id": "D2",
-      "name": "bloqueante-y-detalles-del-review",
-      "agent": "docs",
-      "status": "done",
-      "tasks_done": 4,
-      "tasks_total": 4,
-      "current_task": null,
-      "commits": [
-        "2d2aeab",
-        "3f1011b",
-        "6c7c388",
-        "d1f6d36"
-      ],
-      "last_batch": true,
-      "depends_on": [
-        "D1"
-      ]
     }
   ]
 }

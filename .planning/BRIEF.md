@@ -1,50 +1,39 @@
-# Brief: lo visual se verifica en un navegador, no leyendo el archivo (2026-09-16)
+# Brief: el hook de merge resuelve el repo por el cwd de la sesión, y la fila del DoD (2026-09-16)
 
-> Branch `docs/regla-verificacion-visual` sobre `dev`. Origen: **regla de 3** en easy-quotes — el mismo patrón apareció en tres retros seguidas, y el usuario aprobó el cambio (AskUserQuestion, 2026-09-15). Fase anterior archivada en `BRIEF-hook-skip-planning-only.md`.
+> Branch `fix/hook-merge-repo-y-fila-dod` sobre `dev` @ `1c2a77f` (después del merge del PR #75). Son los dos follow-ups que el usuario aprobó al cerrar ese PR. Fase anterior archivada en `BRIEF-regla-verificacion-visual.md`.
 
 ## Objetivo
 
-Que una afirmación sobre lo que se **ve** (color, fuente, recorte de texto, desborde) no se dé por verificada sin ejecutar el camino real: valores computados en un navegador.
+1. Que `hooks/pre-merge-check.sh` verifique el PR **del repo que se está mergeando**, no el del cwd de la sesión.
+2. Agregar a la tabla del paso 4 del DoD anti-drift la fila del PR #75.
 
-## Evidencia (tres retros de easy-quotes)
+## Incidente que lo origina (verificado, 2026-09-16)
 
-| Retro | Verificación por proxy | Qué pasó |
-|---|---|---|
-| `PR-263.md` | Una altura calculada restando posiciones de una medición previa | El elemento se apilaba distinto a 390 px: el Total quedaba fuera del recorte |
-| `PR-269.md` | `document.fonts.check()` como prueba de render; la herencia del `allowList` deducida del síntoma; el fix de un issue basado en la API aparente de una promesa | Los subsets de fuentes duplicaban las descargas por página; un comentario afirmaba lo contrario de lo que hace la librería |
-| `PR-270.md` | Tests de CSS que leen el archivo; contraste "medido" leyendo tokens; un recorte a 2 líneas supuesto sin pintarlo | Una regla `<tabla> td { color }` anulaba los modificadores y el gris de la spec nunca se pintó, probablemente desde antes; a 320 px el recorte cortaba el folio en 5 de 6 filas |
+Al mergear el PR #75 de **este** repo desde una sesión cuyo cwd es `easy-quotes`, el hook bloqueó con «Hay 1 CI check(s) fallando». No había ninguno: este repo no tiene `.github/`, `gh pr checks 75` responde «no checks reported» y el rollup viene vacío.
 
-En los tres casos hubo tests en verde y review dual aprobado. Lo que faltó fue ejecutar el camino real.
+Lo que pasó: el `cd` de un comando de Bash no cambia el cwd de la sesión, así que `REPO=$(gh repo view …)` (`hooks/pre-merge-check.sh:409`) resolvió `aveloz89/easy-quotes` y el hook consultó **easy-quotes#75** — un PR de julio, mergeado, cuyo check `ci` figura en rojo. Es el mismo modo de falla que el hook de pre-commit ya tiene documentado con worktrees: el hook no ve el árbol real del comando.
+
+Salida usada, sin bypass: `gh pr merge 75 --repo aveloz89/claude-methodology …`. El hook ya honra `--repo` explícito (`:389`, `:407`) y ahí verificó lo correcto.
 
 ## Alcance
 
 - **Incluye:**
-  1. `rules/implementation-principles.md` §5: una viñeta nueva con el criterio, en la lista de "Qué exige, en concreto".
-  2. `agents/ui-ux.md`: el mismo criterio donde ya habla de contraste y del recorrido visual.
-  3. `agents/qa-frontend.md`: idem, donde valida accesibilidad y design system.
-  4. `agents/frontend-dev.md` (agregado en la ronda de review, D-03): contraste entra a su lista de mínimos de accesibilidad, con su evidencia. Sin esto, el reviewer exige algo que al productor nunca se le pidió.
-  5. `rules/css.md` y `rules/html.md` (agregado por decisión del usuario, D-04): donde ya piden probar contraste, qué cuenta como evidencia, remitiendo a §5.
-- **NO incluye:**
-  - Un archivo nuevo en `rules/` (sin `paths:` se volvería contexto permanente de toda sesión de todo proyecto; con `paths:` duplicaría §5).
-  - Cambiar el proceso de review ni agregar un gate nuevo.
-  - Tocar `global/CLAUDE.md`: el detalle vive en `rules/` y en los agentes, no en el núcleo que se carga siempre.
+  1. `hooks/pre-merge-check.sh`: resolver el repo de forma que corresponda al comando. Dos caminos aceptables, el dev elige con evidencia:
+     - parsear un `cd <ruta>` inicial en el comando y resolver `gh repo view` con ese cwd;
+     - o bloquear pidiendo `--repo` explícito cuando el comando trae un `cd` a un repo distinto del de la sesión.
+     En cualquier caso, **fail-closed**: si no se puede determinar el repo con certeza, bloquea y lo dice, como ya hace el resto del hook.
+  2. Tests en `tests/adversarial/test-hooks.sh` que cubran el caso del incidente: comando con `cd` a otro repo y número de PR que existe en los dos.
+  3. `rulebooks/orchestrator-runbook.md`, tabla del paso 4 del DoD anti-drift: la fila del PR #75.
+- **NO incluye:** tocar los demás hooks, ni la lógica de checks/threads/reviews del propio `pre-merge-check.sh` más allá de la resolución del repo.
 
 ## Decisiones
 
-- [D-01] **Enunciar una vez en §5 y remitir desde los dos agentes.** Es la regla de anti-drift del propio repo ("enunciar una vez, remitir el resto"), y §5 ya es el lugar de "verificar antes de afirmar". Los agentes conservan su enunciado accionable —qué medir y con qué— y remiten al principio.
-- [D-02] **El criterio se redacta como verificable**, no como consejo: qué vale de evidencia (valor computado en el navegador, en el ancho donde se afirma) y qué no (leer el archivo de CSS, un check que puede dar `true` sin ejercer el camino).
-- [D-03] (ronda de review, bloqueante de security) **Quien exige la evidencia no es quien la produce.** `qa-frontend` nunca recibe un stack corriendo y es read-only, así que su línea pide el valor computado **al `frontend-dev`**, con el patrón que el propio diff ya usaba dos secciones más abajo; el checklist admite «no verificable» como tercer estado (`implementation-principles.md:185`) para que «no llegó evidencia» no se resuelva como `OK` silencioso. Y contraste entra a los mínimos de `agents/frontend-dev.md`: la obligación se cambia en todas sus capas.
-- [D-04] (usuario, AskUserQuestion 2026-09-16) **El criterio también va donde se escribe el CSS:** `rules/css.md` y `rules/html.md`, donde ya piden probar contraste, dicen ahora qué cuenta como evidencia y remiten a §5. Es el hueco exacto que originó el incidente del PR #270. Descartadas: dejarlo solo en §5 y los dos prompts, o registrarlo como issue aparte.
+- [D-01] El hook se endurece, no se documenta y ya (decisión del usuario). Documentar la limitación dejaba el bloqueo falso en pie, y un bloqueo falso entrena a pedir bypass, que es justo lo que este hook existe para evitar.
+- [D-02] La fila del PR #75 dice lo que pasó: **dos** violaciones de su propia regla en el mismo PR —una afirmación sin verificar en el handoff del orchestrator y una exigencia incumplible en el primer borrador—, las dos encontradas por la pasada externa, no por la autorrevisión.
 
-**Corrección factual del orchestrator (la encontró qa-backend):** en el encargo al reviewer afirmé que `rules/implementation-principles.md` no tiene frontmatter `paths:` y que por eso se carga en toda sesión de todo proyecto. Es falso: sí lo tiene, con una lista amplia de extensiones, así que entra solo cuando el diff las toca. No cambia el alcance ni la decisión D-01, pero queda registrado porque es justo el tipo de afirmación sin verificar que este PR persigue.
+## Verificación esperada
 
-## Definition of Done (anti-drift del repo, `rulebooks/orchestrator-runbook.md`)
-
-1. Grep de los términos afectados en `CLAUDE.md`, `README.md`, `rulebooks/`, `agents/`, `skills/` y `.planning/`.
-2. Reconciliar todo documento que describa el comportamiento cambiado.
-3. Enunciar una vez, remitir el resto.
-4. Releer el diff completo aplicando la regla nueva: si el propio cambio afirma algo visual, debe traer su evidencia.
-
-## Verificación
-
-- El repo no tiene CI: el gate es el review dual (`qa-backend`, por ser documentos normativos) más los tests locales del repo (`tests/adversarial/`, `tests/validation/`) si el cambio los toca — no es el caso, pero `claude plugin validate --strict .` sí aplica porque se tocan prompts de agentes.
+- El caso del incidente reproducido: con el hook nuevo, un `gh pr merge <N>` precedido de `cd` a otro repo verifica el PR correcto; sin `--repo` y sin poder determinarlo, bloquea explicando.
+- `tests/adversarial/test-hooks.sh` en verde, con los casos nuevos rojos al revertir el fix.
+- `claude plugin validate --strict .` en verde (se toca un hook registrado en `hooks/hooks.json`; revisar la paridad que exige `tests/adversarial/test-plugin-manifest.sh`).
+- DoD anti-drift del propio repo aplicado al cambio.
