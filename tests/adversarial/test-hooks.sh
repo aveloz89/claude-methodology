@@ -2220,6 +2220,211 @@ fi
 assert_pre_merge_blocked "gh pr merge [doc]: --repo de 3 segmentos (github.enterprise.com/owner/repo) bloquea fail-closed" \
   "gh pr merge 179 --repo github.enterprise.com/owner/repo" "sin un valor owner/name utilizable" "offline"
 
+# [follow-up PR #75] cd inicial resuelve el repo del comando, no el cwd de
+# la sesión. Antes, el guard SIEMPRE resolvía con `gh repo view` corriendo
+# en el cwd de la SESIÓN — un `cd <ruta> && gh pr merge N` (el patrón que
+# este mismo repo recomienda para trabajar cross-repo) nunca lo tocaba.
+#
+# Caso del incidente real: el repo de la SESIÓN tiene un PR homónimo (el
+# mismo número) con su check de CI en rojo; el repo al que el comando hace
+# cd tiene el PR real, sano. Dos directorios reales en filesystem — el
+# fake gh distingue por $PWD (por texto es indistinguible: mismo número de
+# PR en los dos). Antes del fix esto bloqueaba validando session/repo (el
+# PR homónimo, con su check en rojo) en vez de real/repo.
+CD_INCIDENT_SESSION_DIR=$(mktemp -d)
+CD_INCIDENT_TARGET_DIR=$(mktemp -d)
+FAKE_GH_CD_INCIDENT_DIR=$(mktemp -d)
+cat > "$FAKE_GH_CD_INCIDENT_DIR/gh" <<FAKE_GH_CD_INCIDENT_EOF
+#!/bin/bash
+case "\$1 \$2" in
+  "repo view")
+    if [ "\$PWD" = "$CD_INCIDENT_TARGET_DIR" ]; then
+      echo "real/repo"
+    else
+      echo "session/repo"
+    fi
+    ;;
+  "pr view")
+    echo "\$@" | grep -q -- "--repo real/repo" || { echo "unexpected args (uso el repo de la sesion, no el del cd): \$*" >&2; exit 1; }
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo "\$@" | grep -q -- "name=repo" || { echo "unexpected args: \$*" >&2; exit 1; }
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    if echo "\$@" | grep -q -- "--repo real/repo"; then
+      printf 'some-check\tpass\t1s\n'
+    else
+      echo "gh: unexpected error connecting to api.github.com" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_CD_INCIDENT_EOF
+chmod +x "$FAKE_GH_CD_INCIDENT_DIR/gh"
+
+TOTAL=$((TOTAL + 1))
+CD_INCIDENT_JSON=$(jq -n --arg cmd "cd $CD_INCIDENT_TARGET_DIR && gh pr merge 75" '{tool_input: {command: $cmd}}')
+CD_INCIDENT_OUTPUT=$(cd "$CD_INCIDENT_SESSION_DIR" && echo "$CD_INCIDENT_JSON" | PATH="$FAKE_GH_CD_INCIDENT_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+if echo "$CD_INCIDENT_OUTPUT" | grep -q '"continue":true'; then
+  echo -e "${GREEN}PASS${NC}: pre-merge-check [incidente PR #75]: cd a otro repo valida el PR del comando, no el homónimo del cwd de la sesión"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-merge-check [incidente PR #75]: cd a otro repo valida el PR del comando, no el homónimo del cwd de la sesión (output: $CD_INCIDENT_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$FAKE_GH_CD_INCIDENT_DIR" "$CD_INCIDENT_SESSION_DIR" "$CD_INCIDENT_TARGET_DIR"
+
+# Caso feliz: cd simple a un repo sano, SIN ningún truco de colisión de
+# número de PR — prueba que el mecanismo nuevo funciona en el caso común
+# (no solo cuando hay un PR homónimo enfrente, como en el test del
+# incidente de arriba). El cwd de la sesión falla siempre (simula estar
+# parado en un directorio que no es un repo, o sin red ahí); solo el
+# directorio al que el comando hace cd resuelve — si el guard no hiciera
+# el cd, este test bloquearía por "no pude detectar el repo".
+CD_HAPPYPATH_DIR=$(mktemp -d)
+FAKE_GH_CD_HAPPYPATH_DIR=$(mktemp -d)
+cat > "$FAKE_GH_CD_HAPPYPATH_DIR/gh" <<FAKE_GH_CD_HAPPYPATH_EOF
+#!/bin/bash
+case "\$1 \$2" in
+  "repo view")
+    if [ "\$PWD" = "$CD_HAPPYPATH_DIR" ]; then
+      echo "aveloz89/easy-quotes"
+    else
+      exit 1
+    fi
+    ;;
+  "pr view")
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    printf 'some-check\tpass\t1s\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_CD_HAPPYPATH_EOF
+chmod +x "$FAKE_GH_CD_HAPPYPATH_DIR/gh"
+
+TOTAL=$((TOTAL + 1))
+CD_HAPPYPATH_JSON=$(jq -n --arg cmd "cd $CD_HAPPYPATH_DIR && gh pr merge 45" '{tool_input: {command: $cmd}}')
+CD_HAPPYPATH_OUTPUT=$(echo "$CD_HAPPYPATH_JSON" | PATH="$FAKE_GH_CD_HAPPYPATH_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+if echo "$CD_HAPPYPATH_OUTPUT" | grep -q '"continue":true'; then
+  echo -e "${GREEN}PASS${NC}: pre-merge-check [cd, caso feliz]: cd simple a un repo sano resuelve y continúa sin necesitar --repo"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-merge-check [cd, caso feliz]: cd simple a un repo sano resuelve y continúa sin necesitar --repo (output: $CD_HAPPYPATH_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$FAKE_GH_CD_HAPPYPATH_DIR" "$CD_HAPPYPATH_DIR"
+
+# Requisito 1 del follow-up ("el camino de --repo explícito sigue
+# funcionando igual"): --repo explícito gana aunque el comando también
+# traiga un cd. El cd apunta a una ruta que ni siquiera existe en el
+# filesystem — no importa: con --repo presente, el guard nunca intenta
+# resolver el cd (ver el gate en el propio hook), así que ni hace falta
+# un directorio real. El fake gh, además, hace fallar "repo view"
+# siempre: si el guard cayera al cwd de la sesión en vez de honrar
+# --repo, este test fallaría.
+FAKE_GH_CD_HAPPY_DIR=$(mktemp -d)
+cat > "$FAKE_GH_CD_HAPPY_DIR/gh" <<'FAKE_GH_CD_HAPPY_EOF'
+#!/bin/bash
+case "$1 $2" in
+  "repo view")
+    exit 1
+    ;;
+  "pr view")
+    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo "$@" | grep -q -- "name=easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
+    printf 'some-check\tpass\t1s\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_CD_HAPPY_EOF
+chmod +x "$FAKE_GH_CD_HAPPY_DIR/gh"
+
+TOTAL=$((TOTAL + 1))
+CD_HAPPY_JSON=$(jq -n --arg cmd "cd /decoy/nonexistent/path && gh pr merge 179 --repo aveloz89/easy-quotes" '{tool_input: {command: $cmd}}')
+CD_HAPPY_OUTPUT=$(echo "$CD_HAPPY_JSON" | PATH="$FAKE_GH_CD_HAPPY_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+if echo "$CD_HAPPY_OUTPUT" | grep -q '"continue":true'; then
+  echo -e "${GREEN}PASS${NC}: pre-merge-check [cd, requisito 1]: --repo explícito gana sobre un cd inicial en el mismo comando"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-merge-check [cd, requisito 1]: --repo explícito gana sobre un cd inicial en el mismo comando (output: $CD_HAPPY_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$FAKE_GH_CD_HAPPY_DIR"
+
+# Caso "repo indeterminable": el comando hace cd pero el guard no puede
+# resolver con certeza a qué repo corresponde — bloquea explicando, no
+# cae en silencio al cwd de la sesión (que es justo lo que reprodujo el
+# incidente).
+assert_pre_merge_blocked "gh pr merge [cd]: ruta del cd comillada (guard_sanitize la colapsa) bloquea, no cae al cwd de la sesión" \
+  'cd "/some path" && gh pr merge 45' "no pude extraer una ruta clara" "offline"
+assert_pre_merge_blocked "gh pr merge [cd]: ruta del cd con \$(...) bloquea sin ejecutar nada del comando para resolver el cwd" \
+  'cd $(whoami) && gh pr merge 45' "caracteres que no puedo resolver con confianza" "offline"
+assert_pre_merge_blocked "gh pr merge [cd]: dos cd antes del merge bloquea (ambiguo, no asume que el primero es el vigente)" \
+  "cd /a && cd /b && gh pr merge 45" "más de un cd antes de terminar" "offline"
+assert_pre_merge_blocked "gh pr merge [cd]: ruta del cd inexistente bloquea (no pudo resolver el repo ahí)" \
+  "cd /this/path/does/not/exist/for/real && gh pr merge 45" "no pude resolver el repo ahí" "offline"
+
+# Mismo caso "repo indeterminable" (ruta comillada), pero con un fake gh
+# cuyo "repo view" resolvería un repo VÁLIDO Y SANO si el guard cayera de
+# vuelta al cwd de la sesión — prueba que el bloqueo de arriba no es
+# casualidad de que "offline" ya fallaba igual: acá gh SÍ respondería, y
+# aun así el guard no lo usa.
+FAKE_GH_CD_NOFALLBACK_DIR=$(mktemp -d)
+cat > "$FAKE_GH_CD_NOFALLBACK_DIR/gh" <<'FAKE_GH_CD_NOFALLBACK_EOF'
+#!/bin/bash
+case "$1 $2" in
+  "repo view")
+    echo "session/repo"
+    ;;
+  "pr view")
+    echo '{"reviewDecision":null}'
+    ;;
+  "api graphql")
+    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+    ;;
+  "pr checks")
+    printf 'some-check\tpass\t1s\n'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+FAKE_GH_CD_NOFALLBACK_EOF
+chmod +x "$FAKE_GH_CD_NOFALLBACK_DIR/gh"
+
+TOTAL=$((TOTAL + 1))
+CD_NOFALLBACK_JSON=$(jq -n --arg cmd 'cd "/some path" && gh pr merge 45' '{tool_input: {command: $cmd}}')
+CD_NOFALLBACK_OUTPUT=$(echo "$CD_NOFALLBACK_JSON" | PATH="$FAKE_GH_CD_NOFALLBACK_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+if echo "$CD_NOFALLBACK_OUTPUT" | grep -q '"decision":"block"' && echo "$CD_NOFALLBACK_OUTPUT" | grep -qF "no pude extraer una ruta clara"; then
+  echo -e "${GREEN}PASS${NC}: pre-merge-check [cd]: ruta del cd comillada NO cae al cwd de la sesión aunque ese repo resolviera sano"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-merge-check [cd]: ruta del cd comillada NO cae al cwd de la sesión aunque ese repo resolviera sano (output: $CD_NOFALLBACK_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$FAKE_GH_CD_NOFALLBACK_DIR"
+
 rm -rf "$FAKE_GH_DIR"
 
 echo ""
