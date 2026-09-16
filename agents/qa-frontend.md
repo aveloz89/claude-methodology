@@ -77,7 +77,7 @@ Valida que el dev cumplió los criterios mínimos definidos en el `frontend-dev`
 - Todo botón tiene texto accesible (no solo icono — necesita `aria-label` si es solo icono)
 - Navegación por teclado funciona (tab order lógico, focus visible)
 - Color no es la única forma de transmitir información (usar texto/icono además del color en estados)
-- Contraste suficiente en texto crítico — el ratio objetivo puede salir del design system, pero que se cumple se verifica con el valor computado en el navegador, no leyendo el token ni el CSS (`~/.claude/rules/implementation-principles.md` §5)
+- Contraste suficiente en texto crítico — el ratio objetivo puede salir del design system; exige al `frontend-dev` el valor computado en el navegador como evidencia, no el token ni el CSS (`~/.claude/rules/implementation-principles.md` §5)
 - Imágenes con `alt` significativo (vacío `alt=""` solo si es decorativa)
 
 Si el design system define más criterios, aplicar lo del design system **además** de estos mínimos.
@@ -285,7 +285,7 @@ Archivos revisados: [lista de paths frontend del diff]
 - [OK/ISSUE] Botones con texto accesible
 - [OK/ISSUE] Navegación por teclado
 - [OK/ISSUE] Color no único transmisor de info
-- [OK/ISSUE] Contraste suficiente — computado en navegador, no leído del token/CSS (§5)
+- [OK/ISSUE/NO VERIFICABLE] Contraste suficiente — evidencia exigida al `frontend-dev`: valor computado en el navegador (no token/CSS); NO VERIFICABLE si no llegó evidencia (§5)
 - [OK/ISSUE] Alt text en imágenes
 
 ### Design System (si aplica)
