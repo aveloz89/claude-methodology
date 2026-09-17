@@ -2040,6 +2040,39 @@ assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GIT_DIR en 
 assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GIT_WORK_TREE en el entorno del hook bloquea sin --repo" \
   "gh pr merge 5" "GIT_WORK_TREE" GIT_WORK_TREE=/tmp/otro
 
+# --- [ronda 3, sugerencias] -R/--repo mezclados y valor con command substitution ---
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: -R y --repo mezclados con valores DISTINTOS bloquea" \
+  "gh pr merge 45 -R o/a --repo o/b" "más de un flag de repo"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --repo con \$(...) como valor bloquea" \
+  'gh pr merge 45 --repo $(whoami)/x'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --repo con backticks como valor bloquea" \
+  'gh pr merge 45 --repo `x`/y'
+
+# --- [ronda 3, sugerencia] caracteres de control fuera de \t/\n bloquean ---
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, control]: carácter de control 0x01 embebido bloquea" \
+  "$(printf 'gh pr merge 45 --merge\x01')" "caracteres de control"
+
+# --- [ronda 3, sugerencia] --help/-h EXACTOS pasan (continue), no
+# bloquean — al revés de todos los demás tests de esta sección. El caso
+# se verifica más abajo, junto con los "casos que TIENEN que pasar"
+# (assert_pre_merge_continue_repo no aplica: --help/-h no consulta
+# ningún repo, así que hace falta una variante que confirme 0 llamadas).
+
+# --- [ronda 3, sugerencia] truncado del valor reflejado en el mensaje de
+# bloqueo: un token no reconocido de 200 KB no debe producir un reason
+# gigante ni JSON inválido — TOKEN:0:64 lo acota a 64 caracteres.
+TOTAL=$((TOTAL + 1))
+BIG_TOKEN_CMD="gh pr merge 45 --$(head -c 200000 /dev/zero | tr '\0' 'a')"
+BIG_TOKEN_JSON=$(jq -n --arg cmd "$BIG_TOKEN_CMD" '{tool_input: {command: $cmd}}')
+BIG_TOKEN_OUTPUT=$(echo "$BIG_TOKEN_JSON" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+if [ "${#BIG_TOKEN_OUTPUT}" -lt 1000 ] && echo "$BIG_TOKEN_OUTPUT" | jq -e . > /dev/null 2>&1 && echo "$BIG_TOKEN_OUTPUT" | grep -q '"decision":"block"'; then
+  echo -e "${GREEN}PASS${NC}: gh pr merge [D-04, truncado]: token no reconocido de 200 KB da un reason corto y JSON válido (largo: ${#BIG_TOKEN_OUTPUT})"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, truncado]: token no reconocido de 200 KB da un reason corto y JSON válido (largo: ${#BIG_TOKEN_OUTPUT})"
+  FAIL=$((FAIL + 1))
+fi
+
 rm -rf "$FAKE_GH_D04_LOG_DIR"
 
 # ============================================================
@@ -2121,6 +2154,40 @@ else
   echo -e "${RED}FAIL${NC}: gh pr merge [D-04, pasa]: GIT_DIR en el entorno del hook no bloquea si hay --repo explícito (output: $GITDIR_OUTPUT)"
   FAIL=$((FAIL + 1))
 fi
+
+# --- [ronda 3, sugerencia] gh pr merge --help / -h, exactos y solos: no
+# mergean nada, deben pasar SIN consultar nada (0 llamadas al gh falso).
+assert_pre_merge_continue_no_calls() {
+  local test_name="$1" cmd="$2"
+  TOTAL=$((TOTAL + 1))
+  : > "$FAKE_GH_D04_LOG2"
+  local json output calls
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  calls=$(wc -l < "$FAKE_GH_D04_LOG2" | tr -d ' ')
+  if echo "$output" | grep -q '"continue":true' && [ "$calls" = "0" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue, 0 consultas a gh)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output, consultas: $calls)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: gh pr merge --help (exacto) pasa sin consultar" \
+  "gh pr merge --help"
+assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: gh pr merge -h (exacto) pasa sin consultar" \
+  "gh pr merge -h"
+
+# --- [ronda 3, punto 7] falsos positivos que deben seguir pasando ---
+assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: grep del propio código fuente sobre la frase de merge no se trata como invocación" \
+  "grep -rn 'gh pr merge' rulebooks/"
+assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: gh pr view --json mergeable no se trata como merge" \
+  "gh pr view 5 --json mergeable"
+assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: gh pr view 5 | grep merge no se trata como merge" \
+  "gh pr view 5 | grep merge"
+assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: gh pr create --body-file corriente no se trata como merge" \
+  "gh pr create --body-file x.md"
 
 rm -rf "$FAKE_GH_D04_DIR"
 

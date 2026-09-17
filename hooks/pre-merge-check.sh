@@ -289,6 +289,21 @@ case "$COMMAND" in
     ;;
 esac
 
+# Caracteres de control (0x01-0x1F, 0x7F) fuera de \t: \n/\r ya bloquean
+# arriba. Defensa en profundidad, no el cierre de un bypass demostrado —
+# cada token de la gramática de abajo ya pasa por una allowlist de
+# charset que un carácter de control no calza, así que en la práctica ya
+# termina bloqueando por otra razón (verificado). El caso que sí importa
+# es un NUL: bash lo descarta al leer stdin en INPUT=$(cat), así que para
+# cuando $COMMAND existe como variable ya no puede contenerlo — pero eso
+# significa que el texto que este guard valida puede no ser exactamente
+# el que jq extrajo de .tool_input.command, la clase de discrepancia que
+# este archivo trata como no confiable en cualquier otro punto.
+CONTROL_CHARS_RE=$'[\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0C\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F]'
+if printf '%s' "$COMMAND" | LC_ALL=C grep -q "$CONTROL_CHARS_RE"; then
+  block "Blocked: el comando trae caracteres de control no imprimibles (fuera de tab). ${MERGE_FORM_HELP}"
+fi
+
 # read -ra sobre el crudo: seguro acá porque ya se descartó cualquier
 # \n/\r (el IFS por default — espacio, tab, salto de línea — separa por
 # blancos exactamente como [[:blank:]]+, sin que quede un salto de línea
@@ -300,6 +315,17 @@ MERGE_TOKEN_COUNT=${#MERGE_TOKENS[@]}
 
 if [ "$MERGE_TOKEN_COUNT" -lt 3 ] || [ "${MERGE_TOKENS[0]}" != "gh" ] || [ "${MERGE_TOKENS[1]}" != "pr" ] || [ "${MERGE_TOKENS[2]}" != "merge" ]; then
   block "Blocked: el comando no empieza con 'gh pr merge' (nada antes, ningún flag intercalado entre gh/pr/merge). ${MERGE_FORM_HELP}"
+fi
+
+# gh pr merge --help / -h, EXACTOS y SOLOS: no mergean nada (gh imprime
+# ayuda y sale), así que no hay nada que este guard deba verificar. Solo
+# estas dos formas exactas de 4 tokens — cualquier otra combinación con
+# --help (con número, con --repo, como segundo flag) sigue la gramática
+# normal de abajo, que ya bloquea --help por no estar en la allowlist de
+# flags.
+if [ "$MERGE_TOKEN_COUNT" -eq 4 ] && { [ "${MERGE_TOKENS[3]}" = "--help" ] || [ "${MERGE_TOKENS[3]}" = "-h" ]; }; then
+  echo '{"continue":true}'
+  exit 0
 fi
 
 if [ "$MERGE_TOKEN_COUNT" -lt 4 ] || ! [[ "${MERGE_TOKENS[3]}" =~ ^[1-9][0-9]*$ ]]; then
@@ -357,19 +383,23 @@ fi
 # antes de "gh"): "gh pr merge" los respeta, "gh repo view" —de donde
 # este guard resuelve el repo sin --repo explícito— no siempre coincide
 # (verificado contra gh real, ver ronda 2 de este follow-up). Bloquea
-# siempre, con o sin --repo explícito presente: no se asume que un
-# --repo explícito en el comando le gana a GH_REPO/GH_HOST sin
-# verificarlo.
+# SIEMPRE, con o sin --repo explícito presente — a diferencia del check
+# de GIT_DIR/GIT_WORK_TREE de abajo, acá --repo NO es un remedio: "gh pr
+# merge" respeta GH_REPO/GH_HOST igual que "gh repo view" (verificado
+# contra gh real), así que un --repo explícito en el comando no evita
+# que gh termine resolviendo otro repo/host de todas formas.
 if [ -n "${GH_REPO:-}" ] || [ -n "${GH_HOST:-}" ]; then
-  block "Blocked: el entorno del proceso de este hook tiene GH_REPO o GH_HOST seteado — gh pr merge podría resolver un repo/host distinto al que este guard verificaría. Quita esas variables del entorno, o usa --repo explícito y sin GH_HOST."
+  block "Blocked: el entorno del proceso de este hook tiene GH_REPO o GH_HOST seteado — bloquea siempre, con o sin --repo explícito en el comando (gh pr merge respeta esas variables igual que gh repo view). Quita GH_REPO/GH_HOST del entorno del proceso. ${MERGE_FORM_HELP}"
 fi
 
 # GIT_DIR/GIT_WORK_TREE en el entorno del proceso del hook: solo importan
 # cuando el guard resuelve el repo con `gh repo view` sobre el cwd de la
 # SESIÓN (sin --repo explícito) — con --repo explícito, el guard nunca
-# corre gh repo view, así que estas variables no pueden desviar nada.
+# corre gh repo view, así que estas variables no pueden desviar nada:
+# acá --repo SÍ es el remedio (a diferencia del check de GH_REPO/GH_HOST
+# de arriba).
 if [ -z "$EXPLICIT_REPO" ] && { [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ]; }; then
-  block "Blocked: el entorno del proceso de este hook tiene GIT_DIR o GIT_WORK_TREE seteado — gh repo view podría resolver un árbol distinto al de la sesión. Usa --repo explícito."
+  block "Blocked: el entorno del proceso de este hook tiene GIT_DIR o GIT_WORK_TREE seteado — sin --repo explícito, gh repo view podría resolver un árbol distinto al de la sesión. Usa --repo explícito (con --repo, el guard nunca corre gh repo view y esta variable deja de importar). ${MERGE_FORM_HELP}"
 fi
 
 if [ -n "$EXPLICIT_REPO" ]; then
