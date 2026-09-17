@@ -170,3 +170,86 @@ Worktree desechable en `98a8cab` (eliminado al terminar):
 - No se re-evaluó la severidad de seguridad de ningún hallazgo — corresponde a la ronda 2 de security-reviewer, que corre en paralelo sobre el mismo diff.
 - No se corrió la validación estricta del manifiesto del plugin — el archivo de registro de hooks no cambió en este delta, y la ronda 1 ya lo había corrido sobre el estado anterior.
 - No se revisó `.planning/state.json` ni `.planning/BRIEF.md` más allá de la cita de la decisión D-03 usada para validar el alcance de "merges múltiples" y los dos huecos legacy.
+
+## Ronda 3 -- HEAD 32ab443 (2026-09-17)
+
+### QA Backend
+
+**1. Cierre de la ronda 2 -- los dos bloqueantes previos, resueltos por el rediseno D-04, no por un parche puntual.**
+
+- Header con garantia absoluta contradicha por una limitacion 500 lineas mas abajo: RESUELTO. La ronda 2 bloqueaba porque el header prometia cobertura total y el detalle de la limitacion del builtin comillado vivia muy lejos, en otra seccion. El rediseno D-04 elimina el mecanismo entero que esa limitacion describia (ya no hay lista de envoltorios conocidos ni resolucion de cd), asi que la contradiccion puntual desaparecio junto con el codigo que la causaba. El header nuevo (hooks/pre-merge-check.sh, lineas 83 a 104) hace la afirmacion absoluta y la seccion Fuera de alcance que la matiza esta a pocas lineas de distancia, en el mismo bloque de comentario. Estructuralmente resuelto.
+- global/CLAUDE.md linea 158 incoherente con README.md linea 34: RESUELTO. Verificado letra por letra: ambos describen ahora la misma forma unica, sin cd. El commit 32ab443 declara un grep de verificacion, reproducido con el mismo resultado (ver punto 7).
+
+Hallazgo nuevo en el propio rediseno D-04: el header introduce una seccion Fuera de alcance que no dice lo que el codigo hace, mismo patron de honestidad que bloqueo las rondas 1 y 2, ahora en texto nuevo. Ver punto 6.
+
+**2. Tests borrados -- escenarios preexistentes de dev sin convertir a bloqueo.**
+
+git diff dev...HEAD sobre tests/adversarial/test-hooks.sh reemplaza una sola seccion contigua que ya existia en dev antes de este branch (fechada follow-up 2026-08-24). Cuatro escenarios cambiaron de pasa a debe-bloquear bajo D-04, verificado correcto con el hook real en los cuatro, pero se borraron sin dejar test que lo confirme:
+
+- Forma -R pegada sin espacio, valor owner/repo directo despues de -R: antes pasaba, ahora bloquea por flag no reconocida -- verificado a mano, sin test.
+- Forma -R con signo igual (-R= seguido del valor): antes pasaba, ahora bloquea -- verificado a mano, sin test.
+- El decoy con gh pr list --repo victima/otro antes del gh pr merge real, y su espejo con el decoy despues del merge: antes pasaba resolviendo el repo correcto por anclaje, ahora bloquea por nada-antes-ni-despues-del-merge -- verificado a mano, sin test. Es el ejemplo literal que este prompt pide preservar.
+- Doble invocacion en la MISMA linea con separador doble pipe (dos invocaciones de merge separadas por OR logico de shell): antes tenia semantica de gana-la-primera-ventana, ahora bloquea por flag no reconocida sobre el separador -- verificado a mano. La seccion B4 de D-04 solo cubre la variante con salto de linea, no la de misma linea.
+
+El propio mensaje del commit ea3a874 dice que la seccion se elimina porque el escenario que probaba ya no puede ocurrir bajo la gramatica nueva -- impreciso: el escenario si puede construirse como string, lo que cambio es que ahora bloquea en vez de resolver bien. Ese es exactamente el tipo de cambio que necesita su propia fila roja-verde, no un borrado.
+
+Ademas, un caso SI tiene test pero esta mal etiquetado y duplicado: en tests/adversarial/test-hooks.sh, dos filas de la seccion D-04 B5 con nombres distintos (una describe la forma corta intercalada con comilla a mitad del valor, la otra describe la forma pegada sin espacio) ejecutan el MISMO comando exacto -- el mismo numero de PR, el mismo flag pegado con comilla a mitad. La variante real que el primer nombre describe (forma corta CON espacio antes del valor comillado) no tiene test propio -- verificado a mano que tambien bloquea, pero sin fila que lo confirme.
+
+Otros tests borrados del mecanismo viejo (ventana balanceada con subshell o expansion, abridor sin cerrar, cierre escapado en profundidad cero) protegian una clase de bug -- contador de profundidad de una ventana anclada -- que no existe estructuralmente en D-04. Su borrado es obsolescencia legitima, no perdida de cobertura, y no lo marco como bloqueante.
+
+**3. Tests nuevos -- rojo-verde reproducido exacto en worktree desechable; consultas a gh confirmadas.**
+
+Worktree en 32ab443 (git worktree add --detach, eliminado con git worktree remove --force al terminar):
+- Hook y tests de HEAD: 305 de 305 verde, reproducido.
+- Hook de 98a8cab (la version de la ronda 2, antes de D-04) restaurado sobre los tests de HEAD: 255 pasan y 50 fallan, exactamente el numero que declara el dev. Confirmado con grep que los 50 fallos estan TODOS etiquetados D-04, o son el caso de comando compuesto que ahora bloquea, explicitamente D-04 en su propio nombre -- cero fallos espurios.
+- Que consulto el hook, no solo el JSON de salida: las funciones auxiliares de bloqueo con verificacion de llamadas escriben cada invocacion a gh en un log y exigen cero llamadas en un bloqueo -- confirmado en el codigo y en el output real contra el hook viejo, que si llama a gh 3 o 4 veces antes de bloquear o pasar. La funcion auxiliar de continuacion exige que el log contenga el valor de repo exacto esperado, no solo la senal generica de continuar.
+- Cobertura de la matriz de security ronda 2: B1 con 18 variantes, todas presentes; B2 con 1; B3 con 1; B4 con 4, cubre solo la variante de salto de linea; B5 con 4 distintas mas 1 duplicada, ver punto 2; numero de PR invalido; variable de host de github con y sin flag de repo; flag de repo intercalado y repetido; variables de entorno del proceso del hook. Pases requeridos -- merge simple, con flags de metodo y borrado de rama, con flag de repo en sus tres formas permitidas, con blancos extra -- presentes y verificados contra el repo exacto consultado.
+
+**4. Deteccion sin ancla -- sin falsos positivos verificados; un caso del brief sin test.**
+
+El heredoc con la frase de merge, con y sin numero, se preservo sin tocar y sigue en verde. Se agrego un test nuevo especifico para la remocion del ancla: una mencion dentro de un mensaje de commit con comillas simples, no heredoc, no se trata como invocacion real. El caso de un grep del propio codigo fuente sobre la frase de merge, por ejemplo contra archivos de rulebooks, no tiene test dedicado -- verificado a mano que no bloquea, correcto, el saneo colapsa el span comillado que contiene la frase, pero sin fila que lo confirme. Sugerencia, no bloqueante.
+
+**5. Bash -- limpio.**
+
+Quoting consistente en todo el codigo nuevo. Sin la clase de bug de expresion regular mal escrita de la ronda 2: el tokenizado ahora usa lectura de array con el separador de campo por default en vez de una expresion regular de separadores, documentado explicitamente. Fail-closed consistente: entorno con variables sensibles bloquea explicito, repo malformado bloquea, mas de un flag de repo bloquea, mas de una linea bloquea. Sin eval ni interpolacion de tokens sin validar. Sin codigo muerto del camino de cd eliminado, confirmado por busqueda de texto, solo queda una mencion en comentario explicando por que no se ancla. Analisis estatico del script: los mismos 4 avisos preexistentes, verificados fuera de los rangos del diff -- cero avisos nuevos.
+
+**6. Honestidad -- un hallazgo real y nuevo en el propio header de D-04.**
+
+La seccion Fuera de alcance agrupa como invocaciones disfrazadas que el guard no reconoce como mencion de merge, y por lo tanto nunca llegan a validar la forma, a varios casos: un comando precedido por la palabra command, por env, por una asignacion de variable de entorno al vuelo, con una barra invertida antes de gh, con una ruta absoluta al binario, y un wrapper o funcion gh definida en el mismo comando que el merge.
+
+Verificado uno por uno contra el hook real, worktree limpio, sin mocks: de esos ejemplos, la mayoria SI llega a validar la forma y bloquea, confirmado con la salida real del hook, cuyo mensaje dice que el comando no empieza con la forma esperada, porque el gate sin ancla encuentra las palabras gh, pr y merge como substring en cualquier parte del texto saneado siempre que sobrevivan intactas -- y en todos esos ejemplos sobreviven intactas. Solo evaden de verdad los casos donde el saneo o la sintaxis rompe la palabra gh en el texto saneado: la palabra completa entre comillas, o con una barra invertida a la mitad de la palabra, o dentro de un wrapper de shell con comillas que el saneo colapsa.
+
+La direccion del error es la segura, el codigo bloquea mas de lo que el comentario admite, no menos, asi que no hay riesgo de seguridad. Pero es exactamente el patron de comentario que la regla de bash de este repo marca como red flag: una garantia que se escribe como absoluta cuando deberia escribirse como inventario de lo verificado. Es el mismo tipo de imprecision que bloqueo las rondas 1 y 2 de este mismo hook, ahora en direccion opuesta -- antes el codigo hacia menos de lo que el comentario prometia, aca el comentario promete menos de lo que el codigo hace. Un mantenedor futuro que lea el header y decida que esos casos no hace falta testearlos porque estan documentados como fuera de alcance se equivocaria.
+
+**7. Anti-drift normativo -- sin ejemplos contradictorios nuevos.**
+
+Grep reproducido de menciones de merge, pre-merge y flags relacionados en rulebooks, skills, rules, agents, README y global: los usos de la forma de merge fuera de README.md y global/CLAUDE.md, ya alineados en el punto 1, estan solo en rulebooks/orchestrator-runbook.md, con el comando de merge usando flags de la allowlist, sin cd ni encadenado, y en skills/pr-workflow/SKILL.md, mencion en prosa sin ejemplo concreto que contradiga la forma. Ningun ejemplo encadena algo con el merge, usa cd, ni usa un flag fuera de la allowlist como forma recomendada. El diff de 32ab443 no introduce una regla prescriptiva nueva, alinea documentacion existente con un cambio de comportamiento ya decidido en ea3a874, asi que no aplica la exigencia especial del paso 4 del DoD, pero el criterio general de coherencia normativa da limpio.
+
+Validacion estricta del manifiesto del plugin: verde, reproducido.
+
+### Veredicto
+
+**CAMBIOS REQUERIDOS**
+
+#### Bloqueantes
+
+- [ ] hooks/pre-merge-check.sh, seccion Fuera de alcance del header, lineas aproximadas 106 a 121 -- afirma que un comando precedido por command, por env, por una asignacion de variable al vuelo, con barra invertida, con ruta absoluta, y un wrapper de funcion gh en el mismo comando, nunca llegan a validar la forma, es decir que pasan silenciosamente. Verificado con el hook real: la mayoria de esos SI llegan a la gramatica y bloquean; solo el nombre entre comillas completo, la palabra con barra invertida a mitad, y un wrapper de shell con comillas evaden de verdad. Direccion segura, bloquea de mas, pero el comentario no dice lo que el codigo hace -- mismo patron de honestidad que bloqueo las rondas 1 y 2. Reasignar a quien continue este PR normativo: acotar la lista de fuera de alcance a los casos que de verdad evaden, o reformular la frase causal que hoy es literalmente falsa para la mayoria de sus propios ejemplos.
+- [ ] tests/adversarial/test-hooks.sh -- cuatro escenarios preexistentes de dev cambiaron de pasa a debe-bloquear bajo D-04, verificado correcto con el hook real en los cuatro, pero se borraron sin test que lo confirme: forma -R pegada sin espacio, forma -R con signo igual, el decoy con gh pr list y flag de repo antes o despues del merge real, y la doble invocacion en una sola linea con separador doble pipe -- la seccion B4 solo cubre la variante con salto de linea. Sin estos tests, una regresion futura en la gramatica no tiene nada que la atrape. Reasignar a quien continue este PR: agregar una fila de bloqueo por caso, siguiendo el patron ya usado para el resto de B1 a B5.
+- [ ] tests/adversarial/test-hooks.sh, seccion D-04 B5 -- dos tests con nombres distintos ejecutan el mismo comando exacto, la forma pegada con comilla a mitad del valor, dejando la variante real que el primer nombre describe, forma corta intercalada con espacio, sin test propio. Verificado a mano que tambien bloquea, pero sin fila que lo confirme. Reasignar a quien continue este PR: corregir el comando del primer test a la forma que su nombre describe.
+
+#### Sugerencias (opcionales)
+
+- [ ] tests/adversarial/test-hooks.sh -- sin test para la combinacion de flag largo y flag corto de repo con valores distintos mezclados, solo se prueba el flag corto repetido con el mismo valor y el flag largo repetido con valores distintos. Mismo camino de codigo, no es un hueco de comportamiento.
+- [ ] tests/adversarial/test-hooks.sh -- sin test para un grep real del propio codigo fuente sobre la frase de merge, uno de los casos de falso positivo pedidos por este prompt. Verificado a mano que no bloquea, correcto, falta la fila.
+- [ ] tests/adversarial/test-hooks.sh -- sin test para el truncado a 64 caracteres de un token largo no reconocido como flag, existia en dev para un valor de repo de 300 caracteres. El codigo sigue truncando, verificado a mano, mismo camino que flag no reconocida ya cubierto genericamente.
+- [ ] hooks/pre-merge-check.sh, los bloqueos de variables de entorno del proceso del hook -- no repiten el texto literal de la forma aceptada como el resto de los bloqueos, tienen su propio texto accionable, asi que no es un problema de claridad, solo una inconsistencia menor de formato.
+
+### NO CUBIERTO
+
+- No se re-audito linea por linea el resto de la suite preexistente no tocada por este diff, miles de tests fuera de la seccion de pre-merge-check.sh; solo se verifico el conteo agregado, 305 de 305, y se aislo el delta atribuible a D-04, 255 pasan y 50 fallan contra el hook de 98a8cab.
+- No se re-evaluo la severidad de seguridad de ningun hallazgo -- corresponde a la ronda 3 de security-reviewer, que corre en paralelo sobre el mismo diff.
+- Los tres casos que si evaden de verdad, nombre entre comillas completo, barra invertida a mitad de palabra, wrapper de shell con comillas, se verificaron a mano contra el hook real, sin agregar un test nuevo -- no es mi rol escribirlo.
+- No se corrio la carpeta de tests de validacion del propio sistema de agentes -- el BRIEF de la fase anterior ya aclaraba que no aplica a este cambio, y nada en el delta de esta ronda lo toca.
+- No se reviso el estado persistente ni el brief mas alla de la cita de D-04 usada para contrastar el alcance angostado de las formas del flag corto de repo.
+- La validacion estricta del manifiesto del plugin se corrio una vez mas, verde, como chequeo rapido de rutina, no es parte del mandato explicito de esta ronda.
+

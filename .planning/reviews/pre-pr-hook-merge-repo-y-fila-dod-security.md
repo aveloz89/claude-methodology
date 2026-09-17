@@ -107,3 +107,46 @@ Abiertos: el header ahora afirma una allowlist que no existe (B1); `GH_REPO` lit
 ### NO CUBIERTO
 
 Merge real contra GitHub; cwd con que Claude Code lanza el hook frente al cwd guardado del Bash tool (el hook no usa el campo `cwd` del JSON); snapshot y `.zshenv` en sesión real; opciones de zsh (`AUTO_CD`, `CDPATH`, `CDABLE_VARS`); varios remotos / `gh repo set-default`; `GIT_CONFIG_*` con `gh` real; `GH_ENTERPRISE_TOKEN` y hosts Enterprise; `core.fsmonitor` en la ruta del `cd`; audit de dependencias (no aplica).
+
+---
+
+## Ronda 3 — HEAD `32ab443`, hook completo contra `dev` (2026-09-17)
+
+- **Veredicto:** **APROBADO** — sin bloqueantes; 1 HIGH legacy (no bloquea), 1 MEDIUM sin verificar, 6 LOW. Transcrito por el orchestrator.
+- **Modelo de amenaza aplicado:** D-04 (errores honestos, `guard-matching.sh:19-22`); invocaciones disfrazadas y entorno de arranque del shell fuera de alcance.
+- **Método:** repos desechables + `gh` falso que registra llamadas, contra el hook de HEAD y el de `dev`; los no detectados, ejecutados en `/bin/zsh -f -c 'eval "$C"'` y `/bin/bash -c`; `gh` real solo en lecturas. El hook de HEAD está activo en la sesión (bloqueó `gh pr merge --help` del propio reviewer).
+
+### Cierre de la ronda 2 — todo bloquea con 0 llamadas a `gh`
+
+B1 (las 18 variantes, incluidos wrapper `gh()` con y sin `--repo` y `echo hola &&`); B2 (`cd t/<abs> &&`, `cd X t&&`); B3 (`cd /a "/b" &&`); B4 (segundo merge en otra línea, 3 variantes); B5 (las 5 variantes truncadas); número sin límite (`1234-feature`, `45x`, `05`, `+5`, `#5`); `GH_HOST` en comando y entorno; legacy `gh -R x pr merge` y `gh pr -R x merge`.
+
+**Gramática:** ningún comando que la calce hace que `gh` actúe sobre otro repo, PR u host. Slugs raros (`-x/y`, `../..`) quedan alineados (el `gh` real también toma el argumento como valor); combinaciones `-m -s -r -d` y flags repetidos no-repo alineados; número enorme bloquea por GraphQL `null`. Bloquean host en el slug, `o/r/`, `-ms`, `--`, `#`, `\v`, `\f`, NBSP, ancho cero, `\r`. Locale sin diferencias en ASCII; bash 3.2 no toma `IFS` del entorno. NUL: bash lo descarta, pero `spawn` de Node y la herramienta Bash lo rechazan antes. 1 MB en 0.10–0.16 s, sin ReDoS.
+
+**Detección sin ancla:** `GH_REP""O=x`, `FOO=1`, `"GH_REPO=o/red"`, `GH_REPO='o/red' … --repo o/green` bloquean (en `dev` pasaban). `command gh`, `env gh`, `\gh` y ruta absoluta ahora también bloquean. Solo pasan `"gh"`, `g\h`, `zsh -c` (fuera de alcance).
+
+**Falsos positivos:** no bloquea ningún comando habitual — `git commit -m "…gh pr merge…"`, heredoc de commit, `gh pr view 5 --json state && echo merge`, `grep -rn 'gh pr merge'`, `rg`, `gh api …/merge`, `--json mergeable`, `--state merged`, `gh pr diff|view 5 | grep merge`. Bloquean `gh pr merge --help`, `git push # después gh pr merge 5`, `echo through pr merge` y `gh pr checks 5 --watch && gh pr merge 5` (intencional por D-04).
+
+**Entorno:** `GH_REPO`/`GH_HOST` bloquean con y sin `--repo`; `GIT_DIR`/`GIT_WORK_TREE` bloquean sin `--repo`; `GH_REPO=` vacío pasa (el `gh` real lo ignora). Con `gh` real, `repo view` y `pr view` resuelven igual en 4 configuraciones de remotos y `GIT_CONFIG_*`. `GH_CONFIG_DIR`, `GH_ENTERPRISE_TOKEN`, `GITHUB_TOKEN`, `GIT_CONFIG_*` afectan igual a hook y merge.
+
+**Regresión:** desde `# 1. Review decision` al final y el bloque `if [ -n "$EXPLICIT_REPO" ]`, idéntico a `dev`.
+
+**Tests:** 305/305. Los borrados de ventana/balance/"gana el último" desaparecen con su mecanismo; el decoy `gh pr list --repo … && gh pr merge` queda cubierto por «cualquier prefijo bloquea»; sin reemplazo el del truncado del valor reflejado (verificado a mano, LOW 7).
+
+### Veredicto
+**APROBADO**
+
+#### Bloqueantes
+- Ninguno.
+
+#### Sugerencias
+- [ ] **[HIGH legacy, no bloquea] Merges que el saneo borra y el shell ejecuta** (`guard-matching.sh:97-99`): `echo x # don't`⏎`gh pr merge 5`⏎`# it's done`; `echo \'; gh pr merge 5; echo \'`; `echo $'it\'s' && gh pr merge 5 && echo 'x'`; `cat <<E"OF"`⏎`EOF`⏎`gh pr merge 5`⏎`E`. `continue` con 0 llamadas en HEAD y `dev`; zsh y bash mergean. El primero es error honesto plausible y no está en la lista de fuera de alcance. Además `gh pr -R o/a -R o/red merge 5` no se detecta (>2 tokens). Decidir: documentar o detectar también sobre el crudo.
+- [ ] **[MEDIUM, sin verificar]** El cwd de la herramienta Bash persiste entre llamadas; sin `--repo` el hook resuelve con su propio cwd. Si difieren, `cd ../otro` y `gh pr merge N` en otra llamada repiten #75. Exigir `--repo` o usar `.cwd` del JSON tras verificar qué trae.
+- [ ] **[LOW, §5 docs]** `README.md:34` y `global/CLAUDE.md:158` prometen «cualquier otro prefijo … o más de una línea bloquea» con contraejemplos; aclarar «cuando el hook reconoce la invocación». `README.md:34` perdió la mención de threads y checks.
+- [ ] **[LOW, §5 header]** `:109-112` dice que `command gh`/`env gh`/`FOO=1 gh`/`\gh`/ruta absoluta no se reconocen (hoy bloquean); `:146-153` y `:170-174` describen el mecanismo anterior.
+- [ ] **[LOW]** Mensaje de `:325` sugiere «usa --repo explícito y sin GH_HOST», pero con `GH_REPO` en entorno y `--repo` igual bloquea.
+- [ ] **[LOW]** Falso positivo `gh pr merge --help` / `-h`.
+- [ ] **[LOW, defensa en profundidad]** Bloquear caracteres de control distintos de `\t` en `.tool_input.command` (un NUL hace verificar un valor distinto del texto).
+- [ ] **[LOW, tests]** Sin test del truncado del valor reflejado (200 KB → reason de 312 bytes, JSON válido) ni de `$(…)`/backtick como valor de `--repo` (bloquea, verificado a mano).
+
+### NO CUBIERTO
+Merge real contra GitHub; cwd del proceso del hook frente al persistido por la herramienta Bash y contenido del campo `cwd` del JSON; caracteres de control más allá del rechazo observado; `GH_CONFIG_DIR` y Enterprise con `gh` real; reversión de los tests nuevos; `test-plugin-manifest.sh` y `validate --strict`; snapshot/`.zshenv`/alias/funciones (fuera de alcance); audit de dependencias (no aplica).
