@@ -1954,11 +1954,29 @@ assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B4]: variante con cd antes
 assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B4]: variante con pushd antes del segundo merge bloquea" \
   "$(printf 'pushd /r/real && gh pr merge 45\ngh pr merge 46')" "más de una línea"
 
+# --- Escenarios preexistentes de dev que D-04 endurece de "pasa" a
+# "bloquea" (ronda 3 de review, bloqueante 2): en el hook de dev, los
+# cuatro pasaban ({"continue":true}), verificado corriendo el hook de dev
+# tal cual contra estos mismos comandos. Bajo D-04 bloquean, pero no
+# tenían fila de test que lo confirmara — la sección vieja (ventana
+# anclada) se borró entera al reemplazarla, y estos cuatro casos se
+# perdieron en el borrado en vez de convertirse en bloqueo.
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, legacy]: -R pegado sin espacio (-Ro/r) bloquea (antes resolvía el repo)" \
+  "gh pr merge 45 -Raveloz89/claude-methodology"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, legacy]: -R= con signo igual bloquea (antes resolvía el repo)" \
+  "gh pr merge 45 -R=aveloz89/claude-methodology"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, legacy]: decoy gh pr list --repo ANTES del merge real bloquea (antes resolvía por anclaje)" \
+  "gh pr list --repo victima/otro && gh pr merge 45"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, legacy]: decoy gh pr list --repo DESPUÉS del merge real bloquea (antes resolvía por anclaje)" \
+  "gh pr merge 45 && gh pr list --repo victima/otro"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, legacy]: doble invocación en la MISMA línea con || bloquea (antes ganaba la primera ventana)" \
+  "gh pr merge 45 --repo o/green || gh pr merge 45 -R o/red"
+
 # --- B5: valor de --repo/-R truncado o intercalado con comillas/backtick ---
 assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B5]: --repo o/re\"d\" (comilla a mitad del valor) bloquea" \
   'gh pr merge 45 --repo o/re"d"'
 assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B5]: -R intercalado con comilla a mitad del valor bloquea" \
-  "gh pr merge 45 -Ro/re'd'"
+  'gh pr merge 45 -R o/re"d"'
 assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B5]: --repo=o/re\"\"d (comillas vacías a mitad, forma con =) bloquea" \
   'gh pr merge 45 --repo=o/re""d'
 assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B5]: -Ro/re'd' pegado (sin espacio) bloquea (no es una de las 3 formas permitidas)" \
