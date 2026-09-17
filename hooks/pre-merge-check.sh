@@ -105,14 +105,53 @@ fi
 #
 #      Fuera de alcance (mismo modelo de amenaza que hooks/lib/guard-
 #      matching.sh: errores honestos del orchestrator, no evasión
-#      adversarial):
-#        - Invocaciones disfrazadas que este guard no reconoce como una
-#          mención de merge y por lo tanto nunca llegan a validar la
-#          forma: `command gh`, `env gh`, `FOO=1 gh`, `\gh`, `"gh"`,
-#          `g\h`, una ruta absoluta al binario, `zsh -c '...'`, un
-#          wrapper o una función `gh()` definidos en el MISMO comando que
-#          el merge (uno definido en un comando ANTERIOR de la sesión
-#          tampoco se detecta: ver el punto siguiente).
+#      adversarial). El gate sin ancla (más abajo) encuentra "gh"/"pr"/
+#      "merge" como substring en CUALQUIER posición del texto saneado, así
+#      que casi cualquier prefijo SÍ llega a la gramática y bloquea —
+#      verificado uno por uno contra el hook real, worktree limpio, sin
+#      mocks: `command gh`, `env gh`, `FOO=1 gh`, `\gh` (backslash pegado
+#      sin partir la palabra), una ruta absoluta al binario, y un wrapper
+#      o una función `gh()` definidos en el MISMO comando que el merge
+#      TODOS bloquean (el texto antes de la invocación real rompe "nada
+#      antes de gh pr merge"). Solo evaden de verdad los casos donde el
+#      saneo o la sintaxis rompen la palabra "gh" en el texto saneado, y
+#      por lo tanto el gate sin ancla nunca la encuentra:
+#        - El nombre completo entre comillas: `"gh"`, `'gh'` — el span
+#          quoted se colapsa entero a un espacio, la palabra desaparece.
+#        - Un backslash A MITAD de la palabra: `g\h` (distinto de `\gh`,
+#          que bloquea — ahí la palabra "gh" sigue intacta).
+#        - Un wrapper de intérprete con el comando entero entre comillas:
+#          `zsh -c '...'`, `bash -c "..."`, `sh -c '...'` — el span
+#          quoted que contiene "gh pr merge" se colapsa entero.
+#        - Un comando ANTERIOR de la sesión que define una función/alias
+#          `gh` (ver el punto siguiente: el entorno previo no es visible).
+#        Dirección segura: el código bloquea MÁS de lo que este comentario
+#        admite, nunca menos.
+#      Aparte, el saneo COMPARTIDO de hooks/lib/guard-matching.sh (no se
+#      toca en este PR) puede borrar el merge real junto con el texto que
+#      lo rodea, dejando el comando sin ninguna mención de "gh"/"pr"/
+#      "merge" — verificado, 0 llamadas a gh, continue en HEAD y en dev
+#      por igual: un comentario con apóstrofo antes del merge en otra
+#      línea (`echo x # don't`⏎`gh pr merge 5`), un `echo` con comillas
+#      escapadas rodeando el merge (`echo \'; gh pr merge 5; echo \'`),
+#      quoting ANSI-C con apóstrofo (`echo $'it\'s' && gh pr merge 5 &&
+#      echo 'x'`), y un heredoc con el delimitador comillado a medias
+#      (`cat <<E"OF"`⏎`EOF`⏎`gh pr merge 5`⏎`E`). Es el mismo emparejamiento
+#      ciego de comillas documentado en guard-matching.sh:58-65 (un par de
+#      comillas de spans DISTINTOS se emparejan entre sí y se tragan el
+#      comando real de en medio) — no es un hueco nuevo de este archivo.
+#      Tampoco se ensancha GH_PR_MERGE_RE (abajo) para tolerar más de 2
+#      tokens entre gh/pr/merge y así detectar flags de repo repetidos
+#      ANTES de "pr" o "merge" (ej. `gh pr -R o/a -R o/red merge 5`, que
+#      hoy pasa sin validar, 0 llamadas): ensanchar el tope genérico a 4
+#      tokens hace que `gh pr view 5 | grep merge` — un falso positivo que
+#      tiene que seguir pasando — empiece a matchear también (4 tokens
+#      arbitrarios entre "pr" y "merge", verificado con el hook real). Un
+#      patrón más específico (solo tokens con forma de flag de repo)
+#      evitaría ese choque puntual, pero es agregar una capa más de
+#      interpretación de forma sobre un regex cuyo único trabajo es
+#      decidir si vale la pena validar — exactamente el patrón que D-04
+#      abandonó para la gramática misma. Se documenta en vez de parchear.
 #        - El entorno inyectado por archivos de arranque del shell
 #          (`.zshenv`, el snapshot de la herramienta Bash) o por un
 #          comando previo de la sesión: el proceso de este hook solo ve
