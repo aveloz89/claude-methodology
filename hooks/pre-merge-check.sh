@@ -186,8 +186,33 @@ if [ "$SANITIZE_STATUS" -ne 0 ]; then
   exit 0
 fi
 
+# [security, ronda 2 del follow-up de PR #75] gh acepta -R/--repo/--repo=
+# ENTRE "gh" y "pr", o entre "pr" y "merge" (son flags persistentes de `gh
+# pr`, no de `merge` — cobra las acepta en cualquier posición desde "pr" en
+# adelante; verificado contra gh real: `gh -R o/r pr view N`, `gh pr -R o/r
+# view N` y `gh pr view N -R o/r` resuelven los tres). Sin esto, "gh -R x pr
+# merge N" y "gh pr -R x merge N" no matcheaban esta ancla (exige "pr"/
+# "merge" pegados) y pasaban con {"continue":true} sin verificar nada. El
+# hueco de en medio tolera hasta 2 tokens (cubre la forma con espacio, "-R
+# valor", y la pegada/con "=", "-Rvalor"/"--repo=valor", como un solo
+# token) — SOLO para decidir "esto es una invocación real", no para
+# extraer el valor (eso lo sigue haciendo el loop de --repo/-R más abajo,
+# que ahora ve esos tokens porque la ventana arranca en "gh", no en
+# "merge").
+GH_PR_MERGE_RE='gh\s+(\S+\s+){0,2}pr\s+(\S+\s+){0,2}merge'
+
+# [security, ronda 2 del follow-up de PR #75] "GH_REPO=valor gh pr merge N"
+# es una invocación real (el prefijo de asignación de variable de entorno
+# es sintaxis de shell normal, no texto inerte) pero GUARD_ANCHOR no lo
+# reconoce como posición de comando — ninguna de sus alternativas modela
+# "después de un VAR=valor al inicio de un comando", así que sin esto el
+# gate de abajo respondía {"continue":true} antes incluso de llegar al
+# chequeo de GH_REPO más abajo. Acotado a GH_REPO específicamente (no
+# cualquier VAR=valor) porque es lo único que este fix necesita resolver.
+GH_REPO_PREFIX_RE='(GH_REPO=\S*\s+)?'
+
 # Solo interceptar invocaciones reales de gh pr merge
-if ! echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}gh\s+pr\s+merge\b"; then
+if ! echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}${GH_REPO_PREFIX_RE}${GH_PR_MERGE_RE}\b"; then
   echo '{"continue":true}'
   exit 0
 fi
@@ -197,6 +222,24 @@ block() {
   echo "{\"decision\":\"block\",\"reason\":$(printf '%s' "$reason" | jq -Rs .)}"
   exit 0
 }
+
+# [security, ronda 2 del follow-up de PR #75] GH_REPO: los subcomandos
+# "gh pr" (incluido "merge") lo usan como repo por defecto si no hay
+# -R/--repo; "gh repo view" —de donde este guard resuelve el repo cuando no
+# hay --repo ni cd inicial— NO lo usa (verificado contra gh real: con
+# GH_REPO seteado y el cwd sin remote, "gh repo view" sigue fallando "not a
+# git repository", mientras "gh pr view" con el mismo GH_REPO resuelve
+# igual). Si GH_REPO aparece en el comando interceptado (prefijo, export,
+# o cualquier otra mención — no se intenta distinguir "es una asignación
+# real" de "es solo texto", la misma razón por la que este guard no confía
+# en texto sin anclar en ningún otro lado) o está seteado en el entorno del
+# propio proceso del hook, el repo que "gh repo view" resolvería puede no
+# ser el que "gh pr merge" usaría de verdad. No se asume que un --repo
+# explícito en el comando le gana a GH_REPO sin verificarlo — bloquea
+# también en ese caso.
+if echo "$COMMAND" | grep -q 'GH_REPO' || [ -n "${GH_REPO:-}" ]; then
+  block "Blocked: el comando o el entorno tienen GH_REPO seteado — gh repo view no lo respeta pero gh pr merge sí, así que este guard no puede confiar en su propia resolución del repo. Quita GH_REPO del comando/entorno y usa --repo explícito."
+fi
 
 # [security, ronda 3] Ventana de la invocación anclada, consciente de
 # balance. La ronda 2 cortaba la ventana en el primer ";", "|", "&", ")",
@@ -235,12 +278,15 @@ block() {
 # que en guard_sanitize — si perl no vuelve a tiempo (o falla por
 # cualquier otro motivo), NO se puede confiar en una ventana parcial o
 # vacía: bloquea en vez de adivinar cuál mitad del comando es la real.
-ANCHORED_TO_END=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}"'gh\s+pr\s+merge\b.*' | head -1)
+ANCHORED_TO_END=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}${GH_PR_MERGE_RE}"'\b.*' | head -1)
 # Recorta el prefijo del anchor (separador, o el "(", "{" o backtick que
-# lo empieza) buscando "gh pr merge" DENTRO del texto ya anclado — seguro
-# porque ANCHORED_TO_END ya está acotado a partir del match real, no
-# vuelve a buscar sobre el comando completo.
-MERGE_WINDOW_FULL=$(echo "$ANCHORED_TO_END" | grep -oE 'gh\s+pr\s+merge\b.*' | head -1)
+# lo empieza) buscando "gh...pr...merge" DENTRO del texto ya anclado —
+# seguro porque ANCHORED_TO_END ya está acotado a partir del match real, no
+# vuelve a buscar sobre el comando completo. La ventana arranca en "gh"
+# (no en "merge") a propósito: así el loop de --repo/-R de más abajo ve
+# también un -R/--repo que haya quedado entre "gh" y "pr" o entre "pr" y
+# "merge" (ver GH_PR_MERGE_RE).
+MERGE_WINDOW_FULL=$(echo "$ANCHORED_TO_END" | grep -oE "${GH_PR_MERGE_RE}"'\b.*' | head -1)
 # Si lo que abrió el anchor fue justo un backtick, el contador de
 # paréntesis/llaves no alcanza para reconocerlo (backtick usa el MISMO
 # carácter para abrir y cerrar) — se pasa aparte para que el primer
@@ -340,18 +386,30 @@ if [ "$MERGE_WINDOW_STATUS" -ne 0 ]; then
   block "Blocked: no pude determinar los límites de la invocación real de gh pr merge (el cálculo de la ventana falló, superó el tiempo límite, quedó indeterminada por un paréntesis/llave/backtick sin cerrar, o encontró un backslash) — el guard no verifica a ciegas."
 fi
 
-# [security, ronda 3] PR_NUMBER se extrae de la MISMA ventana que --repo
-# (antes salía del comando completo, sin anclar y sin head -1): con
-# "gh pr merge 1 --repo a/b || gh pr merge 45 --repo real/repo", el número
-# podía salir de una invocación distinta a la que --repo ya resolvía desde
-# la ronda 2 — hoy dos invocaciones así terminan fail-closed contra gh
-# real (la extracción multilínea revienta la query GraphQL), pero conviene
-# que ambos salgan siempre de la misma invocación en vez de depender de
-# ese efecto colateral. head -1 al final por determinismo: si igual
-# apareciera más de un match dentro de la ventana (no debería, dado el
-# balance de arriba), se toma el primero de forma explícita en vez de
-# dejar que la asignación de PR_NUMBER termine multilínea.
-PR_NUMBER=$(echo "$MERGE_WINDOW" | grep -oE 'gh\s+pr\s+merge\s+([0-9]+)' | head -1 | grep -oE '[0-9]+')
+# [security, ronda 2 del follow-up de PR #75] Más de una invocación real de
+# gh pr merge en el mismo comando: MERGE_WINDOW solo cubre la PRIMERA
+# (acotada arriba por el primer separador en profundidad cero) — el texto
+# que queda DESPUÉS de esa ventana, dentro de lo que ya sabíamos anclado
+# (ANCHORED_TO_END), puede tener una segunda invocación completa que este
+# guard nunca validaría ("gh pr merge 1 --repo a/b || gh pr merge 45
+# --repo real/repo" verificaba solo la de la izquierda). No hay forma de
+# saber cuál de las dos ejecuta gh de verdad sin ejecutar el comando —
+# bloquea en vez de adivinar.
+REMAINING_AFTER_WINDOW="${MERGE_WINDOW_FULL:${#MERGE_WINDOW}}"
+if echo "$REMAINING_AFTER_WINDOW" | grep -qE "${GUARD_ANCHOR}${GH_PR_MERGE_RE}\b"; then
+  block "Blocked: el comando trae más de una invocación de gh pr merge — el guard solo puede verificar una a la vez. Usa un comando por invocación, con --repo explícito si hace falta."
+fi
+
+# PR_NUMBER se extrae de la MISMA ventana que --repo (antes salía del
+# comando completo, sin anclar y sin head -1) para que ambos salgan
+# siempre de la misma invocación. head -1 al final por determinismo: si
+# igual apareciera más de un match dentro de la ventana (no debería, dado
+# el balance de arriba), se toma el primero de forma explícita en vez de
+# dejar que la asignación de PR_NUMBER termine multilínea. El patrón
+# tolera hasta 2 tokens entre "gh"/"pr"/"merge" (mismo GH_PR_MERGE_RE de
+# la detección) para que un -R/--repo intercalado no rompa la extracción
+# del número.
+PR_NUMBER=$(echo "$MERGE_WINDOW" | grep -oE "${GH_PR_MERGE_RE}"'\s+([0-9]+)' | head -1 | grep -oE '[0-9]+$')
 
 if [ -z "$PR_NUMBER" ]; then
   # Sin número explícito no podemos verificar el PR correcto → fail-closed.
