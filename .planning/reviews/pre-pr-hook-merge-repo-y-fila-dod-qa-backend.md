@@ -253,3 +253,50 @@ Validacion estricta del manifiesto del plugin: verde, reproducido.
 - No se reviso el estado persistente ni el brief mas alla de la cita de D-04 usada para contrastar el alcance angostado de las formas del flag corto de repo.
 - La validacion estricta del manifiesto del plugin se corrio una vez mas, verde, como chequeo rapido de rutina, no es parte del mandato explicito de esta ronda.
 
+
+## Ronda 4 -- HEAD e47a5da (2026-09-17)
+
+### QA Backend
+
+Mandato acotado: solo confirmar cierre de los 3 bloqueantes de ronda 3, mas chequeo rapido de D-04/tests. Verificacion ejecutada contra el hook real (worktree desechable en /tmp, eliminado al terminar), sin mocks del propio guard bajo prueba.
+
+**1. Header "Fuera de alcance" (784af58) -- RESUELTO.**
+
+Reescrito el bloque completo: ahora separa explicitamente los casos que "TODOS bloquean" (`command gh`, `env gh`, `FOO=1 gh`, backslash pegado antes de la palabra `\gh`, ruta absoluta `/usr/bin/gh`, funcion `gh()` en el mismo comando) de los que "evaden de verdad" (nombre completo entre comillas simples o dobles, backslash A MITAD de la palabra `g\h`, wrapper de interprete con el comando entero entre comillas -- zsh, bash o sh con -c y el comando comillado).
+
+Verificado uno por uno con el hook real (fake gh con log de llamadas, PATH aislado): los 6 casos que el header dice que bloquean, bloquearon (0 llamadas al binario en cada uno); los 6 casos que el header dice que evaden, dieron continue con 0 llamadas. Sin discrepancias entre lo que el comentario afirma y lo que el codigo hace -- honestidad restaurada.
+
+**2. Cuatro escenarios preexistentes de dev (e88c891) -- RESUELTO.**
+
+`tests/adversarial/test-hooks.sh` ahora tiene 5 filas nuevas bajo la seccion [D-04, legacy], cubriendo los 4 escenarios pedidos: -R pegado sin espacio, -R= con signo igual, el decoy de listar PRs de otro repo antes del merge real y su espejo despues del merge real (dos filas, la que el bloqueante pedia), y la doble invocacion en la MISMA linea separada por OR logico. Las 5 usan el helper de bloqueo con verificacion de cero consultas. Corridas en la suite completa (ver punto 4): las 5 pasan.
+
+**3. B5 duplicado (e88c891) -- RESUELTO.**
+
+La fila "-R intercalado con comilla a mitad del valor bloquea" ahora ejecuta la forma corta CON espacio antes del valor comillado, tal como dice su nombre, distinta de la fila "-R pegado sin espacio bloquea", que conserva la forma sin espacio. Ya no son el mismo comando. Ambas pasan en la suite completa.
+
+**4. Suite completa y D-04 -- limpio.**
+
+Suite adversarial completa en worktree desechable (HEAD e47a5da): 321 de 321, reproducido exacto (el dev reporta el mismo numero). Las 7 filas nuevas del delta (5 legacy + el ajuste de B5, mas el test de caracter de control 0x01 y el de --help/-h) pasan.
+
+Contrastado contra D-04 (.planning/BRIEF.md linea 33 -- el hook acepta solo la forma corta con numero de PR y flags conocidos, en una linea y sin nada antes ni despues; todo lo demas bloquea): la excepcion nueva de --help/-h EXACTOS y SOLOS (bf723df) no contradice esto -- esa combinacion no mergea nada (el CLI imprime ayuda y sale), el chequeo exige conteo de tokens igual a 4 y posicion exacta del flag, y cualquier otra combinacion con --help (con numero de PR, con --repo, como segundo flag) sigue la gramatica normal y bloquea, verificado en la suite. El bloqueo de caracteres de control (0x01-0x1F/0x7F fuera de tab) tampoco angosta la forma aceptada, solo cierra una brecha de defensa en profundidad ya declarada como tal en el propio comentario.
+
+El commit de documentacion sobre "cuando reconoce la invocacion" (e47a5da) corrige el mismo patron de sobre-promesa en README.md y global/CLAUDE.md que security marco LOW en ronda 3 (afirmaban que cualquier otro prefijo bloquea sin el matiz de reconocimiento). Ambos archivos ahora remiten al hook como fuente unica del detalle, sin duplicar la lista de formas -- consistente con el header reescrito del punto 1.
+
+### Veredicto
+
+**APROBADO**
+
+#### Bloqueantes
+
+Ninguno.
+
+#### Sugerencias
+
+- [ ] Ninguna nueva. Las 4 sugerencias abiertas de ronda 3 (mezcla de flag largo/corto con valores distintos, grep del propio codigo sin test dedicado, truncado a 64 caracteres, formato de mensaje de bloqueo de variables de entorno) parecen atendidas en este delta segun el diff revisado (bf723df agrega tests de flags mezclados, valor con sustitucion de comando y backticks, caracter de control, y truncado de token de 200 KB; e88c891 agrega el grep del propio codigo fuente como caso que debe seguir pasando) -- no quedan pendientes visibles de esa lista, no se re-verifico cada una a mano por presupuesto.
+
+### NO CUBIERTO
+
+- No se re-audito el resto de la suite (miles de tests fuera de pre-merge-check.sh/test-hooks.sh); solo el agregado 321/321 y el delta atribuible a este PR.
+- No se evaluo severidad de seguridad -- corresponde a la ronda 4 de security-reviewer en paralelo.
+- No se releyo el header completo linea por linea buscando problemas nuevos mas alla de los 3 bloqueantes de ronda 3 y el chequeo de D-04/docs pedido -- mandato explicito de esta ronda era acotado.
+- No se probo el bloque "Aparte" del header (los 4 ejemplos de saneo compartido de guard-matching.sh que borran el merge real: comentario con apostrofo, echo con comillas escapadas, quoting ANSI-C, heredoc con delimitador comillado a medias) -- contenido nuevo de este delta pero fuera de los 3 bloqueantes puntuales exigidos; no se testeo por presupuesto de tiempo, no porque se haya verificado y este mal.

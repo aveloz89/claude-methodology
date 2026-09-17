@@ -150,3 +150,33 @@ B1 (las 18 variantes, incluidos wrapper `gh()` con y sin `--repo` y `echo hola &
 
 ### NO CUBIERTO
 Merge real contra GitHub; cwd del proceso del hook frente al persistido por la herramienta Bash y contenido del campo `cwd` del JSON; caracteres de control más allá del rechazo observado; `GH_CONFIG_DIR` y Enterprise con `gh` real; reversión de los tests nuevos; `test-plugin-manifest.sh` y `validate --strict`; snapshot/`.zshenv`/alias/funciones (fuera de alcance); audit de dependencias (no aplica).
+
+---
+
+## Ronda 4 — HEAD `e47a5da`, delta `32ab443..e47a5da` (2026-09-17)
+
+- **Veredicto:** **APROBADO** — sin bloqueantes; 1 MEDIUM (fuera del modelo D-04) y 3 LOW. Transcrito por el orchestrator.
+- **Mandato acotado por decisión del usuario:** solo si el delta abre un camino por el que un merge detectado pase mal verificado.
+- **Método:** hook real con JSON armado y `gh` falso que registra llamadas, bajo `/bin/bash` 3.2.57. `test-hooks.sh`: 321/321. `guard-matching.sh` sin cambios en el delta.
+
+### Seguridad
+
+1. **Excepción `--help`/`-h`:** solo `gh pr merge --help` y `-h` exactos (con blancos extra) pasan con 0 llamadas. Bloquean con 0 llamadas: `--help 5`, `5 --help`, `-h 5`, `-h5`, `-hd`, `-dh`, `--help=false` (que sí mergearía: `gh pr view --help=false` corre normal), `--help=true`, `-h=false`, `--Help`, `---help`, `"--help"`, `-- --help`, `--help --`, `--help>x`, separadores, `$()`, backticks, `# comentario`, multilínea, continuación, NBSP, U+3000, ZWSP, U+0085 y guiones unicode. En gh 2.88.1 `pr merge` no tiene `-h` propio.
+2. **Caracteres de control:** el patrón matchea exactamente `01-08 0b 0c 0e-1f 7f` (probados los 255 bytes). Los merges legítimos pasan el check y consultan `gh`; los comandos no-merge con ESC/DEL/UTF-8 siguen en `continue`. Va antes de la excepción de ayuda.
+3. **Mensajes de entorno:** solo cambió el texto de dos `block`; las condiciones no. `GH_REPO`/`GH_HOST` bloquean con y sin `--repo`; `GIT_DIR`/`GIT_WORK_TREE` bloquean sin `--repo`.
+4. **Header y docs:** lo que el header dice que bloquea, bloquea; lo que dice que evade, evade.
+
+### Veredicto
+**APROBADO**
+
+#### Bloqueantes
+- Ninguno.
+
+#### Sugerencias (al issue de seguimiento, por decisión del usuario de no abrir más rondas)
+- [ ] **[MEDIUM, fuera del modelo D-04]** `gh pr merge  --help` pasa con 0 llamadas (en `32ab443` bloqueaba): bash quita el NUL en `$(jq …)`. Preexistente en otra forma: `gh pr merge 5  --repo o/a` verifica `o/a#5`. Mitigado porque Node lanza `ERR_INVALID_ARG_VALUE` con NUL en argv. Arreglo de una línea: bloquear si `jq -e '.tool_input.command|contains(" ")'` antes de extraer; corregir el comentario de `:297`, que dice que el NUL es «el caso que sí importa» cuando ese check nunca lo ve.
+- [ ] **[LOW, docs]** El header afirma que «un wrapper o una función `gh()` definidos en el MISMO comando TODOS bloquean» y que el código «bloquea MÁS de lo que este comentario admite, nunca menos», pero `w() { gh "$@"; }; w pr merge 5` y `m() { gh pr "$@"; }; m merge 5` pasan con 0 llamadas.
+- [ ] **[LOW, docs]** `README.md:34` y `global/CLAUDE.md:158` no mencionan la excepción `--help`/`-h`; `global/CLAUDE.md` apunta a `hooks/pre-merge-check.sh` con ruta relativa al repo de la metodología, inexistente en un proyecto instalado.
+- [ ] **[LOW, UX]** El mensaje de `GH_REPO`/`GH_HOST` dice que `--repo` no sirve y luego agrega `MERGE_FORM_HELP`, que recomienda usar `--repo`.
+
+### NO CUBIERTO
+Cómo el harness de Claude Code pasa el comando al shell y si su validación de caracteres de control incluye el NUL; `gh pr merge --help`/`-h` con `gh` real (inferido de `gh help pr merge` y `gh pr view -h`); el heredoc con delimitador comillado a medias del header (su variante `echo x # don't`⏎`gh pr merge 5` **bloquea** por multilínea, más estricto que lo que dice el header); aliases o funciones de comandos anteriores (fuera de alcance).
