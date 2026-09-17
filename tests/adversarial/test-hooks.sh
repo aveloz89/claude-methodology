@@ -1643,10 +1643,17 @@ assert_pre_merge_blocked "Real merge invocation with number enters validation" "
 # sin llegar siquiera a llamar a gh.
 assert_pre_merge_blocked "Real merge invocation without number blocks" "gh pr merge --squash" "sin número de PR explícito" "offline"
 
-# Caso 4: comando compuesto con el merge real después de && — debe entrar a
-# validación igual que el caso 2 (antes, el gate solo miraba el inicio del
-# string completo y esto pasaba sin validar: falso negativo).
-assert_pre_merge_blocked "Compound command with merge after && enters validation" "git fetch && gh pr merge 12" "PR #12" "offline"
+# Caso 4 [actualizado por D-04]: comando compuesto con el merge real
+# después de && — el gate sigue detectándolo como mención de merge (el
+# ancla original de este caso, "el gate solo miraba el inicio del string
+# completo", sigue arreglado: el prefijo "git fetch && " ya no lo esconde
+# de la detección), pero ahora la gramática única exige "sola en el
+# comando" — cualquier prefijo, aunque sea un comando inocuo antes de un
+# &&, bloquea en vez de resolver el PR después del separador. Motivo:
+# D-04 reemplaza la ventana anclada que resolvía "el merge después de
+# cmd1 &&" por una forma única sin nada antes ni después (ver
+# hooks/pre-merge-check.sh, punto 6 del header).
+assert_pre_merge_blocked "Compound command with merge after && now blocks (D-04: nada antes del merge)" "git fetch && gh pr merge 12" "Forma aceptada" "offline"
 
 # Caso 5a: PR sin checks configurados (repo sin CI) — es un pass legítimo,
 # no debe bloquear.
@@ -1813,746 +1820,293 @@ assert_pre_merge_unrelated_not_blocked "pre-merge-check [security]: perl falland
 assert_pre_merge_unrelated_not_blocked "pre-merge-check [security]: perl fallando NO bloquea 'git status' (no menciona gh/pr/merge)" "git status"
 rm -rf "$FAKE_PERL_FAILS_UNRELATED_DIR"
 
-# Caso 7 (follow-up 2026-08-24): --repo <owner>/<name> explícito en el
-# comando interceptado. Antes, el guard detectaba el repo SIEMPRE con `gh
-# repo view` sobre el cwd de la sesión — un `gh pr merge <N> --repo
-# otro/repo` real quedaba bloqueado fail-closed porque `gh pr view` corría
-# contra el repo local, donde ese PR no existe (no hay "cd" posible al cwd
-# del comando: este hook corre en la raíz de la sesión). Fake gh dedicado:
-# "repo view" SIEMPRE falla (simula un cwd que no resuelve al repo
-# objetivo) — si el guard igual continúa/bloquea por otra razón, es porque
-# usó el --repo explícito en vez de llamar a gh repo view. Los otros tres
-# subcomandos (pr view / api graphql / pr checks) solo responden con éxito
-# si reciben exactamente el owner/name esperado — así se prueba que el
-# valor viaja de punta a punta, no solo que el guard "no explotó".
-FAKE_GH_REPO_FLAG_DIR=$(mktemp -d)
-cat > "$FAKE_GH_REPO_FLAG_DIR/gh" <<'FAKE_GH_REPO_FLAG_EOF'
-#!/bin/bash
-case "$1 $2" in
-  "repo view")
-    exit 1
-    ;;
-  "pr view")
-    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
-    echo '{"reviewDecision":null}'
-    ;;
-  "api graphql")
-    echo "$@" | grep -q -- "owner=aveloz89" || { echo "unexpected args: $*" >&2; exit 1; }
-    echo "$@" | grep -q -- "name=easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
-    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
-    ;;
-  "pr checks")
-    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
-    printf 'some-check\tpass\t1s\n'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-FAKE_GH_REPO_FLAG_EOF
-chmod +x "$FAKE_GH_REPO_FLAG_DIR/gh"
-
-assert_pre_merge_repo_flag_continue() {
-  local test_name="$1" cmd="$2"
-  TOTAL=$((TOTAL + 1))
-  local json output
-  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_REPO_FLAG_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-  if echo "$output" | grep -q '"continue":true'; then
-    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_pre_merge_repo_flag_continue "gh pr merge --repo <owner>/<name> usa el repo explícito, no gh repo view (cwd offline)" \
-  "gh pr merge 179 --repo aveloz89/easy-quotes"
-assert_pre_merge_repo_flag_continue "gh pr merge --repo=<owner>/<name> (forma con signo igual) usa el repo explícito" \
-  "gh pr merge 179 --repo=aveloz89/easy-quotes"
-
-# [security, ronda 2] -R en sus tres formas (espacio, pegado, "="):
-# verificado contra `gh help pr merge` (-R, --repo es la MISMA flag que
-# --repo, no una alternativa distinta) y contra GitHub real (ver commit).
-# Reusa el mismo fake gh: el valor resuelto tiene que llegar idéntico a
-# gh pr view/checks/graphql sin importar qué forma escribió el usuario.
-assert_pre_merge_repo_flag_continue "gh pr merge -R <owner>/<name> (forma corta con espacio) usa el repo explícito" \
-  "gh pr merge 179 -R aveloz89/easy-quotes"
-assert_pre_merge_repo_flag_continue "gh pr merge -R<owner>/<name> (forma corta pegada, sin espacio) usa el repo explícito" \
-  "gh pr merge 179 -Raveloz89/easy-quotes"
-assert_pre_merge_repo_flag_continue "gh pr merge -R=<owner>/<name> (forma corta con signo igual) usa el repo explícito" \
-  "gh pr merge 179 -R=aveloz89/easy-quotes"
-rm -rf "$FAKE_GH_REPO_FLAG_DIR"
-
-# [security HIGH, ronda 2] Anclaje: un --repo de OTRO subcomando en el
-# mismo compuesto no debe ganarle al repo real del merge. Reproducido con
-# el mismo gh falso que argumentó el hallazgo: "repo view" resuelve el cwd
-# a un repo VÁLIDO conocido (aveloz89/claude-methodology) — pr
-# view/checks/graphql solo responden con éxito si reciben ESE repo, y
-# fallan si reciben el decoy (victima/otro), aunque el decoy tenga forma
-# válida. Antes de este fix, el primer --repo del string completo ganaba
-# sin importar a qué subcomando pertenecía — este test fallaba (bloqueaba
-# verificando victima/otro, que no existe para este fake) contra esa
-# versión.
-FAKE_GH_ANCHOR_DIR=$(mktemp -d)
-cat > "$FAKE_GH_ANCHOR_DIR/gh" <<'FAKE_GH_ANCHOR_EOF'
-#!/bin/bash
-case "$1 $2" in
-  "repo view")
-    echo "aveloz89/claude-methodology"
-    ;;
-  "pr view")
-    echo "$@" | grep -q -- "--repo aveloz89/claude-methodology" || { echo "unexpected args (repo decoy leaked): $*" >&2; exit 1; }
-    echo '{"reviewDecision":null}'
-    ;;
-  "api graphql")
-    echo "$@" | grep -q -- "owner=aveloz89" || { echo "unexpected args: $*" >&2; exit 1; }
-    echo "$@" | grep -q -- "name=claude-methodology" || { echo "unexpected args (repo decoy leaked): $*" >&2; exit 1; }
-    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
-    ;;
-  "pr checks")
-    echo "$@" | grep -q -- "--repo aveloz89/claude-methodology" || { echo "unexpected args (repo decoy leaked): $*" >&2; exit 1; }
-    printf 'some-check\tpass\t1s\n'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-FAKE_GH_ANCHOR_EOF
-chmod +x "$FAKE_GH_ANCHOR_DIR/gh"
-
-assert_pre_merge_anchor_continue() {
-  local test_name="$1" cmd="$2"
-  TOTAL=$((TOTAL + 1))
-  local json output
-  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_ANCHOR_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-  if echo "$output" | grep -q '"continue":true'; then
-    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_pre_merge_anchor_continue "gh pr merge [security]: --repo de OTRO subcomando (gh pr list) no gana sobre el repo del cwd" \
-  "gh pr list --repo victima/otro && gh pr merge 45"
-assert_pre_merge_anchor_continue "gh pr merge [security]: --repo de un subcomando DESPUÉS del merge (tras &&) tampoco gana" \
-  "gh pr merge 45 && gh pr list --repo victima/otro"
-rm -rf "$FAKE_GH_ANCHOR_DIR"
-
-# [security HIGH, ronda 3] La ventana anclada de la ronda 2 cortaba en el
-# primer ";"/"|"/"&"/")"/"}"/backtick que aparecía, sin distinguir un
-# separador de comando real de un delimitador de expansión que ABRE
-# adentro de la propia ventana ($(...), ${...}, o un backtick que abre a
-# mitad de la ventana) — perdía el --repo real que viene después de esa
-# expansión y caía al repo del cwd sin verificar nada. Mismo estilo de
-# fake gh que el de anclaje: "repo view" resuelve a un cwd VÁLIDO
-# (cwd/repo) distinto del --repo real (real/repo) — pr view/checks/
-# graphql solo responden con éxito si reciben real/repo, y fallan si
-# reciben cwd/repo. Reproducido con el hook real antes de este fix (los
-# tres comandos de abajo daban {"continue":true} habiendo verificado
-# cwd/repo, no real/repo).
-FAKE_GH_BALANCE_DIR=$(mktemp -d)
-cat > "$FAKE_GH_BALANCE_DIR/gh" <<'FAKE_GH_BALANCE_EOF'
-#!/bin/bash
-case "$1 $2" in
-  "repo view")
-    echo "cwd/repo"
-    ;;
-  "pr view")
-    echo "$@" | grep -q -- "--repo real/repo" || { echo "unexpected args (la expansion se comio el --repo real): $*" >&2; exit 1; }
-    echo '{"reviewDecision":null}'
-    ;;
-  "api graphql")
-    echo "$@" | grep -q -- "owner=real" || { echo "unexpected args: $*" >&2; exit 1; }
-    echo "$@" | grep -q -- "name=repo" || { echo "unexpected args (la expansion se comio el --repo real): $*" >&2; exit 1; }
-    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
-    ;;
-  "pr checks")
-    echo "$@" | grep -q -- "--repo real/repo" || { echo "unexpected args (la expansion se comio el --repo real): $*" >&2; exit 1; }
-    printf 'some-check\tpass\t1s\n'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-FAKE_GH_BALANCE_EOF
-chmod +x "$FAKE_GH_BALANCE_DIR/gh"
-
-assert_pre_merge_balance_continue() {
-  local test_name="$1" cmd="$2"
-  TOTAL=$((TOTAL + 1))
-  local json output
-  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_BALANCE_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-  if echo "$output" | grep -q '"continue":true'; then
-    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_pre_merge_balance_continue "gh pr merge [security]: \$(...) antes de --repo no corta la ventana (usa el repo real, no el cwd)" \
-  'gh pr merge 45 --match-head-commit $(git rev-parse HEAD) --repo real/repo'
-assert_pre_merge_balance_continue "gh pr merge [security]: \${VAR} antes de --repo no corta la ventana (usa el repo real, no el cwd)" \
-  'gh pr merge 45 --match-head-commit ${SHA} --repo real/repo'
-assert_pre_merge_balance_continue "gh pr merge [security]: backtick que abre a mitad de la ventana no la corta (usa el repo real, no el cwd)" \
-  'gh pr merge 45 --subject `date` --repo real/repo'
-
-# Regresión: el propio anchor puede ser un "(" o un backtick que ENVUELVE
-# todo el merge — ESE cierre sí tiene que cortar la ventana (si no
-# cortara, "real/repo)" o "real/repo\`" quedaría pegado como un solo
-# token y fallaría la validación de forma en vez de resolver limpio).
-assert_pre_merge_balance_continue "gh pr merge [security]: subshell que envuelve todo el merge sigue cortando en su propio cierre" \
-  '(gh pr merge 45 --repo real/repo)'
-assert_pre_merge_balance_continue "gh pr merge [security]: backtick que envuelve todo el merge sigue cortando en su propio cierre" \
-  '`gh pr merge 45 --repo real/repo`'
-rm -rf "$FAKE_GH_BALANCE_DIR"
-
-# [security HIGH, ronda 4] Imagen espejo del bug de la ronda 3: el
-# contador solo cortaba al llegar a un CIERRE con profundidad cero, nunca
-# miraba su propio estado al llegar a fin de ventana. Un abridor que
-# sobrevive a guard_sanitize sin su cierre (un "\(" escapado, o una llave
-# suelta como "a{b" — ninguno de los dos es heredoc, quoted span ni
-# continuación, así que el saneo los deja intactos) dejaba el contador en
-# >0 para siempre: ";"/"|"/"&" dejan de cortar (exigen los tres contadores
-# en cero), la ventana se come la invocación siguiente completa, y con
-# "gana la última" el --repo del vecino le gana al real. Reproducido con
-# el hook real antes de este fix: los tres daban {"continue":true}
-# habiendo verificado el repo de la SEGUNDA invocación (evil/x), no la
-# primera (real/repo) — regresión directa del commit de la ronda 3 (con
-# el patrón de esa ronda, "(" no estaba en la clase de corte y el ";" sí
-# cortaba, dando la ventana correcta).
-assert_pre_merge_blocked "gh pr merge [security]: paréntesis escapado sin cerrar dentro de la ventana bloquea (no deja que el ; deje de cortar)" \
-  'gh pr merge 45 --repo real/repo --body \( ; gh pr merge 1 --repo evil/x' \
-  "no pude determinar los límites" "offline"
-assert_pre_merge_blocked "gh pr merge [security]: llave suelta sin cerrar dentro de la ventana bloquea (no deja que el ; deje de cortar)" \
-  'gh pr merge 45 --repo real/repo --jq .a{b ; gh pr merge 1 --repo evil/x' \
-  "no pude determinar los límites" "offline"
-assert_pre_merge_blocked "gh pr merge [security]: backtick sin cerrar dentro de la ventana bloquea (no deja que el ; deje de cortar)" \
-  'gh pr merge 45 --repo real/repo --body `hi ; gh pr merge 1 --repo evil/x' \
-  "no pude determinar los límites" "offline"
-
-# [security HIGH, ronda 5] La ronda 4 solo atrapa un ABRIDOR sin cerrar
-# (contador > 0 al salir del loop). No atrapa un CIERRE o SEPARADOR
-# escapado ("\)", "\;", "\|" — sobreviven igual a guard_sanitize, que no
-# toca backslashes) en profundidad cero: el contador nunca pasa de cero
-# ahí, nada queda "desbalanceado" para el chequeo de la ronda 4, pero la
-# ventana corta en ese punto igual, silenciosa, antes del --repo real —
-# verificado end-to-end con un gh falso que distingue real/repo del cwd
-# antes de este fix. Tercera dirección de la misma raíz que las rondas 2
-# y 3 (cortar de más, cortar de menos, cerrar escapado): intentar
-# adivinar el límite sobre texto que ya perdió estructura en el saneo.
-# Decisión del usuario, no una cuarta regla que adivine mejor: cualquier
-# backslash que llegue al tokenizer dentro de la ventana consumida hace
-# la ventana indeterminada — bloquea, sin agregar estado nuevo al parser
-# ni tocar las 8 clases de caracteres que ya trackea.
-assert_pre_merge_blocked "gh pr merge [security]: paréntesis de cierre escapado en profundidad cero bloquea (el contador nunca se desbalancea)" \
-  'gh pr merge 45 --body foo\) --repo real/repo' \
-  "no pude determinar los límites" "offline"
-assert_pre_merge_blocked "gh pr merge [security]: punto y coma escapado en profundidad cero bloquea (el contador nunca se desbalancea)" \
-  'gh pr merge 45 --jq .a\; --repo real/repo' \
-  "no pude determinar los límites" "offline"
-assert_pre_merge_blocked "gh pr merge [security]: pipe escapado en profundidad cero bloquea (el contador nunca se desbalancea)" \
-  'gh pr merge 45 --body foo\| --repo real/repo' \
-  "no pude determinar los límites" "offline"
-
-# [security, ronda 5] Falso bloqueo a evitar: un backslash DENTRO de un
-# span quoted no debe alcanzar nunca al tokenizer — guard_sanitize ya lo
-# colapsó a un espacio antes de esta etapa. Si este test bloqueara, el
-# chequeo de arriba estaría atrapando comandos normales, no solo los
-# maliciosos.
-assert_pre_merge_continue "gh pr merge [security]: backslash DENTRO de comillas no llega al tokenizer (no bloquea, no es falso positivo)" \
-  'gh pr merge 45 --body "línea con \n adentro" --repo real/repo'
-
-# [security, ronda 2 del follow-up de PR #75 — reemplaza el test de la
-# ronda 3] Dos invocaciones reales encadenadas ("gh pr merge 1 --repo a/b
-# || gh pr merge 45 --repo real/repo") bloquean en vez de validar solo la
-# de la izquierda (comportamiento previo, ronda 3): no hay forma de saber
-# cuál de las dos ejecuta gh de verdad sin ejecutar el comando. El fake gh
-# sale con error ante CUALQUIER subcomando — si el guard consultara a gh
-# para lo que sea (repo view, pr view, ...) en vez de bloquear antes de
-# consultar nada, este test lo detecta.
-FAKE_GH_PRNUM_DIR=$(mktemp -d)
-cat > "$FAKE_GH_PRNUM_DIR/gh" <<'FAKE_GH_PRNUM_EOF'
-#!/bin/bash
-echo "unexpected gh call (el guard debió bloquear antes de consultar nada): $*" >&2
-exit 1
-FAKE_GH_PRNUM_EOF
-chmod +x "$FAKE_GH_PRNUM_DIR/gh"
-
-TOTAL=$((TOTAL + 1))
-PRNUM_JSON=$(jq -n --arg cmd 'gh pr merge 1 --repo a/b || gh pr merge 45 --repo real/repo' '{tool_input: {command: $cmd}}')
-PRNUM_OUTPUT=$(echo "$PRNUM_JSON" | PATH="$FAKE_GH_PRNUM_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$PRNUM_OUTPUT" | grep -q '"decision":"block"' && echo "$PRNUM_OUTPUT" | grep -qF "más de una invocación"; then
-  echo -e "${GREEN}PASS${NC}: gh pr merge [security]: dos invocaciones encadenadas con || bloquean sin consultar gh (antes: gana la primera)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: gh pr merge [security]: dos invocaciones encadenadas con || bloquean sin consultar gh (output: $PRNUM_OUTPUT)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$FAKE_GH_PRNUM_DIR"
-
-
-# [security HIGH, ronda 2] Duplicado: gana la ÚLTIMA ocurrencia dentro de
-# la ventana anclada, igual que gh real (verificado contra GitHub real,
-# ver commit). Mismo estilo de fake gh que el de anclaje: solo responde
-# con éxito al repo que DEBERÍA ganar; si el guard tomara la primera
-# ocurrencia en vez de la última, este test fallaría.
-FAKE_GH_DUP_DIR=$(mktemp -d)
-cat > "$FAKE_GH_DUP_DIR/gh" <<'FAKE_GH_DUP_EOF'
-#!/bin/bash
-case "$1 $2" in
-  "repo view")
-    exit 1
-    ;;
-  "pr view")
-    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args (no ganó el ultimo --repo): $*" >&2; exit 1; }
-    echo '{"reviewDecision":null}'
-    ;;
-  "api graphql")
-    echo "$@" | grep -q -- "name=easy-quotes" || { echo "unexpected args (no ganó el ultimo --repo): $*" >&2; exit 1; }
-    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
-    ;;
-  "pr checks")
-    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args (no ganó el ultimo --repo): $*" >&2; exit 1; }
-    printf 'some-check\tpass\t1s\n'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-FAKE_GH_DUP_EOF
-chmod +x "$FAKE_GH_DUP_DIR/gh"
-
-assert_pre_merge_dup_continue() {
-  local test_name="$1" cmd="$2"
-  TOTAL=$((TOTAL + 1))
-  local json output
-  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_DUP_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-  if echo "$output" | grep -q '"continue":true'; then
-    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_pre_merge_dup_continue "gh pr merge [security]: --repo duplicado, el decoy va PRIMERO y el real gana por ser el último" \
-  "gh pr merge 179 --repo aveloz89/claude-methodology --repo aveloz89/easy-quotes"
-assert_pre_merge_dup_continue "gh pr merge [security]: --repo/-R mezclados, -R al final gana igual que gh real" \
-  "gh pr merge 179 --repo aveloz89/claude-methodology -R aveloz89/easy-quotes"
-rm -rf "$FAKE_GH_DUP_DIR"
-
-# El caso inverso (decoy AL FINAL) prueba que NO seguimos tomando el
-# primero: si el guard tomara el primero, este bloquearía verificando
-# aveloz89/claude-methodology#179 (inexistente en offline) en vez de dar
-# error por el decoy que va después — ambos caminos bloquean hoy (offline
-# no resuelve nada), así que se verifica contra GitHub real en su lugar,
-# más abajo con FAKE_GH_MODE apagado. Ver verificación end-to-end en el
-# reporte (no se agrega un tercer fake gh solo para este ángulo — ya está
-# cubierto por los dos asserts de arriba, que prueban las dos direcciones
-# de "cuál gana": primero-decoy-último-real y --repo/-R mezclados).
-
-# [security HIGH, ronda 2] Valor destruido por guard_sanitize: un --repo
-# comillado colapsa a un espacio ANTES de esta extracción — comillar es
-# una forma normal de escribir el comando, no evasión. El guard tiene que
-# BLOQUEAR (no adivinar el repo del cwd) y el mensaje no debe reflejar la
-# flag siguiente como si fuera el valor.
-assert_pre_merge_blocked "gh pr merge [security]: --repo comillado (saneo destruye el valor) bloquea, no adivina el cwd" \
-  "gh pr merge 5 --repo 'aveloz89/easy-quotes'" "sin un valor owner/name utilizable" "offline"
-assert_pre_merge_blocked "gh pr merge [security]: --repo comillado + flag detrás no culpa a esa flag por la forma inválida" \
-  "gh pr merge 5 --repo 'a/b' --squash" "sin un valor owner/name utilizable ('')" "offline"
-
-# --repo malformado (sin "/", el único separador owner/name válido):
-# fail-closed sin necesidad de tocar gh — la validación de forma corre
-# antes de cualquier consulta, así que ni siquiera hace falta un fake gh
-# especial para probarla (usa el fake gh general de esta sección).
-assert_pre_merge_blocked "gh pr merge --repo malformado (sin owner/name) bloquea fail-closed sin consultar gh" \
-  "gh pr merge 179 --repo not-a-valid-repo" "sin un valor owner/name utilizable" "offline"
-
-# [security LOW, ronda 2] El valor reflejado en el reason se trunca a 64
-# chars — un token de 300 chars no debe volver entero al usuario.
-LONG_REPO_VALUE=$(printf 'a%.0s' $(seq 1 300))
-assert_pre_merge_blocked "gh pr merge [security]: valor de --repo malformado y largo se trunca en el mensaje de bloqueo" \
-  "gh pr merge 179 --repo $LONG_REPO_VALUE" "$(printf 'a%.0s' $(seq 1 64))..." "offline"
-TOTAL=$((TOTAL + 1))
-LONG_REPO_OUTPUT=$(jq -n --arg cmd "gh pr merge 179 --repo $LONG_REPO_VALUE" '{tool_input: {command: $cmd}}' | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="offline" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if ! echo "$LONG_REPO_OUTPUT" | grep -qF "$LONG_REPO_VALUE"; then
-  echo -e "${GREEN}PASS${NC}: gh pr merge [security]: el reason NO contiene el token de 300 chars completo"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: gh pr merge [security]: el reason NO contiene el token de 300 chars completo (output: $LONG_REPO_OUTPUT)"
-  FAIL=$((FAIL + 1))
-fi
-
-# [doc, ronda 2 punto 4] La forma de tres segmentos "[HOST/]OWNER/REPO"
-# que gh documenta para Enterprise queda fuera del regex de validación a
-# propósito (dos segmentos exactos) — fail-closed, no una vulnerabilidad,
-# pero con test para que quede verificado y no solo comentado.
-assert_pre_merge_blocked "gh pr merge [doc]: --repo de 3 segmentos (github.enterprise.com/owner/repo) bloquea fail-closed" \
-  "gh pr merge 179 --repo github.enterprise.com/owner/repo" "sin un valor owner/name utilizable" "offline"
-
-# [follow-up PR #75] cd inicial resuelve el repo del comando, no el cwd de
-# la sesión. Antes, el guard SIEMPRE resolvía con `gh repo view` corriendo
-# en el cwd de la SESIÓN — un `cd <ruta> && gh pr merge N` (el patrón que
-# este mismo repo recomienda para trabajar cross-repo) nunca lo tocaba.
+# ============================================================
+# [D-04] Gramática única del merge, sobre el texto CRUDO — reemplaza TODA
+# la sección anterior (--repo con "gana el último", ventana anclada
+# consciente de balance, extracción de un cd inicial). Ver
+# hooks/pre-merge-check.sh punto 6 del header y `.planning/BRIEF.md`
+# decisión D-04. La sección vieja intentaba INTERPRETAR formas de comando
+# sobre el texto saneado — cada ronda de review encontró una forma nueva
+# sin cubrir. La nueva exige que el comando completo sea EXACTAMENTE
+# "gh pr merge <N> [flag...]", validado sobre tool_input.command tal cual.
 #
-# Caso del incidente real: el repo de la SESIÓN tiene un PR homónimo (el
-# mismo número) con su check de CI en rojo; el repo al que el comando hace
-# cd tiene el PR real, sano. Dos directorios reales en filesystem — el
-# fake gh distingue por $PWD (por texto es indistinguible: mismo número de
-# PR en los dos). Antes del fix esto bloqueaba validando session/repo (el
-# PR homónimo, con su check en rojo) en vez de real/repo.
-CD_INCIDENT_SESSION_DIR=$(mktemp -d)
-CD_INCIDENT_TARGET_DIR=$(mktemp -d)
-FAKE_GH_CD_INCIDENT_DIR=$(mktemp -d)
-cat > "$FAKE_GH_CD_INCIDENT_DIR/gh" <<FAKE_GH_CD_INCIDENT_EOF
+# Cada test de bloqueo afirma qué CONSULTÓ el hook, no solo el JSON de
+# salida: con un fake gh que registra cada invocación en un log, un
+# bloqueo tiene que dejar el log VACÍO (el guard bloquea ANTES de
+# consultar nada) — un test que solo mirara "decision":"block" no
+# distinguiría "bloqueó sin consultar" de "consultó y bloqueó por otra
+# razón" (ver el corolario del principio 5; este archivo ya tiene el
+# mismo patrón con el marcador checks.ran, más arriba).
+# ============================================================
+echo "--- pre-merge-check.sh: gramática única del merge (D-04) ---"
+
+FAKE_GH_D04_LOG_DIR=$(mktemp -d)
+FAKE_GH_D04_LOG="$FAKE_GH_D04_LOG_DIR/calls.log"
+cat > "$FAKE_GH_D04_LOG_DIR/gh" <<FAKE_GH_D04_LOG_EOF
 #!/bin/bash
+echo "\$*" >> "$FAKE_GH_D04_LOG"
 case "\$1 \$2" in
-  "repo view")
-    if [ "\$PWD" = "$CD_INCIDENT_TARGET_DIR" ]; then
-      echo "real/repo"
-    else
-      echo "session/repo"
-    fi
-    ;;
-  "pr view")
-    echo "\$@" | grep -q -- "--repo real/repo" || { echo "unexpected args (uso el repo de la sesion, no el del cd): \$*" >&2; exit 1; }
-    echo '{"reviewDecision":null}'
-    ;;
-  "api graphql")
-    echo "\$@" | grep -q -- "name=repo" || { echo "unexpected args: \$*" >&2; exit 1; }
-    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
-    ;;
-  "pr checks")
-    if echo "\$@" | grep -q -- "--repo real/repo"; then
-      printf 'some-check\tpass\t1s\n'
-    else
-      echo "gh: unexpected error connecting to api.github.com" >&2
-      exit 1
-    fi
-    ;;
-  *)
-    exit 1
-    ;;
+  "repo view") echo "session/repo" ;;
+  "pr view") echo '{"reviewDecision":null}' ;;
+  "api graphql") echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}' ;;
+  "pr checks") printf 'some-check\tpass\t1s\n' ;;
+  *) exit 1 ;;
 esac
-FAKE_GH_CD_INCIDENT_EOF
-chmod +x "$FAKE_GH_CD_INCIDENT_DIR/gh"
+FAKE_GH_D04_LOG_EOF
+chmod +x "$FAKE_GH_D04_LOG_DIR/gh"
 
-TOTAL=$((TOTAL + 1))
-CD_INCIDENT_JSON=$(jq -n --arg cmd "cd $CD_INCIDENT_TARGET_DIR && gh pr merge 75" '{tool_input: {command: $cmd}}')
-CD_INCIDENT_OUTPUT=$(cd "$CD_INCIDENT_SESSION_DIR" && echo "$CD_INCIDENT_JSON" | PATH="$FAKE_GH_CD_INCIDENT_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$CD_INCIDENT_OUTPUT" | grep -q '"continue":true'; then
-  echo -e "${GREEN}PASS${NC}: pre-merge-check [incidente PR #75]: cd a otro repo valida el PR del comando, no el homónimo del cwd de la sesión"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-merge-check [incidente PR #75]: cd a otro repo valida el PR del comando, no el homónimo del cwd de la sesión (output: $CD_INCIDENT_OUTPUT)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$FAKE_GH_CD_INCIDENT_DIR" "$CD_INCIDENT_SESSION_DIR" "$CD_INCIDENT_TARGET_DIR"
-
-# Caso feliz: cd simple a un repo sano, SIN ningún truco de colisión de
-# número de PR — prueba que el mecanismo nuevo funciona en el caso común
-# (no solo cuando hay un PR homónimo enfrente, como en el test del
-# incidente de arriba). El cwd de la sesión falla siempre (simula estar
-# parado en un directorio que no es un repo, o sin red ahí); solo el
-# directorio al que el comando hace cd resuelve — si el guard no hiciera
-# el cd, este test bloquearía por "no pude detectar el repo".
-CD_HAPPYPATH_DIR=$(mktemp -d)
-FAKE_GH_CD_HAPPYPATH_DIR=$(mktemp -d)
-cat > "$FAKE_GH_CD_HAPPYPATH_DIR/gh" <<FAKE_GH_CD_HAPPYPATH_EOF
-#!/bin/bash
-case "\$1 \$2" in
-  "repo view")
-    if [ "\$PWD" = "$CD_HAPPYPATH_DIR" ]; then
-      echo "aveloz89/easy-quotes"
-    else
-      exit 1
-    fi
-    ;;
-  "pr view")
-    echo '{"reviewDecision":null}'
-    ;;
-  "api graphql")
-    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
-    ;;
-  "pr checks")
-    printf 'some-check\tpass\t1s\n'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-FAKE_GH_CD_HAPPYPATH_EOF
-chmod +x "$FAKE_GH_CD_HAPPYPATH_DIR/gh"
-
-TOTAL=$((TOTAL + 1))
-CD_HAPPYPATH_JSON=$(jq -n --arg cmd "cd $CD_HAPPYPATH_DIR && gh pr merge 45" '{tool_input: {command: $cmd}}')
-CD_HAPPYPATH_OUTPUT=$(echo "$CD_HAPPYPATH_JSON" | PATH="$FAKE_GH_CD_HAPPYPATH_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$CD_HAPPYPATH_OUTPUT" | grep -q '"continue":true'; then
-  echo -e "${GREEN}PASS${NC}: pre-merge-check [cd, caso feliz]: cd simple a un repo sano resuelve y continúa sin necesitar --repo"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-merge-check [cd, caso feliz]: cd simple a un repo sano resuelve y continúa sin necesitar --repo (output: $CD_HAPPYPATH_OUTPUT)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$FAKE_GH_CD_HAPPYPATH_DIR" "$CD_HAPPYPATH_DIR"
-
-# Requisito 1 del follow-up ("el camino de --repo explícito sigue
-# funcionando igual"): --repo explícito gana aunque el comando también
-# traiga un cd. El cd apunta a una ruta que ni siquiera existe en el
-# filesystem — no importa: con --repo presente, el guard nunca intenta
-# resolver el cd (ver el gate en el propio hook), así que ni hace falta
-# un directorio real. El fake gh, además, hace fallar "repo view"
-# siempre: si el guard cayera al cwd de la sesión en vez de honrar
-# --repo, este test fallaría.
-FAKE_GH_CD_HAPPY_DIR=$(mktemp -d)
-cat > "$FAKE_GH_CD_HAPPY_DIR/gh" <<'FAKE_GH_CD_HAPPY_EOF'
-#!/bin/bash
-case "$1 $2" in
-  "repo view")
-    exit 1
-    ;;
-  "pr view")
-    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
-    echo '{"reviewDecision":null}'
-    ;;
-  "api graphql")
-    echo "$@" | grep -q -- "name=easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
-    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
-    ;;
-  "pr checks")
-    echo "$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args: $*" >&2; exit 1; }
-    printf 'some-check\tpass\t1s\n'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-FAKE_GH_CD_HAPPY_EOF
-chmod +x "$FAKE_GH_CD_HAPPY_DIR/gh"
-
-TOTAL=$((TOTAL + 1))
-CD_HAPPY_JSON=$(jq -n --arg cmd "cd /decoy/nonexistent/path && gh pr merge 179 --repo aveloz89/easy-quotes" '{tool_input: {command: $cmd}}')
-CD_HAPPY_OUTPUT=$(echo "$CD_HAPPY_JSON" | PATH="$FAKE_GH_CD_HAPPY_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$CD_HAPPY_OUTPUT" | grep -q '"continue":true'; then
-  echo -e "${GREEN}PASS${NC}: pre-merge-check [cd, requisito 1]: --repo explícito gana sobre un cd inicial en el mismo comando"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-merge-check [cd, requisito 1]: --repo explícito gana sobre un cd inicial en el mismo comando (output: $CD_HAPPY_OUTPUT)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$FAKE_GH_CD_HAPPY_DIR"
-
-# Caso "repo indeterminable": el comando hace cd pero el guard no puede
-# resolver con certeza a qué repo corresponde — bloquea explicando, no
-# cae en silencio al cwd de la sesión (que es justo lo que reprodujo el
-# incidente).
-assert_pre_merge_blocked "gh pr merge [cd]: ruta del cd comillada (guard_sanitize la colapsa) bloquea, no cae al cwd de la sesión" \
-  'cd "/some path" && gh pr merge 45' "no pude extraer una ruta clara" "offline"
-assert_pre_merge_blocked "gh pr merge [cd]: ruta del cd con \$(...) bloquea sin ejecutar nada del comando para resolver el cwd" \
-  'cd $(whoami) && gh pr merge 45' "caracteres que no puedo resolver con confianza" "offline"
-assert_pre_merge_blocked "gh pr merge [cd]: dos cd antes del merge bloquea (ambiguo, no asume que el primero es el vigente)" \
-  "cd /a && cd /b && gh pr merge 45" "más de un cd antes de terminar" "offline"
-assert_pre_merge_blocked "gh pr merge [cd]: ruta del cd inexistente bloquea (no pudo resolver el repo ahí)" \
-  "cd /this/path/does/not/exist/for/real && gh pr merge 45" "no pude resolver el repo ahí" "offline"
-
-# Mismo caso "repo indeterminable" (ruta comillada), pero con un fake gh
-# cuyo "repo view" resolvería un repo VÁLIDO Y SANO si el guard cayera de
-# vuelta al cwd de la sesión — prueba que el bloqueo de arriba no es
-# casualidad de que "offline" ya fallaba igual: acá gh SÍ respondería, y
-# aun así el guard no lo usa.
-FAKE_GH_CD_NOFALLBACK_DIR=$(mktemp -d)
-cat > "$FAKE_GH_CD_NOFALLBACK_DIR/gh" <<'FAKE_GH_CD_NOFALLBACK_EOF'
-#!/bin/bash
-case "$1 $2" in
-  "repo view")
-    echo "session/repo"
-    ;;
-  "pr view")
-    echo '{"reviewDecision":null}'
-    ;;
-  "api graphql")
-    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
-    ;;
-  "pr checks")
-    printf 'some-check\tpass\t1s\n'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-FAKE_GH_CD_NOFALLBACK_EOF
-chmod +x "$FAKE_GH_CD_NOFALLBACK_DIR/gh"
-
-TOTAL=$((TOTAL + 1))
-CD_NOFALLBACK_JSON=$(jq -n --arg cmd 'cd "/some path" && gh pr merge 45' '{tool_input: {command: $cmd}}')
-CD_NOFALLBACK_OUTPUT=$(echo "$CD_NOFALLBACK_JSON" | PATH="$FAKE_GH_CD_NOFALLBACK_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$CD_NOFALLBACK_OUTPUT" | grep -q '"decision":"block"' && echo "$CD_NOFALLBACK_OUTPUT" | grep -qF "no pude extraer una ruta clara"; then
-  echo -e "${GREEN}PASS${NC}: pre-merge-check [cd]: ruta del cd comillada NO cae al cwd de la sesión aunque ese repo resolviera sano"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-merge-check [cd]: ruta del cd comillada NO cae al cwd de la sesión aunque ese repo resolviera sano (output: $CD_NOFALLBACK_OUTPUT)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$FAKE_GH_CD_NOFALLBACK_DIR"
-
-# [security, ronda 2 del follow-up de PR #75] Allowlist de la forma
-# completa — cada fila es una de las divergencias que encontró el review
-# pre-push de la ronda 1 (cd X | merge, cd X & merge, cd X extra; merge,
-# comilla a mitad de ruta, continuación con backslash, cd + salto de
-# línea, pushd/builtin cd/\cd/eval cd/chdir/command cd, cd con dos
-# argumentos, subshell/llaves, cd&&merge sin espacio, ruta relativa).
-# Todos usan $FAKE_GH_DIR con FAKE_GH_MODE vacío (no "offline"): "repo
-# view" resuelve sano a "owner/repo" — si el guard cayera al cwd de la
-# sesión en vez de bloquear, estos tests verían {"continue":true}, no el
-# bloqueo. Verificado antes con zsh -c/bash -c reales (no ejecutado por
-# el hook — el hook nunca corre el comando interceptado, solo lo
-# analiza) que cada forma o bien no cambia el cwd del proceso padre (pipe,
-# &, subshell corren el cd en un subshell aparte) o bien diverge entre
-# bash y zsh (cd con dos argumentos: bash ignora el segundo, zsh lo trata
-# como sustitución de string y falla) — ninguna garantiza el mismo
-# resultado que la simulación interna del guard.
-
-assert_pre_merge_blocked "gh pr merge [cd, forma]: cd X | gh pr merge (pipe) bloquea, no verifica X" \
-  "cd /r/benign | gh pr merge 5" "&& y la invocación de gh pr merge"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: cd X & gh pr merge (ampersand simple) bloquea, no verifica X" \
-  "cd /r/benign & gh pr merge 5" "&& y la invocación de gh pr merge"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: cd X extra; gh pr merge (zsh: string no encontrado en \$PWD) bloquea, no verifica X" \
-  "cd /r/benign extra; gh pr merge 5" "&& y la invocación de gh pr merge"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: comilla a mitad de la ruta (cd /r/pfx\"-real\") bloquea — crudo y saneado difieren" \
-  'cd /r/pfx"-real" && gh pr merge 5' "no es idéntica en el comando crudo"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: continuación con backslash (cd /r/pfx\\<NL>-real) bloquea — crudo y saneado difieren" \
-  "$(printf 'cd /r/pfx\\\n-real && gh pr merge 5')" "no es idéntica en el comando crudo"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: cd seguido de salto de línea antes de la ruta bloquea (no la trata como argumento del cd)" \
-  "$(printf 'cd\n/r/benign\ngh pr merge 5')" "no pude extraer una ruta clara"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: pushd X && gh pr merge bloquea (no arranca con la palabra cd)" \
-  "pushd /r/benign && gh pr merge 5" "podría cambiar el directorio"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: builtin cd X && gh pr merge bloquea" \
-  "builtin cd /r/benign && gh pr merge 5" "podría cambiar el directorio"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: \\\\cd X && gh pr merge bloquea (barra invertida antes del builtin)" \
-  '\cd /r/benign && gh pr merge 5' "podría cambiar el directorio"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: eval cd X && gh pr merge bloquea" \
-  "eval cd /r/benign && gh pr merge 5" "podría cambiar el directorio"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: chdir X && gh pr merge bloquea (builtin de zsh)" \
-  "chdir /r/benign && gh pr merge 5" "podría cambiar el directorio"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: command cd X && gh pr merge bloquea" \
-  "command cd /r/benign && gh pr merge 5" "podría cambiar el directorio"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: cd con dos argumentos (zsh: sustitución de string) bloquea" \
-  "cd /a /b && gh pr merge 5" "&& y la invocación de gh pr merge"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: (cd X && gh pr merge) envuelto en subshell bloquea" \
-  "(cd /r/benign && gh pr merge 5)" "podría cambiar el directorio"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: true && cd X && gh pr merge bloquea (el cd no arranca el comando)" \
-  "true && cd /r/benign && gh pr merge 5" "podría cambiar el directorio"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: { cd X && gh pr merge; } envuelto en llaves bloquea" \
-  "{ cd /r/benign && gh pr merge 5; }" "podría cambiar el directorio"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: cd&&gh pr merge (sin espacio, cd sin argumento) bloquea" \
-  "cd&&gh pr merge 5" "no pude extraer una ruta clara"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: cd;gh pr merge (sin espacio, cd sin argumento) bloquea" \
-  "cd;gh pr merge 5" "no pude extraer una ruta clara"
-assert_pre_merge_blocked "gh pr merge [cd, forma]: ruta relativa (cd relative/path && gh pr merge) bloquea, no absoluta" \
-  "cd relative/path && gh pr merge 5" "no es absoluta"
-
-# [security, ronda 2] -R/--repo intercalado entre "gh"/"pr" y entre
-# "pr"/"merge" — verificado contra gh real (ver arriba en este archivo)
-# que las dos posiciones son válidas para gh, no solo la de después de
-# "merge" (ya cubierta más arriba en este mismo archivo). Reusa el fake
-# gh de --repo explícito: solo responde con éxito si recibe exactamente
-# aveloz89/easy-quotes.
-#
-# Marcador, no solo "continue":true: sin la ancla ampliada, el hook viejo
-# NO reconoce estas formas como invocación real y responde
-# {"continue":true} SIN llamar a gh nunca — el mismo JSON final que el
-# hook arreglado, que SÍ llama a gh (pr view/graphql/pr checks, nunca
-# repo view porque hay --repo explícito) y llega a "continue":true porque
-# todo lo que consultó salió bien. Sin el marcador, este test pasaría
-# igual contra el hook viejo (no protegería nada — ver el corolario del
-# principio 5). "pr checks" con el repo correcto es el ÚLTIMO paso del
-# flujo feliz, así que su marcador confirma que las tres consultas
-# anteriores también pasaron.
-FAKE_GH_INTERSPERSED_DIR=$(mktemp -d)
-FAKE_GH_INTERSPERSED_MARK=$(mktemp -d)
-cat > "$FAKE_GH_INTERSPERSED_DIR/gh" <<FAKE_GH_INTERSPERSED_EOF
-#!/bin/bash
-case "\$1 \$2" in
-  "repo view")
-    exit 1
-    ;;
-  "pr view")
-    echo "\$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args: \$*" >&2; exit 1; }
-    echo '{"reviewDecision":null}'
-    ;;
-  "api graphql")
-    echo "\$@" | grep -q -- "name=easy-quotes" || { echo "unexpected args: \$*" >&2; exit 1; }
-    echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
-    ;;
-  "pr checks")
-    echo "\$@" | grep -q -- "--repo aveloz89/easy-quotes" || { echo "unexpected args: \$*" >&2; exit 1; }
-    echo ran > "$FAKE_GH_INTERSPERSED_MARK/checks.ran"
-    printf 'some-check\tpass\t1s\n'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-FAKE_GH_INTERSPERSED_EOF
-chmod +x "$FAKE_GH_INTERSPERSED_DIR/gh"
-
-assert_pre_merge_repo_flag_continue_custom() {
-  local test_name="$1" cmd="$2"
+assert_pre_merge_blocked_no_calls() {
+  local test_name="$1" cmd="$2" expected_substring="${3:-Forma aceptada}"
   TOTAL=$((TOTAL + 1))
-  local json output
-  rm -f "$FAKE_GH_INTERSPERSED_MARK/checks.ran"
+  : > "$FAKE_GH_D04_LOG"
+  local json output calls
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_INTERSPERSED_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-  if echo "$output" | grep -q '"continue":true' && [ -f "$FAKE_GH_INTERSPERSED_MARK/checks.ran" ]; then
-    echo -e "${GREEN}PASS${NC}: $test_name (continue as expected, gh checks corrió de verdad)"
+  output=$(echo "$json" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  calls=$(wc -l < "$FAKE_GH_D04_LOG" | tr -d ' ')
+  if echo "$output" | grep -q '"decision":"block"' && echo "$output" | grep -qF -- "$expected_substring" && [ "$calls" = "0" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked, 0 consultas a gh)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output, checks.ran=$([ -f "$FAKE_GH_INTERSPERSED_MARK/checks.ran" ] && echo si || echo no))"
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output, consultas: $calls)"
     FAIL=$((FAIL + 1))
   fi
 }
 
-assert_pre_merge_repo_flag_continue_custom "gh pr merge [security]: gh -R <owner>/<name> pr merge N (repo ANTES de pr) se detecta e intercepta" \
+# Igual, pero pasando variables de entorno al PROCESO del hook (GH_REPO/
+# GH_HOST/GIT_DIR/GIT_WORK_TREE) — no al comando interceptado.
+assert_pre_merge_blocked_no_calls_env() {
+  local test_name="$1" cmd="$2" expected_substring="$3"; shift 3
+  TOTAL=$((TOTAL + 1))
+  : > "$FAKE_GH_D04_LOG"
+  local json output calls
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" env "$@" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  calls=$(wc -l < "$FAKE_GH_D04_LOG" | tr -d ' ')
+  if echo "$output" | grep -q '"decision":"block"' && echo "$output" | grep -qF -- "$expected_substring" && [ "$calls" = "0" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked, 0 consultas a gh)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output, consultas: $calls)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# --- El incidente original (PR #75): cd a otro repo bloquea, menciona --repo ---
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, incidente]: cd a otro repo bloquea (ya no se resuelve el cd) y el mensaje menciona --repo" \
+  "cd /otro && gh pr merge 75" "--repo"
+
+# --- B1: invocaciones de cd disfrazadas (allowlist de forma, no blocklist de palabras) ---
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: \"cd\" entre comillas dobles bloquea" \
+  '"cd" /r/real && gh pr merge 5'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: 'cd' entre comillas simples bloquea" \
+  "'cd' /r/real && gh pr merge 5"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: c\\d (backslash a mitad de la palabra) bloquea" \
+  'c\d /r/real && gh pr merge 5'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: \$'cd' (quoting ANSI-C) bloquea" \
+  "\$'cd' /r/real && gh pr merge 5"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: c\"\"d (comillas vacías a mitad) bloquea" \
+  'c""d /r/real && gh pr merge 5'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: \"pushd\" entre comillas bloquea" \
+  '"pushd" /r/real && gh pr merge 5'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: variable indirecta (c=cd; \$c) bloquea" \
+  'c=cd; $c /r/real && gh pr merge 5'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: función f() que hace cd bloquea" \
+  'f() { c\d /r/real; }; f && gh pr merge 5'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: . archivo (dot source) bloquea" \
+  '. archivo && gh pr merge 5'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: source /dev/stdin <<< bloquea" \
+  "source /dev/stdin <<<'cd /r/real' && gh pr merge 5"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: export GIT_DIR=... antes del merge bloquea" \
+  'export GIT_DIR=/r/real/.git; gh pr merge 5'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: GH_REP\"\"O=x (concatenación de comillas) bloquea sin ancla" \
+  'GH_REP""O=evil/x gh pr merge 5'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: GH_REP\\O=x (backslash a mitad del nombre) bloquea" \
+  'GH_REP\O=evil/x gh pr merge 5'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: GH_REP\${x}O=x (expansión a mitad del nombre) bloquea" \
+  'GH_REP${x}O=evil/x gh pr merge 5'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: typeset -x \"GH_\"REPO=x bloquea" \
+  'typeset -x "GH_"REPO=evil/x; gh pr merge 5'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: wrapper gh() { ...-R o/red; }; gh pr merge N bloquea (sin --repo)" \
+  'gh() { command gh "$@" -R o/red; }; gh pr merge 5'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: wrapper gh() { ...-R o/red; }; gh pr merge N --repo o/green bloquea (con --repo)" \
+  'gh() { command gh "$@" -R o/red; }; gh pr merge 5 --repo o/green'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B1]: echo hola && gh pr merge N bloquea (cualquier prefijo)" \
+  "echo hola && gh pr merge 5"
+
+# --- B2: [ \t] de ERE vs [[:blank:]] — ya no aplica ningún regex con esa
+# clase (la gramática nueva no tiene ese bug), pero se deja el caso: un
+# cd con ruta relativa que arrancaría con "t/..." sigue bloqueando por no
+# empezar con "gh".
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B2]: cd t/<ruta> && gh pr merge bloquea" \
+  "cd t/tmp/benign && gh pr merge 5"
+
+# --- B3: cd con segundo argumento (zsh) entre comillas ---
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B3]: cd /a \"/b\" && gh pr merge bloquea (segundo argumento comillado)" \
+  'cd /a "/b" && gh pr merge 5'
+
+# --- B4: segundo merge en otra línea (ahora cubierto por "una sola línea") ---
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B4]: segundo merge en otra línea (--repo distinto) bloquea, más de una línea" \
+  "$(printf 'gh pr merge 45 --repo o/green\ngh pr merge 45 -R o/red')" "más de una línea"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B4]: segundo merge en otra línea (PR distinto, sin --repo) bloquea" \
+  "$(printf 'gh pr merge 45 --repo o/green\ngh pr merge 46')" "más de una línea"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B4]: variante con cd antes del segundo merge bloquea" \
+  "$(printf 'cd /r/real && gh pr merge 45\ngh pr merge 46')" "más de una línea"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B4]: variante con pushd antes del segundo merge bloquea" \
+  "$(printf 'pushd /r/real && gh pr merge 45\ngh pr merge 46')" "más de una línea"
+
+# --- B5: valor de --repo/-R truncado o intercalado con comillas/backtick ---
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B5]: --repo o/re\"d\" (comilla a mitad del valor) bloquea" \
+  'gh pr merge 45 --repo o/re"d"'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B5]: -R intercalado con comilla a mitad del valor bloquea" \
+  "gh pr merge 45 -Ro/re'd'"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B5]: --repo=o/re\"\"d (comillas vacías a mitad, forma con =) bloquea" \
+  'gh pr merge 45 --repo=o/re""d'
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B5]: -Ro/re'd' pegado (sin espacio) bloquea (no es una de las 3 formas permitidas)" \
+  "gh pr merge 45 -Ro/re'd'"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, B5]: --repo o/re\`<salto de línea>\`d (backtick+continuación) bloquea, más de una línea" \
+  "$(printf 'gh pr merge 45 --repo o/re`\n`d')" "más de una línea"
+
+# --- Número de PR: forma inválida (no dígitos solos) ---
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, número]: 45x (sufijo no numérico) bloquea" \
+  "gh pr merge 45x" "número de PR"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, número]: 1234-feature (sufijo con guion) bloquea" \
+  "gh pr merge 1234-feature" "número de PR"
+
+# --- Prefijo de entorno con separador real (ya lo cubre GUARD_ANCHOR, pero se deja el caso explícito del brief) ---
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, env]: export GH_HOST=h; antes del merge bloquea" \
+  "export GH_HOST=h; gh pr merge 5"
+
+# --- Flag de repo mal puesto (antes del número) o repetido ---
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: gh -R o/r pr merge N (repo ANTES de pr) bloquea" \
   "gh -R aveloz89/easy-quotes pr merge 179"
-assert_pre_merge_repo_flag_continue_custom "gh pr merge [security]: gh pr -R <owner>/<name> merge N (repo ANTES de merge) se detecta e intercepta" \
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: gh pr -R o/r merge N (repo ANTES de merge) bloquea" \
   "gh pr -R aveloz89/easy-quotes merge 179"
-assert_pre_merge_repo_flag_continue_custom "gh pr merge [security]: gh --repo=<owner>/<name> pr merge N (forma larga con =, antes de pr)" \
-  "gh --repo=aveloz89/easy-quotes pr merge 179"
-assert_pre_merge_repo_flag_continue_custom "gh pr merge [security]: gh pr --repo <owner>/<name> merge N (forma larga con espacio, antes de merge)" \
-  "gh pr --repo aveloz89/easy-quotes merge 179"
-rm -rf "$FAKE_GH_INTERSPERSED_DIR" "$FAKE_GH_INTERSPERSED_MARK"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: -R repetido (mismo valor las dos veces) bloquea" \
+  "gh pr merge 45 -R o/r -R o/r" "más de un flag de repo"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --repo duplicado (decoy primero, real después) bloquea" \
+  "gh pr merge 179 --repo aveloz89/claude-methodology --repo aveloz89/easy-quotes" "más de un flag de repo"
 
-# [security, ronda 2] GH_REPO: gh pr lo usa, gh repo view no (verificado
-# contra gh real, ver header). Cualquier mención en el comando, o en el
-# entorno del propio proceso del hook, bloquea — incluso con --repo
-# explícito presente (no se asume que --repo le gana sin verificarlo).
-assert_pre_merge_blocked "gh pr merge [security]: GH_REPO=x como prefijo del comando bloquea" \
-  "GH_REPO=aveloz89/easy-quotes gh pr merge 5" "GH_REPO"
-assert_pre_merge_blocked "gh pr merge [security]: export GH_REPO en un comando compuesto bloquea" \
-  "export GH_REPO=aveloz89/easy-quotes; gh pr merge 5" "GH_REPO"
-assert_pre_merge_blocked "gh pr merge [security]: GH_REPO mencionado incluso con --repo explícito presente bloquea igual" \
-  "GH_REPO=evil/x gh pr merge 5 --repo aveloz89/easy-quotes" "GH_REPO"
+# --- Flag desconocida ---
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --admin bloquea (ya lo bloquea otro hook, pero este también)" \
+  "gh pr merge 45 --admin"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --auto bloquea (no está en la allowlist)" \
+  "gh pr merge 45 --auto"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --body bloquea (no está en la allowlist)" \
+  "gh pr merge 45 --body hola"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --subject bloquea (no está en la allowlist)" \
+  "gh pr merge 45 --subject hola"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --repo malformado (sin owner/name) bloquea fail-closed" \
+  "gh pr merge 179 --repo not-a-valid-repo"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --repo de 3 segmentos (host/owner/repo, Enterprise) bloquea fail-closed" \
+  "gh pr merge 179 --repo github.enterprise.com/owner/repo"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --repo comillado (comillas simples) bloquea" \
+  "gh pr merge 5 --repo 'aveloz89/easy-quotes'"
 
+# --- Una sola línea ---
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, línea]: continuación con backslash (\\\\<NL>) bloquea, más de una línea" \
+  "$(printf 'gh pr merge 45 \\\n  --merge')" "más de una línea"
+assert_pre_merge_blocked_no_calls "gh pr merge [D-04, línea]: \\r incrustado bloquea, más de una línea" \
+  "$(printf 'gh pr merge 45\r --merge')" "más de una línea"
+
+# --- Entorno del PROCESO DEL HOOK: GH_REPO/GH_HOST (con y sin --repo), GIT_DIR/GIT_WORK_TREE (sin --repo) ---
+assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GH_REPO en el entorno del hook bloquea sin --repo" \
+  "gh pr merge 5" "GH_REPO" GH_REPO=evil/x
+assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GH_REPO en el entorno del hook bloquea CON --repo" \
+  "gh pr merge 5 --repo aveloz89/easy-quotes" "GH_REPO" GH_REPO=evil/x
+assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GH_HOST en el entorno del hook bloquea sin --repo" \
+  "gh pr merge 5" "GH_HOST" GH_HOST=evil.example.com
+assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GH_HOST en el entorno del hook bloquea CON --repo" \
+  "gh pr merge 5 --repo aveloz89/easy-quotes" "GH_HOST" GH_HOST=evil.example.com
+assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GIT_DIR en el entorno del hook bloquea sin --repo" \
+  "gh pr merge 5" "GIT_DIR" GIT_DIR=/tmp/otro/.git
+assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GIT_WORK_TREE en el entorno del hook bloquea sin --repo" \
+  "gh pr merge 5" "GIT_WORK_TREE" GIT_WORK_TREE=/tmp/otro
+
+rm -rf "$FAKE_GH_D04_LOG_DIR"
+
+# ============================================================
+# Casos que TIENEN que pasar (continuar) — verificados extremo a extremo
+# contra un fake gh que registra cada invocación: no alcanza con
+# "continue":true, se confirma además el repo EXACTO que se consultó
+# (session/repo sin flag; el valor explícito con --repo/-R).
+# ============================================================
+FAKE_GH_D04_DIR=$(mktemp -d)
+FAKE_GH_D04_LOG2="$FAKE_GH_D04_DIR/calls.log"
+cat > "$FAKE_GH_D04_DIR/gh" <<FAKE_GH_D04_EOF
+#!/bin/bash
+echo "\$*" >> "$FAKE_GH_D04_LOG2"
+case "\$1 \$2" in
+  "repo view") echo "session/repo" ;;
+  "pr view") echo '{"reviewDecision":null}' ;;
+  "api graphql") echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}' ;;
+  "pr checks") printf 'some-check\tpass\t1s\n' ;;
+  *) exit 1 ;;
+esac
+FAKE_GH_D04_EOF
+chmod +x "$FAKE_GH_D04_DIR/gh"
+
+assert_pre_merge_continue_repo() {
+  local test_name="$1" cmd="$2" expected_repo="$3"
+  TOTAL=$((TOTAL + 1))
+  : > "$FAKE_GH_D04_LOG2"
+  local json output
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  output=$(echo "$json" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  if echo "$output" | grep -q '"continue":true' && grep -qF -- "--repo $expected_repo" "$FAKE_GH_D04_LOG2"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue, repo consultado: $expected_repo)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (output: $output, log: $(cat "$FAKE_GH_D04_LOG2" | tr '\n' ' '))"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pre_merge_continue_repo "gh pr merge [D-04, pasa]: gh pr merge 45 -> repo de la sesión" \
+  "gh pr merge 45" "session/repo"
+assert_pre_merge_continue_repo "gh pr merge [D-04, pasa]: gh pr merge 45 --merge --delete-branch -> repo de la sesión" \
+  "gh pr merge 45 --merge --delete-branch" "session/repo"
+assert_pre_merge_continue_repo "gh pr merge [D-04, pasa]: gh pr merge 45 --repo o/r --merge -> o/r" \
+  "gh pr merge 45 --repo o/r --merge" "o/r"
+assert_pre_merge_continue_repo "gh pr merge [D-04, pasa]: gh pr merge 45 --repo=o/r -> o/r" \
+  "gh pr merge 45 --repo=o/r" "o/r"
+assert_pre_merge_continue_repo "gh pr merge [D-04, pasa]: gh pr merge 45 -R o/r -d -> o/r" \
+  "gh pr merge 45 -R o/r -d" "o/r"
+assert_pre_merge_continue_repo "gh pr merge [D-04, pasa]: espacios y tabs extra alrededor -> repo de la sesión" \
+  "$(printf '\tgh  pr\tmerge   45\t')" "session/repo"
+assert_pre_merge_continue_repo "gh pr merge [D-04, pasa]: --squash/--rebase también están en la allowlist" \
+  "gh pr merge 45 --squash" "session/repo"
+assert_pre_merge_continue_repo "gh pr merge [D-04, pasa]: -m/-s/-r/-d cortos también están en la allowlist" \
+  "gh pr merge 45 -r -d" "session/repo"
+
+# Mención dentro de un git commit -m "..." (comillas simples, no heredoc)
+# no se trata como una invocación real — sigue sin tocar gh.
 TOTAL=$((TOTAL + 1))
-GH_REPO_ENV_JSON=$(jq -n --arg cmd 'gh pr merge 5' '{tool_input: {command: $cmd}}')
-GH_REPO_ENV_OUTPUT=$(echo "$GH_REPO_ENV_JSON" | PATH="$FAKE_GH_DIR:$PATH" GH_REPO="aveloz89/easy-quotes" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$GH_REPO_ENV_OUTPUT" | grep -q '"decision":"block"' && echo "$GH_REPO_ENV_OUTPUT" | grep -qF "GH_REPO"; then
-  echo -e "${GREEN}PASS${NC}: gh pr merge [security]: GH_REPO en el entorno del proceso del hook (no en el comando) también bloquea"
+COMMIT_MENTION_JSON=$(jq -n --arg cmd 'git commit -m "nota: usar gh pr merge <N> para cerrar"' '{tool_input: {command: $cmd}}')
+COMMIT_MENTION_OUTPUT=$(echo "$COMMIT_MENTION_JSON" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+if echo "$COMMIT_MENTION_OUTPUT" | grep -q '"continue":true'; then
+  echo -e "${GREEN}PASS${NC}: gh pr merge [D-04, pasa]: mención entre comillas dentro de git commit -m no se trata como merge"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: gh pr merge [security]: GH_REPO en el entorno del proceso del hook también bloquea (output: $GH_REPO_ENV_OUTPUT)"
+  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, pasa]: mención entre comillas dentro de git commit -m no se trata como merge (output: $COMMIT_MENTION_OUTPUT)"
   FAIL=$((FAIL + 1))
 fi
+
+# GIT_DIR en el entorno del hook, pero CON --repo explícito: no bloquea
+# (el guard nunca corre gh repo view cuando hay --repo).
+TOTAL=$((TOTAL + 1))
+GITDIR_JSON=$(jq -n --arg cmd 'gh pr merge 45 --repo o/r' '{tool_input: {command: $cmd}}')
+GITDIR_OUTPUT=$(echo "$GITDIR_JSON" | PATH="$FAKE_GH_D04_DIR:$PATH" GIT_DIR=/tmp/otro/.git bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+if echo "$GITDIR_OUTPUT" | grep -q '"continue":true'; then
+  echo -e "${GREEN}PASS${NC}: gh pr merge [D-04, pasa]: GIT_DIR en el entorno del hook no bloquea si hay --repo explícito"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, pasa]: GIT_DIR en el entorno del hook no bloquea si hay --repo explícito (output: $GITDIR_OUTPUT)"
+  FAIL=$((FAIL + 1))
+fi
+
+rm -rf "$FAKE_GH_D04_DIR"
+
+rm -rf "$FAKE_GH_DIR"
 
 rm -rf "$FAKE_GH_DIR"
 
