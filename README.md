@@ -31,7 +31,7 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal, de
 | **block-admin-merge** | PreToolUse (Bash) | Bloquea `gh pr merge --admin` que bypasea branch protections |
 | **block-force-push** | PreToolUse (Bash) | Bloquea `git push --force` / `-f` |
 | **block-hard-reset** | PreToolUse (Bash) | Bloquea `git reset --hard` |
-| **pre-merge-check** | PreToolUse (Bash) | Solo acepta `gh pr merge <N> [flags conocidos]`, sola en el comando y en una línea (fail-closed si no puede verificar threads/reviews/checks). Para un PR de otro repo, usa `--repo`/`-R` explícito; cualquier otro prefijo (`cd`, variables de entorno, `&&`/`;`/`|`), flag desconocida, o más de una línea bloquea |
+| **pre-merge-check** | PreToolUse (Bash) | Cuando reconoce la invocación (detalle de qué formas reconoce en el propio hook), solo acepta `gh pr merge <N> [flags conocidos]` sola en el comando y en una línea; bloquea con threads de review sin resolver, reviews/checks pendientes, sin número de PR explícito, o si no puede verificar (fail-closed). Para un PR de otro repo, usa `--repo`/`-R` explícito, nunca `cd` |
 | **pre-release-sweep** | PreToolUse (Bash) | Dispara `latent-bugs-sweep` antes de un `gh pr create --base main` |
 | **post-pr-create** | PostToolUse (Bash) | Checkpoint de respaldo al crear un PR: verifica en `state.json` que el review dual pre-push ocurrió y recuerda la reconciliación del registro; si no hay evidencia, instruye lanzar el review (PR fuera del flujo) |
 | **session-start-context** | SessionStart | Muestra branch, último commit, estado de .planning/, marker de SessionEnd y resumen de state.json |
