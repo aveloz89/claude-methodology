@@ -68,3 +68,42 @@
 - Reversión del fix (queda la evidencia del dev, 272/279); `test-plugin-manifest.sh` y `claude plugin validate --strict .` no corridos.
 - Dos merges en un comando (solo se valida la primera ventana; preexistente).
 - Audit de dependencias: no aplica.
+
+---
+
+## Ronda 2 — HEAD `98a8cab`, delta `8bfdb59..98a8cab` (2026-09-16)
+
+- **Veredicto:** **CAMBIOS REQUERIDOS** — 5 HIGH bloqueantes, 2 HIGH legacy, 1 MEDIUM, 3 LOW. Transcrito por el orchestrator.
+- **Método:** `gh` falso que imita al real (gana el último `-R`, luego `GH_REPO`, luego el remoto del cwd vía git, respeta `GIT_DIR`); cada caso contra el hook de HEAD, el de `8bfdb59` y el comando real en `/bin/zsh -f -c 'eval "$C"'` y `/bin/bash -c` (el Bash tool corre `zsh -c … eval`, visto con `ps`). `gh` real solo en lecturas.
+- **Nota del orchestrator:** el prompt de esta ronda pidió contar también la evasión deliberada. `hooks/lib/guard-matching.sh:19-22` declara el modelo «errores honestos, no evasión adversarial». El conflicto se escala al usuario.
+
+### Cierre de la ronda 1
+
+Cerrados: los tres casos del HIGH #1 (`|`, `&`, `cd X extra;`); HIGH #2.1 (comillas y continuación), #2.2 (salto de línea), #2.3 (los 7 cambios de cwd), #2.4 sin comillas; el MEDIUM (`(cd …)`, `true && cd`, `pushd`, `{ …; }`); los LOW (ruta relativa, `cd;`/`cd&&`, «cinco» en `security-reviewer.md`); legacy `gh -R x pr merge` y `gh pr -R x merge`. Sin regresión en `--repo`/`-R` al final, merge sin `cd` y `cd` + `--repo`. `cd /abs;` y `cd /abs`⏎ ahora bloquean (sobre-bloqueo deliberado, header `:103-108`).
+
+Abiertos: el header ahora afirma una allowlist que no existe (B1); `GH_REPO` literal bloquea pero se evade (B1); #2.4 con el segundo argumento comillado (B3).
+
+**Regex `GH_PR_MERGE_RE`:** `-R` repetido — `gh` real usa el último (verificado con lecturas) y el hook también: alineado. `--repo` le gana a `GH_REPO` (verificado); el hook bloquea igual, conservador. Valores con dígitos alineados. Decoy `gh pr list --repo victima/otro && gh pr merge 45` alineado. Sin ReDoS: lineal, 976 KB en 0.43 s.
+
+**Evidencia del dev confirmada:** 306/306; con el hook de `8bfdb59`, 278 verdes / 28 rojos; manifest 19/19; `validate --strict` pasa; shellcheck sin avisos nuevos. **La suite pasa con los 5 bloqueantes abiertos: ninguno tiene test.**
+
+### Bloqueantes
+
+- [ ] **B1 [HIGH] La allowlist del prefijo no existe** (`:640-647` es una blocklist de 7 palabras sobre el texto saneado; con `--repo` explícito no mira el prefijo). Verifican la sesión y mergean otro repo, en zsh y bash: `"cd"`, `'cd'`, `c\d`, `$'cd'`, `c""d`, `"pushd"` + ruta; `c=cd; $c /r/real && …`; `f() { c\d /r/real; }; f && …`; `. /tmp/x.sh && …`; `source /dev/stdin <<<'cd /r/real' && …`; `export GIT_DIR=/r/real/.git; gh pr merge 5` (el `gh` real respeta `GIT_DIR`); `export GH_REP""O=…`, `GH_REP\O`, `${x}O`, `typeset -x "GH_"REPO=…` (el chequeo de `:240` es grep literal); wrapper `gh() { … -R o/red; }; gh pr merge 5` — con `--repo o/green`, el hook verifica green y se mergea red. §5: header `:101-113`, `:537` y `README.md:34` dicen «cualquier otro prefijo bloquea», pero `echo hola && gh pr merge 5` pasa. Remediación: allowlist sobre el texto crudo, con o sin `--repo`.
+- [ ] **B2 [HIGH, regresión] `[ \t]` en ERE de bash es {espacio, `\`, `t`}** (`:551`, `:613`). `cd t/<abs>/benign && gh pr merge 5` verifica benign y el shell hace `cd ./t/<abs>/benign`; con symlink preparado mergea red. En `8bfdb59` estaba alineado. `:613` acepta además `cd X t&& …`. Remediación: `[[:blank:]]` + test.
+- [ ] **B3 [HIGH] `cd old new` de zsh con el segundo argumento comillado** — `cd /r/session "/r/real" && gh pr merge 5`: el saneo borra el argumento, verifica session y zsh mergea real.
+- [ ] **B4 [HIGH] Segundo merge en otra línea no se detecta** (`:398-401`, `grep` por línea + `head -1`). `gh pr merge 45 --repo o/green`⏎`gh pr merge 45 -R o/red` mergea red#45; con `⏎gh pr merge 46` mergea session#46 sin verificar; variantes con `cd`/`pushd`. README y header (`:122-125`) prometen lo contrario.
+- [ ] **B5 [HIGH] El valor de `--repo`/`-R` se trunca en el saneo** — `--repo o/re"d"`, `-R o/re"d"` intercalado, `--repo=o/re""d`, `-Ro/re'd'`, `--repo o/re\`⏎`d`: verifica `o/re`, `gh` actúa sobre `o/red` (`:471-514` tokeniza el saneado).
+
+### Sugerencias
+
+- [ ] **[HIGH legacy]** Invocaciones no interceptadas: `command gh`, `env gh`, `FOO=1 gh`, `\gh`, `"gh"`, `g\h`, ruta absoluta del binario, `zsh -c '…'`, también como segundo merge. `guard-matching.sh:19-22` lo acepta; decisión del usuario.
+- [ ] **[HIGH legacy, línea reescrita `:412`]** Número de PR sin límite de palabra: `gh pr merge 1234-feature` / `45x` verifica #1234/#45 y `gh` lo toma como branch (verificado con lecturas).
+- [ ] **[MEDIUM]** El hook no ve el entorno del shell (`.zshenv`, snapshot del Bash tool): `GH_REPO`/`GIT_DIR`/`gh()` escritos ahí desvían un merge limpio. No probado de punta a punta.
+- [ ] **[LOW]** `export GH_HOST=h; gh pr merge 5 --repo o/green` pasa; `gh` apunta a `h`.
+- [ ] **[LOW, docs]** `README.md:34` y `global/CLAUDE.md:158` prometen bloqueos con contraejemplos (B1, B4); `global/CLAUDE.md` omite la forma `cd <abs> && `.
+- [ ] **[LOW, redacción]** `agents/qa-backend.md:45`: «… vive ahí — nunca la autorrevisión del autor» quedó sin sujeto.
+
+### NO CUBIERTO
+
+Merge real contra GitHub; cwd con que Claude Code lanza el hook frente al cwd guardado del Bash tool (el hook no usa el campo `cwd` del JSON); snapshot y `.zshenv` en sesión real; opciones de zsh (`AUTO_CD`, `CDPATH`, `CDABLE_VARS`); varios remotos / `gh repo set-default`; `GIT_CONFIG_*` con `gh` real; `GH_ENTERPRISE_TOKEN` y hosts Enterprise; `core.fsmonitor` en la ruta del `cd`; audit de dependencias (no aplica).
