@@ -29,6 +29,7 @@ Salida usada, sin bypass: `gh pr merge 75 --repo aveloz89/claude-methodology …
 ## Decisiones
 
 - [D-01] El hook se endurece, no se documenta y ya (decisión del usuario). Documentar la limitación dejaba el bloqueo falso en pie, y un bloqueo falso entrena a pedir bypass, que es justo lo que este hook existe para evitar.
+- [D-03] Review ronda 1 (2026-09-16, `reviews/pre-pr-hook-merge-repo-y-fila-dod-*.md`): security encontró que la extracción del `cd` inicial abre divergencias nuevas (separadores `|`/`&`, ruta truncada por el saneo, salto de línea, `pushd`/`builtin cd`/…, `cd old new` de zsh) y dos huecos preexistentes del mismo tipo: `gh -R x pr merge` / `gh pr -R x merge` / `GH_REPO=x gh pr merge` no se interceptan, y `gh repo view` ignora `GH_REPO`. **El usuario decidió meter los dos preexistentes a este PR.** Esto amplía el «NO incluye» de arriba: el patrón que detecta el merge también entra, porque decide qué repo se verifica.
 - [D-02] La fila del PR #75 dice lo que pasó: **dos** violaciones de su propia regla en el mismo PR —una afirmación sin verificar en el handoff del orchestrator y una exigencia incumplible en el primer borrador—, las dos encontradas por la pasada externa, no por la autorrevisión.
 
 ## Verificación esperada
