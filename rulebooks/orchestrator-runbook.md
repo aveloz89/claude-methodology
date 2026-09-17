@@ -792,7 +792,7 @@ Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planni
    Ese patrón —resumen accionable más puntero— es el mayoritario del corpus y funciona: la auditoría del 2026-08-26 encontró solo 5 hechos enunciados dos veces en 1900 líneas.
 
    **Dónde vive el detalle:** en el rulebook o la skill, nunca en `global/CLAUDE.md`, que se carga en toda sesión de todo proyecto. Si al aplicar esta regla el detalle sube al núcleo, arreglaste la contradicción y rompiste el presupuesto de contexto.
-4. **Si el PR introduce una regla, releé el diff completo aplicándola.** Escribir una regla y aplicarla al propio cambio son dos pasadas distintas, y hacerlas en una sola no funciona: en cuatro PRs seguidos el review encontró que el PR violaba la regla que estaba escribiendo:
+4. **Si el PR introduce una regla, releé el diff completo aplicándola.** Escribir una regla y aplicarla al propio cambio son dos pasadas distintas, y hacerlas en una sola no funciona: en cinco PRs el review encontró que el PR violaba la regla que estaba escribiendo:
 
    | PR | Lo que se escribía | Lo que el review encontró |
    |---|---|---|
@@ -800,8 +800,9 @@ Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planni
    | #64 | `rules/bash.md`, con un red flag contra las garantías absolutas | Un absoluto en ese mismo archivo |
    | #65 | Que el estado se sella antes del merge para no bypassear `dev` | La ruta de hotfix arreglada en un lugar y viva en el punto de decisión, a 400 líneas |
    | #66 | Enunciar una vez y remitir | Una contradicción residual tres líneas debajo del fix |
+   | #75 | El criterio de verificación visual (§5 de `rules/implementation-principles.md`) | Dos violaciones de esa misma regla en el propio PR: una afirmación sin verificar en el handoff del orchestrator a `qa-backend` (que `rules/implementation-principles.md` no tiene frontmatter `paths:` — sí lo tiene) y una exigencia incumplible en el primer borrador (pedirle a `qa-frontend`, read-only y sin stack, que midiera el valor computado) |
 
-   Ninguna la atrapó la autorrevisión del autor: las cuatro salieron del review dual, y dos de ellas las encontraron los dos reviewers por separado. Lo que funciona es la pasada externa, no quién la haga.
+   Ninguna la atrapó la autorrevisión del autor: las cinco salieron del review dual. En dos de las primeras cuatro, el mismo hallazgo lo atraparon los dos reviewers por separado; en #75 pasó parecido pero partido en dos: cada reviewer encontró, cada uno por su cuenta, una violación distinta de la misma regla en el mismo PR. Lo que funciona es la pasada externa, no quién la haga.
 
    Leelo como si el diff fuera de otro. Si la regla nueva tiene un criterio verificable —"el test se rompe al revertir", "el enunciado accionable sigue en su lugar"— corrélo sobre tu propio cambio antes de pedir review.
 

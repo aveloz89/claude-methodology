@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "feature": "regla-verificacion-visual",
-  "branch": "docs/regla-verificacion-visual",
-  "pr": 75,
-  "review_sha": "d1f6d36",
-  "updated": "2026-09-16T01:24:11Z",
+  "feature": "hook-merge-repo-y-fila-dod",
+  "branch": "fix/hook-merge-repo-y-fila-dod",
+  "pr": 76,
+  "review_sha": "e47a5da",
+  "updated": "2026-09-17T07:12:54Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "done",
@@ -18,38 +18,73 @@
   },
   "batches": [
     {
-      "id": "D1",
-      "name": "regla-en-p5-y-prompts",
-      "agent": "docs",
+      "id": "H1",
+      "name": "hook-repo-del-comando-y-fila-dod",
+      "agent": "backend-dev",
       "status": "done",
       "tasks_done": 3,
       "tasks_total": 3,
       "current_task": null,
       "commits": [
-        "7607211",
-        "1a5e9e5",
-        "d1671c7"
+        "5232d0f",
+        "8f5960c",
+        "1f64d6f"
       ],
-      "last_batch": true,
+      "last_batch": false,
       "depends_on": []
     },
     {
-      "id": "D2",
-      "name": "bloqueante-y-detalles-del-review",
-      "agent": "docs",
+      "id": "H2",
+      "name": "fixes-review-ronda-1",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 3,
+      "tasks_total": 3,
+      "current_task": null,
+      "commits": [
+        "823df44",
+        "2c37a4f",
+        "8668e31"
+      ],
+      "last_batch": false,
+      "depends_on": [
+        "H1"
+      ]
+    },
+    {
+      "id": "H3",
+      "name": "forma-unica-sin-cd",
+      "agent": "backend-dev",
       "status": "done",
       "tasks_done": 4,
       "tasks_total": 4,
       "current_task": null,
       "commits": [
-        "2d2aeab",
-        "3f1011b",
-        "6c7c388",
-        "d1f6d36"
+        "ea3a874",
+        "32ab443"
+      ],
+      "last_batch": false,
+      "depends_on": [
+        "H2"
+      ]
+    },
+    {
+      "id": "H4",
+      "name": "pulido-ronda-3",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 4,
+      "tasks_total": 4,
+      "current_task": null,
+      "commits": [
+        "784af58",
+        "e88c891",
+        "bf723df",
+        "e47a5da"
       ],
       "last_batch": true,
       "depends_on": [
-        "D1"
+        "H3"
       ]
     }
   ]
