@@ -74,13 +74,56 @@ fi
 #      y quedarse ahí entrena a pedir --repo de memoria en vez de arreglar
 #      la causa (decisión del usuario, ver D-01 en `.planning/` de ese
 #      PR). Ahora se detecta un cd INICIAL (la primera palabra del
-#      comando completo, encadenada con && / ; / salto de línea antes del
-#      merge) y se resuelve `gh repo view` corriendo en ESE directorio, no
-#      en el cwd de la sesión — ver el bloque bajo "Detectar owner/repo"
-#      más abajo. Deliberadamente acotado al cd inicial, no a cualquier cd
-#      en cualquier posición: es el patrón real del incidente y el que
-#      este repo recomienda; un parser de shell completo sigue fuera de
-#      alcance (mismo criterio que el resto de este archivo).
+#      comando completo) y se resuelve `gh repo view` corriendo en ESE
+#      directorio, no en el cwd de la sesión — ver el bloque bajo
+#      "Detectar owner/repo" más abajo. Deliberadamente acotado al cd
+#      inicial, no a cualquier cd en cualquier posición: es el patrón real
+#      del incidente y el que este repo recomienda; un parser de shell
+#      completo sigue fuera de alcance (mismo criterio que el resto de
+#      este archivo).
+#
+# Endurecido 2026-09-16, ronda 2 (allowlist de la forma completa, no solo
+# del "cd" inicial, follow-up del review pre-push de lo anterior):
+#   7. La detección del punto 6 validaba caracteres de la ruta pero no la
+#      FORMA del comando: `cd X | gh pr merge`, `cd X & gh pr merge`,
+#      `cd X extra; gh pr merge` (zsh), `cd /r/pfx"-real" && …` (la
+#      comilla no abre la ruta, cae a mitad — guard_sanitize la colapsa a
+#      un espacio y el guard verificaba /r/pfx mientras el shell real
+#      hacía cd a /r/pfx-real), una continuación con backslash con el
+#      mismo problema, `cd`↵`/r/real` (el regex saltaba el salto de línea
+#      como si fuera el espacio que separa comando de argumento),
+#      `pushd`/`builtin cd`/`\cd`/`eval cd`/`chdir`/`command cd` (ninguno
+#      arranca con la palabra "cd", así que el punto 6 los ignoraba
+#      completo), `cd old new` (zsh, dos argumentos), `(cd X && …)`,
+#      `true && cd X && …`, `{ cd X && …; }` y `cd&&gh pr merge` (sin
+#      espacio) hacían que el guard verificara un repo y `gh` mergeara
+#      otro, o que un cd en posición ambigua cayera sin aviso al cwd de
+#      la sesión. Ahora la ÚNICA forma aceptada antes de la invocación de
+#      merge, sin --repo explícito, es (a) nada — se resuelve con el cwd
+#      de la sesión, igual que en el punto 6 — o (b) exactamente
+#      "cd <ruta absoluta> && " y nada más en la misma línea, con la ruta
+#      idéntica en el comando crudo y en el saneado. `;`, `|`, `&` sueltos
+#      y el salto de línea NO son separadores válidos acá aunque sí lo son
+#      para el resto del archivo: si el cd falla en tiempo de ejecución,
+#      esos separadores dejan que el merge corra igual, en la sesión —
+#      con "&&" el shell nunca llega al merge si el cd falló. Cualquier
+#      otra cosa (incluido un cd/pushd/builtin/etc. que NO arranca el
+#      comando) bloquea pidiendo --repo explícito — allowlist de la forma,
+#      no blocklist de construcciones: no se enumera qué envoltorios están
+#      prohibidos, se exige que el prefijo sea exactamente uno de los dos
+#      permitidos. Ver el bloque bajo "Detectar owner/repo" para el
+#      detalle de cada chequeo.
+#   8. Formas de `gh pr merge` que el punto 3 no anclaba: `gh -R x pr merge
+#      N` y `gh pr -R x merge N` (y lo mismo con `--repo`/`--repo=`) son
+#      formas válidas de gh (-R es flag persistente de `gh pr`, no de
+#      `merge` — verificado contra gh real) que no matcheaban el ancla
+#      "gh\s+pr\s+merge" y pasaban con {"continue":true} sin verificar
+#      nada. Ahora la ancla tolera hasta 2 tokens entre "gh"/"pr" y entre
+#      "pr"/"merge" (ver GH_PR_MERGE_RE más abajo). Además, `GH_REPO` en
+#      el comando o en el entorno del hook bloquea siempre (gh pr lo usa,
+#      gh repo view no — verificado contra gh real), y más de una
+#      invocación real de `gh pr merge` en el mismo comando bloquea en vez
+#      de validar solo la primera.
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
@@ -424,22 +467,37 @@ if [ "$REPO_FLAG_SEEN" = true ]; then
   fi
 fi
 
-# [security, follow-up PR #75] Detección de un cd INICIAL antes del
-# merge, para resolver el repo en ESE directorio en vez del cwd de la
-# sesión — ver el punto 6 del header. Dos regex distintas, a propósito:
-#   - CD_STARTS_REGEX solo confirma que el comando ARRANCA con un "cd"
-#     como palabra propia (no "cdc-tool" ni similar).
-#   - CD_TARGET_REGEX intenta extraer un único token limpio como destino.
-# Si la primera matchea pero la segunda no (típicamente: la ruta iba
-# comillada y guard_sanitize colapsó el span a un espacio, dejando "cd"
-# sin argumento visible), NO se cae en silencio al comportamiento viejo
-# — eso reproduciría el incidente. Se bloquea explícitamente más abajo,
-# mismo criterio que ya aplica el guard a un --repo comillado.
-CD_STARTS_REGEX='^[[:space:]]*cd([[:space:]]|$)'
-CD_TARGET_REGEX='^[[:space:]]*cd[[:space:]]+([^[:space:]&;|]+)'
+# [security, follow-up PR #75, ronda 1 y 2] Detección de un cd INICIAL
+# antes del merge, para resolver el repo en ESE directorio en vez del cwd
+# de la sesión — ver el punto 6 del header. La ronda 1 solo miraba SI el
+# comando arrancaba con "cd"; esta ronda además exige que la FORMA
+# completa que antecede al merge sea exactamente "cd <ruta absoluta> && "
+# — nada más. Es una ALLOWLIST de la forma, no una blocklist de
+# construcciones: en vez de enumerar qué separadores/envoltorios están
+# prohibidos (pipe, punto y coma, subshell, pushd, builtin cd, ...), se
+# exige que el único texto entre el inicio del comando y "gh pr merge" sea
+# o bien nada, o bien exactamente esa forma — cualquier otra cosa bloquea.
+#
+# CD_STARTS_REGEX solo confirma que el comando ARRANCA con un "cd" como
+# palabra propia (no "cdc-tool" ni similar) — incluye "cd" pegado a un
+# operador de control sin espacio ("cd&&...", "cd;...") para que ese caso
+# entre a esta rama (y termine bloqueado por "sin ruta clara" más abajo)
+# en vez de caer sin aviso al fallback de la sesión.
+# CD_TARGET_REGEX intenta extraer un único token limpio como destino — usa
+# [ \t] (no [[:space:]]) entre "cd" y el destino para que un salto de
+# línea ahí NO cuente como el espacio que separa comando de argumento: sin
+# esto, "cd"↵"/r/real"↵"gh pr merge 5" extraía "/r/real" como si fuera el
+# argumento del cd, cuando en el shell real esa es una línea (una
+# invocación) aparte y el cd corre sin argumento (va a $HOME).
+CD_STARTS_REGEX='^[[:space:]]*cd([[:space:]]|[&;|]|$)'
+CD_TARGET_REGEX='^[[:space:]]*cd[ \t]+([^[:space:]&;|]+)'
 LEADING_CD_SEEN=false
 LEADING_CD_TARGET=""
 LEADING_CD_AMBIGUOUS=false
+LEADING_CD_ABSOLUTE=true
+LEADING_CD_RAW_MISMATCH=false
+LEADING_CD_BAD_SHAPE=false
+LEADING_CD_STRAY=false
 if [ -z "$EXPLICIT_REPO" ] && [[ "$SANITIZED_COMMAND" =~ $CD_STARTS_REGEX ]]; then
   LEADING_CD_SEEN=true
   if [[ "$SANITIZED_COMMAND" =~ $CD_TARGET_REGEX ]]; then
@@ -456,6 +514,79 @@ if [ -z "$EXPLICIT_REPO" ] && [[ "$SANITIZED_COMMAND" =~ $CD_STARTS_REGEX ]]; th
     if echo "$REST_AFTER_CD" | grep -qE "${GUARD_ANCHOR}cd\s+"; then
       LEADING_CD_AMBIGUOUS=true
     fi
+
+    # [security, ronda 2] Ruta absoluta: CD_TARGET_REGEX ya garantiza un
+    # único token sin espacios, pero eso no dice si es relativa — una
+    # ruta relativa depende de cuál era el cwd de la sesión cuando el
+    # comando real corrió, algo que este guard no puede reconstruir con
+    # certeza (mismo motivo por el que "~" tampoco se soporta, ver el
+    # comentario de la allowlist de caracteres más abajo).
+    [[ "$LEADING_CD_TARGET" == /* ]] || LEADING_CD_ABSOLUTE=false
+
+    # [security, ronda 2, HIGH] Identidad crudo/saneado: guard_sanitize
+    # colapsa spans quoted y une continuaciones de línea con un ESPACIO.
+    # Un valor como /r/pfx"-real" (la comilla NO abre la ruta, cae a
+    # mitad) sobrevive al saneo como /r/pfx (el resto se colapsó a un
+    # espacio), pero el shell real hace cd a /r/pfx-real — las comillas
+    # no separan el token, solo se quitan. Mismo problema con
+    # /r/pfx\<salto de línea>-real: el saneo la une con un espacio (para
+    # no romper un merge multilínea legítimo, ver el comentario grande de
+    # más arriba en este archivo), pero el shell real la une SIN espacio.
+    # La única forma de detectar esto sin ejecutar nada del comando es
+    # comparar contra el mismo extraído desde el texto CRUDO: si
+    # difieren, el saneo alteró esta ruta específica y no se puede
+    # confiar en ella.
+    if [[ "$COMMAND" =~ $CD_TARGET_REGEX ]]; then
+      RAW_LEADING_CD_TARGET="${BASH_REMATCH[1]}"
+    else
+      RAW_LEADING_CD_TARGET=""
+    fi
+    [ "$RAW_LEADING_CD_TARGET" = "$LEADING_CD_TARGET" ] || LEADING_CD_RAW_MISMATCH=true
+
+    # [security, ronda 2, HIGH] Forma exacta: lo único permitido entre el
+    # destino del cd y la invocación de merge es "&&" (y solo espacios
+    # alrededor, en la misma línea) — ni ";", "|", "&" sueltos (si el cd
+    # falla en runtime con esos separadores, el merge corre igual, en la
+    # sesión; con "&&" el shell nunca llega al merge si el cd falló, así
+    # que no hace falta adivinar qué pasa en ese caso), ni un salto de
+    # línea entre medio, ni un segundo comando (otro cd ya lo cubre
+    # LEADING_CD_AMBIGUOUS arriba, pero cualquier OTRA cosa — un pipe, un
+    # comentario, texto suelto — también tiene que bloquear).
+    CD_EXACT_SHAPE_REGEX='^[ \t]*&&[ \t]*gh[ \t]+pr[ \t]+merge([ \t]|$)'
+    [[ "$REST_AFTER_CD" =~ $CD_EXACT_SHAPE_REGEX ]] || LEADING_CD_BAD_SHAPE=true
+  fi
+elif [ -z "$EXPLICIT_REPO" ]; then
+  # [security, ronda 2, MEDIUM/HIGH] El comando no ARRANCA con "cd", pero
+  # eso no significa que no haya ningún cambio de directorio antes del
+  # merge: "true && cd /x && gh pr merge 5", "(cd /x && ...)", "{ cd /x
+  # && ...; }", "pushd /x && ...", "builtin cd /x && ...", "eval cd /x &&
+  # ...", "command cd /x && ...", "chdir /x && ..." (zsh) y "\cd /x && ..."
+  # cambian el cwd real sin que el comando arranque con "cd" — si el
+  # guard los ignorara y cayera al cwd de la sesión, reproduciría el
+  # incidente original con un disfraz distinto. En vez de enumerar cada
+  # forma de invocar el builtin (blocklist frágil — así se colaban
+  # pushd/builtin cd/etc. en la ronda 1), se busca cualquiera de estas
+  # palabras en posición de comando (GUARD_ANCHOR, con un backslash
+  # opcional delante para \cd) en el texto que antecede al merge — si
+  # aparece alguna, no se resuelve a ciegas: bloquea.
+  #
+  # Limitación aceptada: invocar el builtin con su nombre ENTRE COMILLAS
+  # ("cd" /x && ...) no se detecta acá, porque guard_sanitize ya colapsó
+  # ese span quoted a un espacio antes de esta etapa — el mismo saneo que
+  # evita que un mensaje de commit con la frase "cd /tmp" dispare un
+  # falso positivo en el resto del archivo. Se acepta el hueco: comillar
+  # SOLO el nombre de un builtin no tiene uso legítimo conocido, y este
+  # guard protege errores honestos del orchestrator, no evasión
+  # adversarial (mismo criterio que el resto de este archivo, ver
+  # hooks/lib/guard-matching.sh).
+  CD_PREFIX="${SANITIZED_COMMAND%"$ANCHORED_TO_END"}"
+  if [ "$CD_PREFIX" = "$SANITIZED_COMMAND" ]; then
+    # ANCHORED_TO_END no resultó ser un sufijo real de SANITIZED_COMMAND
+    # (no debería pasar: se extrajo del propio SANITIZED_COMMAND) — no se
+    # puede aislar con confianza qué antecede al merge.
+    LEADING_CD_STRAY=true
+  elif echo "$CD_PREFIX" | grep -qE "${GUARD_ANCHOR}"'\\?(cd|pushd|popd|builtin|command|eval|chdir)\b'; then
+    LEADING_CD_STRAY=true
   fi
 fi
 
@@ -465,8 +596,11 @@ if [ "${#CD_TARGET_FOR_REASON}" -gt 64 ]; then
 fi
 
 # Detectar owner/repo: el --repo explícito gana (comportamiento previo,
-# intacto); si no hay --repo pero el comando hace cd antes del merge, se
-# resuelve en ESE directorio; si no hay ninguno de los dos, fail-closed
+# intacto — gana sin importar si el comando también hace cd); si no hay
+# --repo pero el comando hace cd exactamente en la forma permitida antes
+# del merge, se resuelve en ESE directorio; si no hay --repo y algo que
+# podría cambiar de directorio aparece en otra posición o forma
+# (LEADING_CD_STRAY), bloquea; si no hay ninguna de las tres, fail-closed
 # sobre el remoto del cwd de la sesión (comportamiento previo a esta
 # extensión, intacto para el caso sin cd y sin --repo).
 if [ -n "$EXPLICIT_REPO" ]; then
@@ -492,8 +626,17 @@ elif [ "$LEADING_CD_SEEN" = true ]; then
   if ! [[ "$LEADING_CD_TARGET" =~ ^[A-Za-z0-9._/-]+$ ]]; then
     block "Blocked: la ruta del cd ('${CD_TARGET_FOR_REASON}') tiene caracteres que no puedo resolver con confianza sin ejecutar nada del comando — el guard no verifica a ciegas. Usa --repo explícito."
   fi
+  if [ "$LEADING_CD_ABSOLUTE" = false ]; then
+    block "Blocked: la ruta del cd ('${CD_TARGET_FOR_REASON}') no es absoluta — no puedo saber con certeza contra qué directorio se resuelve sin ejecutar el comando. Usa --repo explícito o una ruta absoluta."
+  fi
+  if [ "$LEADING_CD_RAW_MISMATCH" = true ]; then
+    block "Blocked: la ruta del cd no es idéntica en el comando crudo y en el saneado (¿comilla o backslash a mitad de la ruta?) — no puedo confiar en cuál resolvería el shell real. Usa --repo explícito."
+  fi
   if [ "$LEADING_CD_AMBIGUOUS" = true ]; then
     block "Blocked: el comando hace más de un cd antes de terminar — no puedo determinar con certeza qué directorio está vigente cuando corre gh pr merge. Usa --repo explícito."
+  fi
+  if [ "$LEADING_CD_BAD_SHAPE" = true ]; then
+    block "Blocked: el cd no está seguido inmediatamente de && y la invocación de gh pr merge en la misma línea — con cualquier otro separador (;, |, &) o contenido entre medio no puedo garantizar que el merge real corra en el directorio que acabo de verificar. Usa --repo explícito."
   fi
   # Subshell vía $(...): el cd de acá adentro no persiste en el resto de
   # este script. "cd --" evita que un valor que empezara con "-" (válido
@@ -502,6 +645,8 @@ elif [ "$LEADING_CD_SEEN" = true ]; then
   if [ -z "$REPO" ]; then
     block "Blocked: el comando hace cd a '${CD_TARGET_FOR_REASON}' antes de gh pr merge, pero no pude resolver el repo ahí (ruta inexistente o no es un repo de GitHub) — el guard no verifica a ciegas. Usa --repo explícito."
   fi
+elif [ "$LEADING_CD_STRAY" = true ]; then
+  block "Blocked: el comando tiene algo que podría cambiar el directorio antes de gh pr merge (cd, pushd, u otra forma de invocar el builtin) que no está en la forma exacta 'cd <ruta absoluta> && gh pr merge' que este guard sabe resolver — el guard no verifica a ciegas. Usa --repo explícito."
 else
   REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
   if [ -z "$REPO" ]; then

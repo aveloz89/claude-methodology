@@ -2425,6 +2425,62 @@ else
 fi
 rm -rf "$FAKE_GH_CD_NOFALLBACK_DIR"
 
+# [security, ronda 2 del follow-up de PR #75] Allowlist de la forma
+# completa — cada fila es una de las divergencias que encontró el review
+# pre-push de la ronda 1 (cd X | merge, cd X & merge, cd X extra; merge,
+# comilla a mitad de ruta, continuación con backslash, cd + salto de
+# línea, pushd/builtin cd/\cd/eval cd/chdir/command cd, cd con dos
+# argumentos, subshell/llaves, cd&&merge sin espacio, ruta relativa).
+# Todos usan $FAKE_GH_DIR con FAKE_GH_MODE vacío (no "offline"): "repo
+# view" resuelve sano a "owner/repo" — si el guard cayera al cwd de la
+# sesión en vez de bloquear, estos tests verían {"continue":true}, no el
+# bloqueo. Verificado antes con zsh -c/bash -c reales (no ejecutado por
+# el hook — el hook nunca corre el comando interceptado, solo lo
+# analiza) que cada forma o bien no cambia el cwd del proceso padre (pipe,
+# &, subshell corren el cd en un subshell aparte) o bien diverge entre
+# bash y zsh (cd con dos argumentos: bash ignora el segundo, zsh lo trata
+# como sustitución de string y falla) — ninguna garantiza el mismo
+# resultado que la simulación interna del guard.
+
+assert_pre_merge_blocked "gh pr merge [cd, forma]: cd X | gh pr merge (pipe) bloquea, no verifica X" \
+  "cd /r/benign | gh pr merge 5" "&& y la invocación de gh pr merge"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: cd X & gh pr merge (ampersand simple) bloquea, no verifica X" \
+  "cd /r/benign & gh pr merge 5" "&& y la invocación de gh pr merge"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: cd X extra; gh pr merge (zsh: string no encontrado en \$PWD) bloquea, no verifica X" \
+  "cd /r/benign extra; gh pr merge 5" "&& y la invocación de gh pr merge"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: comilla a mitad de la ruta (cd /r/pfx\"-real\") bloquea — crudo y saneado difieren" \
+  'cd /r/pfx"-real" && gh pr merge 5' "no es idéntica en el comando crudo"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: continuación con backslash (cd /r/pfx\\<NL>-real) bloquea — crudo y saneado difieren" \
+  "$(printf 'cd /r/pfx\\\n-real && gh pr merge 5')" "no es idéntica en el comando crudo"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: cd seguido de salto de línea antes de la ruta bloquea (no la trata como argumento del cd)" \
+  "$(printf 'cd\n/r/benign\ngh pr merge 5')" "no pude extraer una ruta clara"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: pushd X && gh pr merge bloquea (no arranca con la palabra cd)" \
+  "pushd /r/benign && gh pr merge 5" "podría cambiar el directorio"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: builtin cd X && gh pr merge bloquea" \
+  "builtin cd /r/benign && gh pr merge 5" "podría cambiar el directorio"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: \\\\cd X && gh pr merge bloquea (barra invertida antes del builtin)" \
+  '\cd /r/benign && gh pr merge 5' "podría cambiar el directorio"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: eval cd X && gh pr merge bloquea" \
+  "eval cd /r/benign && gh pr merge 5" "podría cambiar el directorio"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: chdir X && gh pr merge bloquea (builtin de zsh)" \
+  "chdir /r/benign && gh pr merge 5" "podría cambiar el directorio"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: command cd X && gh pr merge bloquea" \
+  "command cd /r/benign && gh pr merge 5" "podría cambiar el directorio"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: cd con dos argumentos (zsh: sustitución de string) bloquea" \
+  "cd /a /b && gh pr merge 5" "&& y la invocación de gh pr merge"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: (cd X && gh pr merge) envuelto en subshell bloquea" \
+  "(cd /r/benign && gh pr merge 5)" "podría cambiar el directorio"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: true && cd X && gh pr merge bloquea (el cd no arranca el comando)" \
+  "true && cd /r/benign && gh pr merge 5" "podría cambiar el directorio"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: { cd X && gh pr merge; } envuelto en llaves bloquea" \
+  "{ cd /r/benign && gh pr merge 5; }" "podría cambiar el directorio"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: cd&&gh pr merge (sin espacio, cd sin argumento) bloquea" \
+  "cd&&gh pr merge 5" "no pude extraer una ruta clara"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: cd;gh pr merge (sin espacio, cd sin argumento) bloquea" \
+  "cd;gh pr merge 5" "no pude extraer una ruta clara"
+assert_pre_merge_blocked "gh pr merge [cd, forma]: ruta relativa (cd relative/path && gh pr merge) bloquea, no absoluta" \
+  "cd relative/path && gh pr merge 5" "no es absoluta"
+
 rm -rf "$FAKE_GH_DIR"
 
 echo ""
