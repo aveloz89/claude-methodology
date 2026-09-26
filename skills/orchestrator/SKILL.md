@@ -12,39 +12,39 @@ Manual operativo de la sesión principal. El rol y sus invariantes viven en `glo
 
 ## 1. Rol y alcance
 
-Coordinás: entendés el pedido, hacés diseñar, repartís lotes, corréis los reviews y mergeáis. No escribís código de producción ni tests — eso lo hacen los subagentes que reciben un lote (`global/CLAUDE.md`, "Rol de la sesión principal"). Cargá esta skill al empezar cualquier feature, fix o trabajo que termine en un PR, antes de delegar el primer lote. Si ya estás a mitad de un flujo y no la cargaste, cargala ahora, no esperes al siguiente lote.
+Coordinas: entiendes el pedido, haces diseñar, repartes lotes, corres los reviews y mergeas. No escribes código de producción ni tests — eso lo hacen los subagentes que reciben un lote (`global/CLAUDE.md`, "Rol de la sesión principal"). Carga esta skill al empezar cualquier feature, fix o trabajo que termine en un PR, antes de delegar el primer lote. Si ya estás a mitad de un flujo y no la cargaste, cárgala ahora, no esperes al siguiente lote.
 
 ## 2. Mapa del flujo
 
-| Fase | Qué hacés | Artefacto | Sección del runbook |
+| Fase | Qué haces | Artefacto | Sección del runbook |
 |---|---|---|---|
-| 0. Brainstorming | Preguntás en rondas hasta tener claridad; confirmación explícita antes de avanzar | `.planning/BRIEF.md` | "Fase 0" |
-| 0.5. Design system | Si hay UI, invocás `ui-ux` antes del architect | `design-system/<proyecto>/MASTER.md` | "Fase 0.5" |
+| 0. Brainstorming | Preguntas en rondas hasta tener claridad; confirmación explícita antes de avanzar | `.planning/BRIEF.md` | "Fase 0" |
+| 0.5. Design system | Si hay UI, invocas `ui-ux` antes del architect | `design-system/<proyecto>/MASTER.md` | "Fase 0.5" |
 | 1. Diseño | El `architect` diseña y parte en lotes | `.planning/DESIGN.md` | "Fase 1" |
-| 2. Implementación | Invocás devs por lote, con `last_batch=true|false` | commits locales | "Fase 2" |
-| 2.5. Documentación | Invocás `docs` sobre el diff local, sin push | docs actualizados | "Fase 2.5" |
+| 2. Implementación | Invocas devs por lote, con `last_batch=true|false` | commits locales | "Fase 2" |
+| 2.5. Documentación | Invocas `docs` sobre el diff local, sin push | docs actualizados | "Fase 2.5" |
 | 2.6. Review dual local | `security-reviewer` + `qa-*` en paralelo sobre el diff local; fixes sin push hasta veredictos limpios | `.planning/reviews/pre-pr-<slug>.md` | skill `pr-workflow` |
-| 2.7. Push + PR | Push + `gh pr create` + reconciliación del registro (lo hacés vos) | PR abierto | "Comandos `gh` específicos" |
+| 2.7. Push + PR | Push + `gh pr create` + reconciliación del registro (lo haces tú) | PR abierto | "Comandos `gh` específicos" |
 | 2.8. Monitoreo CI | `gh pr checks --watch --fail-fast` | CI verde | "Fase 2.8" |
 | 3. Post-PR | Re-reviews solo si CI obligó fixes sobre código ya revisado; `e2e-runner` Modo B si el PR va a `main` | reviews actualizados | "Fase 3" |
 | 4. Learn (retro) | Retro + estado sellado, último commit del branch antes del merge | `.planning/learnings/PR-<N>.md` | "Fase 4" |
-| 5. Merge | Verificación pre-merge + merge; no escribís en `.planning/` | PR mergeado | "Fase 5" |
+| 5. Merge | Verificación pre-merge + merge; no escribes en `.planning/` | PR mergeado | "Fase 5" |
 
 **Reglas clave** (detalle en el runbook, sección "Flujo de trabajo: nueva feature" y en la skill `pr-workflow`):
 
-- Creás el branch una sola vez (`git checkout dev && git checkout -b feature/<slug>`); los devs trabajan sobre ese branch existente.
+- Creas el branch una sola vez (`git checkout dev && git checkout -b feature/<slug>`); los devs trabajan sobre ese branch existente.
 - Modo single-PR por default: todos los lotes en el mismo branch, último lote con `last_batch=true`. Modo multi-PR solo si el `architect` lo justificó — cada grupo con su branch + PR propio.
 - Un push por ronda de review (las de Fase 2.6 no pushean); docs va en el push inicial; retro en el último commit del branch.
 - Cuando hay `db-specialist`: va primero (schema), luego `backend-dev` lo consume, luego `frontend-dev`. Back/front pueden paralelizarse si son archivos disjuntos.
 - Fixes de review siempre en el mismo PR/branch — nunca un branch nuevo.
-- Re-lanzás solo los reviewers que marcaron issues, no los que aprobaron.
-- Conflicto entre reviewers: security gana en seguridad, QA gana en UX/accesibilidad/contratos; zona gris → escalás al usuario (`governance-playbook.md` §7).
-- Máximo 3 intentos de fix automático en CI por PR, después escalás al usuario (matices en "Fase 2.8" del runbook).
+- Re-lanzas solo los reviewers que marcaron issues, no los que aprobaron.
+- Conflicto entre reviewers: security gana en seguridad, QA gana en UX/accesibilidad/contratos; zona gris → escalas al usuario (`governance-playbook.md` §7).
+- Máximo 3 intentos de fix automático en CI por PR, después escalas al usuario (matices en "Fase 2.8" del runbook).
 - E2E flaky: un re-run automático por test fallido; dos fallos seguidos es fallo real y bloquea el merge; flakeo repetido → issue `flaky-test` (lo trackea `e2e-runner`).
 
 ## 3. Brainstorming
 
-Preguntás en rondas (alcance, edge cases, integraciones, prioridad) hasta tener claridad; no saltás a diseño después de una sola ronda. Cerrás con `AskUserQuestion`: avanzar al diseño u otra ronda. Se puede saltar **solo** si se cumplen las cuatro condiciones de `global/CLAUDE.md` ("Workflow obligatorio" #1). En cualquier duda, brainstormeás igual. Formato de `BRIEF.md` y condiciones completas de salto: runbook, "Fase 0".
+Preguntas en rondas (alcance, edge cases, integraciones, prioridad) hasta tener claridad; no saltas a diseño después de una sola ronda. Cierras con `AskUserQuestion`: avanzar al diseño u otra ronda. Se puede saltar **solo** si se cumplen las cuatro condiciones de `global/CLAUDE.md` ("Workflow obligatorio" #1). En cualquier duda, brainstormeas igual. Formato de `BRIEF.md` y condiciones completas de salto: runbook, "Fase 0".
 
 ## 4. Equipo de subagentes
 
@@ -70,7 +70,7 @@ Preguntás en rondas (alcance, edge cases, integraciones, prioridad) hasta tener
 
 ## 5. Lotes y handoff
 
-Un lote agrupa hasta 5 tareas atómicas que un dev ejecuta como unidad — el cap es budget de invocación (`rulebooks/agent-budget.md`). Un lote no es un PR: varios lotes pueden vivir en el mismo PR (modo single-PR, el default). El `architect` valida su propio plan (cada lote ≤5 tareas); si no cumple, hasta 3 reintentos y después escalás al usuario.
+Un lote agrupa hasta 5 tareas atómicas que un dev ejecuta como unidad — el cap es budget de invocación (`rulebooks/agent-budget.md`). Un lote no es un PR: varios lotes pueden vivir en el mismo PR (modo single-PR, el default). El `architect` valida su propio plan (cada lote ≤5 tareas); si no cumple, hasta 3 reintentos y después escalas al usuario.
 
 **Context isolation en el handoff:** cada subagente recibe un paquete armado por vos — documento(s) relevantes + descripción específica de la tarea —, nunca el historial completo ni outputs de fases ya cerradas. Los devs no se autoinvocan. Si un agente necesita algo que no recibió, te lo pide; no adivina ni le pregunta al usuario.
 
@@ -78,26 +78,26 @@ Template exacto del paquete de handoff a devs: runbook, sección de handoff.
 
 ## 6. Tracker de sesión
 
-Al cerrar el diseño con el `architect`, creás el tracker visible con las herramientas nativas del harness (TaskCreate/TaskUpdate): una tarea por lote + una por etapa del pipeline (review dual local, PR+CI, E2E si toca UI, retro+merge), con dependencias entre ellas. Actualizás en vivo: `in_progress` al lanzar, `completed` solo cuando el hito ocurrió de verdad. No reemplaza `.planning/STATE.md` ni `state.json` — es la visibilidad de esta sesión, no el estado persistente. Formato exacto: runbook, "Tracker de tareas de sesión".
+Al cerrar el diseño con el `architect`, creas el tracker visible con las herramientas nativas del harness (TaskCreate/TaskUpdate): una tarea por lote + una por etapa del pipeline (review dual local, PR+CI, E2E si toca UI, retro+merge), con dependencias entre ellas. Actualizas en vivo: `in_progress` al lanzar, `completed` solo cuando el hito ocurrió de verdad. No reemplaza `.planning/STATE.md` ni `state.json` — es la visibilidad de esta sesión, no el estado persistente. Formato exacto: runbook, "Tracker de tareas de sesión".
 
 ## 7. Estado `.planning/` y Pause/Resume
 
-Al inicio de cada sesión, el hook `session-start-context.sh` te da branch, último commit y estado de `.planning/`. Si no corrió, obtené lo mismo a mano. Un `HANDOFF.md` presente significa que hay trabajo pausado: leelo y retomá desde ahí antes de decidir nada.
+Al inicio de cada sesión, el hook `session-start-context.sh` te da branch, último commit y estado de `.planning/`. Si no corrió, obtén lo mismo a mano. Un `HANDOFF.md` presente significa que hay trabajo pausado: léelo y retoma desde ahí antes de decidir nada.
 
-`.planning/` refleja la feature activa — una a la vez, nunca en paralelo. Si surge un hotfix urgente, pausás antes de cambiar de branch. No se borra al completar una feature (queda como historial); solo al iniciar una feature nueva no relacionada, o si el usuario lo pide.
+`.planning/` refleja la feature activa — una a la vez, nunca en paralelo. Si surge un hotfix urgente, pausas antes de cambiar de branch. No se borra al completar una feature (queda como historial); solo al iniciar una feature nueva no relacionada, o si el usuario lo pide.
 
 Archivos: `STATE.md` (decisiones, blockers), `state.json` (fase, lotes, progreso), `BRIEF.md`, `DESIGN.md`, `ARCHITECTURE.md` (persistente), `HANDOFF.md` (solo si hay trabajo pausado), `learnings/PR-<N>.md`, `reviews/`. Formatos exactos: runbook.
 
-**Pausar:** actualizás `STATE.md`, creás `HANDOFF.md`, commit/push `wip:` si queda incompleto.
-**Retomar:** el hook `session-start-context.sh` detecta `HANDOFF.md`. Leés HANDOFF + STATE + `state.json`, corrés el smoke test del proyecto, reportás al usuario y preguntás si continúa. Al retomar, borrás `HANDOFF.md`. Pasos exactos: runbook, "Retomar (resume)".
+**Pausar:** actualizas `STATE.md`, creas `HANDOFF.md`, commit/push `wip:` si queda incompleto.
+**Retomar:** el hook `session-start-context.sh` detecta `HANDOFF.md`. Lees HANDOFF + STATE + `state.json`, corres el smoke test del proyecto, reportas al usuario y preguntas si continúa. Al retomar, borras `HANDOFF.md`. Pasos exactos: runbook, "Retomar (resume)".
 
-## 8. Cómo hablás con el usuario
+## 8. Cómo hablas con el usuario
 
-Reportás progreso en cada fase — nunca en silencio. Escribís simple y corto: una línea que resume, detalle solo si te lo piden, salvo un blocker (riesgo + remediación siempre, aunque no te los pidan).
+Reportas progreso en cada fase — nunca en silencio. Escribes simple y corto: una línea que resume, detalle solo si te lo piden, salvo un blocker (riesgo + remediación siempre, aunque no te los pidan).
 
-Toda decisión del usuario se pregunta con `AskUserQuestion`: 2-4 opciones concretas y mutuamente excluyentes, cada una con su consecuencia en una línea, la recomendada primero y marcada, con la investigación ya hecha. Aplica a aprobaciones de merge, cortes de scope, prioridades, cualquier bifurcación donde la respuesta cambie lo que hacés después. No aplica a rondas exploratorias de texto libre (brainstorming, tono de `ui-ux`) — pero el cierre de esas rondas sí es una decisión y va con opciones.
+Toda decisión del usuario se pregunta con `AskUserQuestion`: 2-4 opciones concretas y mutuamente excluyentes, cada una con su consecuencia en una línea, la recomendada primero y marcada, con la investigación ya hecha. Aplica a aprobaciones de merge, cortes de scope, prioridades, cualquier bifurcación donde la respuesta cambie lo que haces después. No aplica a rondas exploratorias de texto libre (brainstorming, tono de `ui-ux`) — pero el cierre de esas rondas sí es una decisión y va con opciones.
 
-Ante algo inesperado (reviewers en conflicto, hook que falló, agente cortado, build roto post-merge), consultás `governance-playbook.md` antes de improvisar.
+Ante algo inesperado (reviewers en conflicto, hook que falló, agente cortado, build roto post-merge), consultas `governance-playbook.md` antes de improvisar.
 
 ## 9. Cuándo abrir el runbook
 

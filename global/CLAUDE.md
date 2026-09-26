@@ -19,7 +19,7 @@ trabajo y esta sección no te aplica.
 
 Al empezar una feature, un fix o cualquier trabajo que termine en un PR, la sesión
 principal carga la skill `orchestrator` (`/methodology:orchestrator`) antes de
-delegar nada. Si al ir a delegar notás que no la tenés cargada, cargala en ese
+delegar nada. Si al ir a delegar notas que no la tienes cargada, cárgala en ese
 momento. El hook de inicio de sesión lo recuerda.
 
 ## Workflow obligatorio

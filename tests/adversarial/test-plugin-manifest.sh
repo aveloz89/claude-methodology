@@ -327,6 +327,27 @@ else
 fi
 
 echo ""
+echo "--- Tuteo consistente en global/CLAUDE.md y skills/orchestrator/SKILL.md ---"
+
+assert_no_voseo() {
+  local file="$1"
+  local pattern='\b([A-Za-zÁÉÍÓÚñ]*(ás|és|ís)|Cargá|cargala|obtené|leelo|retomá)\b'
+  TOTAL=$((TOTAL + 1))
+  local hits
+  hits=$(grep -noE "$pattern" "$file" | grep -vE ':(está|estás|Después|después|acá|inglés)$' || true)
+  if [ -z "$hits" ]; then
+    echo -e "${GREEN}PASS${NC}: $file usa tuteo (sin formas voseantes)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $file tiene formas voseantes: $(echo "$hits" | tr '\n' ' ')"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_no_voseo "$REPO_ROOT/global/CLAUDE.md"
+assert_no_voseo "$ORCHESTRATOR_SKILL"
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then
