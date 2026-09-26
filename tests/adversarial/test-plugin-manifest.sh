@@ -175,6 +175,82 @@ else
 fi
 
 echo ""
+echo "--- skills/orchestrator/SKILL.md: existe, tamaño y frontmatter ---"
+
+ORCHESTRATOR_SKILL="$REPO_ROOT/skills/orchestrator/SKILL.md"
+
+TOTAL=$((TOTAL + 1))
+if [ -f "$ORCHESTRATOR_SKILL" ]; then
+  echo -e "${GREEN}PASS${NC}: skills/orchestrator/SKILL.md existe"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: skills/orchestrator/SKILL.md no existe"
+  FAIL=$((FAIL + 1))
+fi
+
+if [ -f "$ORCHESTRATOR_SKILL" ]; then
+  TOTAL=$((TOTAL + 1))
+  SKILL_LINES=$(wc -l < "$ORCHESTRATOR_SKILL" | tr -d ' ')
+  if [ "$SKILL_LINES" -lt 500 ]; then
+    echo -e "${GREEN}PASS${NC}: skills/orchestrator/SKILL.md tiene $SKILL_LINES líneas (< 500)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: skills/orchestrator/SKILL.md tiene $SKILL_LINES líneas (esperado < 500)"
+    FAIL=$((FAIL + 1))
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if grep -q "^name: orchestrator$" "$ORCHESTRATOR_SKILL"; then
+    echo -e "${GREEN}PASS${NC}: frontmatter tiene name: orchestrator"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: frontmatter no tiene name: orchestrator"
+    FAIL=$((FAIL + 1))
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if grep -q "^disable-model-invocation:" "$ORCHESTRATOR_SKILL"; then
+    echo -e "${RED}FAIL${NC}: skills/orchestrator/SKILL.md tiene disable-model-invocation (debe poder cargarse sola)"
+    FAIL=$((FAIL + 1))
+  else
+    echo -e "${GREEN}PASS${NC}: skills/orchestrator/SKILL.md no tiene disable-model-invocation"
+    PASS=$((PASS + 1))
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if grep -q "^user-invocable: true$" "$ORCHESTRATOR_SKILL"; then
+    echo -e "${GREEN}PASS${NC}: frontmatter tiene user-invocable: true"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: frontmatter no tiene user-invocable: true"
+    FAIL=$((FAIL + 1))
+  fi
+fi
+
+echo ""
+echo "--- global/CLAUDE.md: tamaño del núcleo tras la división ---"
+
+TOTAL=$((TOTAL + 1))
+GLOBAL_BYTES=$(wc -c < "$GLOBAL_CLAUDE_MD" | tr -d ' ')
+if [ "$GLOBAL_BYTES" -le 10240 ]; then
+  echo -e "${GREEN}PASS${NC}: global/CLAUDE.md pesa $GLOBAL_BYTES bytes (<= 10240)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: global/CLAUDE.md pesa $GLOBAL_BYTES bytes (esperado <= 10240)"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+GLOBAL_LINES=$(wc -l < "$GLOBAL_CLAUDE_MD" | tr -d ' ')
+if [ "$GLOBAL_LINES" -le 130 ]; then
+  echo -e "${GREEN}PASS${NC}: global/CLAUDE.md tiene $GLOBAL_LINES líneas (<= 130)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: global/CLAUDE.md tiene $GLOBAL_LINES líneas (esperado <= 130)"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then
