@@ -34,9 +34,9 @@
       "name": "frontmatter-skills-validacion",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 3,
+      "tasks_done": 4,
       "tasks_total": 5,
-      "current_task": "tarea 4: git mv CLAUDE.md a .claude/CLAUDE.md + validate --strict .",
+      "current_task": "tarea 5: tono en global/CLAUDE.md seccion Hooks + agent-budget.md",
       "commits": [],
       "last_batch": true,
       "depends_on": [

@@ -108,9 +108,10 @@ Antes del plugin, el repo se instalaba symlinkeando `agents/`, `hooks/`, `skills
 
 ### Release (para el autor)
 
-1. Bump de `version` en `.claude-plugin/plugin.json`.
-2. `claude plugin tag` — valida consistencia `plugin.json` ↔ `marketplace.json` y crea el tag git `methodology--v<version>`.
-3. Push del tag.
+1. Validar antes de tocar manifests o agentes: `claude plugin validate --strict .claude-plugin/plugin.json` y `claude plugin validate --strict .` (con `marketplace.json` presente, este segundo valida solo el marketplace).
+2. Bump de `version` en `.claude-plugin/plugin.json`.
+3. `claude plugin tag` — valida consistencia `plugin.json` ↔ `marketplace.json` y crea el tag git `methodology--v<version>`.
+4. Push del tag.
 
 Terceros actualizan con `claude plugin marketplace update` + `claude plugin update methodology@claude-methodology` — el cache del plugin queda fijo en la versión instalada hasta ese punto.
 
@@ -122,6 +123,8 @@ Los hooks de observabilidad `pre-compact-snapshot` y `session-end-check` escribe
 
 ```
 claude-methodology/
+├── .claude/
+│   └── CLAUDE.md
 ├── .claude-plugin/
 │   ├── marketplace.json
 │   └── plugin.json

@@ -7,9 +7,12 @@
 #       de bug C5 "hook documentado pero no instalado".
 #   (b) los 3 manifests (plugin.json, marketplace.json, hooks.json) parsean
 #       como JSON válido.
-#   (c) si la CLI `claude` está en PATH, `claude plugin validate --strict .`
-#       pasa sobre el repo completo; si no está, SKIP declarado (el test
-#       crítico —la paridad— no depende de la CLI).
+#   (c) si la CLI `claude` está en PATH: `claude plugin validate --strict .`
+#       pasa (con marketplace.json presente valida solo el marketplace) y
+#       `claude plugin validate --strict .claude-plugin/plugin.json` pasa
+#       (valida el plugin en sí, incluido el CLAUDE.md del repo); si la CLI
+#       no está, SKIP declarado (el test crítico —la paridad— no depende
+#       de la CLI).
 #
 # Uso: bash tests/adversarial/test-plugin-manifest.sh
 
@@ -158,6 +161,15 @@ if command -v claude > /dev/null 2>&1; then
     PASS=$((PASS + 1))
   else
     echo -e "${RED}FAIL${NC}: claude plugin validate --strict . no pasa"
+    FAIL=$((FAIL + 1))
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if (cd "$REPO_ROOT" && claude plugin validate --strict .claude-plugin/plugin.json < /dev/null > /dev/null 2>&1); then
+    echo -e "${GREEN}PASS${NC}: claude plugin validate --strict .claude-plugin/plugin.json pasa"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: claude plugin validate --strict .claude-plugin/plugin.json no pasa"
     FAIL=$((FAIL + 1))
   fi
 else

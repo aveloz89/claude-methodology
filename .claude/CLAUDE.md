@@ -18,7 +18,7 @@ Este repo es plugin y marketplace de Claude Code a la vez (`.claude-plugin/plugi
 - **Autor (dev-loop)**: se desarrolla con el symlink `~/.claude/skills/methodology` → raíz de este repo (`install.sh` lo crea), que carga en vivo como `methodology@skills-dir` sin version bump. No instalar el plugin propio vía marketplace en la misma máquina — duplicaría la carga.
 - **Terceros**: instalan vía `claude plugin marketplace add` + `claude plugin install methodology@claude-methodology`, y corren `./install.sh` para el residual que el plugin no cubre (`global/CLAUDE.md`, `rules/`, `rulebooks/`, `statusline.sh`).
 - **Release**: bump de `version` en `.claude-plugin/plugin.json` → `claude plugin tag` (valida consistencia plugin.json ↔ marketplace.json y crea el tag `methodology--v<version>`) → push del tag.
-- **Validar antes de commitear cambios de manifest o agentes**: `claude plugin validate --strict .`
+- **Validar antes de commitear cambios de manifest o agentes**: `claude plugin validate --strict .claude-plugin/plugin.json` (valida el plugin en sí, incluido este archivo) **y** `claude plugin validate --strict .` (con `marketplace.json` presente, valida solo el marketplace — son dos comandos distintos, no uno solo).
 
 ## Salud del sistema de agentes (recomendado, no bloqueante)
 
