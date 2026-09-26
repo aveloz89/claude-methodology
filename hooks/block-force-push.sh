@@ -39,7 +39,28 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
-if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+push\s+.*(-f|--force)\b"; then
+FORCE_PATTERN="${GUARD_ANCHOR}git\s+push\s+.*(-f|--force)\b"
+
+if echo "$SANITIZED_COMMAND" | grep -qE "$FORCE_PATTERN"; then
+  echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2
+  exit 2
+fi
+
+# Regresión (auditoría best-practices): guard_sanitize() borra el contenido
+# de CUALQUIER span quoted por diseño (#47) — pero un flag real que el
+# shell recibe igual con o sin comillas (ej. `git push origin "--force"`)
+# es una invocación real, no texto literal, y el saneo lo deja
+# indistinguible de una mención dentro de un mensaje de commit. Se
+# compensa grepeando también el comando SIN sanear, con el mismo anclaje a
+# posición de comando: una mención dentro de `-m "..."` no queda precedida
+# por uno de los separadores de GUARD_ANCHOR (lo que la precede es la
+# comilla de apertura o texto del propio mensaje), así que el caso de #47
+# ("git commit -m \"... git push --force ...\"") sigue sin bloquear.
+# Limitación aceptada, igual que el resto de guard_sanitize(): heurística
+# de texto, no un parser de shell real — un mensaje que a propósito incluya
+# un separador real (ej. "; git push --force") antes de la mención
+# bloquearía por esta vía.
+if echo "$COMMAND" | grep -qE "$FORCE_PATTERN"; then
   echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2
   exit 2
 fi

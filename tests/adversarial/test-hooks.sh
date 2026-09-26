@@ -287,6 +287,24 @@ assert_blocked_cmd "block-force-push: comando compuesto (cd a && git push --forc
 assert_allowed_cmd "block-force-push: git push (sin force) allowed" "block-force-push.sh" "git push"
 assert_allowed_cmd "block-force-push: git reset --soft HEAD~1 allowed (no relacionado)" "block-force-push.sh" "git reset --soft HEAD~1"
 
+# Regression (revisión pre-push, security LOW): guard_sanitize() borra el
+# contenido de CUALQUIER span quoted, incluido un flag real que el shell
+# recibe igual con o sin comillas — el push de abajo es una invocación real,
+# no una mención. Antes de #47 este guard grepeaba el comando SIN sanear y
+# sí bloqueaba estos dos casos (ver git log dev -- hooks/block-force-push.sh).
+assert_blocked_cmd "block-force-push: git push origin \"--force\" (flag quoted) blocks" \
+  "block-force-push.sh" \
+  'git push origin "--force"'
+assert_blocked_cmd "block-force-push: git push origin '-f' (flag quoted) blocks" \
+  "block-force-push.sh" \
+  "git push origin '-f'"
+
+# Sigue sin bloquear una mención de --force dentro de un mensaje de commit
+# (mismo caso que "quoted mention in commit message" de block-admin-merge).
+assert_allowed_cmd "block-force-push: mención de --force en mensaje de commit no bloquea" \
+  "block-force-push.sh" \
+  'git commit -m "docs: explica git push --force"'
+
 # Fail-closed sin jq (revisión pre-push, security MEDIUM): hoy, sin jq en
 # PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, y un
 # "git push --force" real pasa en silencio — mismo hueco que #50 en
