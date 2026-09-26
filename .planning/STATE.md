@@ -4,7 +4,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** audit-best-practices: alinear la metodología con las prácticas oficiales de Anthropic (auditoría en `AUDIT-best-practices-2026-09.md`). Diseño aprobado: multi-PR secuencial (PR 1 fixes técnicos, lotes 1-2; PR 2 skill orchestrator + núcleo, lotes 3-4; PR 3 fusiones, lotes 5-6). PR 1 completo (lotes 1-2, `last_batch=true`): listo para docs + review dual + push + PR.
+- **Feature:** audit-best-practices: alinear la metodología con las prácticas oficiales de Anthropic (auditoría en `AUDIT-best-practices-2026-09.md`). Diseño aprobado: multi-PR secuencial (PR 1 fixes técnicos, lotes 1-2; PR 2 skill orchestrator + núcleo, lotes 3-4; PR 3 fusiones, lotes 5-6). PR 1 = #79, mergeado a `dev` (retro en `learnings/PR-79.md`). En curso: PR 2 (`feature/orchestrator-skill`), lote 3.
 - **Última actualización:** 2026-09-26
 
 ## Decisiones
