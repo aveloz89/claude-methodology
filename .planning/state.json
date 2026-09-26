@@ -34,9 +34,9 @@
       "name": "frontmatter-skills-validacion",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 1,
+      "tasks_done": 2,
       "tasks_total": 5,
-      "current_task": "tarea 2: effort high en qa-frontend/qa-backend + agent-budget.md",
+      "current_task": "tarea 3: lint de skills (Agent namespaced + disable-model-invocation)",
       "commits": [],
       "last_batch": true,
       "depends_on": [
