@@ -36,3 +36,16 @@
 - Bloqueante resuelto: check (g) con `HISTORICAL_AGENTS`. Rojo verificado al borrar `agents/docs.md` en un worktree desechable; sin falsos positivos (94/94).
 - Los tests nuevos se rompen al revertir cada fix.
 - **[sugerencia]** `test-hooks.sh` extrae `_guard_resolve_test_budget` con `awk`. Si la extracción queda vacía, la suite aborta con exit 127 en vez de un FAIL legible. → aplicar: FAIL explícito si la extracción queda vacía.
+
+Sugerencias aplicadas en `f945897`, `2067d47` y `099576f`.
+
+## Ronda 3 (solo security, porque el delta toca guards): `a1a7e43...099576f`
+
+**Veredicto:** APROBADO.
+- Las sugerencias de la ronda 2 quedaron resueltas y verificadas con una matriz de 28 comandos contra `dev`, `7c97f89` y HEAD, y con el watchdog en vivo (corta a los 4 s con budget 3, sin procesos huérfanos). Tope ≤ 570 y fail-closed ante valores inválidos.
+- **[LOW, regresión]** `--force-with-lease=<ref>` entre comillas dejó de bloquear. → corregido en `2054c67` con test, verificado con la suite (356/356). No se relanza el reviewer: es un cambio de un regex.
+- **[legacy]** El force por refspec `+main`, `-fu` y `git -C` no bloquean en ninguna versión → comentario en #77.
+
+## Cierre
+
+**Veredicto final:** APROBADO. HEAD revisado `2054c67`. Suites: `test-hooks` 356/356, `test-plugin-manifest` 31/31, `test-frontmatter` 94/94; `validate --strict` sobre `plugin.json` y `.` pasa.
