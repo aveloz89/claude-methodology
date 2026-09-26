@@ -599,10 +599,59 @@ rm -rf "$PCG_WD_TEST_DIR" "$FAKE_PYTEST_WD_DIR"
 # temporal y sourceándolo (source contra /dev/fd de una process
 # substitution resultó no confiable en macOS: fallaba con "command not
 # found" de forma intermitente).
+#
+# Ronda 2 (revisión pre-push, security MEDIUM): si la firma de la función
+# cambiara en el hook y el patrón de "awk" dejara de matchear, el archivo
+# extraído queda vacío. "source" sobre un archivo vacío NO falla, pero la
+# función queda sin definir — cualquier llamada posterior revienta el
+# script con "command not found" (exit 127) bajo el "set -e" del tope de
+# este archivo, abortando TODA la suite en vez de reportar un FAIL legible
+# sobre este bloque puntual. Se verifica el tamaño del archivo extraído
+# ANTES de sourcear: si queda vacío, se reporta el FAIL y se define un stub
+# que devuelve error, para que los tests de budget de abajo fallen de forma
+# legible (comparando contra una salida vacía) en vez de tumbar el proceso.
 BUDGET_FN_FILE=$(mktemp)
 awk '/^_guard_resolve_test_budget\(\) \{/,/^}/' "$HOOKS_DIR/pre-commit-guard.sh" > "$BUDGET_FN_FILE"
-source "$BUDGET_FN_FILE"
+if [ -s "$BUDGET_FN_FILE" ]; then
+  # shellcheck source=/dev/null
+  source "$BUDGET_FN_FILE"
+else
+  TOTAL=$((TOTAL + 1))
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: no se pudo extraer la función del hook (el patrón de awk no matcheó nada en pre-commit-guard.sh — revisar si la firma de la función cambió)"
+  FAIL=$((FAIL + 1))
+  _guard_resolve_test_budget() { return 1; }
+fi
 rm -f "$BUDGET_FN_FILE"
+
+# Regresión de la propia extracción (evita que el fix de arriba se rompa en
+# silencio): si "awk" no matchea NADA (nombre de función equivocado), el
+# bloque de arriba debe reportar el FAIL legible y seguir corriendo — nunca
+# abortar con "command not found" (exit 127) bajo `set -e`. Se reproduce la
+# misma lógica en un subproceso aislado para no interferir con el TOTAL real
+# de la suite ni con la extracción real de arriba.
+BROKEN_EXTRACT_OUT=$(bash -c '
+  set -e
+  FILE=$(mktemp)
+  awk "/^_nombre_que_no_existe\\(\\) \\{/,/^}/" "'"$HOOKS_DIR"'/pre-commit-guard.sh" > "$FILE"
+  if [ -s "$FILE" ]; then
+    source "$FILE"
+  else
+    echo "FAIL: no se pudo extraer la función del hook"
+  fi
+  rm -f "$FILE"
+  echo "SCRIPT_REACHED_END"
+' 2>&1)
+BROKEN_EXTRACT_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$BROKEN_EXTRACT_EXIT" -eq 0 ] \
+  && echo "$BROKEN_EXTRACT_OUT" | grep -qF "no se pudo extraer la función del hook" \
+  && echo "$BROKEN_EXTRACT_OUT" | grep -qF "SCRIPT_REACHED_END"; then
+  echo -e "${GREEN}PASS${NC}: extracción awk vacía reporta FAIL legible sin abortar la suite (exit 127)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: extracción awk vacía reporta FAIL legible sin abortar la suite (exit 127) (exit: $BROKEN_EXTRACT_EXIT, salida: \"$BROKEN_EXTRACT_OUT\")"
+  FAIL=$((FAIL + 1))
+fi
 
 TOTAL=$((TOTAL + 1))
 BUDGET_ABC_STDERR=$(mktemp)
