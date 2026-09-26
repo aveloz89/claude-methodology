@@ -278,25 +278,151 @@ sandbox_cleanup_pushrepo
 
 echo ""
 
+# --- block-force-push.sh ---
+echo "--- block-force-push.sh ---"
+
+assert_blocked_cmd "block-force-push: git push --force blocks" "block-force-push.sh" "git push --force"
+assert_blocked_cmd "block-force-push: git push -f origin x blocks" "block-force-push.sh" "git push -f origin x"
+assert_blocked_cmd "block-force-push: comando compuesto (cd a && git push --force) blocks" "block-force-push.sh" "cd a && git push --force"
+assert_allowed_cmd "block-force-push: git push (sin force) allowed" "block-force-push.sh" "git push"
+assert_allowed_cmd "block-force-push: git reset --soft HEAD~1 allowed (no relacionado)" "block-force-push.sh" "git reset --soft HEAD~1"
+
+# Regression (revisión pre-push, security LOW): guard_sanitize() borra el
+# contenido de CUALQUIER span quoted, incluido un flag real que el shell
+# recibe igual con o sin comillas — el push de abajo es una invocación real,
+# no una mención. Antes de #47 este guard grepeaba el comando SIN sanear y
+# sí bloqueaba estos dos casos (ver git log dev -- hooks/block-force-push.sh).
+assert_blocked_cmd "block-force-push: git push origin \"--force\" (flag quoted) blocks" \
+  "block-force-push.sh" \
+  'git push origin "--force"'
+assert_blocked_cmd "block-force-push: git push origin '-f' (flag quoted) blocks" \
+  "block-force-push.sh" \
+  "git push origin '-f'"
+
+# Sigue sin bloquear una mención de --force dentro de un mensaje de commit
+# (mismo caso que "quoted mention in commit message" de block-admin-merge).
+assert_allowed_cmd "block-force-push: mención de --force en mensaje de commit no bloquea" \
+  "block-force-push.sh" \
+  'git commit -m "docs: explica git push --force"'
+
+# Ronda 2 (revisión pre-push, security LOW): reproducido en vivo — un
+# heredoc que solo mencionaba "git push --force" en su cuerpo (para escribir
+# el registro de esta misma ronda) quedaba bloqueado por el grep sin sanear
+# de la versión anterior, porque GUARD_ANCHOR no distingue un separador
+# real de uno dentro de un span quoted/heredoc. Los cuatro casos de abajo
+# reproducen exactamente los que security listó en el registro.
+assert_allowed_cmd "block-force-push: mención con ';' dentro del mensaje de commit no bloquea" \
+  "block-force-push.sh" \
+  'git commit -m "fix: bug encontrado; git push --force rompía el remoto"'
+
+MULTILINE_MENTION_BFP=$'git commit -m "linea uno\ngit push --force linea dos"'
+assert_allowed_cmd "block-force-push: mención multilínea dentro de un mensaje de commit no bloquea" \
+  "block-force-push.sh" \
+  "$MULTILINE_MENTION_BFP"
+
+HEREDOC_MENTION_BFP=$(cat <<'CMD_EOF'
+git commit -F - <<NOTE_EOF
+git push --force fue el causante, según el registro
+NOTE_EOF
+CMD_EOF
+)
+assert_allowed_cmd "block-force-push: mención dentro de heredoc no bloquea" \
+  "block-force-push.sh" \
+  "$HEREDOC_MENTION_BFP"
+
+assert_allowed_cmd "block-force-push: mención en gh pr create --body no bloquea" \
+  "block-force-push.sh" \
+  'gh pr create --body "changelog: corrige bug; git push --force accidental rompía el remoto"'
+
+# Deben seguir bloqueando: la flag real entre comillas (regresión de #47,
+# ya cubierta arriba) y el push real sin comillas en comando compuesto.
+assert_blocked_cmd "block-force-push: git push origin \"--force\" sigue bloqueando (ronda 2)" \
+  "block-force-push.sh" \
+  'git push origin "--force"'
+assert_blocked_cmd "block-force-push: git push origin '-f' sigue bloqueando (ronda 2)" \
+  "block-force-push.sh" \
+  "git push origin '-f'"
+assert_blocked_cmd "block-force-push: cd a && git push --force sigue bloqueando (ronda 2)" \
+  "block-force-push.sh" \
+  "cd a && git push --force"
+
+# Ronda 3 (fix puntual): QUOTED_FORCE_PATTERN exigía que la comilla de
+# cierre viniera justo después de la flag, así que un "=valor" antes de
+# cerrar la comilla (forma real de --force-with-lease) se le escapaba.
+# Cadenas armadas por concatenación para que el hook activo de esta sesión
+# no bloquee el propio comando de test.
+FLAG_WITH_LEASE_VALUE_BFP="--force-with-lease=main"
+CMD_QUOTED_LEASE_VALUE_BFP="git push \"${FLAG_WITH_LEASE_VALUE_BFP}\" origin"
+assert_blocked_cmd "block-force-push: git push \"--force-with-lease=main\" (valor entre comillas dobles) blocks" \
+  "block-force-push.sh" \
+  "$CMD_QUOTED_LEASE_VALUE_BFP"
+
+FLAG_WITH_LEASE_REF_VALUE_BFP="--force-with-lease=main:abc"
+CMD_SINGLE_QUOTED_LEASE_VALUE_BFP="git push '${FLAG_WITH_LEASE_REF_VALUE_BFP}' origin"
+assert_blocked_cmd "block-force-push: git push '--force-with-lease=main:abc' (valor entre comillas simples) blocks" \
+  "block-force-push.sh" \
+  "$CMD_SINGLE_QUOTED_LEASE_VALUE_BFP"
+
+# Fail-closed sin jq (revisión pre-push, security MEDIUM): hoy, sin jq en
+# PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, y un
+# "git push --force" real pasa en silencio — mismo hueco que #50 en
+# block-admin-merge/pre-commit-guard, cerrado ahí pero no acá.
+NO_JQ_BFP_BIN=$(mktemp -d)
+for cmd in bash cat perl grep; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_BFP_BIN/$cmd"
+done
+assert_blocked_cmd "block-force-push: bloquea fail-closed sin jq en PATH" \
+  "block-force-push.sh" \
+  "git push --force" \
+  "$NO_JQ_BFP_BIN"
+rm -rf "$NO_JQ_BFP_BIN"
+
+echo ""
+
+# --- block-hard-reset.sh ---
+echo "--- block-hard-reset.sh ---"
+
+assert_blocked_cmd "block-hard-reset: git reset --hard blocks" "block-hard-reset.sh" "git reset --hard"
+assert_blocked_cmd "block-hard-reset: comando compuesto (cd a && git reset --hard) blocks" "block-hard-reset.sh" "cd a && git reset --hard"
+assert_allowed_cmd "block-hard-reset: git reset --soft HEAD~1 allowed" "block-hard-reset.sh" "git reset --soft HEAD~1"
+assert_allowed_cmd "block-hard-reset: git push allowed (no relacionado)" "block-hard-reset.sh" "git push"
+
+# Fail-closed sin jq (revisión pre-push, security MEDIUM): mismo hueco que
+# en block-force-push.sh — sin jq, COMMAND queda vacío y un
+# "git reset --hard" real pasa en silencio.
+NO_JQ_BHR_BIN=$(mktemp -d)
+for cmd in bash cat perl grep; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_BHR_BIN/$cmd"
+done
+assert_blocked_cmd "block-hard-reset: bloquea fail-closed sin jq en PATH" \
+  "block-hard-reset.sh" \
+  "git reset --hard" \
+  "$NO_JQ_BHR_BIN"
+rm -rf "$NO_JQ_BHR_BIN"
+
+echo ""
+
 # --- block-admin-merge.sh ---
 echo "--- block-admin-merge.sh ---"
 
-# block-admin-merge.sh responde con {"decision":"block",...} o
-# {"continue":true} en el JSON de stdout (siempre exit 0), igual que
-# pre-merge-check.sh — no exit code 2 como pre-commit-guard.sh/
-# pre-push-guard.sh, por eso usa asserts sobre el JSON en vez de
-# assert_blocked_cmd/assert_allowed_cmd (exit-code based).
+# block-admin-merge.sh responde con stderr + exit 2 (bloquear) o exit 0 sin
+# stdout (permitir) — mismo contrato que pre-push-guard.sh/pre-commit-
+# guard.sh (auditoría best-practices, migrado desde el JSON
+# {"decision":"block"}/{"continue":true} que usaba antes). El motivo de
+# bloqueo sigue verificable en stderr para quien lo necesite.
 assert_bam_blocked() {
   local test_name="$1" cmd="$2" run_path="${3:-$PATH}"
   TOTAL=$((TOTAL + 1))
-  local json output
+  local json exit_code=0
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/block-admin-merge.sh" 2>/dev/null)
-  if echo "$output" | grep -q '"decision":"block"'; then
+  echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/block-admin-merge.sh" > /dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 2 ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (blocked as expected)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 2)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -304,14 +430,14 @@ assert_bam_blocked() {
 assert_bam_continue() {
   local test_name="$1" cmd="$2" run_path="${3:-$PATH}"
   TOTAL=$((TOTAL + 1))
-  local json output
+  local json exit_code=0
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/block-admin-merge.sh" 2>/dev/null)
-  if echo "$output" | grep -q '"continue":true'; then
+  echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/block-admin-merge.sh" > /dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 0 ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 0)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -439,6 +565,196 @@ assert_allowed_cmd "pre-commit-guard: heredoc mentioning git commit is not a rea
   "$PCG_TEST_DIR"
 
 rm -rf "$PCG_TEST_DIR" "$FAKE_PYTEST_DIR"
+
+# --- pre-commit-guard.sh: watchdog fail-closed por tiempo (PRECOMMIT_TEST_BUDGET) ---
+# La suite corre en background; un bucle espera hasta PRECOMMIT_TEST_BUDGET
+# segundos (default 540). Si se agota, mata el grupo de procesos y bloquea
+# (exit 2) — el hook nunca falla abierto por un timeout. Fixture: un
+# "pytest" fake que duerme 5s (siempre "pasa" si llega a terminar).
+PCG_WD_TEST_DIR=$(mktemp -d)
+touch "$PCG_WD_TEST_DIR/pyproject.toml"
+FAKE_PYTEST_WD_DIR=$(mktemp -d)
+cat > "$FAKE_PYTEST_WD_DIR/pytest" <<'FAKE_PYTEST_WD_EOF'
+#!/bin/bash
+sleep 5
+exit 0
+FAKE_PYTEST_WD_EOF
+chmod +x "$FAKE_PYTEST_WD_DIR/pytest"
+
+TOTAL=$((TOTAL + 1))
+PCG_WD_JSON=$(jq -n --arg cmd "git commit -m wip" '{tool_input: {command: $cmd}}')
+PCG_WD_EXIT=0
+PCG_WD_STDERR=$(cd "$PCG_WD_TEST_DIR" && echo "$PCG_WD_JSON" | PATH="$FAKE_PYTEST_WD_DIR:$PATH" PRECOMMIT_TEST_BUDGET=1 bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PCG_WD_EXIT=$?
+sleep 1
+PCG_WD_ORPHAN=$(pgrep -f "$FAKE_PYTEST_WD_DIR/pytest" || true)
+if [ "$PCG_WD_EXIT" -eq 2 ] && echo "$PCG_WD_STDERR" | grep -qF "superó" && [ -z "$PCG_WD_ORPHAN" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=1 con suite de 5s bloquea fail-closed sin proceso huérfano"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=1 con suite de 5s bloquea fail-closed sin proceso huérfano (exit code: $PCG_WD_EXIT, stderr: $PCG_WD_STDERR, huérfano: $PCG_WD_ORPHAN)"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+PCG_WD2_EXIT=0
+(cd "$PCG_WD_TEST_DIR" && echo "$PCG_WD_JSON" | PATH="$FAKE_PYTEST_WD_DIR:$PATH" PRECOMMIT_TEST_BUDGET=10 bash "$HOOKS_DIR/pre-commit-guard.sh" > /dev/null 2>&1) || PCG_WD2_EXIT=$?
+if [ "$PCG_WD2_EXIT" -eq 0 ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=10 con suite de 5s pasa (tests ok, dentro del presupuesto)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=10 con suite de 5s pasa (tests ok, dentro del presupuesto) (exit code: $PCG_WD2_EXIT)"
+  FAIL=$((FAIL + 1))
+fi
+
+rm -rf "$PCG_WD_TEST_DIR" "$FAKE_PYTEST_WD_DIR"
+
+# --- pre-commit-guard.sh: PRECOMMIT_TEST_BUDGET inválido cae a un default
+# seguro (<= 570) en vez de romper la comparación del watchdog o anular su
+# ventaja sobre el timeout del harness (revisión pre-push, security MEDIUM) ---
+# Se importa _guard_resolve_test_budget del propio hook (no se reimplementa
+# la validación acá) extrayendo solo esa función con awk a un archivo
+# temporal y sourceándolo (source contra /dev/fd de una process
+# substitution resultó no confiable en macOS: fallaba con "command not
+# found" de forma intermitente).
+#
+# Ronda 2 (revisión pre-push, security MEDIUM): si la firma de la función
+# cambiara en el hook y el patrón de "awk" dejara de matchear, el archivo
+# extraído queda vacío. "source" sobre un archivo vacío NO falla, pero la
+# función queda sin definir — cualquier llamada posterior revienta el
+# script con "command not found" (exit 127) bajo el "set -e" del tope de
+# este archivo, abortando TODA la suite en vez de reportar un FAIL legible
+# sobre este bloque puntual. Se verifica el tamaño del archivo extraído
+# ANTES de sourcear: si queda vacío, se reporta el FAIL y se define un stub
+# que devuelve error, para que los tests de budget de abajo fallen de forma
+# legible (comparando contra una salida vacía) en vez de tumbar el proceso.
+BUDGET_FN_FILE=$(mktemp)
+awk '/^_guard_resolve_test_budget\(\) \{/,/^}/' "$HOOKS_DIR/pre-commit-guard.sh" > "$BUDGET_FN_FILE"
+if [ -s "$BUDGET_FN_FILE" ]; then
+  # shellcheck source=/dev/null
+  source "$BUDGET_FN_FILE"
+else
+  TOTAL=$((TOTAL + 1))
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: no se pudo extraer la función del hook (el patrón de awk no matcheó nada en pre-commit-guard.sh — revisar si la firma de la función cambió)"
+  FAIL=$((FAIL + 1))
+  _guard_resolve_test_budget() { return 1; }
+fi
+rm -f "$BUDGET_FN_FILE"
+
+# Regresión de la propia extracción (evita que el fix de arriba se rompa en
+# silencio): si "awk" no matchea NADA (nombre de función equivocado), el
+# bloque de arriba debe reportar el FAIL legible y seguir corriendo — nunca
+# abortar con "command not found" (exit 127) bajo `set -e`. Se reproduce la
+# misma lógica en un subproceso aislado para no interferir con el TOTAL real
+# de la suite ni con la extracción real de arriba.
+BROKEN_EXTRACT_OUT=$(bash -c '
+  set -e
+  FILE=$(mktemp)
+  awk "/^_nombre_que_no_existe\\(\\) \\{/,/^}/" "'"$HOOKS_DIR"'/pre-commit-guard.sh" > "$FILE"
+  if [ -s "$FILE" ]; then
+    source "$FILE"
+  else
+    echo "FAIL: no se pudo extraer la función del hook"
+  fi
+  rm -f "$FILE"
+  echo "SCRIPT_REACHED_END"
+' 2>&1)
+BROKEN_EXTRACT_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$BROKEN_EXTRACT_EXIT" -eq 0 ] \
+  && echo "$BROKEN_EXTRACT_OUT" | grep -qF "no se pudo extraer la función del hook" \
+  && echo "$BROKEN_EXTRACT_OUT" | grep -qF "SCRIPT_REACHED_END"; then
+  echo -e "${GREEN}PASS${NC}: extracción awk vacía reporta FAIL legible sin abortar la suite (exit 127)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: extracción awk vacía reporta FAIL legible sin abortar la suite (exit 127) (exit: $BROKEN_EXTRACT_EXIT, salida: \"$BROKEN_EXTRACT_OUT\")"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+BUDGET_ABC_STDERR=$(mktemp)
+BUDGET_ABC_OUT=$(PRECOMMIT_TEST_BUDGET=abc _guard_resolve_test_budget 2>"$BUDGET_ABC_STDERR")
+if [ "$BUDGET_ABC_OUT" = "540" ] && grep -qF "inválido" "$BUDGET_ABC_STDERR"; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=abc cae a 540 con aviso en stderr"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=abc cae a 540 con aviso en stderr (salida: \"$BUDGET_ABC_OUT\", stderr: \"$(cat "$BUDGET_ABC_STDERR")\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_ABC_STDERR"
+
+TOTAL=$((TOTAL + 1))
+BUDGET_9999_STDERR=$(mktemp)
+BUDGET_9999_OUT=$(PRECOMMIT_TEST_BUDGET=9999 _guard_resolve_test_budget 2>"$BUDGET_9999_STDERR")
+if [ "$BUDGET_9999_OUT" = "540" ] && grep -qF "inválido" "$BUDGET_9999_STDERR"; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=9999 (> 570) cae a 540 con aviso en stderr"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=9999 (> 570) cae a 540 con aviso en stderr (salida: \"$BUDGET_9999_OUT\", stderr: \"$(cat "$BUDGET_9999_STDERR")\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_9999_STDERR"
+
+# Límite exacto del tope nuevo (ronda 2): 570 es válido, 571 ya no.
+TOTAL=$((TOTAL + 1))
+BUDGET_570_STDERR=$(mktemp)
+BUDGET_570_OUT=$(PRECOMMIT_TEST_BUDGET=570 _guard_resolve_test_budget 2>"$BUDGET_570_STDERR")
+if [ "$BUDGET_570_OUT" = "570" ] && [ ! -s "$BUDGET_570_STDERR" ]; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=570 (límite) se respeta sin aviso"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=570 (límite) se respeta sin aviso (salida: \"$BUDGET_570_OUT\", stderr: \"$(cat "$BUDGET_570_STDERR")\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_570_STDERR"
+
+TOTAL=$((TOTAL + 1))
+BUDGET_571_STDERR=$(mktemp)
+BUDGET_571_OUT=$(PRECOMMIT_TEST_BUDGET=571 _guard_resolve_test_budget 2>"$BUDGET_571_STDERR")
+if [ "$BUDGET_571_OUT" = "540" ] && grep -qF "inválido" "$BUDGET_571_STDERR"; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=571 (> 570) cae a 540 con aviso en stderr"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=571 (> 570) cae a 540 con aviso en stderr (salida: \"$BUDGET_571_OUT\", stderr: \"$(cat "$BUDGET_571_STDERR")\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_571_STDERR"
+
+TOTAL=$((TOTAL + 1))
+BUDGET_VALID_STDERR=$(mktemp)
+BUDGET_VALID_OUT=$(PRECOMMIT_TEST_BUDGET=30 _guard_resolve_test_budget 2>"$BUDGET_VALID_STDERR")
+if [ "$BUDGET_VALID_OUT" = "30" ] && [ ! -s "$BUDGET_VALID_STDERR" ]; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=30 (válido) se respeta sin aviso"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=30 (válido) se respeta sin aviso (salida: \"$BUDGET_VALID_OUT\", stderr: \"$(cat "$BUDGET_VALID_STDERR")\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_VALID_STDERR"
+
+# Integración: el hook completo no se rompe con un PRECOMMIT_TEST_BUDGET
+# inválido — sigue corriendo tests y avisa el fallback por stderr.
+PCG_BADBUDGET_DIR=$(mktemp -d)
+touch "$PCG_BADBUDGET_DIR/pyproject.toml"
+FAKE_PYTEST_BADBUDGET_DIR=$(mktemp -d)
+cat > "$FAKE_PYTEST_BADBUDGET_DIR/pytest" <<'FAKE_PYTEST_BB_EOF'
+#!/bin/bash
+exit 0
+FAKE_PYTEST_BB_EOF
+chmod +x "$FAKE_PYTEST_BADBUDGET_DIR/pytest"
+
+TOTAL=$((TOTAL + 1))
+PCG_BB_JSON=$(jq -n --arg cmd "git commit -m wip" '{tool_input: {command: $cmd}}')
+PCG_BB_EXIT=0
+PCG_BB_STDERR=$(cd "$PCG_BADBUDGET_DIR" && echo "$PCG_BB_JSON" | PATH="$FAKE_PYTEST_BADBUDGET_DIR:$PATH" PRECOMMIT_TEST_BUDGET=abc bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PCG_BB_EXIT=$?
+if [ "$PCG_BB_EXIT" -eq 0 ] && echo "$PCG_BB_STDERR" | grep -qF "inválido"; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=abc no rompe el hook (avisa y sigue con el default)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=abc no rompe el hook (avisa y sigue con el default) (exit code: $PCG_BB_EXIT, stderr: $PCG_BB_STDERR)"
+  FAIL=$((FAIL + 1))
+fi
+
+rm -rf "$PCG_BADBUDGET_DIR" "$FAKE_PYTEST_BADBUDGET_DIR"
 
 # [ronda 2, tarea 3] Cierra #50 de verdad para este guard: hoy, sin jq en
 # PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, el guard
@@ -1517,16 +1833,118 @@ rm -rf "$WSLIB_DIR"
 
 echo ""
 
+# --- pre-release-sweep.sh ---
+echo "--- pre-release-sweep.sh ---"
+
+# pre-release-sweep.sh bloquea "gh pr create --base main" si hay issues
+# abiertos con label latent-bug y severidad CRÍTICO/CRITICAL que mencionen
+# un archivo del diff (origin/main...HEAD). Sandbox: repo git con una rama
+# LOCAL literalmente llamada "origin/main" — git resuelve "origin/main"
+# contra refs/heads/origin/main igual que contra un remote-tracking real
+# (mismas reglas de disambiguación), así que alcanza sin remote de verdad.
+sandbox_create_prs() {
+  PRS_REPO=$(mktemp -d)
+  PRS_REPO=$(cd "$PRS_REPO" && pwd -P)
+  (
+    cd "$PRS_REPO" || exit 1
+    git init -q -b "origin/main"
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    echo "base" > base.txt
+    git add -A
+    git commit -q -m "initial commit"
+    git checkout -q -b feature/x
+    echo "console.log('x')" > app.js
+    git add -A
+    git commit -q -m "agregar app.js"
+  ) > /dev/null 2>&1
+}
+
+sandbox_cleanup_prs() {
+  rm -rf "$PRS_REPO"
+}
+
+PRS_FAKE_GH_DIR=$(mktemp -d)
+cat > "$PRS_FAKE_GH_DIR/gh" <<'PRS_FAKE_GH_EOF'
+#!/bin/bash
+# Fake gh para tests de pre-release-sweep.sh: nunca toca la red.
+case "$1 $2" in
+  "issue list")
+    case "$PRS_FAKE_GH_MODE" in
+      critical)
+        echo '[{"number":42,"title":"bug latente","body":"Severidad: CRÍTICO. Afecta a app.js con un null deref."}]'
+        ;;
+      *)
+        echo '[]'
+        ;;
+    esac
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+PRS_FAKE_GH_EOF
+chmod +x "$PRS_FAKE_GH_DIR/gh"
+
+assert_prs_blocked() {
+  local test_name="$1" cmd="$2" fake_gh_mode="$3" expected_substring="$4"
+  TOTAL=$((TOTAL + 1))
+  local json exit_code=0 stderr_file
+  stderr_file=$(mktemp)
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  (cd "$PRS_REPO" && echo "$json" | PATH="$PRS_FAKE_GH_DIR:$PATH" PRS_FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>"$stderr_file") || exit_code=$?
+  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"))"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$stderr_file"
+}
+
+assert_prs_allowed() {
+  local test_name="$1" cmd="$2" fake_gh_mode="${3:-}"
+  TOTAL=$((TOTAL + 1))
+  local json exit_code=0
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  (cd "$PRS_REPO" && echo "$json" | PATH="$PRS_FAKE_GH_DIR:$PATH" PRS_FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>&1) || exit_code=$?
+  if [ "$exit_code" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (allowed as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 0)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+sandbox_create_prs
+
+assert_prs_blocked "pre-release-sweep: bloquea con issue latent-bug CRÍTICO sobre archivo del diff" \
+  "gh pr create --base main --title x --body y" "critical" "app.js"
+assert_prs_allowed "pre-release-sweep: pasa sin issues abiertos" \
+  "gh pr create --base main --title x --body y" "none"
+assert_prs_allowed "pre-release-sweep: pasa si el comando no es gh pr create --base main" \
+  "gh pr create --base dev --title x --body y" "critical"
+
+sandbox_cleanup_prs
+rm -rf "$PRS_FAKE_GH_DIR"
+
+echo ""
+
 echo ""
 
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 
-# pre-merge-check.sh responde con {"decision":"block",...} o {"continue":true}
-# en el JSON de stdout (siempre exit 0) — no usa exit code 2 como los demás
-# hooks, por eso usa helpers propios en vez de assert_blocked/assert_allowed.
-# Además llama a gh internamente, así que estos tests reemplazan gh en el
-# PATH por un fake determinístico (sin red) que responde según $FAKE_GH_MODE.
+# pre-merge-check.sh responde con stderr + exit 2 (bloquear) o exit 0 sin
+# stdout (permitir) — mismo contrato que pre-push-guard.sh/pre-commit-
+# guard.sh (auditoría best-practices, migrado desde el JSON
+# {"decision":"block"}/{"continue":true} que usaba antes; el motivo de
+# bloqueo sigue verificable en stderr). Usa helpers propios (no
+# assert_blocked_cmd/assert_allowed_cmd genéricos) porque además llama a gh
+# internamente: estos tests reemplazan gh en el PATH por un fake
+# determinístico (sin red) que responde según $FAKE_GH_MODE.
 
 FAKE_GH_DIR=$(mktemp -d)
 cat > "$FAKE_GH_DIR/gh" <<'FAKE_GH_EOF'
@@ -1578,15 +1996,15 @@ chmod +x "$FAKE_GH_DIR/gh"
 assert_pre_merge_continue() {
   local test_name="$1" cmd="$2" fake_gh_mode="${3:-}"
   TOTAL=$((TOTAL + 1))
-  local json output
+  local json exit_code=0
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || exit_code=$?
 
-  if echo "$output" | grep -q '"continue":true'; then
+  if [ "$exit_code" -eq 0 ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 0)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -1594,17 +2012,19 @@ assert_pre_merge_continue() {
 assert_pre_merge_blocked() {
   local test_name="$1" cmd="$2" expected_substring="$3" fake_gh_mode="${4:-}"
   TOTAL=$((TOTAL + 1))
-  local json output
+  local json exit_code=0 stderr_file
+  stderr_file=$(mktemp)
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>"$stderr_file" || exit_code=$?
 
-  if echo "$output" | grep -q '"decision":"block"' && echo "$output" | grep -qF "$expected_substring"; then
+  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file"; then
     echo -e "${GREEN}PASS${NC}: $test_name (blocked with expected reason)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"))"
     FAIL=$((FAIL + 1))
   fi
+  rm -f "$stderr_file"
 }
 
 # Caso 1: mención de la frase de merge dentro de un heredoc (mensaje de
@@ -1678,18 +2098,18 @@ assert_pre_merge_continue "Valid GraphQL response with 0 unresolved threads stil
 # Caso 6: fail-closed sin dependencias (#50, extendido a grep en la
 # retro del PR #60) — antes, si faltaba perl o jq, la sustitución/parseo
 # devolvía vacío, el grep no matcheaba, y el hook emitía {"continue":true}:
-# cualquier gh pr merge pasaba sin verificar. El bloqueo se emite con
-# printf, sin depender de jq (la propia herramienta que puede faltar).
+# cualquier gh pr merge pasaba sin verificar. El bloqueo se emite sin
+# depender de jq (la propia herramienta que puede faltar).
 assert_pre_merge_missing_dep_blocks() {
   local test_name="$1" restricted_path="$2"
   TOTAL=$((TOTAL + 1))
-  local output
-  output=$(echo '{"tool_input":{"command":"gh pr merge 5"}}' | PATH="$restricted_path" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-  if [ "$output" = '{"decision":"block","reason":"pre-merge-check no operativo: falta perl, jq o grep"}' ]; then
+  local exit_code=0 stderr_output
+  stderr_output=$(echo '{"tool_input":{"command":"gh pr merge 5"}}' | PATH="$restricted_path" bash "$HOOKS_DIR/pre-merge-check.sh" 2>&1 > /dev/null) || exit_code=$?
+  if [ "$exit_code" -eq 2 ] && [ "$stderr_output" = "BLOCKED: pre-merge-check no operativo: falta perl, jq o grep" ]; then
     echo -e "${GREEN}PASS${NC}: $test_name"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $stderr_output)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -1766,14 +2186,15 @@ for cmd in bash jq grep cat; do
 done
 TOTAL=$((TOTAL + 1))
 PMC_DECOY_JSON=$(jq -n '{tool_input: {command: "git commit -m \"ver nota: gh pr merge 7\" && gh pr merge --squash"}}')
-PMC_DECOY_OUTPUT=$(echo "$PMC_DECOY_JSON" | PATH="$FAKE_PERL_FAILS_PMC_DIR" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$PMC_DECOY_OUTPUT" | grep -q '"decision":"block"' \
-  && echo "$PMC_DECOY_OUTPUT" | grep -qF "el saneo del comando" \
-  && ! echo "$PMC_DECOY_OUTPUT" | grep -qF "PR #7"; then
+PMC_DECOY_EXIT=0
+PMC_DECOY_STDERR=$(echo "$PMC_DECOY_JSON" | PATH="$FAKE_PERL_FAILS_PMC_DIR" bash "$HOOKS_DIR/pre-merge-check.sh" 2>&1 > /dev/null) || PMC_DECOY_EXIT=$?
+if [ "$PMC_DECOY_EXIT" -eq 2 ] \
+  && echo "$PMC_DECOY_STDERR" | grep -qF "el saneo del comando" \
+  && ! echo "$PMC_DECOY_STDERR" | grep -qF "PR #7"; then
   echo -e "${GREEN}PASS${NC}: pre-merge-check [security]: perl fallando en tiempo de ejecución bloquea (no valida el PR señuelo del texto sin sanear)"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-merge-check [security]: perl fallando en tiempo de ejecución bloquea (no valida el PR señuelo del texto sin sanear) (output: $PMC_DECOY_OUTPUT)"
+  echo -e "${RED}FAIL${NC}: pre-merge-check [security]: perl fallando en tiempo de ejecución bloquea (no valida el PR señuelo del texto sin sanear) (exit code: $PMC_DECOY_EXIT, stderr: $PMC_DECOY_STDERR)"
   FAIL=$((FAIL + 1))
 fi
 rm -rf "$FAKE_PERL_FAILS_PMC_DIR"
@@ -1803,14 +2224,14 @@ done
 assert_pre_merge_unrelated_not_blocked() {
   local test_name="$1" cmd="$2"
   TOTAL=$((TOTAL + 1))
-  local json output
+  local json exit_code=0
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_PERL_FAILS_UNRELATED_DIR" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-  if echo "$output" | grep -q '"continue":true'; then
+  echo "$json" | PATH="$FAKE_PERL_FAILS_UNRELATED_DIR" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 0 ]; then
     echo -e "${GREEN}PASS${NC}: $test_name"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 0)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -1859,17 +2280,19 @@ assert_pre_merge_blocked_no_calls() {
   local test_name="$1" cmd="$2" expected_substring="${3:-Forma aceptada}"
   TOTAL=$((TOTAL + 1))
   : > "$FAKE_GH_D04_LOG"
-  local json output calls
+  local json exit_code=0 calls stderr_file
+  stderr_file=$(mktemp)
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  echo "$json" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>"$stderr_file" || exit_code=$?
   calls=$(wc -l < "$FAKE_GH_D04_LOG" | tr -d ' ')
-  if echo "$output" | grep -q '"decision":"block"' && echo "$output" | grep -qF -- "$expected_substring" && [ "$calls" = "0" ]; then
+  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file" && [ "$calls" = "0" ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (blocked, 0 consultas a gh)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output, consultas: $calls)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"), consultas: $calls)"
     FAIL=$((FAIL + 1))
   fi
+  rm -f "$stderr_file"
 }
 
 # Igual, pero pasando variables de entorno al PROCESO del hook (GH_REPO/
@@ -1878,17 +2301,19 @@ assert_pre_merge_blocked_no_calls_env() {
   local test_name="$1" cmd="$2" expected_substring="$3"; shift 3
   TOTAL=$((TOTAL + 1))
   : > "$FAKE_GH_D04_LOG"
-  local json output calls
+  local json exit_code=0 calls stderr_file
+  stderr_file=$(mktemp)
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" env "$@" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  echo "$json" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" env "$@" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>"$stderr_file" || exit_code=$?
   calls=$(wc -l < "$FAKE_GH_D04_LOG" | tr -d ' ')
-  if echo "$output" | grep -q '"decision":"block"' && echo "$output" | grep -qF -- "$expected_substring" && [ "$calls" = "0" ]; then
+  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file" && [ "$calls" = "0" ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (blocked, 0 consultas a gh)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output, consultas: $calls)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"), consultas: $calls)"
     FAIL=$((FAIL + 1))
   fi
+  rm -f "$stderr_file"
 }
 
 # --- El incidente original (PR #75): cd a otro repo bloquea, menciona --repo ---
@@ -2060,16 +2485,17 @@ assert_pre_merge_blocked_no_calls "gh pr merge [D-04, control]: carácter de con
 
 # --- [ronda 3, sugerencia] truncado del valor reflejado en el mensaje de
 # bloqueo: un token no reconocido de 200 KB no debe producir un reason
-# gigante ni JSON inválido — TOKEN:0:64 lo acota a 64 caracteres.
+# gigante — TOKEN:0:64 lo acota a 64 caracteres.
 TOTAL=$((TOTAL + 1))
 BIG_TOKEN_CMD="gh pr merge 45 --$(head -c 200000 /dev/zero | tr '\0' 'a')"
 BIG_TOKEN_JSON=$(jq -n --arg cmd "$BIG_TOKEN_CMD" '{tool_input: {command: $cmd}}')
-BIG_TOKEN_OUTPUT=$(echo "$BIG_TOKEN_JSON" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if [ "${#BIG_TOKEN_OUTPUT}" -lt 1000 ] && echo "$BIG_TOKEN_OUTPUT" | jq -e . > /dev/null 2>&1 && echo "$BIG_TOKEN_OUTPUT" | grep -q '"decision":"block"'; then
-  echo -e "${GREEN}PASS${NC}: gh pr merge [D-04, truncado]: token no reconocido de 200 KB da un reason corto y JSON válido (largo: ${#BIG_TOKEN_OUTPUT})"
+BIG_TOKEN_EXIT=0
+BIG_TOKEN_STDERR=$(echo "$BIG_TOKEN_JSON" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>&1 > /dev/null) || BIG_TOKEN_EXIT=$?
+if [ "$BIG_TOKEN_EXIT" -eq 2 ] && [ "${#BIG_TOKEN_STDERR}" -lt 1000 ]; then
+  echo -e "${GREEN}PASS${NC}: gh pr merge [D-04, truncado]: token no reconocido de 200 KB da un reason corto (largo: ${#BIG_TOKEN_STDERR})"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, truncado]: token no reconocido de 200 KB da un reason corto y JSON válido (largo: ${#BIG_TOKEN_OUTPUT})"
+  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, truncado]: token no reconocido de 200 KB da un reason corto (exit code: $BIG_TOKEN_EXIT, largo: ${#BIG_TOKEN_STDERR})"
   FAIL=$((FAIL + 1))
 fi
 
@@ -2100,14 +2526,14 @@ assert_pre_merge_continue_repo() {
   local test_name="$1" cmd="$2" expected_repo="$3"
   TOTAL=$((TOTAL + 1))
   : > "$FAKE_GH_D04_LOG2"
-  local json output
+  local json exit_code=0
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-  if echo "$output" | grep -q '"continue":true' && grep -qF -- "--repo $expected_repo" "$FAKE_GH_D04_LOG2"; then
+  echo "$json" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 0 ] && grep -qF -- "--repo $expected_repo" "$FAKE_GH_D04_LOG2"; then
     echo -e "${GREEN}PASS${NC}: $test_name (continue, repo consultado: $expected_repo)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output, log: $(cat "$FAKE_GH_D04_LOG2" | tr '\n' ' '))"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, log: $(cat "$FAKE_GH_D04_LOG2" | tr '\n' ' '))"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -2133,12 +2559,13 @@ assert_pre_merge_continue_repo "gh pr merge [D-04, pasa]: -m/-s/-r/-d cortos tam
 # no se trata como una invocación real — sigue sin tocar gh.
 TOTAL=$((TOTAL + 1))
 COMMIT_MENTION_JSON=$(jq -n --arg cmd 'git commit -m "nota: usar gh pr merge <N> para cerrar"' '{tool_input: {command: $cmd}}')
-COMMIT_MENTION_OUTPUT=$(echo "$COMMIT_MENTION_JSON" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$COMMIT_MENTION_OUTPUT" | grep -q '"continue":true'; then
+COMMIT_MENTION_EXIT=0
+echo "$COMMIT_MENTION_JSON" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || COMMIT_MENTION_EXIT=$?
+if [ "$COMMIT_MENTION_EXIT" -eq 0 ]; then
   echo -e "${GREEN}PASS${NC}: gh pr merge [D-04, pasa]: mención entre comillas dentro de git commit -m no se trata como merge"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, pasa]: mención entre comillas dentro de git commit -m no se trata como merge (output: $COMMIT_MENTION_OUTPUT)"
+  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, pasa]: mención entre comillas dentro de git commit -m no se trata como merge (exit code: $COMMIT_MENTION_EXIT)"
   FAIL=$((FAIL + 1))
 fi
 
@@ -2146,12 +2573,13 @@ fi
 # (el guard nunca corre gh repo view cuando hay --repo).
 TOTAL=$((TOTAL + 1))
 GITDIR_JSON=$(jq -n --arg cmd 'gh pr merge 45 --repo o/r' '{tool_input: {command: $cmd}}')
-GITDIR_OUTPUT=$(echo "$GITDIR_JSON" | PATH="$FAKE_GH_D04_DIR:$PATH" GIT_DIR=/tmp/otro/.git bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$GITDIR_OUTPUT" | grep -q '"continue":true'; then
+GITDIR_EXIT=0
+echo "$GITDIR_JSON" | PATH="$FAKE_GH_D04_DIR:$PATH" GIT_DIR=/tmp/otro/.git bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || GITDIR_EXIT=$?
+if [ "$GITDIR_EXIT" -eq 0 ]; then
   echo -e "${GREEN}PASS${NC}: gh pr merge [D-04, pasa]: GIT_DIR en el entorno del hook no bloquea si hay --repo explícito"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, pasa]: GIT_DIR en el entorno del hook no bloquea si hay --repo explícito (output: $GITDIR_OUTPUT)"
+  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, pasa]: GIT_DIR en el entorno del hook no bloquea si hay --repo explícito (exit code: $GITDIR_EXIT)"
   FAIL=$((FAIL + 1))
 fi
 
@@ -2161,15 +2589,15 @@ assert_pre_merge_continue_no_calls() {
   local test_name="$1" cmd="$2"
   TOTAL=$((TOTAL + 1))
   : > "$FAKE_GH_D04_LOG2"
-  local json output calls
+  local json exit_code=0 calls
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  echo "$json" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || exit_code=$?
   calls=$(wc -l < "$FAKE_GH_D04_LOG2" | tr -d ' ')
-  if echo "$output" | grep -q '"continue":true' && [ "$calls" = "0" ]; then
+  if [ "$exit_code" -eq 0 ] && [ "$calls" = "0" ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (continue, 0 consultas a gh)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output, consultas: $calls)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, consultas: $calls)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -2213,23 +2641,25 @@ cp "$HOOKS_DIR/pre-merge-check.sh" "$HOOKS_DIR/block-admin-merge.sh" "$HOOKS_DIR
 
 TOTAL=$((TOTAL + 1))
 JSON_MISSING_LIB_PMC=$(jq -n '{tool_input: {command: "gh pr merge 5"}}')
-OUTPUT_MISSING_LIB_PMC=$(echo "$JSON_MISSING_LIB_PMC" | bash "$MISSING_LIB_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$OUTPUT_MISSING_LIB_PMC" | grep -q '"decision":"block"'; then
+EXIT_MISSING_LIB_PMC=0
+echo "$JSON_MISSING_LIB_PMC" | bash "$MISSING_LIB_DIR/pre-merge-check.sh" > /dev/null 2>&1 || EXIT_MISSING_LIB_PMC=$?
+if [ "$EXIT_MISSING_LIB_PMC" -eq 2 ]; then
   echo -e "${GREEN}PASS${NC}: pre-merge-check.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-merge-check.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible (output: $OUTPUT_MISSING_LIB_PMC)"
+  echo -e "${RED}FAIL${NC}: pre-merge-check.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible (exit code: $EXIT_MISSING_LIB_PMC)"
   FAIL=$((FAIL + 1))
 fi
 
 TOTAL=$((TOTAL + 1))
 JSON_MISSING_LIB_BAM=$(jq -n '{tool_input: {command: "gh pr merge 5 --admin"}}')
-OUTPUT_MISSING_LIB_BAM=$(echo "$JSON_MISSING_LIB_BAM" | bash "$MISSING_LIB_DIR/block-admin-merge.sh" 2>/dev/null)
-if echo "$OUTPUT_MISSING_LIB_BAM" | grep -q '"decision":"block"'; then
+EXIT_MISSING_LIB_BAM=0
+echo "$JSON_MISSING_LIB_BAM" | bash "$MISSING_LIB_DIR/block-admin-merge.sh" > /dev/null 2>&1 || EXIT_MISSING_LIB_BAM=$?
+if [ "$EXIT_MISSING_LIB_BAM" -eq 2 ]; then
   echo -e "${GREEN}PASS${NC}: block-admin-merge.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: block-admin-merge.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible (output: $OUTPUT_MISSING_LIB_BAM)"
+  echo -e "${RED}FAIL${NC}: block-admin-merge.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible (exit code: $EXIT_MISSING_LIB_BAM)"
   FAIL=$((FAIL + 1))
 fi
 

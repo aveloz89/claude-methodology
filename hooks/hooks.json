@@ -6,38 +6,45 @@
         "hooks": [
           {
             "type": "command",
+            "if": "Bash(gh *)",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/block-admin-merge.sh",
             "timeout": 10
           },
           {
             "type": "command",
+            "if": "Bash(git *)",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/block-force-push.sh",
             "timeout": 10
           },
           {
             "type": "command",
+            "if": "Bash(git *)",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/block-hard-reset.sh",
             "timeout": 10
           },
           {
             "type": "command",
+            "if": "Bash(git *)",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-push-guard.sh",
             "timeout": 10
           },
           {
             "type": "command",
+            "if": "Bash(gh *)",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-merge-check.sh",
             "timeout": 30
           },
           {
             "type": "command",
+            "if": "Bash(gh *)",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-release-sweep.sh",
             "timeout": 30
           },
           {
             "type": "command",
+            "if": "Bash(git *)",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-guard.sh",
-            "timeout": 120
+            "timeout": 600
           }
         ]
       }
@@ -66,7 +73,7 @@
     ],
     "SessionStart": [
       {
-        "matcher": "startup",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",

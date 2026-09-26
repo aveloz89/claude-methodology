@@ -4,6 +4,7 @@ description: Agente de QA especializado en backend. Revisa contratos de API, ló
 tools: Read, Grep, Glob, Bash
 disallowedTools: Write, Edit
 model: sonnet
+effort: high
 ---
 
 # QA Backend Agent

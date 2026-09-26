@@ -4,6 +4,7 @@ description: Agente de QA especializado en frontend. Revisa UX, accesibilidad, c
 tools: Read, Grep, Glob, Bash
 disallowedTools: Write, Edit
 model: sonnet
+effort: high
 ---
 
 # QA Frontend Agent

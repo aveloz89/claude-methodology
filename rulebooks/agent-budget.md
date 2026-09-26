@@ -1,6 +1,6 @@
 # Agent Budget
 
-Cada invocación de un agente tiene un techo finito de tokens/iteraciones (`maxTurns`). Cuando se acerca al límite, el agente se corta — y si lo hace en un mal momento, deja código sin commitear, sin reporte, y sin trazabilidad.
+Cada invocación de un agente tiene un techo finito: la ventana de contexto y el corte de la invocación cuando se agota. No es un `maxTurns` configurado — ningún agente de este repo lo define, porque cortaría a mitad de un ciclo TDD y devolvería salida parcial; el control real de alcance es el cap de 5 tareas por lote (regla 1 abajo). Cuando la invocación se acerca al techo, el agente se corta — y si lo hace en un mal momento, deja código sin commitear, sin reporte, y sin trazabilidad.
 
 Este rulebook codifica las reglas que orchestrator y devs aplican para que el trabajo sobreviva al corte.
 

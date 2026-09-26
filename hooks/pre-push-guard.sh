@@ -1,6 +1,10 @@
 #!/bin/bash
 # Pre-push guard: Previene push directo a main.
 # Debe hacerse por PR.
+#
+# hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
+# latencia, no reemplaza la validación de abajo, que sigue mirando el
+# comando completo.
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')

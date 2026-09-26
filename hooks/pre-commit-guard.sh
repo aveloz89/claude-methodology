@@ -3,6 +3,10 @@
 # y verifica que los tests pasen primero.
 # Recibe JSON en stdin con tool_input del comando Bash.
 #
+# hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
+# latencia, no reemplaza la validación de abajo, que sigue mirando el
+# comando completo.
+#
 # Matching endurecido (#47): el match se sanea (spans quoted/heredoc) y se
 # ancla a posición de comando en vez de al string completo — mismo helper
 # que usa pre-merge-check.sh. Ver hooks/lib/guard-matching.sh.
@@ -147,6 +151,101 @@ elif _guard_planning_only_change; then
   exit 0
 fi
 
+# Watchdog fail-closed por tiempo (auditoría best-practices): sin esto, una
+# suite colgada supera el timeout del harness (hooks.json), que DESCARTA la
+# salida del hook y deja pasar el commit sin tests (doc "Timeouts") — el
+# hook nunca falla abierto por diseño, así que un cuelgue no puede ser la
+# excepción. PRECOMMIT_TEST_BUDGET (default 540, env sobreescribible) es
+# menor que el timeout de hooks.json (600) para que el watchdog interno
+# siempre gane. Reusa la FORMA del watchdog de hooks/lib/guard-matching.sh
+# (un temporizador que corta lo que corre más de la cuenta), no la lib: ahí
+# es un alarm(5) de perl sobre sí mismo; acá hace falta matar un PROCESO
+# EXTERNO (pytest/npm y sus hijos), así que el mecanismo es un job de bash
+# en su propio grupo de procesos (`set -m`) + kill del grupo completo
+# (`kill -- -$pgid`), no una señal a sí mismo — matar solo el pid de arriba
+# (`kill -9 "$pid"`) deja a los hijos del test runner huérfanos corriendo.
+# _guard_resolve_test_budget: valida PRECOMMIT_TEST_BUDGET antes de usarlo
+# como cap del watchdog. Sin esto, un valor no numérico (p. ej. "abc") rompe
+# la comparación "[ "$SECONDS" -ge "$budget" ]" de más abajo ("integer
+# expression expected", que en un "if" cuenta como falso) y el watchdog
+# nunca corta — el hueco lo cierra el timeout del harness (600s en
+# hooks.json), que DESCARTA la salida y deja pasar el commit sin tests.
+#
+# Tope <= 570 (revisión pre-push, ronda 2, security MEDIUM): antes el tope
+# era < 600, el mismo número que el timeout del harness. Con un budget en
+# 590-599, el watchdog "gana" en el papel, pero el margen real es de
+# segundos: el corte no es instantáneo — mide en pasos de `sleep 1` (o de
+# ida y vuelta de $SECONDS, ver más abajo) y encima corre `kill -TERM`, un
+# `sleep 1` de gracia y `kill -KILL` antes de poder responder al harness. Un
+# budget de 599 con ese overhead puede terminar respondiendo después de los
+# 600s del harness, que ya descartó la salida del hook — el mismo hueco que
+# esto existe para cerrar. 570 deja 30s de colchón para el overhead de
+# corte + cleanup, nunca ajustado al límite exacto del timeout externo.
+_guard_resolve_test_budget() {
+  local raw="${PRECOMMIT_TEST_BUDGET:-}"
+  if [ -z "$raw" ]; then
+    echo 540
+    return 0
+  fi
+  if [[ "$raw" =~ ^[0-9]+$ ]] && [ "$raw" -le 570 ]; then
+    echo "$raw"
+    return 0
+  fi
+  echo "PRECOMMIT_TEST_BUDGET=\"$raw\" inválido (debe ser un entero <= 570); usando el default 540." >&2
+  echo 540
+  return 0
+}
+
+_guard_run_with_budget() {
+  local budget
+  budget=$(_guard_resolve_test_budget)
+  local outfile pgid_file
+  outfile=$(mktemp)
+  pgid_file=$(mktemp)
+
+  (
+    set -m
+    "$@" > "$outfile" 2>&1 &
+    job_pid=$!
+    echo "$job_pid" > "$pgid_file"
+    wait "$job_pid"
+  ) &
+  local runner_pid=$!
+
+  # Ronda 2 (revisión pre-push, security MEDIUM): "waited" contaba VUELTAS de
+  # loop, no segundos reales — cada vuelta es un "sleep 1" más lo que tarde
+  # el propio "kill -0" y la comparación, así que con budget alto el drift
+  # se acumula y el corte real llega más tarde que "budget" segundos. $SECONDS
+  # es un contador de bash de tiempo real desde que se resetea (acá, desde
+  # el inicio de este loop) — mide el reloj de pared en vez de vueltas, así
+  # que el corte ocurre cuando realmente pasaron "budget" segundos, no
+  # cuando pasaron "budget" iteraciones de un loop con overhead variable.
+  SECONDS=0
+  while kill -0 "$runner_pid" 2>/dev/null; do
+    if [ "$SECONDS" -ge "$budget" ]; then
+      local job_pgid
+      job_pgid=$(cat "$pgid_file" 2>/dev/null)
+      if [ -n "$job_pgid" ]; then
+        kill -TERM -- "-$job_pgid" 2>/dev/null
+        sleep 1
+        kill -KILL -- "-$job_pgid" 2>/dev/null
+      fi
+      kill -KILL "$runner_pid" 2>/dev/null
+      cat "$outfile"
+      echo "BLOCKED: la suite superó ${budget}s; el hook no falla abierto. Acotá la suite o subí PRECOMMIT_TEST_BUDGET." >&2
+      rm -f "$outfile" "$pgid_file"
+      exit 2
+    fi
+    sleep 1
+  done
+
+  wait "$runner_pid" 2>/dev/null
+  local rc=$?
+  cat "$outfile"
+  rm -f "$outfile" "$pgid_file"
+  return "$rc"
+}
+
 # Detectar el test runner del proyecto
 if [ -f "package.json" ]; then
   # Node.js project — detectar package manager
@@ -182,10 +281,10 @@ if [ -f "package.json" ]; then
 
       if [ "$SCOPED" = true ]; then
         echo "Running tests before commit ($PKG_MGR, workspace(s): $WORKSPACE_SCOPE_LABEL)..." >&2
-        "${WORKSPACE_SCOPE_CMD[@]}" 2>&1
+        _guard_run_with_budget "${WORKSPACE_SCOPE_CMD[@]}"
       else
         echo "Running tests before commit ($PKG_MGR)..." >&2
-        $PKG_MGR test 2>&1
+        _guard_run_with_budget "$PKG_MGR" test
       fi
       if [ $? -ne 0 ]; then
         echo "BLOCKED: Tests failed. Fix tests before committing." >&2
@@ -198,7 +297,7 @@ elif [ -f "pytest.ini" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
   # Python project
   if command -v pytest > /dev/null 2>&1; then
     echo "Running pytest before commit..." >&2
-    pytest 2>&1
+    _guard_run_with_budget pytest
     if [ $? -ne 0 ]; then
       echo "BLOCKED: Tests failed. Fix tests before committing." >&2
       exit 2

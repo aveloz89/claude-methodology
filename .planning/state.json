@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "feature": "hook-merge-repo-y-fila-dod",
-  "branch": "fix/hook-merge-repo-y-fila-dod",
-  "pr": 76,
-  "review_sha": "e47a5da",
-  "updated": "2026-09-17T07:12:54Z",
+  "feature": "audit-best-practices",
+  "branch": "feature/audit-best-practices",
+  "pr": 79,
+  "review_sha": "2054c67",
+  "updated": "2026-09-26T00:00:00Z",
   "phases": {
-    "brainstorming": "skipped",
+    "brainstorming": "done",
     "design": "done",
     "implementation": "done",
     "docs": "done",
@@ -14,77 +14,33 @@
     "pr": "done",
     "ci": "skipped",
     "e2e": "skipped",
-    "merge": "done"
+    "merge": "pending"
   },
   "batches": [
     {
-      "id": "H1",
-      "name": "hook-repo-del-comando-y-fila-dod",
+      "id": "L1",
+      "name": "hooks-formato-if-matcher-failclosed",
       "agent": "backend-dev",
       "status": "done",
-      "tasks_done": 3,
-      "tasks_total": 3,
+      "tasks_done": 5,
+      "tasks_total": 5,
       "current_task": null,
-      "commits": [
-        "5232d0f",
-        "8f5960c",
-        "1f64d6f"
-      ],
+      "commits": [],
       "last_batch": false,
       "depends_on": []
     },
     {
-      "id": "H2",
-      "name": "fixes-review-ronda-1",
+      "id": "L2",
+      "name": "frontmatter-skills-validacion",
       "agent": "backend-dev",
       "status": "done",
-      "tasks_done": 3,
-      "tasks_total": 3,
+      "tasks_done": 5,
+      "tasks_total": 5,
       "current_task": null,
-      "commits": [
-        "823df44",
-        "2c37a4f",
-        "8668e31"
-      ],
-      "last_batch": false,
-      "depends_on": [
-        "H1"
-      ]
-    },
-    {
-      "id": "H3",
-      "name": "forma-unica-sin-cd",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 4,
-      "tasks_total": 4,
-      "current_task": null,
-      "commits": [
-        "ea3a874",
-        "32ab443"
-      ],
-      "last_batch": false,
-      "depends_on": [
-        "H2"
-      ]
-    },
-    {
-      "id": "H4",
-      "name": "pulido-ronda-3",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 4,
-      "tasks_total": 4,
-      "current_task": null,
-      "commits": [
-        "784af58",
-        "e88c891",
-        "bf723df",
-        "e47a5da"
-      ],
+      "commits": [],
       "last_batch": true,
       "depends_on": [
-        "H3"
+        "L1"
       ]
     }
   ]

@@ -2,6 +2,16 @@
 # Verifica que un PR no tenga threads de review sin resolver, reviews
 # bloqueantes, ni CI checks fallando antes de permitir el merge.
 #
+# hooks.json filtra la invocación con "if": "Bash(gh *)" — optimización de
+# latencia, no reemplaza la validación de abajo, que sigue mirando el
+# comando completo.
+#
+# Contrato PreToolUse (auditoría best-practices): bloquear = stderr + exit
+# 2, permitir = exit 0 sin stdout — igual que pre-push-guard.sh y pre-
+# commit-guard.sh. Reemplaza el JSON {"decision":"block"}/{"continue":true}
+# que este hook usaba antes; el motivo de bloqueo sigue en el mensaje, ahora
+# por stderr.
+#
 # Endurecido 2026-08-11 tras el incidente de #821/#822:
 #   1. FAIL-CLOSED: si una llamada a gh falla (rate limit, red), el hook
 #      BLOQUEA explicando que no pudo verificar — antes fallaba abierto en
@@ -54,8 +64,8 @@
 #      Ahora los tres se verifican al inicio, antes de leer stdin, y se
 #      bloquea sin depender de jq (la propia herramienta que puede faltar).
 if ! command -v perl > /dev/null 2>&1 || ! command -v jq > /dev/null 2>&1 || ! command -v grep > /dev/null 2>&1; then
-  printf '{"decision":"block","reason":"pre-merge-check no operativo: falta perl, jq o grep"}\n'
-  exit 0
+  echo "BLOCKED: pre-merge-check no operativo: falta perl, jq o grep" >&2
+  exit 2
 fi
 
 # Endurecido 2026-09-16 (repo resuelto por el comando, no por el cwd de la
@@ -169,8 +179,8 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 # abierto, un `source` de un path que dirname no pudo resolver tampoco.
 LIB="${0%/*}/lib/guard-matching.sh"
 if [ ! -r "$LIB" ]; then
-  printf '{"decision":"block","reason":"pre-merge-check no operativo: falta hooks/lib/guard-matching.sh"}\n'
-  exit 0
+  echo "BLOCKED: pre-merge-check no operativo: falta hooks/lib/guard-matching.sh" >&2
+  exit 2
 fi
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
@@ -213,10 +223,9 @@ SANITIZE_STATUS=$?
 # no empeora nada.
 if [ "$SANITIZE_STATUS" -ne 0 ]; then
   if echo "$COMMAND" | grep -qi 'gh' && echo "$COMMAND" | grep -qi 'pr' && echo "$COMMAND" | grep -qi 'merge'; then
-    printf '{"decision":"block","reason":"pre-merge-check no operativo: el saneo del comando falló (perl abortó en tiempo de ejecución) — no se puede confiar en la extracción del número de PR sobre texto sin sanear"}\n'
-    exit 0
+    echo "BLOCKED: pre-merge-check no operativo: el saneo del comando falló (perl abortó en tiempo de ejecución) — no se puede confiar en la extracción del número de PR sobre texto sin sanear" >&2
+    exit 2
   fi
-  echo '{"continue":true}'
   exit 0
 fi
 
@@ -254,14 +263,13 @@ fi
 GH_PR_MERGE_RE='gh\s+(\S+\s+){0,2}pr\s+(\S+\s+){0,2}merge'
 
 if ! echo "$SANITIZED_COMMAND" | grep -qE "${GH_PR_MERGE_RE}\b"; then
-  echo '{"continue":true}'
   exit 0
 fi
 
 block() {
   local reason="$1"
-  echo "{\"decision\":\"block\",\"reason\":$(printf '%s' "$reason" | jq -Rs .)}"
-  exit 0
+  echo "$reason" >&2
+  exit 2
 }
 
 # ============================================================
@@ -324,7 +332,6 @@ fi
 # normal de abajo, que ya bloquea --help por no estar en la allowlist de
 # flags.
 if [ "$MERGE_TOKEN_COUNT" -eq 4 ] && { [ "${MERGE_TOKENS[3]}" = "--help" ] || [ "${MERGE_TOKENS[3]}" = "-h" ]; }; then
-  echo '{"continue":true}'
   exit 0
 fi
 
@@ -485,8 +492,8 @@ fi
 # Si hay errores, bloquear
 if [ -n "$ERRORS" ]; then
   REASON=$(printf "Blocked: PR #${PR_NUMBER} no está listo para merge:\n${ERRORS}Resuelve estos issues antes de mergear.")
-  echo "{\"decision\":\"block\",\"reason\":$(echo "$REASON" | jq -Rs .)}"
-  exit 0
+  echo "$REASON" >&2
+  exit 2
 fi
 
-echo '{"continue":true}'
+exit 0

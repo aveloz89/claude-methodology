@@ -26,7 +26,7 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal, de
 ### Hooks (14)
 | Hook | Evento | Qué hace |
 |------|--------|----------|
-| **pre-commit-guard** | PreToolUse (Bash) | Corre tests antes de cada commit. Detecta pnpm/yarn/npm/pytest. En monorepos npm/pnpm acota la corrida a los workspaces tocados (`hooks/lib/workspace-scope.sh`); si no puede resolverlo con confianza, corre todo. Se omite cuando lo único con cambios locales en el árbol es `.planning/`, y el comando no redirige git a otro árbol |
+| **pre-commit-guard** | PreToolUse (Bash) | Corre tests antes de cada commit. Detecta pnpm/yarn/npm/pytest. En monorepos npm/pnpm acota la corrida a los workspaces tocados (`hooks/lib/workspace-scope.sh`); si no puede resolverlo con confianza, corre todo. Se omite cuando lo único con cambios locales en el árbol es `.planning/`, y el comando no redirige git a otro árbol. Watchdog fail-closed: si la suite supera `PRECOMMIT_TEST_BUDGET` segundos (default 540, overridable por env), mata el grupo de procesos y bloquea en vez de dejar pasar el commit sin tests |
 | **pre-push-guard** | PreToolUse (Bash) | Bloquea push directo a main |
 | **block-admin-merge** | PreToolUse (Bash) | Bloquea `gh pr merge --admin` que bypasea branch protections |
 | **block-force-push** | PreToolUse (Bash) | Bloquea `git push --force` / `-f` |
@@ -108,9 +108,10 @@ Antes del plugin, el repo se instalaba symlinkeando `agents/`, `hooks/`, `skills
 
 ### Release (para el autor)
 
-1. Bump de `version` en `.claude-plugin/plugin.json`.
-2. `claude plugin tag` — valida consistencia `plugin.json` ↔ `marketplace.json` y crea el tag git `methodology--v<version>`.
-3. Push del tag.
+1. Validar antes de tocar manifests o agentes: `claude plugin validate --strict .claude-plugin/plugin.json` y `claude plugin validate --strict .` (con `marketplace.json` presente, este segundo valida solo el marketplace).
+2. Bump de `version` en `.claude-plugin/plugin.json`.
+3. `claude plugin tag` — valida consistencia `plugin.json` ↔ `marketplace.json` y crea el tag git `methodology--v<version>`.
+4. Push del tag.
 
 Terceros actualizan con `claude plugin marketplace update` + `claude plugin update methodology@claude-methodology` — el cache del plugin queda fijo en la versión instalada hasta ese punto.
 
@@ -122,6 +123,8 @@ Los hooks de observabilidad `pre-compact-snapshot` y `session-end-check` escribe
 
 ```
 claude-methodology/
+├── .claude/
+│   └── CLAUDE.md
 ├── .claude-plugin/
 │   ├── marketplace.json
 │   └── plugin.json

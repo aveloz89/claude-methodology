@@ -2,6 +2,7 @@
 name: new-project
 description: Scaffold de proyecto nuevo con gitflow, GitHub Actions CI/CD, CLAUDE.md y estructura estándar.
 user-invocable: true
+disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 argument-hint: "<nombre-proyecto> <stack>"
 ---

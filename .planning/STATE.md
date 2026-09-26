@@ -4,25 +4,26 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** hook-merge-repo-y-fila-dod — PR #76: `hooks/pre-merge-check.sh` acepta una forma única de merge y verifica el repo que se mergea (cierra #72), más la fila del PR #75 en el DoD anti-drift. Review dual APROBADO en 4 rondas; pendiente de aprobación de merge del usuario. Retro en `learnings/PR-76.md`
-- **Última actualización:** 2026-09-17
+- **Feature:** audit-best-practices: alinear la metodología con las prácticas oficiales de Anthropic (auditoría en `AUDIT-best-practices-2026-09.md`). Diseño aprobado: multi-PR secuencial (PR 1 fixes técnicos, lotes 1-2; PR 2 skill orchestrator + núcleo, lotes 3-4; PR 3 fusiones, lotes 5-6). PR 1 completo (lotes 1-2, `last_batch=true`): listo para docs + review dual + push + PR.
+- **Última actualización:** 2026-09-26
 
 ## Decisiones
 
-Detalle y contexto de D-01 a D-04 en `BRIEF.md`.
+Detalle en `BRIEF.md`.
 
-- [D-01] (usuario) Endurecer el hook en vez de documentar la limitación: un bloqueo falso entrena a pedir bypass.
-- [D-02] La fila del PR #75 registra las dos violaciones del mismo PR, las dos encontradas por la pasada externa.
-- [D-03] (usuario, tras ronda 1) Meter a este PR los huecos preexistentes `gh -R x pr merge` y `GH_REPO`.
-- [D-04] (usuario, tras ronda 2) **Forma única, sin `cd`**: solo `gh pr merge <N>` con flags de una lista cerrada, en una línea, validada sobre el texto crudo; todo lo demás bloquea. Modelo de amenaza: errores honestos (`hooks/lib/guard-matching.sh:19-22`); lo disfrazado queda documentado como fuera de alcance.
-- [D-05] (usuario, tras ronda 3) Los merges que el saneo compartido borra se documentan en el header y se arreglan aparte en el issue #77, que también reúne los pendientes no bloqueantes de las rondas 3 y 4.
-- [D-06] (usuario, tras ronda 3) Cerrar sin más rondas amplias: la ronda 4 solo confirmó los bloqueantes pendientes y el delta del último lote.
+- [D-01] (usuario) La auditoría va antes que el agente PM.
+- [D-02] (usuario) Incluye partir `CLAUDE.md` y la fusión de agentes.
+- [D-03] (usuario) Rol corto en `CLAUDE.md` + skill `orchestrator` bajo demanda + recordatorio del hook de sesión.
+- [D-04] (usuario) Aprobado el plan de 3 PRs y las fusiones: `build-resolver` → rulebook, `db-specialist` → `backend-dev` + rulebook; `docs` y `ui-ux` se mantienen con disparadores más estrictos.
+- [D-05] (usuario) `effort: high` solo en reviewers sonnet (`qa-*`); devs en default por costo.
 
-**Pendiente:** #77 — saneo compartido de `guard-matching.sh` (merges que el hook no ve y bloqueos falsos en heredocs).
+**Issue a abrir:** `.claude/settings.json` de este repo duplica los 14 hooks del plugin.
+
+**Pendiente después:** agente de producto/PM (feature aparte).
 
 ## Feature anterior
 
-`regla-verificacion-visual` (PR #75): decisiones y aprendizajes en `learnings/PR-75.md` y `BRIEF-regla-verificacion-visual.md`. Su pendiente propuesto, la fila del DoD, entró en el PR #76.
+`hook-merge-repo-y-fila-dod` (PR #76): `learnings/PR-76.md` y `BRIEF-hook-merge-repo-y-fila-dod.md`.
 
 ## Blockers
 

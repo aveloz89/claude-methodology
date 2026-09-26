@@ -7,9 +7,12 @@
 #       de bug C5 "hook documentado pero no instalado".
 #   (b) los 3 manifests (plugin.json, marketplace.json, hooks.json) parsean
 #       como JSON válido.
-#   (c) si la CLI `claude` está en PATH, `claude plugin validate --strict .`
-#       pasa sobre el repo completo; si no está, SKIP declarado (el test
-#       crítico —la paridad— no depende de la CLI).
+#   (c) si la CLI `claude` está en PATH: `claude plugin validate --strict .`
+#       pasa (con marketplace.json presente valida solo el marketplace) y
+#       `claude plugin validate --strict .claude-plugin/plugin.json` pasa
+#       (valida el plugin en sí, incluido el CLAUDE.md del repo); si la CLI
+#       no está, SKIP declarado (el test crítico —la paridad— no depende
+#       de la CLI).
 #
 # Uso: bash tests/adversarial/test-plugin-manifest.sh
 
@@ -97,6 +100,81 @@ for f in "$PLUGIN_JSON" "$MARKETPLACE_JSON" "$HOOKS_JSON"; do
 done
 
 echo ""
+echo "--- hooks.json: if por handler, matcher de SessionStart, timeout de pre-commit-guard ---"
+
+# assert_hook_if: verifica el campo "if" de la entrada de hooks.json cuyo
+# "command" termina en <script_name> — optimización de latencia (verificación
+# e del diseño): cada script sigue validando el comando completo, "if" solo
+# evita invocar el hook cuando ni siquiera aparece el token de comando.
+assert_hook_if() {
+  local script_name="$1"
+  local expected_if="$2"
+  local actual
+  actual=$(jq -r --arg name "$script_name" \
+    '.hooks.PreToolUse[].hooks[] | select(.command | endswith($name)) | .if // "MISSING"' \
+    "$HOOKS_JSON")
+  TOTAL=$((TOTAL + 1))
+  if [ "$actual" = "$expected_if" ]; then
+    echo -e "${GREEN}PASS${NC}: $script_name tiene if=\"$expected_if\""
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $script_name tiene if=\"$actual\" (esperado \"$expected_if\")"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_hook_if "block-force-push.sh" "Bash(git *)"
+assert_hook_if "block-hard-reset.sh" "Bash(git *)"
+assert_hook_if "pre-push-guard.sh" "Bash(git *)"
+assert_hook_if "pre-commit-guard.sh" "Bash(git *)"
+assert_hook_if "block-admin-merge.sh" "Bash(gh *)"
+assert_hook_if "pre-merge-check.sh" "Bash(gh *)"
+assert_hook_if "pre-release-sweep.sh" "Bash(gh *)"
+
+TOTAL=$((TOTAL + 1))
+SESSION_START_MATCHER=$(jq -r '.hooks.SessionStart[0].matcher' "$HOOKS_JSON")
+if [ "$SESSION_START_MATCHER" = "startup|resume|clear|compact" ]; then
+  echo -e "${GREEN}PASS${NC}: SessionStart.matcher es \"startup|resume|clear|compact\""
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart.matcher es \"$SESSION_START_MATCHER\" (esperado \"startup|resume|clear|compact\")"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+PCG_TIMEOUT=$(jq -r '.hooks.PreToolUse[].hooks[] | select(.command | endswith("pre-commit-guard.sh")) | .timeout' "$HOOKS_JSON")
+if [ "$PCG_TIMEOUT" = "600" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard.sh tiene timeout=600"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard.sh tiene timeout=$PCG_TIMEOUT (esperado 600)"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
+echo "--- global/CLAUDE.md: la suite de tests bloquea el commit, no corre en background ---"
+
+GLOBAL_CLAUDE_MD="$REPO_ROOT/global/CLAUDE.md"
+
+TOTAL=$((TOTAL + 1))
+if grep -q "^\*\*Bloquean el comando:\*\*.*commit sin" "$GLOBAL_CLAUDE_MD"; then
+  echo -e "${GREEN}PASS${NC}: \"Bloquean el comando\" incluye el commit sin suite verde"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: \"Bloquean el comando\" no menciona el commit sin suite verde"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+if grep -q "^\*\*Corren en background:\*\*.*tests antes de cada commit" "$GLOBAL_CLAUDE_MD"; then
+  echo -e "${RED}FAIL${NC}: \"Corren en background\" todavía menciona los tests antes de cada commit (deberían bloquear, no correr en background)"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "${GREEN}PASS${NC}: \"Corren en background\" ya no menciona los tests antes de cada commit"
+  PASS=$((PASS + 1))
+fi
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then
@@ -106,6 +184,15 @@ if command -v claude > /dev/null 2>&1; then
     PASS=$((PASS + 1))
   else
     echo -e "${RED}FAIL${NC}: claude plugin validate --strict . no pasa"
+    FAIL=$((FAIL + 1))
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if (cd "$REPO_ROOT" && claude plugin validate --strict .claude-plugin/plugin.json < /dev/null > /dev/null 2>&1); then
+    echo -e "${GREEN}PASS${NC}: claude plugin validate --strict .claude-plugin/plugin.json pasa"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: claude plugin validate --strict .claude-plugin/plugin.json no pasa"
     FAIL=$((FAIL + 1))
   fi
 else
