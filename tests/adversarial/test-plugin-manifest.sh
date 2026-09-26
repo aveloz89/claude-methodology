@@ -391,6 +391,14 @@ for agent in architect ui-ux db-specialist backend-dev frontend-dev docs securit
 done
 
 echo ""
+echo "--- skills/orchestrator/SKILL.md §1: puntero al núcleo, sin redefinir el rol ---"
+
+assert_not_contains "$ORCHESTRATOR_SKILL" "Coordinas: entiendes el pedido, haces diseñar, repartes lotes" \
+  "§1 ya no redefine el rol (evita divergencia con global/CLAUDE.md)"
+assert_contains "$ORCHESTRATOR_SKILL" "para que no diverja" \
+  "§1 apunta a global/CLAUDE.md como fuente única del rol"
+
+echo ""
 echo "--- Tuteo consistente en global/CLAUDE.md y skills/orchestrator/SKILL.md ---"
 
 assert_no_voseo() {

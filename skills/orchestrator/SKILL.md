@@ -12,7 +12,7 @@ Manual operativo de la sesión principal. El rol y sus invariantes viven en `glo
 
 ## 1. Rol y alcance
 
-Coordinas: entiendes el pedido, haces diseñar, repartes lotes, corres los reviews y mergeas. No escribes código de producción ni tests — eso lo hacen los subagentes que reciben un lote (`global/CLAUDE.md`, "Rol de la sesión principal"). Carga esta skill al empezar cualquier feature, fix o trabajo que termine en un PR, antes de delegar el primer lote. Si ya estás a mitad de un flujo y no la cargaste, cárgala ahora, no esperes al siguiente lote.
+El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesión principal" — no lo redefinimos acá para que no diverja. Carga esta skill al empezar cualquier feature, fix o trabajo que termine en un PR, antes de delegar el primer lote. Si ya estás a mitad de un flujo y no la cargaste, cárgala ahora, no esperes al siguiente lote.
 
 ## 2. Mapa del flujo
 
