@@ -2,7 +2,8 @@
 name: refactor-scan
 description: Escanea el codebase en busca de code smells y deuda técnica. Genera un reporte priorizado y permite refactorizar lo que elijas.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Bash, Agent(refactor)
+disable-model-invocation: true
+allowed-tools: Read, Grep, Glob, Bash, Agent(methodology:refactor)
 argument-hint: "[directorio o archivo específico]"
 ---
 

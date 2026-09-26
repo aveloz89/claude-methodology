@@ -3,7 +3,7 @@ name: review-pr
 description: Re-dispara manualmente el review dual (security + QA según capas tocadas)
   sobre un PR existente, sin pasar por el flujo completo del orchestrator.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Bash, Agent(security-reviewer), Agent(qa-frontend), Agent(qa-backend)
+allowed-tools: Read, Grep, Glob, Bash, Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend)
 argument-hint: "<número de PR> [security|qa|full]"
 ---
 

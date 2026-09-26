@@ -2,7 +2,7 @@
 name: pr-workflow
 description: Proceso de review, creación y merge de pull requests — review dual local pre-push, presupuesto de CI, verificación E2E pre-release, branch protection y verificación pre-merge. Invocar al llegar a Fase 2.6 (review dual local, antes del push + PR) o al revisar/mergear un PR existente.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Bash, Agent(security-reviewer), Agent(qa-frontend), Agent(qa-backend), Agent(e2e-runner), Agent(build-resolver)
+allowed-tools: Read, Grep, Glob, Bash, Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner), Agent(methodology:build-resolver)
 argument-hint: "[número de PR, si es sobre uno existente]"
 ---
 
