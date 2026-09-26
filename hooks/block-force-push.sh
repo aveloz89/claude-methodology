@@ -77,7 +77,7 @@ fi
 # un push real sin force en el mismo comando compuesto, bloquearía por esta
 # vía.
 PUSH_ANCHORED_PATTERN="${GUARD_ANCHOR}git\s+push\b"
-QUOTED_FORCE_PATTERN="[\"'](-f|--force(-with-lease)?)[\"']"
+QUOTED_FORCE_PATTERN="[\"'](-f|--force(-with-lease(=[^\"']*)?)?)[\"']"
 
 if echo "$SANITIZED_COMMAND" | grep -qE "$PUSH_ANCHORED_PATTERN" \
   && echo "$COMMAND" | grep -qE "$QUOTED_FORCE_PATTERN"; then

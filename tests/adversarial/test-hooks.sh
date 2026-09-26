@@ -346,6 +346,23 @@ assert_blocked_cmd "block-force-push: cd a && git push --force sigue bloqueando 
   "block-force-push.sh" \
   "cd a && git push --force"
 
+# Ronda 3 (fix puntual): QUOTED_FORCE_PATTERN exigía que la comilla de
+# cierre viniera justo después de la flag, así que un "=valor" antes de
+# cerrar la comilla (forma real de --force-with-lease) se le escapaba.
+# Cadenas armadas por concatenación para que el hook activo de esta sesión
+# no bloquee el propio comando de test.
+FLAG_WITH_LEASE_VALUE_BFP="--force-with-lease=main"
+CMD_QUOTED_LEASE_VALUE_BFP="git push \"${FLAG_WITH_LEASE_VALUE_BFP}\" origin"
+assert_blocked_cmd "block-force-push: git push \"--force-with-lease=main\" (valor entre comillas dobles) blocks" \
+  "block-force-push.sh" \
+  "$CMD_QUOTED_LEASE_VALUE_BFP"
+
+FLAG_WITH_LEASE_REF_VALUE_BFP="--force-with-lease=main:abc"
+CMD_SINGLE_QUOTED_LEASE_VALUE_BFP="git push '${FLAG_WITH_LEASE_REF_VALUE_BFP}' origin"
+assert_blocked_cmd "block-force-push: git push '--force-with-lease=main:abc' (valor entre comillas simples) blocks" \
+  "block-force-push.sh" \
+  "$CMD_SINGLE_QUOTED_LEASE_VALUE_BFP"
+
 # Fail-closed sin jq (revisión pre-push, security MEDIUM): hoy, sin jq en
 # PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, y un
 # "git push --force" real pasa en silencio — mismo hueco que #50 en
