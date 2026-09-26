@@ -21,11 +21,17 @@
       "id": "L3",
       "name": "skill-orchestrator-nucleo-recordatorio",
       "agent": "backend-dev",
-      "status": "in_progress",
-      "tasks_done": 0,
+      "status": "done",
+      "tasks_done": 5,
       "tasks_total": 5,
       "current_task": null,
-      "commits": [],
+      "commits": [
+        "333d6f5",
+        "920a413",
+        "c9cf8d0",
+        "c817364",
+        "43f94a0"
+      ],
       "last_batch": false,
       "depends_on": []
     },
