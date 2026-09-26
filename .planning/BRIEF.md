@@ -1,41 +1,44 @@
-# Brief: el hook de merge resuelve el repo por el cwd de la sesión, y la fila del DoD (2026-09-16)
+## Brief: audit-best-practices
 
-> Branch `fix/hook-merge-repo-y-fila-dod` sobre `dev` @ `1c2a77f` (después del merge del PR #75). Son los dos follow-ups que el usuario aprobó al cerrar ese PR. Fase anterior archivada en `BRIEF-regla-verificacion-visual.md`.
+### Objetivo
+Alinear la metodología con las prácticas oficiales de Anthropic, según la auditoría `AUDIT-best-practices-2026-09.md`. Se busca bajar el contexto que carga cada subagente, corregir defectos técnicos del plugin y los hooks, y reducir el overhead multi-agente donde no aporta.
 
-## Objetivo
+### Alcance
+- Incluye:
+  1. **Dividir el rol de orchestrator.** En `global/CLAUDE.md` queda una regla corta, siempre cargada: la sesión principal coordina y delega, no escribe código; los subagentes implementan lo que se les asigna. Se redacta para que ningún dev la lea como prohibición propia. El manual detallado (tabla de agentes, fases 0-5, lotes, tracker, degradación de modelo) pasa a una skill `orchestrator` cargada bajo demanda al iniciar trabajo de feature o fix. `CLAUDE.md` dice cuándo cargarla y el hook de sesión lo recuerda para evitar olvidos.
+  2. Dejar en `global/CLAUDE.md` solo lo que aplica siempre y a todos (idioma, gitflow, formato de commits, TDD, invariantes de merge, reglas operativas). Objetivo: bajar sustancialmente de los 20.963 bytes actuales, medido.
+  3. Fixes técnicos de la auditoría: `memory: true` → `project`; quitar `permissionMode` ignorado; `maxTurns` (y `effort` si aplica) o corregir `agent-budget.md`; migrar los hooks del `decision: block` deprecado; `pre-commit-guard` fail-closed ante timeout; matcher de SessionStart `startup|resume|clear|compact`; `if` en hooks Bash como optimización; `disable-model-invocation` en skills con efectos secundarios; corregir la validación del plugin (`plugin.json`, advertencia del CLAUDE.md raíz) y la instrucción en `CLAUDE.md` del repo; corregir el texto "Corren en background" del pre-commit.
+  4. **Evaluar y ejecutar fusión de agentes** donde la guía "dividir por límites de contexto" lo justifique. Candidatos: `docs`, `build-resolver`, `db-specialist` vs `backend-dev`, ui-ux + architect en UI chica. El architect decide con argumentos y el usuario aprueba en el diseño.
+  5. Bajar el tono agresivo (mayúsculas, "NUNCA", negritas en exceso) en los archivos que se toquen, dejando el énfasis para las 2-3 reglas que lo ameritan.
+- NO incluye:
+  - El agente de producto/PM: va en un feature y PR aparte, después de este.
+  - Los issues abiertos #71, #73, #77.
+  - Agent Teams.
 
-1. Que `hooks/pre-merge-check.sh` verifique el PR **del repo que se está mergeando**, no el del cwd de la sesión.
-2. Agregar a la tabla del paso 4 del DoD anti-drift la fila del PR #75.
+### Usuarios y permisos
+El usuario de la metodología (autor y terceros que instalan el plugin). Terceros reciben los cambios por plugin + `install.sh`; la skill nueva se distribuye por plugin.
 
-## Incidente que lo origina (verificado, 2026-09-16)
+### Flujo principal
+1. El usuario abre sesión. `CLAUDE.md` corto y el hook de inicio fijan el rol del orchestrator y recuerdan cargar la skill.
+2. Al iniciar una feature o fix, el orchestrator carga la skill `orchestrator` y sigue las fases.
+3. Los subagentes cargan solo el `CLAUDE.md` corto + su prompt + lo que les pasa el handoff.
 
-Al mergear el PR #75 de **este** repo desde una sesión cuyo cwd es `easy-quotes`, el hook bloqueó con «Hay 1 CI check(s) fallando». No había ninguno: este repo no tiene `.github/`, `gh pr checks 75` responde «no checks reported» y el rollup viene vacío.
+### Reglas de negocio
+- Las invariantes (merge con aprobación explícita, CI verde, review dual bloqueante, gitflow) siguen siempre cargadas; no se mueven a la skill.
+- Toda afirmación sobre el comportamiento de la plataforma se verifica ejecutándola; si no se puede, se escribe como no verificada.
 
-Lo que pasó: el `cd` de un comando de Bash no cambia el cwd de la sesión, así que `REPO=$(gh repo view …)` (`hooks/pre-merge-check.sh:409`) resolvió `aveloz89/easy-quotes` y el hook consultó **easy-quotes#75** — un PR de julio, mergeado, cuyo check `ci` figura en rojo. Es el mismo modo de falla que el hook de pre-commit ya tiene documentado con worktrees: el hook no ve el árbol real del comando.
+### Edge cases discutidos
+- Que el orchestrator olvide cargar la skill: mitigado por la línea en `CLAUDE.md` + el recordatorio del hook. Si al delegar nota que no la tiene, la carga.
+- La doc dice que el `additionalContext` de SessionStart también llega a los subagentes. El recordatorio del hook debe ser corto y no contradecir el rol de los subagentes. **Verificar con prueba real.**
+- Instalaciones existentes: `install.sh` copia `global/CLAUDE.md`; el cambio llega al reinstalar.
+- Referencias cruzadas: rulebooks, agentes y skills que apunten a secciones de `CLAUDE.md` que se mueven deben actualizarse (DoD anti-drift, `orchestrator-runbook.md`).
 
-Salida usada, sin bypass: `gh pr merge 75 --repo aveloz89/claude-methodology …`. El hook ya honra `--repo` explícito (`:389`, `:407`) y ahí verificó lo correcto.
+### Decisiones tomadas
+- [D-01] (usuario) Atacar la auditoría antes que el agente PM, para que el PM nazca con frontmatter y tono corregidos.
+- [D-02] (usuario) Incluir la división de `CLAUDE.md` y la fusión de agentes en este trabajo.
+- [D-03] (usuario) Opción 1: rol corto siempre cargado en `CLAUDE.md` + manual como skill `orchestrator` bajo demanda + recordatorio del hook de sesión.
 
-## Alcance
-
-- **Incluye:**
-  1. `hooks/pre-merge-check.sh`: resolver el repo de forma que corresponda al comando. Dos caminos aceptables, el dev elige con evidencia:
-     - parsear un `cd <ruta>` inicial en el comando y resolver `gh repo view` con ese cwd;
-     - o bloquear pidiendo `--repo` explícito cuando el comando trae un `cd` a un repo distinto del de la sesión.
-     En cualquier caso, **fail-closed**: si no se puede determinar el repo con certeza, bloquea y lo dice, como ya hace el resto del hook.
-  2. Tests en `tests/adversarial/test-hooks.sh` que cubran el caso del incidente: comando con `cd` a otro repo y número de PR que existe en los dos.
-  3. `rulebooks/orchestrator-runbook.md`, tabla del paso 4 del DoD anti-drift: la fila del PR #75.
-- **NO incluye:** tocar los demás hooks, ni la lógica de checks/threads/reviews del propio `pre-merge-check.sh` más allá de la resolución del repo.
-
-## Decisiones
-
-- [D-01] El hook se endurece, no se documenta y ya (decisión del usuario). Documentar la limitación dejaba el bloqueo falso en pie, y un bloqueo falso entrena a pedir bypass, que es justo lo que este hook existe para evitar.
-- [D-03] Review ronda 1 (2026-09-16, `reviews/pre-pr-hook-merge-repo-y-fila-dod-*.md`): security encontró que la extracción del `cd` inicial abre divergencias nuevas (separadores `|`/`&`, ruta truncada por el saneo, salto de línea, `pushd`/`builtin cd`/…, `cd old new` de zsh) y dos huecos preexistentes del mismo tipo: `gh -R x pr merge` / `gh pr -R x merge` / `GH_REPO=x gh pr merge` no se interceptan, y `gh repo view` ignora `GH_REPO`. **El usuario decidió meter los dos preexistentes a este PR.** Esto amplía el «NO incluye» de arriba: el patrón que detecta el merge también entra, porque decide qué repo se verifica.
-- [D-04] Review ronda 2 (2026-09-16): security marcó 5 HIGH más. Todos salen de interpretar formas de comando sobre el texto saneado (prefijos disfrazados, `[ \t]` en ERE, argumento comillado, segundo merge en otra línea, valor de `--repo` truncado), y la suite pasaba 306/306 con los 5 abiertos. **El usuario decidió «Forma única, sin cd»:** el hook acepta solo `gh pr merge <N>` con flags conocidos, en una línea y sin nada antes ni después, validado sobre el texto **crudo**. Sin `--repo` verifica el repo de la sesión; para otro repo, `--repo`. Todo lo demás bloquea, incluido `cd X && gh pr merge`, que era el camino de D-01 y se abandona. Modelo de amenaza: el de `hooks/lib/guard-matching.sh:19-22` (errores honestos). Las invocaciones disfrazadas (`command gh`, `"gh"`, funciones, `.zshenv`) quedan documentadas como fuera de alcance. Corrección del orchestrator: el prompt de la ronda 2 pidió contar la evasión deliberada sin contrastarlo con ese modelo documentado.
-- [D-02] La fila del PR #75 dice lo que pasó: **dos** violaciones de su propia regla en el mismo PR —una afirmación sin verificar en el handoff del orchestrator y una exigencia incumplible en el primer borrador—, las dos encontradas por la pasada externa, no por la autorrevisión.
-
-## Verificación esperada
-
-- El caso del incidente reproducido: con el hook nuevo, un `gh pr merge <N>` precedido de `cd` a otro repo verifica el PR correcto; sin `--repo` y sin poder determinarlo, bloquea explicando.
-- `tests/adversarial/test-hooks.sh` en verde, con los casos nuevos rojos al revertir el fix.
-- `claude plugin validate --strict .` en verde (se toca un hook registrado en `hooks/hooks.json`; revisar la paridad que exige `tests/adversarial/test-plugin-manifest.sh`).
-- DoD anti-drift del propio repo aplicado al cambio.
+### Descartado explícitamente
+- **Agente principal vía `agent`/`--agent`:** reemplaza todo el system prompt de Claude Code y requiere configuración por proyecto; la doc no muestra que un plugin pueda activarlo.
+- **`omitClaudeMd` en subagentes:** también les quita el `CLAUDE.md` del proyecto (comandos de test, stack).
+- **Inyectar el manual por SessionStart:** según la doc llega a los subagentes, así que no ahorra nada.
