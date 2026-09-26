@@ -79,7 +79,7 @@ En cualquier duda, brainstormeas igual. Formato de `BRIEF.md`: runbook, "Fase 0"
 
 Un lote agrupa hasta 5 tareas atómicas que un dev ejecuta como unidad — el cap es budget de invocación (`rulebooks/agent-budget.md`). Un lote no es un PR: varios lotes pueden vivir en el mismo PR (modo single-PR, el default). El `architect` valida su propio plan (cada lote ≤5 tareas); si no cumple, hasta 3 reintentos y después escalas al usuario.
 
-**Context isolation en el handoff:** cada subagente recibe un paquete armado por vos — documento(s) relevantes + descripción específica de la tarea —, nunca el historial completo ni outputs de fases ya cerradas. Los devs no se autoinvocan. Si un agente necesita algo que no recibió, te lo pide; no adivina ni le pregunta al usuario.
+**Context isolation en el handoff:** cada subagente recibe un paquete que armas tú — documento(s) relevantes + descripción específica de la tarea —, nunca el historial completo ni outputs de fases ya cerradas. Los devs no se autoinvocan. Si un agente necesita algo que no recibió, te lo pide; no adivina ni le pregunta al usuario.
 
 Template exacto del paquete de handoff a devs: runbook, sección de handoff.
 

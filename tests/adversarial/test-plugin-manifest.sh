@@ -395,7 +395,7 @@ echo "--- Tuteo consistente en global/CLAUDE.md y skills/orchestrator/SKILL.md -
 
 assert_no_voseo() {
   local file="$1"
-  local pattern='\b([A-Za-zÁÉÍÓÚñ]*(ás|és|ís)|Cargá|cargala|obtené|leelo|retomá)\b'
+  local pattern='\b([A-Za-zÁÉÍÓÚñ]*(ás|és|ís)|Cargá|cargala|obtené|leelo|retomá|[Vv]os)\b'
   TOTAL=$((TOTAL + 1))
   local hits
   hits=$(grep -noE "$pattern" "$file" | grep -vE ':(está|estás|Después|después|acá|inglés)$' || true)
