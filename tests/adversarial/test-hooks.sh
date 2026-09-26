@@ -278,6 +278,27 @@ sandbox_cleanup_pushrepo
 
 echo ""
 
+# --- block-force-push.sh ---
+echo "--- block-force-push.sh ---"
+
+assert_blocked_cmd "block-force-push: git push --force blocks" "block-force-push.sh" "git push --force"
+assert_blocked_cmd "block-force-push: git push -f origin x blocks" "block-force-push.sh" "git push -f origin x"
+assert_blocked_cmd "block-force-push: comando compuesto (cd a && git push --force) blocks" "block-force-push.sh" "cd a && git push --force"
+assert_allowed_cmd "block-force-push: git push (sin force) allowed" "block-force-push.sh" "git push"
+assert_allowed_cmd "block-force-push: git reset --soft HEAD~1 allowed (no relacionado)" "block-force-push.sh" "git reset --soft HEAD~1"
+
+echo ""
+
+# --- block-hard-reset.sh ---
+echo "--- block-hard-reset.sh ---"
+
+assert_blocked_cmd "block-hard-reset: git reset --hard blocks" "block-hard-reset.sh" "git reset --hard"
+assert_blocked_cmd "block-hard-reset: comando compuesto (cd a && git reset --hard) blocks" "block-hard-reset.sh" "cd a && git reset --hard"
+assert_allowed_cmd "block-hard-reset: git reset --soft HEAD~1 allowed" "block-hard-reset.sh" "git reset --soft HEAD~1"
+assert_allowed_cmd "block-hard-reset: git push allowed (no relacionado)" "block-hard-reset.sh" "git push"
+
+echo ""
+
 # --- block-admin-merge.sh ---
 echo "--- block-admin-merge.sh ---"
 
