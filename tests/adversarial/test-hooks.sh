@@ -1642,11 +1642,14 @@ echo ""
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 
-# pre-merge-check.sh responde con {"decision":"block",...} o {"continue":true}
-# en el JSON de stdout (siempre exit 0) — no usa exit code 2 como los demás
-# hooks, por eso usa helpers propios en vez de assert_blocked/assert_allowed.
-# Además llama a gh internamente, así que estos tests reemplazan gh en el
-# PATH por un fake determinístico (sin red) que responde según $FAKE_GH_MODE.
+# pre-merge-check.sh responde con stderr + exit 2 (bloquear) o exit 0 sin
+# stdout (permitir) — mismo contrato que pre-push-guard.sh/pre-commit-
+# guard.sh (auditoría best-practices, migrado desde el JSON
+# {"decision":"block"}/{"continue":true} que usaba antes; el motivo de
+# bloqueo sigue verificable en stderr). Usa helpers propios (no
+# assert_blocked_cmd/assert_allowed_cmd genéricos) porque además llama a gh
+# internamente: estos tests reemplazan gh en el PATH por un fake
+# determinístico (sin red) que responde según $FAKE_GH_MODE.
 
 FAKE_GH_DIR=$(mktemp -d)
 cat > "$FAKE_GH_DIR/gh" <<'FAKE_GH_EOF'
@@ -1698,15 +1701,15 @@ chmod +x "$FAKE_GH_DIR/gh"
 assert_pre_merge_continue() {
   local test_name="$1" cmd="$2" fake_gh_mode="${3:-}"
   TOTAL=$((TOTAL + 1))
-  local json output
+  local json exit_code=0
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || exit_code=$?
 
-  if echo "$output" | grep -q '"continue":true'; then
+  if [ "$exit_code" -eq 0 ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 0)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -1714,17 +1717,19 @@ assert_pre_merge_continue() {
 assert_pre_merge_blocked() {
   local test_name="$1" cmd="$2" expected_substring="$3" fake_gh_mode="${4:-}"
   TOTAL=$((TOTAL + 1))
-  local json output
+  local json exit_code=0 stderr_file
+  stderr_file=$(mktemp)
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>"$stderr_file" || exit_code=$?
 
-  if echo "$output" | grep -q '"decision":"block"' && echo "$output" | grep -qF "$expected_substring"; then
+  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file"; then
     echo -e "${GREEN}PASS${NC}: $test_name (blocked with expected reason)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"))"
     FAIL=$((FAIL + 1))
   fi
+  rm -f "$stderr_file"
 }
 
 # Caso 1: mención de la frase de merge dentro de un heredoc (mensaje de
@@ -1798,18 +1803,18 @@ assert_pre_merge_continue "Valid GraphQL response with 0 unresolved threads stil
 # Caso 6: fail-closed sin dependencias (#50, extendido a grep en la
 # retro del PR #60) — antes, si faltaba perl o jq, la sustitución/parseo
 # devolvía vacío, el grep no matcheaba, y el hook emitía {"continue":true}:
-# cualquier gh pr merge pasaba sin verificar. El bloqueo se emite con
-# printf, sin depender de jq (la propia herramienta que puede faltar).
+# cualquier gh pr merge pasaba sin verificar. El bloqueo se emite sin
+# depender de jq (la propia herramienta que puede faltar).
 assert_pre_merge_missing_dep_blocks() {
   local test_name="$1" restricted_path="$2"
   TOTAL=$((TOTAL + 1))
-  local output
-  output=$(echo '{"tool_input":{"command":"gh pr merge 5"}}' | PATH="$restricted_path" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-  if [ "$output" = '{"decision":"block","reason":"pre-merge-check no operativo: falta perl, jq o grep"}' ]; then
+  local exit_code=0 stderr_output
+  stderr_output=$(echo '{"tool_input":{"command":"gh pr merge 5"}}' | PATH="$restricted_path" bash "$HOOKS_DIR/pre-merge-check.sh" 2>&1 > /dev/null) || exit_code=$?
+  if [ "$exit_code" -eq 2 ] && [ "$stderr_output" = "BLOCKED: pre-merge-check no operativo: falta perl, jq o grep" ]; then
     echo -e "${GREEN}PASS${NC}: $test_name"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $stderr_output)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -1886,14 +1891,15 @@ for cmd in bash jq grep cat; do
 done
 TOTAL=$((TOTAL + 1))
 PMC_DECOY_JSON=$(jq -n '{tool_input: {command: "git commit -m \"ver nota: gh pr merge 7\" && gh pr merge --squash"}}')
-PMC_DECOY_OUTPUT=$(echo "$PMC_DECOY_JSON" | PATH="$FAKE_PERL_FAILS_PMC_DIR" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$PMC_DECOY_OUTPUT" | grep -q '"decision":"block"' \
-  && echo "$PMC_DECOY_OUTPUT" | grep -qF "el saneo del comando" \
-  && ! echo "$PMC_DECOY_OUTPUT" | grep -qF "PR #7"; then
+PMC_DECOY_EXIT=0
+PMC_DECOY_STDERR=$(echo "$PMC_DECOY_JSON" | PATH="$FAKE_PERL_FAILS_PMC_DIR" bash "$HOOKS_DIR/pre-merge-check.sh" 2>&1 > /dev/null) || PMC_DECOY_EXIT=$?
+if [ "$PMC_DECOY_EXIT" -eq 2 ] \
+  && echo "$PMC_DECOY_STDERR" | grep -qF "el saneo del comando" \
+  && ! echo "$PMC_DECOY_STDERR" | grep -qF "PR #7"; then
   echo -e "${GREEN}PASS${NC}: pre-merge-check [security]: perl fallando en tiempo de ejecución bloquea (no valida el PR señuelo del texto sin sanear)"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-merge-check [security]: perl fallando en tiempo de ejecución bloquea (no valida el PR señuelo del texto sin sanear) (output: $PMC_DECOY_OUTPUT)"
+  echo -e "${RED}FAIL${NC}: pre-merge-check [security]: perl fallando en tiempo de ejecución bloquea (no valida el PR señuelo del texto sin sanear) (exit code: $PMC_DECOY_EXIT, stderr: $PMC_DECOY_STDERR)"
   FAIL=$((FAIL + 1))
 fi
 rm -rf "$FAKE_PERL_FAILS_PMC_DIR"
@@ -1923,14 +1929,14 @@ done
 assert_pre_merge_unrelated_not_blocked() {
   local test_name="$1" cmd="$2"
   TOTAL=$((TOTAL + 1))
-  local json output
+  local json exit_code=0
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_PERL_FAILS_UNRELATED_DIR" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-  if echo "$output" | grep -q '"continue":true'; then
+  echo "$json" | PATH="$FAKE_PERL_FAILS_UNRELATED_DIR" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 0 ]; then
     echo -e "${GREEN}PASS${NC}: $test_name"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 0)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -1979,17 +1985,19 @@ assert_pre_merge_blocked_no_calls() {
   local test_name="$1" cmd="$2" expected_substring="${3:-Forma aceptada}"
   TOTAL=$((TOTAL + 1))
   : > "$FAKE_GH_D04_LOG"
-  local json output calls
+  local json exit_code=0 calls stderr_file
+  stderr_file=$(mktemp)
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  echo "$json" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>"$stderr_file" || exit_code=$?
   calls=$(wc -l < "$FAKE_GH_D04_LOG" | tr -d ' ')
-  if echo "$output" | grep -q '"decision":"block"' && echo "$output" | grep -qF -- "$expected_substring" && [ "$calls" = "0" ]; then
+  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file" && [ "$calls" = "0" ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (blocked, 0 consultas a gh)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output, consultas: $calls)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"), consultas: $calls)"
     FAIL=$((FAIL + 1))
   fi
+  rm -f "$stderr_file"
 }
 
 # Igual, pero pasando variables de entorno al PROCESO del hook (GH_REPO/
@@ -1998,17 +2006,19 @@ assert_pre_merge_blocked_no_calls_env() {
   local test_name="$1" cmd="$2" expected_substring="$3"; shift 3
   TOTAL=$((TOTAL + 1))
   : > "$FAKE_GH_D04_LOG"
-  local json output calls
+  local json exit_code=0 calls stderr_file
+  stderr_file=$(mktemp)
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" env "$@" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  echo "$json" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" env "$@" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>"$stderr_file" || exit_code=$?
   calls=$(wc -l < "$FAKE_GH_D04_LOG" | tr -d ' ')
-  if echo "$output" | grep -q '"decision":"block"' && echo "$output" | grep -qF -- "$expected_substring" && [ "$calls" = "0" ]; then
+  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file" && [ "$calls" = "0" ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (blocked, 0 consultas a gh)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output, consultas: $calls)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"), consultas: $calls)"
     FAIL=$((FAIL + 1))
   fi
+  rm -f "$stderr_file"
 }
 
 # --- El incidente original (PR #75): cd a otro repo bloquea, menciona --repo ---
@@ -2180,16 +2190,17 @@ assert_pre_merge_blocked_no_calls "gh pr merge [D-04, control]: carácter de con
 
 # --- [ronda 3, sugerencia] truncado del valor reflejado en el mensaje de
 # bloqueo: un token no reconocido de 200 KB no debe producir un reason
-# gigante ni JSON inválido — TOKEN:0:64 lo acota a 64 caracteres.
+# gigante — TOKEN:0:64 lo acota a 64 caracteres.
 TOTAL=$((TOTAL + 1))
 BIG_TOKEN_CMD="gh pr merge 45 --$(head -c 200000 /dev/zero | tr '\0' 'a')"
 BIG_TOKEN_JSON=$(jq -n --arg cmd "$BIG_TOKEN_CMD" '{tool_input: {command: $cmd}}')
-BIG_TOKEN_OUTPUT=$(echo "$BIG_TOKEN_JSON" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if [ "${#BIG_TOKEN_OUTPUT}" -lt 1000 ] && echo "$BIG_TOKEN_OUTPUT" | jq -e . > /dev/null 2>&1 && echo "$BIG_TOKEN_OUTPUT" | grep -q '"decision":"block"'; then
-  echo -e "${GREEN}PASS${NC}: gh pr merge [D-04, truncado]: token no reconocido de 200 KB da un reason corto y JSON válido (largo: ${#BIG_TOKEN_OUTPUT})"
+BIG_TOKEN_EXIT=0
+BIG_TOKEN_STDERR=$(echo "$BIG_TOKEN_JSON" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>&1 > /dev/null) || BIG_TOKEN_EXIT=$?
+if [ "$BIG_TOKEN_EXIT" -eq 2 ] && [ "${#BIG_TOKEN_STDERR}" -lt 1000 ]; then
+  echo -e "${GREEN}PASS${NC}: gh pr merge [D-04, truncado]: token no reconocido de 200 KB da un reason corto (largo: ${#BIG_TOKEN_STDERR})"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, truncado]: token no reconocido de 200 KB da un reason corto y JSON válido (largo: ${#BIG_TOKEN_OUTPUT})"
+  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, truncado]: token no reconocido de 200 KB da un reason corto (exit code: $BIG_TOKEN_EXIT, largo: ${#BIG_TOKEN_STDERR})"
   FAIL=$((FAIL + 1))
 fi
 
@@ -2220,14 +2231,14 @@ assert_pre_merge_continue_repo() {
   local test_name="$1" cmd="$2" expected_repo="$3"
   TOTAL=$((TOTAL + 1))
   : > "$FAKE_GH_D04_LOG2"
-  local json output
+  local json exit_code=0
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-  if echo "$output" | grep -q '"continue":true' && grep -qF -- "--repo $expected_repo" "$FAKE_GH_D04_LOG2"; then
+  echo "$json" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 0 ] && grep -qF -- "--repo $expected_repo" "$FAKE_GH_D04_LOG2"; then
     echo -e "${GREEN}PASS${NC}: $test_name (continue, repo consultado: $expected_repo)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output, log: $(cat "$FAKE_GH_D04_LOG2" | tr '\n' ' '))"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, log: $(cat "$FAKE_GH_D04_LOG2" | tr '\n' ' '))"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -2253,12 +2264,13 @@ assert_pre_merge_continue_repo "gh pr merge [D-04, pasa]: -m/-s/-r/-d cortos tam
 # no se trata como una invocación real — sigue sin tocar gh.
 TOTAL=$((TOTAL + 1))
 COMMIT_MENTION_JSON=$(jq -n --arg cmd 'git commit -m "nota: usar gh pr merge <N> para cerrar"' '{tool_input: {command: $cmd}}')
-COMMIT_MENTION_OUTPUT=$(echo "$COMMIT_MENTION_JSON" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$COMMIT_MENTION_OUTPUT" | grep -q '"continue":true'; then
+COMMIT_MENTION_EXIT=0
+echo "$COMMIT_MENTION_JSON" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || COMMIT_MENTION_EXIT=$?
+if [ "$COMMIT_MENTION_EXIT" -eq 0 ]; then
   echo -e "${GREEN}PASS${NC}: gh pr merge [D-04, pasa]: mención entre comillas dentro de git commit -m no se trata como merge"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, pasa]: mención entre comillas dentro de git commit -m no se trata como merge (output: $COMMIT_MENTION_OUTPUT)"
+  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, pasa]: mención entre comillas dentro de git commit -m no se trata como merge (exit code: $COMMIT_MENTION_EXIT)"
   FAIL=$((FAIL + 1))
 fi
 
@@ -2266,12 +2278,13 @@ fi
 # (el guard nunca corre gh repo view cuando hay --repo).
 TOTAL=$((TOTAL + 1))
 GITDIR_JSON=$(jq -n --arg cmd 'gh pr merge 45 --repo o/r' '{tool_input: {command: $cmd}}')
-GITDIR_OUTPUT=$(echo "$GITDIR_JSON" | PATH="$FAKE_GH_D04_DIR:$PATH" GIT_DIR=/tmp/otro/.git bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$GITDIR_OUTPUT" | grep -q '"continue":true'; then
+GITDIR_EXIT=0
+echo "$GITDIR_JSON" | PATH="$FAKE_GH_D04_DIR:$PATH" GIT_DIR=/tmp/otro/.git bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || GITDIR_EXIT=$?
+if [ "$GITDIR_EXIT" -eq 0 ]; then
   echo -e "${GREEN}PASS${NC}: gh pr merge [D-04, pasa]: GIT_DIR en el entorno del hook no bloquea si hay --repo explícito"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, pasa]: GIT_DIR en el entorno del hook no bloquea si hay --repo explícito (output: $GITDIR_OUTPUT)"
+  echo -e "${RED}FAIL${NC}: gh pr merge [D-04, pasa]: GIT_DIR en el entorno del hook no bloquea si hay --repo explícito (exit code: $GITDIR_EXIT)"
   FAIL=$((FAIL + 1))
 fi
 
@@ -2281,15 +2294,15 @@ assert_pre_merge_continue_no_calls() {
   local test_name="$1" cmd="$2"
   TOTAL=$((TOTAL + 1))
   : > "$FAKE_GH_D04_LOG2"
-  local json output calls
+  local json exit_code=0 calls
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null)
+  echo "$json" | PATH="$FAKE_GH_D04_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || exit_code=$?
   calls=$(wc -l < "$FAKE_GH_D04_LOG2" | tr -d ' ')
-  if echo "$output" | grep -q '"continue":true' && [ "$calls" = "0" ]; then
+  if [ "$exit_code" -eq 0 ] && [ "$calls" = "0" ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (continue, 0 consultas a gh)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output, consultas: $calls)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, consultas: $calls)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -2333,12 +2346,13 @@ cp "$HOOKS_DIR/pre-merge-check.sh" "$HOOKS_DIR/block-admin-merge.sh" "$HOOKS_DIR
 
 TOTAL=$((TOTAL + 1))
 JSON_MISSING_LIB_PMC=$(jq -n '{tool_input: {command: "gh pr merge 5"}}')
-OUTPUT_MISSING_LIB_PMC=$(echo "$JSON_MISSING_LIB_PMC" | bash "$MISSING_LIB_DIR/pre-merge-check.sh" 2>/dev/null)
-if echo "$OUTPUT_MISSING_LIB_PMC" | grep -q '"decision":"block"'; then
+EXIT_MISSING_LIB_PMC=0
+echo "$JSON_MISSING_LIB_PMC" | bash "$MISSING_LIB_DIR/pre-merge-check.sh" > /dev/null 2>&1 || EXIT_MISSING_LIB_PMC=$?
+if [ "$EXIT_MISSING_LIB_PMC" -eq 2 ]; then
   echo -e "${GREEN}PASS${NC}: pre-merge-check.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-merge-check.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible (output: $OUTPUT_MISSING_LIB_PMC)"
+  echo -e "${RED}FAIL${NC}: pre-merge-check.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible (exit code: $EXIT_MISSING_LIB_PMC)"
   FAIL=$((FAIL + 1))
 fi
 
