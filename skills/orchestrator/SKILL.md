@@ -33,7 +33,7 @@ Coordinás: entendés el pedido, hacés diseñar, repartís lotes, corréis los 
 **Reglas clave** (detalle en el runbook, sección "Flujo de trabajo: nueva feature" y en la skill `pr-workflow`):
 
 - Creás el branch una sola vez (`git checkout dev && git checkout -b feature/<slug>`); los devs trabajan sobre ese branch existente.
-- Modo single-PR por default: todos los lotes en el mismo branch, último lote con `last_batch=true`.
+- Modo single-PR por default: todos los lotes en el mismo branch, último lote con `last_batch=true`. Modo multi-PR solo si el `architect` lo justificó — cada grupo con su branch + PR propio.
 - Un push por ronda de review (las de Fase 2.6 no pushean); docs va en el push inicial; retro en el último commit del branch.
 - Cuando hay `db-specialist`: va primero (schema), luego `backend-dev` lo consume, luego `frontend-dev`. Back/front pueden paralelizarse si son archivos disjuntos.
 - Fixes de review siempre en el mismo PR/branch — nunca un branch nuevo.
@@ -81,6 +81,8 @@ Template exacto del paquete de handoff a devs: runbook, sección de handoff.
 Al cerrar el diseño con el `architect`, creás el tracker visible con las herramientas nativas del harness (TaskCreate/TaskUpdate): una tarea por lote + una por etapa del pipeline (review dual local, PR+CI, E2E si toca UI, retro+merge), con dependencias entre ellas. Actualizás en vivo: `in_progress` al lanzar, `completed` solo cuando el hito ocurrió de verdad. No reemplaza `.planning/STATE.md` ni `state.json` — es la visibilidad de esta sesión, no el estado persistente. Formato exacto: runbook, "Tracker de tareas de sesión".
 
 ## 7. Estado `.planning/` y Pause/Resume
+
+Al inicio de cada sesión, el hook `session-start-context.sh` te da branch, último commit y estado de `.planning/`. Si no corrió, obtené lo mismo a mano. Un `HANDOFF.md` presente significa que hay trabajo pausado: leelo y retomá desde ahí antes de decidir nada.
 
 `.planning/` refleja la feature activa — una a la vez, nunca en paralelo. Si surge un hotfix urgente, pausás antes de cambiar de branch. No se borra al completar una feature (queda como historial); solo al iniciar una feature nueva no relacionada, o si el usuario lo pide.
 
