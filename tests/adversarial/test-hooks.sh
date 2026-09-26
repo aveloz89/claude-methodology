@@ -287,6 +287,21 @@ assert_blocked_cmd "block-force-push: comando compuesto (cd a && git push --forc
 assert_allowed_cmd "block-force-push: git push (sin force) allowed" "block-force-push.sh" "git push"
 assert_allowed_cmd "block-force-push: git reset --soft HEAD~1 allowed (no relacionado)" "block-force-push.sh" "git reset --soft HEAD~1"
 
+# Fail-closed sin jq (revisión pre-push, security MEDIUM): hoy, sin jq en
+# PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, y un
+# "git push --force" real pasa en silencio — mismo hueco que #50 en
+# block-admin-merge/pre-commit-guard, cerrado ahí pero no acá.
+NO_JQ_BFP_BIN=$(mktemp -d)
+for cmd in bash cat perl grep; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_BFP_BIN/$cmd"
+done
+assert_blocked_cmd "block-force-push: bloquea fail-closed sin jq en PATH" \
+  "block-force-push.sh" \
+  "git push --force" \
+  "$NO_JQ_BFP_BIN"
+rm -rf "$NO_JQ_BFP_BIN"
+
 echo ""
 
 # --- block-hard-reset.sh ---
@@ -296,6 +311,20 @@ assert_blocked_cmd "block-hard-reset: git reset --hard blocks" "block-hard-reset
 assert_blocked_cmd "block-hard-reset: comando compuesto (cd a && git reset --hard) blocks" "block-hard-reset.sh" "cd a && git reset --hard"
 assert_allowed_cmd "block-hard-reset: git reset --soft HEAD~1 allowed" "block-hard-reset.sh" "git reset --soft HEAD~1"
 assert_allowed_cmd "block-hard-reset: git push allowed (no relacionado)" "block-hard-reset.sh" "git push"
+
+# Fail-closed sin jq (revisión pre-push, security MEDIUM): mismo hueco que
+# en block-force-push.sh — sin jq, COMMAND queda vacío y un
+# "git reset --hard" real pasa en silencio.
+NO_JQ_BHR_BIN=$(mktemp -d)
+for cmd in bash cat perl grep; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_BHR_BIN/$cmd"
+done
+assert_blocked_cmd "block-hard-reset: bloquea fail-closed sin jq en PATH" \
+  "block-hard-reset.sh" \
+  "git reset --hard" \
+  "$NO_JQ_BHR_BIN"
+rm -rf "$NO_JQ_BHR_BIN"
 
 echo ""
 

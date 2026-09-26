@@ -16,6 +16,16 @@
 # Ver hooks/lib/guard-matching.sh. Fail-closed si el lib no existe o no es
 # legible: un `source` fallido dejaría guard_sanitize()/GUARD_ANCHOR
 # indefinidos y el grep de abajo nunca matchearía — fail-open silencioso.
+#
+# Fail-closed sin jq (mismo cierre que #50 en block-admin-merge.sh y
+# pre-commit-guard.sh): sin jq, el parseo de COMMAND más abajo devuelve
+# vacío, el grep nunca matchea, y un "git push --force" real pasaba en
+# silencio. CAMBIA el contrato de este hook: antes, sin jq, pasaba.
+if ! command -v jq > /dev/null 2>&1; then
+  echo "BLOCKED: block-force-push no operativo: falta jq" >&2
+  exit 2
+fi
+
 LIB="${0%/*}/lib/guard-matching.sh"
 if [ ! -r "$LIB" ]; then
   echo "BLOCKED: block-force-push no operativo: falta hooks/lib/guard-matching.sh" >&2

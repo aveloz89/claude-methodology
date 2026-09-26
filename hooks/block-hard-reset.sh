@@ -10,6 +10,16 @@
 # cambio y el porqué de anclar con hooks/lib/guard-matching.sh (detecta el
 # reset real dentro de un comando compuesto, ej. "cd repo && git reset
 # --hard", que antes pasaba sin bloquear).
+#
+# Fail-closed sin jq (mismo cierre que #50 en block-admin-merge.sh y
+# pre-commit-guard.sh): sin jq, el parseo de COMMAND más abajo devuelve
+# vacío, el grep nunca matchea, y un "git reset --hard" real pasaba en
+# silencio. CAMBIA el contrato de este hook: antes, sin jq, pasaba.
+if ! command -v jq > /dev/null 2>&1; then
+  echo "BLOCKED: block-hard-reset no operativo: falta jq" >&2
+  exit 2
+fi
+
 LIB="${0%/*}/lib/guard-matching.sh"
 if [ ! -r "$LIB" ]; then
   echo "BLOCKED: block-hard-reset no operativo: falta hooks/lib/guard-matching.sh" >&2
