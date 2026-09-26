@@ -144,7 +144,7 @@ Build falla en main o dev después de merge
 
 ```
 El context-monitor avisa que el contexto está en 25% (critical)
-  → Paso 1: Aplicar el procedimiento de Pause / Resume de CLAUDE.md
+  → Paso 1: Aplicar el procedimiento de Pause / Resume de la skill orchestrator
   → Paso 2: Informar al usuario que debe iniciar nueva sesión
 ```
 

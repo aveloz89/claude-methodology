@@ -251,6 +251,47 @@ else
 fi
 
 echo ""
+echo "--- Referencias cruzadas al detalle movido a la skill orchestrator ---"
+
+RUNBOOK="$REPO_ROOT/rulebooks/orchestrator-runbook.md"
+GOVERNANCE="$REPO_ROOT/rulebooks/governance-playbook.md"
+
+assert_contains() {
+  local file="$1" pattern="$2" label="$3"
+  TOTAL=$((TOTAL + 1))
+  if grep -q -- "$pattern" "$file"; then
+    echo -e "${GREEN}PASS${NC}: $label"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $label (no se encontró \"$pattern\" en $file)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_not_contains() {
+  local file="$1" pattern="$2" label="$3"
+  TOTAL=$((TOTAL + 1))
+  if grep -q -- "$pattern" "$file"; then
+    echo -e "${RED}FAIL${NC}: $label (todavía se encontró \"$pattern\" en $file)"
+    FAIL=$((FAIL + 1))
+  else
+    echo -e "${GREEN}PASS${NC}: $label"
+    PASS=$((PASS + 1))
+  fi
+}
+
+assert_not_contains "$RUNBOOK" "el comportamiento esencial vive en \`CLAUDE.md\` raíz" \
+  "runbook línea 3 ya no apunta el detalle esencial a CLAUDE.md raíz"
+assert_contains "$RUNBOOK" "skill \`orchestrator\`" \
+  "runbook línea 3 apunta el manual de la sesión principal a la skill orchestrator"
+assert_not_contains "$RUNBOOK" "regla operativa de \`CLAUDE.md\`" \
+  "runbook línea 42 (AskUserQuestion) ya no cita CLAUDE.md como fuente"
+assert_not_contains "$RUNBOOK" "\"Pause / Resume\" en \`CLAUDE.md\` raíz" \
+  "runbook (Retomar) ya no remite Pause/Resume a CLAUDE.md raíz"
+assert_not_contains "$GOVERNANCE" "Pause / Resume de CLAUDE.md" \
+  "governance-playbook (#9) ya no remite Pause/Resume a CLAUDE.md"
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then
