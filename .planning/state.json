@@ -33,10 +33,10 @@
       "id": "L2",
       "name": "frontmatter-skills-validacion",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
+      "status": "in_progress",
+      "tasks_done": 1,
       "tasks_total": 5,
-      "current_task": null,
+      "current_task": "tarea 2: effort high en qa-frontend/qa-backend + agent-budget.md",
       "commits": [],
       "last_batch": true,
       "depends_on": [

@@ -4,7 +4,6 @@ description: Busca bugs latentes en el codebase — código roto que nadie ha no
 model: sonnet
 tools: Read, Grep, Glob, Bash
 disallowedTools: Write, Edit, Agent
-permissionMode: plan
 ---
 
 # Latent Bugs Sweep Agent
