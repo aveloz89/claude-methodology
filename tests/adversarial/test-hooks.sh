@@ -302,22 +302,22 @@ echo ""
 # --- block-admin-merge.sh ---
 echo "--- block-admin-merge.sh ---"
 
-# block-admin-merge.sh responde con {"decision":"block",...} o
-# {"continue":true} en el JSON de stdout (siempre exit 0), igual que
-# pre-merge-check.sh — no exit code 2 como pre-commit-guard.sh/
-# pre-push-guard.sh, por eso usa asserts sobre el JSON en vez de
-# assert_blocked_cmd/assert_allowed_cmd (exit-code based).
+# block-admin-merge.sh responde con stderr + exit 2 (bloquear) o exit 0 sin
+# stdout (permitir) — mismo contrato que pre-push-guard.sh/pre-commit-
+# guard.sh (auditoría best-practices, migrado desde el JSON
+# {"decision":"block"}/{"continue":true} que usaba antes). El motivo de
+# bloqueo sigue verificable en stderr para quien lo necesite.
 assert_bam_blocked() {
   local test_name="$1" cmd="$2" run_path="${3:-$PATH}"
   TOTAL=$((TOTAL + 1))
-  local json output
+  local json exit_code=0
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/block-admin-merge.sh" 2>/dev/null)
-  if echo "$output" | grep -q '"decision":"block"'; then
+  echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/block-admin-merge.sh" > /dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 2 ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (blocked as expected)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 2)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -325,14 +325,14 @@ assert_bam_blocked() {
 assert_bam_continue() {
   local test_name="$1" cmd="$2" run_path="${3:-$PATH}"
   TOTAL=$((TOTAL + 1))
-  local json output
+  local json exit_code=0
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  output=$(echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/block-admin-merge.sh" 2>/dev/null)
-  if echo "$output" | grep -q '"continue":true'; then
+  echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/block-admin-merge.sh" > /dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 0 ]; then
     echo -e "${GREEN}PASS${NC}: $test_name (continue as expected)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (output: $output)"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 0)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -1538,6 +1538,105 @@ rm -rf "$WSLIB_DIR"
 
 echo ""
 
+# --- pre-release-sweep.sh ---
+echo "--- pre-release-sweep.sh ---"
+
+# pre-release-sweep.sh bloquea "gh pr create --base main" si hay issues
+# abiertos con label latent-bug y severidad CRÍTICO/CRITICAL que mencionen
+# un archivo del diff (origin/main...HEAD). Sandbox: repo git con una rama
+# LOCAL literalmente llamada "origin/main" — git resuelve "origin/main"
+# contra refs/heads/origin/main igual que contra un remote-tracking real
+# (mismas reglas de disambiguación), así que alcanza sin remote de verdad.
+sandbox_create_prs() {
+  PRS_REPO=$(mktemp -d)
+  PRS_REPO=$(cd "$PRS_REPO" && pwd -P)
+  (
+    cd "$PRS_REPO" || exit 1
+    git init -q -b "origin/main"
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    echo "base" > base.txt
+    git add -A
+    git commit -q -m "initial commit"
+    git checkout -q -b feature/x
+    echo "console.log('x')" > app.js
+    git add -A
+    git commit -q -m "agregar app.js"
+  ) > /dev/null 2>&1
+}
+
+sandbox_cleanup_prs() {
+  rm -rf "$PRS_REPO"
+}
+
+PRS_FAKE_GH_DIR=$(mktemp -d)
+cat > "$PRS_FAKE_GH_DIR/gh" <<'PRS_FAKE_GH_EOF'
+#!/bin/bash
+# Fake gh para tests de pre-release-sweep.sh: nunca toca la red.
+case "$1 $2" in
+  "issue list")
+    case "$PRS_FAKE_GH_MODE" in
+      critical)
+        echo '[{"number":42,"title":"bug latente","body":"Severidad: CRÍTICO. Afecta a app.js con un null deref."}]'
+        ;;
+      *)
+        echo '[]'
+        ;;
+    esac
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+PRS_FAKE_GH_EOF
+chmod +x "$PRS_FAKE_GH_DIR/gh"
+
+assert_prs_blocked() {
+  local test_name="$1" cmd="$2" fake_gh_mode="$3" expected_substring="$4"
+  TOTAL=$((TOTAL + 1))
+  local json exit_code=0 stderr_file
+  stderr_file=$(mktemp)
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  (cd "$PRS_REPO" && echo "$json" | PATH="$PRS_FAKE_GH_DIR:$PATH" PRS_FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>"$stderr_file") || exit_code=$?
+  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"))"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$stderr_file"
+}
+
+assert_prs_allowed() {
+  local test_name="$1" cmd="$2" fake_gh_mode="${3:-}"
+  TOTAL=$((TOTAL + 1))
+  local json exit_code=0
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  (cd "$PRS_REPO" && echo "$json" | PATH="$PRS_FAKE_GH_DIR:$PATH" PRS_FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>&1) || exit_code=$?
+  if [ "$exit_code" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (allowed as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 0)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+sandbox_create_prs
+
+assert_prs_blocked "pre-release-sweep: bloquea con issue latent-bug CRÍTICO sobre archivo del diff" \
+  "gh pr create --base main --title x --body y" "critical" "app.js"
+assert_prs_allowed "pre-release-sweep: pasa sin issues abiertos" \
+  "gh pr create --base main --title x --body y" "none"
+assert_prs_allowed "pre-release-sweep: pasa si el comando no es gh pr create --base main" \
+  "gh pr create --base dev --title x --body y" "critical"
+
+sandbox_cleanup_prs
+rm -rf "$PRS_FAKE_GH_DIR"
+
+echo ""
+
 echo ""
 
 # --- pre-merge-check.sh ---
@@ -2245,12 +2344,13 @@ fi
 
 TOTAL=$((TOTAL + 1))
 JSON_MISSING_LIB_BAM=$(jq -n '{tool_input: {command: "gh pr merge 5 --admin"}}')
-OUTPUT_MISSING_LIB_BAM=$(echo "$JSON_MISSING_LIB_BAM" | bash "$MISSING_LIB_DIR/block-admin-merge.sh" 2>/dev/null)
-if echo "$OUTPUT_MISSING_LIB_BAM" | grep -q '"decision":"block"'; then
+EXIT_MISSING_LIB_BAM=0
+echo "$JSON_MISSING_LIB_BAM" | bash "$MISSING_LIB_DIR/block-admin-merge.sh" > /dev/null 2>&1 || EXIT_MISSING_LIB_BAM=$?
+if [ "$EXIT_MISSING_LIB_BAM" -eq 2 ]; then
   echo -e "${GREEN}PASS${NC}: block-admin-merge.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: block-admin-merge.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible (output: $OUTPUT_MISSING_LIB_BAM)"
+  echo -e "${RED}FAIL${NC}: block-admin-merge.sh bloquea si hooks/lib/guard-matching.sh no existe/no es legible (exit code: $EXIT_MISSING_LIB_BAM)"
   FAIL=$((FAIL + 1))
 fi
 

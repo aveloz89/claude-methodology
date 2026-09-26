@@ -5,13 +5,18 @@
 # ancla a posición de comando en vez de al string completo — mismo helper
 # que usa pre-merge-check.sh. Ver hooks/lib/guard-matching.sh.
 #
+# Contrato PreToolUse (auditoría best-practices): bloquear = stderr + exit
+# 2, permitir = exit 0 sin stdout — igual que pre-push-guard.sh y pre-
+# commit-guard.sh. Reemplaza el JSON {"decision":"block"}/{"continue":true}
+# que este hook usaba antes.
+#
 # Fail-closed sin jq (cierra #50 para este guard): sin jq, el parseo de
 # COMMAND más abajo devuelve vacío, el grep nunca matchea, y el guard
 # pasaba en silencio — cualquier --admin pasaba sin bloquear. CAMBIA el
 # contrato de este hook: antes, sin jq, pasaba.
 if ! command -v jq > /dev/null 2>&1; then
-  printf '{"decision":"block","reason":"block-admin-merge no operativo: falta jq"}\n'
-  exit 0
+  echo "BLOCKED: block-admin-merge no operativo: falta jq" >&2
+  exit 2
 fi
 
 INPUT=$(cat)
@@ -25,8 +30,8 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 # guard pasaría en silencio (mismo fail-open que #50).
 LIB="${0%/*}/lib/guard-matching.sh"
 if [ ! -r "$LIB" ]; then
-  printf '{"decision":"block","reason":"block-admin-merge no operativo: falta hooks/lib/guard-matching.sh"}\n'
-  exit 0
+  echo "BLOCKED: block-admin-merge no operativo: falta hooks/lib/guard-matching.sh" >&2
+  exit 2
 fi
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
@@ -34,8 +39,8 @@ source "$LIB"
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
 if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}gh\s+pr\s+merge\b.*--admin"; then
-  echo '{"decision":"block","reason":"Blocked: --admin bypasses branch protections. PRs must pass all required checks before merging."}'
-  exit 0
+  echo "BLOCKED: --admin bypasses branch protections. PRs must pass all required checks before merging." >&2
+  exit 2
 fi
 
-echo '{"continue":true}'
+exit 0
