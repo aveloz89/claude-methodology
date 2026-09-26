@@ -11,11 +11,7 @@ Núcleo global de la metodología: workflow, gitflow, dual review, TDD y reglas 
 
 ## Rol de la sesión principal
 
-La sesión principal —el *orchestrator*— coordina: entiende el pedido, hace diseñar,
-reparte lotes a los subagentes, corre los reviews y mergea. No escribe código de
-producción ni tests; eso lo hacen los subagentes que reciben un lote. Esta regla
-describe a quien delega. Si estás leyendo esto como subagente, tu prompt define tu
-trabajo y esta sección no te aplica.
+La sesión principal —el *orchestrator*— coordina: entiende el pedido, hace diseñar, reparte lotes a los subagentes, corre los reviews y mergea. No escribe código de producción ni tests; eso lo hacen los subagentes que reciben un lote. Usa Bash solo para git, `gh`, lectura de estado y orquestación — si te tienta escribir código "porque es rápido", delega. Esta regla describe a quien delega. Si estás leyendo esto como subagente, tu prompt define tu trabajo y esta sección no te aplica.
 
 Al empezar una feature, un fix o cualquier trabajo que termine en un PR, la sesión
 principal carga la skill `orchestrator` (`/methodology:orchestrator`) antes de
@@ -28,7 +24,7 @@ momento. El hook de inicio de sesión lo recuerda.
 2. **Diseño antes de código** — el architect diseña (estructura, contratos, schemas) antes de que los devs implementen.
 3. **TDD obligatorio para lógica de negocio** — Red → Green → Refactor. Nunca código de producción sin un test que falle primero.
    - **No aplica TDD literal** a: estilos CSS, configuración de infra (Dockerfile, docker-compose, Caddyfile), migraciones declarativas, archivos de configuración.
-4. **Dual review obligatorio (bloqueante)** — `security-reviewer` + QA (`qa-frontend` y/o `qa-backend` según las capas tocadas en el diff) deben aprobar antes de merge. Se lanzan en paralelo, sobre el diff local al terminar docs, antes del push inicial.
+4. **Dual review obligatorio (bloqueante)** — `security-reviewer` + QA (`qa-frontend` y/o `qa-backend` según las capas tocadas en el diff) deben aprobar antes de merge. Se lanzan en paralelo, sobre el diff local al terminar docs, antes del push inicial. Si opus está rate-limited, `security-reviewer` baja a sonnet solo si el diff no toca auth, crypto, secrets o pagos.
 5. **80% coverage de branches mínimo** — calculado **solo sobre archivos modificados en el PR**, no sobre todo el repo.
    - **Excluidos del cálculo**: re-exports, archivos de config, migraciones declarativas, definiciones de tipos puros, mocks/fixtures de test.
 
@@ -65,7 +61,7 @@ Los hooks son enforcement del harness, no instrucciones tuyas — corren solos.
 
 ## Verificación pre-commit (responsabilidad del subagente dev)
 
-Antes de cada commit, el subagente dev ejecuta en orden: (1) tests con coverage ≥ 80% de branches sobre archivos del diff, (2) lint sin errores (autofix primero), (3) build compila, (4) Docker container corre si aplica, (5) self-reflection idiomática contra `~/.claude/rules/self-reflection.md`, (6) implementation principles contra `~/.claude/rules/implementation-principles.md`. Los pasos 5 y 6 son pasadas separadas: el 5 revisa cómo está escrito, el 6 revisa qué se escribió. **No se hace commit si falta alguna.**
+Antes de cada commit, el subagente dev ejecuta en orden: (1) tests con coverage ≥ 80% de branches sobre archivos del diff, (2) lint sin errores (autofix primero), (3) build compila, (4) Docker container corre si aplica, (5) self-reflection idiomática contra `~/.claude/rules/self-reflection.md`, (6) implementation principles contra `~/.claude/rules/implementation-principles.md`. Los pasos 5 y 6 son pasadas separadas: el 5 revisa cómo está escrito, el 6 revisa qué se escribió. El paso 1 lo refuerza `pre-commit-guard.sh`; el resto es responsabilidad del dev. **No se hace commit si falta alguna.**
 
 ## Estado persistente: `.planning/`
 

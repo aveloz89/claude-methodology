@@ -343,6 +343,18 @@ assert_not_contains "$RUNBOOK" "Bug fix con pasos de reproducción claros" \
   "runbook (Fase 0) ya no tiene su propia lista de condiciones para saltar brainstorming"
 
 echo ""
+echo "--- global/CLAUDE.md: restricciones de rol, degradación y pre-commit-guard ---"
+
+assert_contains "$GLOBAL_CLAUDE_MD" "Bash solo para git" \
+  "Rol de la sesión principal restringe Bash a git/gh/lectura de estado/orquestación"
+assert_contains "$GLOBAL_CLAUDE_MD" "si te tienta escribir código" \
+  "Rol de la sesión principal advierte contra escribir código \"porque es rápido\""
+assert_contains "$GLOBAL_CLAUDE_MD" "auth, crypto, secrets o pagos" \
+  "Workflow obligatorio #4 tiene la regla de degradación de security-reviewer"
+assert_contains "$GLOBAL_CLAUDE_MD" "pre-commit-guard.sh" \
+  "Verificación pre-commit menciona que el paso 1 lo refuerza pre-commit-guard.sh"
+
+echo ""
 echo "--- Tuteo consistente en global/CLAUDE.md y skills/orchestrator/SKILL.md ---"
 
 assert_no_voseo() {
