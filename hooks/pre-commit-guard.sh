@@ -164,8 +164,35 @@ fi
 # en su propio grupo de procesos (`set -m`) + kill del grupo completo
 # (`kill -- -$pgid`), no una señal a sí mismo — matar solo el pid de arriba
 # (`kill -9 "$pid"`) deja a los hijos del test runner huérfanos corriendo.
+# _guard_resolve_test_budget: valida PRECOMMIT_TEST_BUDGET antes de usarlo
+# como cap del watchdog. Sin esto, un valor no numérico (p. ej. "abc") rompe
+# la comparación "[ "$waited" -ge "$budget" ]" de más abajo ("integer
+# expression expected", que en un "if" cuenta como falso) y el watchdog
+# nunca corta — el hueco lo cierra el timeout del harness (600s en
+# hooks.json), que DESCARTA la salida y deja pasar el commit sin tests. Un
+# valor válido pero >= 600 (p. ej. "9999") es el mismo hueco por otra vía:
+# el watchdog interno ya no le gana al timeout del harness. Ante cualquiera
+# de los dos casos, se usa el default 540 (< 600, el mismo margen que ya
+# documentaba este watchdog) y se avisa por stderr — nunca se corre en
+# silencio con el valor pedido.
+_guard_resolve_test_budget() {
+  local raw="${PRECOMMIT_TEST_BUDGET:-}"
+  if [ -z "$raw" ]; then
+    echo 540
+    return 0
+  fi
+  if [[ "$raw" =~ ^[0-9]+$ ]] && [ "$raw" -lt 600 ]; then
+    echo "$raw"
+    return 0
+  fi
+  echo "PRECOMMIT_TEST_BUDGET=\"$raw\" inválido (debe ser un entero menor a 600); usando el default 540." >&2
+  echo 540
+  return 0
+}
+
 _guard_run_with_budget() {
-  local budget="${PRECOMMIT_TEST_BUDGET:-540}"
+  local budget
+  budget=$(_guard_resolve_test_budget)
   local outfile pgid_file
   outfile=$(mktemp)
   pgid_file=$(mktemp)

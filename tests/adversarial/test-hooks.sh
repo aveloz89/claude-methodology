@@ -503,6 +503,80 @@ fi
 
 rm -rf "$PCG_WD_TEST_DIR" "$FAKE_PYTEST_WD_DIR"
 
+# --- pre-commit-guard.sh: PRECOMMIT_TEST_BUDGET inválido cae a un default
+# seguro (< 600) en vez de romper la comparación del watchdog o anular su
+# ventaja sobre el timeout del harness (revisión pre-push, security MEDIUM) ---
+# Se importa _guard_resolve_test_budget del propio hook (no se reimplementa
+# la validación acá) extrayendo solo esa función con awk a un archivo
+# temporal y sourceándolo (source contra /dev/fd de una process
+# substitution resultó no confiable en macOS: fallaba con "command not
+# found" de forma intermitente).
+BUDGET_FN_FILE=$(mktemp)
+awk '/^_guard_resolve_test_budget\(\) \{/,/^}/' "$HOOKS_DIR/pre-commit-guard.sh" > "$BUDGET_FN_FILE"
+source "$BUDGET_FN_FILE"
+rm -f "$BUDGET_FN_FILE"
+
+TOTAL=$((TOTAL + 1))
+BUDGET_ABC_STDERR=$(mktemp)
+BUDGET_ABC_OUT=$(PRECOMMIT_TEST_BUDGET=abc _guard_resolve_test_budget 2>"$BUDGET_ABC_STDERR")
+if [ "$BUDGET_ABC_OUT" = "540" ] && grep -qF "inválido" "$BUDGET_ABC_STDERR"; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=abc cae a 540 con aviso en stderr"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=abc cae a 540 con aviso en stderr (salida: \"$BUDGET_ABC_OUT\", stderr: \"$(cat "$BUDGET_ABC_STDERR")\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_ABC_STDERR"
+
+TOTAL=$((TOTAL + 1))
+BUDGET_9999_STDERR=$(mktemp)
+BUDGET_9999_OUT=$(PRECOMMIT_TEST_BUDGET=9999 _guard_resolve_test_budget 2>"$BUDGET_9999_STDERR")
+if [ "$BUDGET_9999_OUT" = "540" ] && grep -qF "inválido" "$BUDGET_9999_STDERR"; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=9999 (>= 600) cae a 540 con aviso en stderr"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=9999 (>= 600) cae a 540 con aviso en stderr (salida: \"$BUDGET_9999_OUT\", stderr: \"$(cat "$BUDGET_9999_STDERR")\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_9999_STDERR"
+
+TOTAL=$((TOTAL + 1))
+BUDGET_VALID_STDERR=$(mktemp)
+BUDGET_VALID_OUT=$(PRECOMMIT_TEST_BUDGET=30 _guard_resolve_test_budget 2>"$BUDGET_VALID_STDERR")
+if [ "$BUDGET_VALID_OUT" = "30" ] && [ ! -s "$BUDGET_VALID_STDERR" ]; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=30 (válido) se respeta sin aviso"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=30 (válido) se respeta sin aviso (salida: \"$BUDGET_VALID_OUT\", stderr: \"$(cat "$BUDGET_VALID_STDERR")\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_VALID_STDERR"
+
+# Integración: el hook completo no se rompe con un PRECOMMIT_TEST_BUDGET
+# inválido — sigue corriendo tests y avisa el fallback por stderr.
+PCG_BADBUDGET_DIR=$(mktemp -d)
+touch "$PCG_BADBUDGET_DIR/pyproject.toml"
+FAKE_PYTEST_BADBUDGET_DIR=$(mktemp -d)
+cat > "$FAKE_PYTEST_BADBUDGET_DIR/pytest" <<'FAKE_PYTEST_BB_EOF'
+#!/bin/bash
+exit 0
+FAKE_PYTEST_BB_EOF
+chmod +x "$FAKE_PYTEST_BADBUDGET_DIR/pytest"
+
+TOTAL=$((TOTAL + 1))
+PCG_BB_JSON=$(jq -n --arg cmd "git commit -m wip" '{tool_input: {command: $cmd}}')
+PCG_BB_EXIT=0
+PCG_BB_STDERR=$(cd "$PCG_BADBUDGET_DIR" && echo "$PCG_BB_JSON" | PATH="$FAKE_PYTEST_BADBUDGET_DIR:$PATH" PRECOMMIT_TEST_BUDGET=abc bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PCG_BB_EXIT=$?
+if [ "$PCG_BB_EXIT" -eq 0 ] && echo "$PCG_BB_STDERR" | grep -qF "inválido"; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=abc no rompe el hook (avisa y sigue con el default)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=abc no rompe el hook (avisa y sigue con el default) (exit code: $PCG_BB_EXIT, stderr: $PCG_BB_STDERR)"
+  FAIL=$((FAIL + 1))
+fi
+
+rm -rf "$PCG_BADBUDGET_DIR" "$FAKE_PYTEST_BADBUDGET_DIR"
+
 # [ronda 2, tarea 3] Cierra #50 de verdad para este guard: hoy, sin jq en
 # PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, el guard
 # nunca detecta el "git commit" y pasa en silencio (fail-open, exit 0) sin
