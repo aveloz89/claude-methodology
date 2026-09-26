@@ -592,7 +592,7 @@ fi
 rm -rf "$PCG_WD_TEST_DIR" "$FAKE_PYTEST_WD_DIR"
 
 # --- pre-commit-guard.sh: PRECOMMIT_TEST_BUDGET inválido cae a un default
-# seguro (< 600) en vez de romper la comparación del watchdog o anular su
+# seguro (<= 570) en vez de romper la comparación del watchdog o anular su
 # ventaja sobre el timeout del harness (revisión pre-push, security MEDIUM) ---
 # Se importa _guard_resolve_test_budget del propio hook (no se reimplementa
 # la validación acá) extrayendo solo esa función con awk a un archivo
@@ -669,13 +669,38 @@ TOTAL=$((TOTAL + 1))
 BUDGET_9999_STDERR=$(mktemp)
 BUDGET_9999_OUT=$(PRECOMMIT_TEST_BUDGET=9999 _guard_resolve_test_budget 2>"$BUDGET_9999_STDERR")
 if [ "$BUDGET_9999_OUT" = "540" ] && grep -qF "inválido" "$BUDGET_9999_STDERR"; then
-  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=9999 (>= 600) cae a 540 con aviso en stderr"
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=9999 (> 570) cae a 540 con aviso en stderr"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=9999 (>= 600) cae a 540 con aviso en stderr (salida: \"$BUDGET_9999_OUT\", stderr: \"$(cat "$BUDGET_9999_STDERR")\")"
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=9999 (> 570) cae a 540 con aviso en stderr (salida: \"$BUDGET_9999_OUT\", stderr: \"$(cat "$BUDGET_9999_STDERR")\")"
   FAIL=$((FAIL + 1))
 fi
 rm -f "$BUDGET_9999_STDERR"
+
+# Límite exacto del tope nuevo (ronda 2): 570 es válido, 571 ya no.
+TOTAL=$((TOTAL + 1))
+BUDGET_570_STDERR=$(mktemp)
+BUDGET_570_OUT=$(PRECOMMIT_TEST_BUDGET=570 _guard_resolve_test_budget 2>"$BUDGET_570_STDERR")
+if [ "$BUDGET_570_OUT" = "570" ] && [ ! -s "$BUDGET_570_STDERR" ]; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=570 (límite) se respeta sin aviso"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=570 (límite) se respeta sin aviso (salida: \"$BUDGET_570_OUT\", stderr: \"$(cat "$BUDGET_570_STDERR")\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_570_STDERR"
+
+TOTAL=$((TOTAL + 1))
+BUDGET_571_STDERR=$(mktemp)
+BUDGET_571_OUT=$(PRECOMMIT_TEST_BUDGET=571 _guard_resolve_test_budget 2>"$BUDGET_571_STDERR")
+if [ "$BUDGET_571_OUT" = "540" ] && grep -qF "inválido" "$BUDGET_571_STDERR"; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=571 (> 570) cae a 540 con aviso en stderr"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=571 (> 570) cae a 540 con aviso en stderr (salida: \"$BUDGET_571_OUT\", stderr: \"$(cat "$BUDGET_571_STDERR")\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_571_STDERR"
 
 TOTAL=$((TOTAL + 1))
 BUDGET_VALID_STDERR=$(mktemp)

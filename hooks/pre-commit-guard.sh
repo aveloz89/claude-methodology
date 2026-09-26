@@ -166,26 +166,32 @@ fi
 # (`kill -9 "$pid"`) deja a los hijos del test runner huérfanos corriendo.
 # _guard_resolve_test_budget: valida PRECOMMIT_TEST_BUDGET antes de usarlo
 # como cap del watchdog. Sin esto, un valor no numérico (p. ej. "abc") rompe
-# la comparación "[ "$waited" -ge "$budget" ]" de más abajo ("integer
+# la comparación "[ "$SECONDS" -ge "$budget" ]" de más abajo ("integer
 # expression expected", que en un "if" cuenta como falso) y el watchdog
 # nunca corta — el hueco lo cierra el timeout del harness (600s en
-# hooks.json), que DESCARTA la salida y deja pasar el commit sin tests. Un
-# valor válido pero >= 600 (p. ej. "9999") es el mismo hueco por otra vía:
-# el watchdog interno ya no le gana al timeout del harness. Ante cualquiera
-# de los dos casos, se usa el default 540 (< 600, el mismo margen que ya
-# documentaba este watchdog) y se avisa por stderr — nunca se corre en
-# silencio con el valor pedido.
+# hooks.json), que DESCARTA la salida y deja pasar el commit sin tests.
+#
+# Tope <= 570 (revisión pre-push, ronda 2, security MEDIUM): antes el tope
+# era < 600, el mismo número que el timeout del harness. Con un budget en
+# 590-599, el watchdog "gana" en el papel, pero el margen real es de
+# segundos: el corte no es instantáneo — mide en pasos de `sleep 1` (o de
+# ida y vuelta de $SECONDS, ver más abajo) y encima corre `kill -TERM`, un
+# `sleep 1` de gracia y `kill -KILL` antes de poder responder al harness. Un
+# budget de 599 con ese overhead puede terminar respondiendo después de los
+# 600s del harness, que ya descartó la salida del hook — el mismo hueco que
+# esto existe para cerrar. 570 deja 30s de colchón para el overhead de
+# corte + cleanup, nunca ajustado al límite exacto del timeout externo.
 _guard_resolve_test_budget() {
   local raw="${PRECOMMIT_TEST_BUDGET:-}"
   if [ -z "$raw" ]; then
     echo 540
     return 0
   fi
-  if [[ "$raw" =~ ^[0-9]+$ ]] && [ "$raw" -lt 600 ]; then
+  if [[ "$raw" =~ ^[0-9]+$ ]] && [ "$raw" -le 570 ]; then
     echo "$raw"
     return 0
   fi
-  echo "PRECOMMIT_TEST_BUDGET=\"$raw\" inválido (debe ser un entero menor a 600); usando el default 540." >&2
+  echo "PRECOMMIT_TEST_BUDGET=\"$raw\" inválido (debe ser un entero <= 570); usando el default 540." >&2
   echo 540
   return 0
 }
@@ -206,9 +212,17 @@ _guard_run_with_budget() {
   ) &
   local runner_pid=$!
 
-  local waited=0
+  # Ronda 2 (revisión pre-push, security MEDIUM): "waited" contaba VUELTAS de
+  # loop, no segundos reales — cada vuelta es un "sleep 1" más lo que tarde
+  # el propio "kill -0" y la comparación, así que con budget alto el drift
+  # se acumula y el corte real llega más tarde que "budget" segundos. $SECONDS
+  # es un contador de bash de tiempo real desde que se resetea (acá, desde
+  # el inicio de este loop) — mide el reloj de pared en vez de vueltas, así
+  # que el corte ocurre cuando realmente pasaron "budget" segundos, no
+  # cuando pasaron "budget" iteraciones de un loop con overhead variable.
+  SECONDS=0
   while kill -0 "$runner_pid" 2>/dev/null; do
-    if [ "$waited" -ge "$budget" ]; then
+    if [ "$SECONDS" -ge "$budget" ]; then
       local job_pgid
       job_pgid=$(cat "$pgid_file" 2>/dev/null)
       if [ -n "$job_pgid" ]; then
@@ -223,7 +237,6 @@ _guard_run_with_budget() {
       exit 2
     fi
     sleep 1
-    waited=$((waited + 1))
   done
 
   wait "$runner_pid" 2>/dev/null
