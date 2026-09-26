@@ -150,6 +150,9 @@ if [ -d ".planning" ]; then
   fi
 fi
 
+echo ""
+echo "Sesión principal: si este turno arranca una feature, un fix o algo que termine en PR, cargá la skill methodology:orchestrator antes de delegar."
+
 echo "==========================="
 
 exit 0
