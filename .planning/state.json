@@ -22,10 +22,12 @@
       "name": "hooks-formato-if-matcher-failclosed",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 0,
+      "tasks_done": 1,
       "tasks_total": 5,
-      "current_task": null,
-      "commits": [],
+      "current_task": 2,
+      "commits": [
+        "3ccd47e"
+      ],
       "last_batch": false,
       "depends_on": []
     },
