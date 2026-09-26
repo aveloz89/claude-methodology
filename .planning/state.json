@@ -39,11 +39,14 @@
       "id": "L4",
       "name": "medicion-y-cierre-pr2",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
+      "status": "done",
+      "tasks_done": 3,
       "tasks_total": 3,
       "current_task": null,
-      "commits": [],
+      "commits": [
+        "5addeab",
+        "2896cc5"
+      ],
       "last_batch": true,
       "depends_on": [
         "L3"
