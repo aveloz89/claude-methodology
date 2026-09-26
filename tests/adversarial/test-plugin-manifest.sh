@@ -329,6 +329,20 @@ else
 fi
 
 echo ""
+echo "--- Condiciones para saltar el brainstorming: una sola lista, en la skill ---"
+
+assert_contains "$ORCHESTRATOR_SKILL" "causa raíz ya identificada" \
+  "skill orchestrator §3 tiene la condición de bug fix / cambio técnico sin funcionalidad nueva"
+assert_contains "$ORCHESTRATOR_SKILL" "No cambia contratos públicos" \
+  "skill orchestrator §3 tiene la condición de no cambiar contratos públicos"
+assert_contains "$ORCHESTRATOR_SKILL" "No agrega dependencias nuevas" \
+  "skill orchestrator §3 tiene la condición de no agregar dependencias"
+assert_contains "$ORCHESTRATOR_SKILL" "precisión suficiente" \
+  "skill orchestrator §3 tiene la condición de descripción con precisión suficiente"
+assert_not_contains "$RUNBOOK" "Bug fix con pasos de reproducción claros" \
+  "runbook (Fase 0) ya no tiene su propia lista de condiciones para saltar brainstorming"
+
+echo ""
 echo "--- Tuteo consistente en global/CLAUDE.md y skills/orchestrator/SKILL.md ---"
 
 assert_no_voseo() {

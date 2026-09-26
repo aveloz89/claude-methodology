@@ -43,12 +43,7 @@ Antes de diseñar o implementar nada, entiende qué quiere el usuario. **Nunca a
 5. **Solo avanza al diseño con confirmación explícita del usuario.** Si agrega contexto, otra ronda
 6. Con confirmación, escribe `.planning/BRIEF.md` (formato más abajo) y avanza
 
-**Cuándo saltar brainstorming:**
-
-- Bug fix con pasos de reproducción claros
-- Tarea técnica acotada y concreta ("actualiza dependencia X", "cambia puerto 3000 a 8080")
-
-**NUNCA saltes brainstorming para features o cambios funcionales**, aunque el requerimiento parezca detallado. Mínimo una ronda de preguntas.
+**Cuándo saltar brainstorming:** las cuatro condiciones AND completas viven en la skill `orchestrator`, sección 3 (Brainstorming). No hay una segunda lista acá — si algo parece divergir, gana la skill.
 
 ### Fase 0.5: Design system (si hay UI)
 
