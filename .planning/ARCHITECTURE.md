@@ -38,6 +38,48 @@ A diferencia de `DESIGN.md` (que vive solo durante una feature), este archivo pe
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-09-26] Hooks bloqueantes: un solo mecanismo, stderr + `exit 2`
+
+**Contexto:** cuatro guards de `PreToolUse` bloqueaban con `{"decision":"block"}` a nivel raíz (deprecado para ese evento) y dos con `exit 2`; la suite tenía dos familias de asserts. La doc prescribe `exit 2` para hooks de policy: bloquea aunque otro JSON diga `allow` y se evalúa antes de las allow rules.
+
+**Decisión:** todo hook que bloquea escribe el motivo en stderr y termina con `exit 2`; permitir es `exit 0` sin stdout. Ningún hook mezcla JSON de decisión con exit codes. Los hooks de contexto (`SessionStart`, observabilidad) siguen imprimiendo texto plano con `exit 0`.
+
+**Justificación:** un mecanismo, una familia de asserts (`assert_blocked_cmd`/`assert_allowed_cmd`), sin depender de `jq` para serializar el motivo. Alternativa descartada: `hookSpecificOutput.permissionDecision: "deny"` (válida, pero segunda vía sin ventaja sobre lo que ya usaban `pre-commit-guard` y `pre-push-guard`).
+
+**Implicación:** un guard nuevo se escribe y se testea por exit code; si además necesita un timeout largo, implementa su propio watchdog fail-closed (un hook que alcanza el `timeout` del harness en `PreToolUse` deja pasar el comando).
+
+### [2026-09-26] `if` en hooks PreToolUse: optimización con superconjunto del guard
+
+**Contexto:** los siete guards `matcher: "Bash"` spawneaban en todo comando Bash. La doc ofrece `if` con sintaxis de permission rules; verificado (CLI 2.1.274) que matchea subcomandos de compuestos (`cd x && git …`) y prefijos (`git -C …`), y que funciona dentro del `hooks.json` de un plugin.
+
+**Decisión:** cada guard lleva `if` con el nombre del binario que ancla su regex (`Bash(git *)`, `Bash(gh *)`), nunca algo más estrecho que lo que el script matchea. El script sigue validando el comando completo.
+
+**Implicación:** `if` reduce latencia, no decide; un `if` más específico que el anclaje del script abre un hueco (el hook ni corre) y se rechaza en review.
+
+### [2026-09-26] Progressive disclosure del orchestrator en tres niveles
+
+**Contexto:** `global/CLAUDE.md` (21 KB, 6.4k tokens medidos) se carga en todos los subagentes; el manual del orchestrator era la mayor parte y su regla "no escribes código" chocaba con el rol de los devs. Verificado: el `SessionStart` no llega a los subagentes; el `CLAUDE.md` sí.
+
+**Decisión:** nivel 1 `global/CLAUDE.md` (siempre; ≤ 10 KB y ≤ 130 líneas, con test de regresión): idioma, rol corto de la sesión principal, workflow, invariantes de merge, gitflow, hooks, verificación pre-commit, reglas operativas comunes. Nivel 2 `skills/orchestrator/SKILL.md` (< 500 líneas, invocable por el modelo, cargada al iniciar trabajo que termina en PR): fases, equipo, lotes, tracker, pause/resume. Nivel 3 `rulebooks/orchestrator-runbook.md`: formatos y comandos exactos, bajo demanda. Cada nivel remite al siguiente por nombre de sección; nada se copia hacia arriba.
+
+**Implicación:** una regla nueva entra en el nivel más bajo que la necesita; si sube al núcleo tiene que caber en el tope y aplicar a todos los subagentes. Medir tokens con `claude -p --output-format json` en dos repos temporales (con y sin el archivo) cuando se toque el núcleo.
+
+### [2026-09-26] Especialidades como rulebooks, agentes solo por frontera de contexto
+
+**Contexto:** 13 agentes divididos por tipo de problema; el log de `SubagentStop` muestra 2 invocaciones de `build-resolver` y 2 de `db-specialist` frente a ~80 de `backend-dev`. Guía oficial: dividir por límites de contexto, no por tipo de problema.
+
+**Decisión:** un agente aparte se justifica cuando necesita un contexto que el invocador no tiene o no debe cargar (fresco, aislado, o de otro tamaño): reviewers, `docs` (diff completo con contexto fresco), `ui-ux` (produce archivos grandes que el architect solo consume resumidos). El conocimiento de una especialidad sin esa frontera vive en `rulebooks/<tema>.md` y lo carga el dev cuando el lote lo pide (`build-errors.md`, `db-migrations.md`).
+
+**Implicación:** antes de proponer un agente nuevo, nombrar la frontera de contexto que lo justifica; si no hay, es un rulebook. El lint de frontmatter verifica que toda referencia a un agente corresponda a un archivo en `agents/`.
+
+### [2026-09-26] Frontmatter de agentes y skills: lint propio, no el validador del plugin
+
+**Contexto:** `claude plugin validate --strict agents` pasa con `memory: true` (inválido) y `permissionMode` (ignorado en plugins). Con `marketplace.json` presente, `validate .` valida solo el marketplace; la validación del plugin es `--strict .claude-plugin/plugin.json`, que advierte por un `CLAUDE.md` en la raíz.
+
+**Decisión:** el `CLAUDE.md` del repo vive en `.claude/CLAUDE.md` (carga igual como instrucciones del proyecto; verificado). La validación documentada corre ambas formas. `tests/adversarial/test-frontmatter.sh` es la fuente de verdad de campos permitidos/prohibidos y valores válidos en `agents/*.md` y `skills/*/SKILL.md`, incluida la forma `Agent(methodology:<agente>)` (el nombre pelado no matchea a un agente de plugin; verificado). `maxTurns` no se configura: el budget se controla con el cap de 5 tareas y commit por tarea.
+
+**Implicación:** un campo nuevo de frontmatter se agrega primero al lint; una skill con efectos secundarios lleva `disable-model-invocation: true`, una que el orchestrator debe poder cargar solo no lo lleva.
+
 ### [2026-08-14] Review dual pre-push (Fase 2.6): el PR nace revisado
 
 **Contexto:** el review dual corría después de crear el PR; cada ronda de fixes post-PR era un push extra = un run extra de GitHub Actions (minutos contados en repos privados). Los reviewers son subagentes locales (Read/Grep/Bash sobre el working tree) — nunca necesitaron el branch pusheado.
