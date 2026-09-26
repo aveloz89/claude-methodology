@@ -152,6 +152,29 @@ else
 fi
 
 echo ""
+echo "--- global/CLAUDE.md: la suite de tests bloquea el commit, no corre en background ---"
+
+GLOBAL_CLAUDE_MD="$REPO_ROOT/global/CLAUDE.md"
+
+TOTAL=$((TOTAL + 1))
+if grep -q "^\*\*Bloquean el comando:\*\*.*commit sin" "$GLOBAL_CLAUDE_MD"; then
+  echo -e "${GREEN}PASS${NC}: \"Bloquean el comando\" incluye el commit sin suite verde"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: \"Bloquean el comando\" no menciona el commit sin suite verde"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+if grep -q "^\*\*Corren en background:\*\*.*tests antes de cada commit" "$GLOBAL_CLAUDE_MD"; then
+  echo -e "${RED}FAIL${NC}: \"Corren en background\" todavía menciona los tests antes de cada commit (deberían bloquear, no correr en background)"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "${GREEN}PASS${NC}: \"Corren en background\" ya no menciona los tests antes de cada commit"
+  PASS=$((PASS + 1))
+fi
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then
