@@ -305,6 +305,47 @@ assert_allowed_cmd "block-force-push: mención de --force en mensaje de commit n
   "block-force-push.sh" \
   'git commit -m "docs: explica git push --force"'
 
+# Ronda 2 (revisión pre-push, security LOW): reproducido en vivo — un
+# heredoc que solo mencionaba "git push --force" en su cuerpo (para escribir
+# el registro de esta misma ronda) quedaba bloqueado por el grep sin sanear
+# de la versión anterior, porque GUARD_ANCHOR no distingue un separador
+# real de uno dentro de un span quoted/heredoc. Los cuatro casos de abajo
+# reproducen exactamente los que security listó en el registro.
+assert_allowed_cmd "block-force-push: mención con ';' dentro del mensaje de commit no bloquea" \
+  "block-force-push.sh" \
+  'git commit -m "fix: bug encontrado; git push --force rompía el remoto"'
+
+MULTILINE_MENTION_BFP=$'git commit -m "linea uno\ngit push --force linea dos"'
+assert_allowed_cmd "block-force-push: mención multilínea dentro de un mensaje de commit no bloquea" \
+  "block-force-push.sh" \
+  "$MULTILINE_MENTION_BFP"
+
+HEREDOC_MENTION_BFP=$(cat <<'CMD_EOF'
+git commit -F - <<NOTE_EOF
+git push --force fue el causante, según el registro
+NOTE_EOF
+CMD_EOF
+)
+assert_allowed_cmd "block-force-push: mención dentro de heredoc no bloquea" \
+  "block-force-push.sh" \
+  "$HEREDOC_MENTION_BFP"
+
+assert_allowed_cmd "block-force-push: mención en gh pr create --body no bloquea" \
+  "block-force-push.sh" \
+  'gh pr create --body "changelog: corrige bug; git push --force accidental rompía el remoto"'
+
+# Deben seguir bloqueando: la flag real entre comillas (regresión de #47,
+# ya cubierta arriba) y el push real sin comillas en comando compuesto.
+assert_blocked_cmd "block-force-push: git push origin \"--force\" sigue bloqueando (ronda 2)" \
+  "block-force-push.sh" \
+  'git push origin "--force"'
+assert_blocked_cmd "block-force-push: git push origin '-f' sigue bloqueando (ronda 2)" \
+  "block-force-push.sh" \
+  "git push origin '-f'"
+assert_blocked_cmd "block-force-push: cd a && git push --force sigue bloqueando (ronda 2)" \
+  "block-force-push.sh" \
+  "cd a && git push --force"
+
 # Fail-closed sin jq (revisión pre-push, security MEDIUM): hoy, sin jq en
 # PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, y un
 # "git push --force" real pasa en silencio — mismo hueco que #50 en
