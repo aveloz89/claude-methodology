@@ -606,7 +606,7 @@ O archivos `.ts` / `.js` bajo:
 
 ### Documentos normativos del sistema de agentes
 
-Un diff que toca `rules/`, `rulebooks/`, `agents/`, `skills/` o `global/CLAUDE.md` va a **`qa-backend`**, con criterio de coherencia normativa y anti-drift en vez de capas de aplicación (ver `agents/qa-backend.md`). No hay capa de aplicación que clasificar ahí: el contrato son los documentos.
+Un diff que toca `rules/`, `rulebooks/`, `agents/`, `skills/` (incluida `skills/orchestrator/SKILL.md`) o `global/CLAUDE.md` va a **`qa-backend`**, con criterio de coherencia normativa y anti-drift en vez de capas de aplicación (ver `agents/qa-backend.md`). No hay capa de aplicación que clasificar ahí: el contrato son los documentos.
 
 Sin esta entrada, un diff 100% de metodología no matchea ninguna capa y el ruteo automático no invoca a nadie — pasó en esta misma sesión, donde el review ocurrió solo porque el orchestrator lo pidió a mano.
 

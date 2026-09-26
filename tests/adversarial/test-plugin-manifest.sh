@@ -291,6 +291,41 @@ assert_not_contains "$RUNBOOK" "\"Pause / Resume\" en \`CLAUDE.md\` raíz" \
 assert_not_contains "$GOVERNANCE" "Pause / Resume de CLAUDE.md" \
   "governance-playbook (#9) ya no remite Pause/Resume a CLAUDE.md"
 
+assert_contains "$REPO_ROOT/agents/security-reviewer.md" "skills/orchestrator/SKILL.md" \
+  "security-reviewer nombra skills/orchestrator/SKILL.md en la lista de documentos normativos"
+assert_contains "$REPO_ROOT/agents/qa-backend.md" "skills/orchestrator/SKILL.md" \
+  "qa-backend nombra skills/orchestrator/SKILL.md en la lista de documentos normativos"
+assert_contains "$RUNBOOK" "skills/orchestrator/SKILL.md" \
+  "runbook (Documentos normativos) nombra skills/orchestrator/SKILL.md"
+
+README="$REPO_ROOT/README.md"
+assert_contains "$README" "skill \`orchestrator\`" \
+  "README menciona la skill orchestrator como definición del rol"
+assert_contains "$README" "### Skills (5)" \
+  "README cuenta 5 skills"
+assert_contains "$README" "orchestrator/" \
+  "README (árbol) lista skills/orchestrator/"
+
+MARKETPLACE_DESC=$(jq -r '.plugins[0].description' "$MARKETPLACE_JSON")
+TOTAL=$((TOTAL + 1))
+if echo "$MARKETPLACE_DESC" | grep -q "5 skills"; then
+  echo -e "${GREEN}PASS${NC}: marketplace.json describe 5 skills"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: marketplace.json no describe 5 skills (actual: \"$MARKETPLACE_DESC\")"
+  FAIL=$((FAIL + 1))
+fi
+
+AGENT_VALIDATION="$REPO_ROOT/tests/validation/agent-validation.md"
+TOTAL=$((TOTAL + 1))
+if grep -qi "carga la skill" "$AGENT_VALIDATION"; then
+  echo -e "${GREEN}PASS${NC}: agent-validation.md (Orchestrator) espera que cargue la skill antes de delegar"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: agent-validation.md (Orchestrator) no espera que cargue la skill antes de delegar"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 

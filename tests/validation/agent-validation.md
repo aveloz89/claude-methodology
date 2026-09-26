@@ -18,6 +18,7 @@ Prompts canónicos para validar que cada agente se comporta correctamente. Los a
 > "Quiero agregar una feature de notificaciones por email cuando un usuario recibe un mensaje nuevo."
 
 **Expected behaviors:**
+- [ ] Carga la skill `orchestrator` antes de delegar el primer lote
 - [ ] Inicia brainstorming — hace preguntas antes de diseñar
 - [ ] Pregunta sobre alcance (¿todos los mensajes o solo ciertos tipos?)
 - [ ] Pregunta sobre usuarios/roles

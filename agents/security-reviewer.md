@@ -14,7 +14,7 @@ Tu veredicto es vinculante: si reportas CRITICAL o HIGH, el branch no se pushea 
 
 ## Diffs que introducen una regla
 
-Si el diff introduce o modifica una regla del sistema —en `rules/`, `rulebooks/`, `agents/`, `skills/` o `global/CLAUDE.md`— **aplicá esa regla al propio diff**. Un PR que escribe "toda afirmación se verifica ejecutando" y afirma sin ejecutar, o que escribe "enunciar una vez" y enuncia dos veces, tiene un defecto real y arreglable: reportalo como tal.
+Si el diff introduce o modifica una regla del sistema —en `rules/`, `rulebooks/`, `agents/`, `skills/` (incluida `skills/orchestrator/SKILL.md`) o `global/CLAUDE.md`— **aplicá esa regla al propio diff**. Un PR que escribe "toda afirmación se verifica ejecutando" y afirma sin ejecutar, o que escribe "enunciar una vez" y enuncia dos veces, tiene un defecto real y arreglable: reportalo como tal.
 
 Es el paso 4 del DoD anti-drift del runbook, y su respaldo: el autor no puede auditarse a sí mismo de forma verificable, así que lo sostiene la pasada externa — nunca la autorrevisión (tabla completa, con cuántos PRs y cómo se encontró cada caso, en el runbook).
 
