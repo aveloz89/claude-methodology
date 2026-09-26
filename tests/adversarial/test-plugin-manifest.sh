@@ -355,31 +355,26 @@ assert_contains "$GLOBAL_CLAUDE_MD" "pre-commit-guard.sh" \
   "Verificación pre-commit menciona que el paso 1 lo refuerza pre-commit-guard.sh"
 
 echo ""
-echo "--- skills/orchestrator/SKILL.md: allowed-tools acota Bash y declara sus agentes ---"
+echo "--- skills/orchestrator/SKILL.md: allowed-tools sin Bash (pre-aprueba, no restringe) y declara sus agentes ---"
 
 ORCH_ALLOWED_TOOLS=$(grep -E "^allowed-tools:" "$ORCHESTRATOR_SKILL" | head -1)
 
+# allowed-tools de una skill SUMA pre-aprobaciones, no restringe (verificado
+# ejecutando: Bash(git *) deja correr `git -c alias.x='!cmd' x`, es decir
+# cualquier comando; ver .planning/reviews/pre-pr-orchestrator-skill.md,
+# Ronda 2, M2 de security-reviewer). El commit 8cc659c afirmaba que
+# Bash(git *)/Bash(gh *)/Bash(jq *) "acotan" Bash: es falso, por eso este
+# check ahora exige la ausencia de Bash en cualquier forma.
 TOTAL=$((TOTAL + 1))
-if echo "$ORCH_ALLOWED_TOOLS" | grep -qE '(^|, )Bash(,|$)'; then
-  echo -e "${RED}FAIL${NC}: allowed-tools todavía tiene Bash sin acotar"
+if echo "$ORCH_ALLOWED_TOOLS" | grep -qE '(^|, )Bash(\(|,|$)'; then
+  echo -e "${RED}FAIL${NC}: allowed-tools todavía tiene Bash (pre-aprueba, no restringe)"
   FAIL=$((FAIL + 1))
 else
-  echo -e "${GREEN}PASS${NC}: allowed-tools no tiene Bash sin acotar"
+  echo -e "${GREEN}PASS${NC}: allowed-tools no tiene Bash en ninguna forma"
   PASS=$((PASS + 1))
 fi
 
-for scope in 'Bash(git *)' 'Bash(gh *)' 'Bash(jq *)'; do
-  TOTAL=$((TOTAL + 1))
-  if echo "$ORCH_ALLOWED_TOOLS" | grep -qF -- "$scope"; then
-    echo -e "${GREEN}PASS${NC}: allowed-tools declara $scope"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: allowed-tools no declara $scope"
-    FAIL=$((FAIL + 1))
-  fi
-done
-
-for agent in architect ui-ux db-specialist backend-dev frontend-dev docs security-reviewer qa-frontend qa-backend e2e-runner; do
+for agent in architect ui-ux db-specialist backend-dev frontend-dev docs security-reviewer qa-frontend qa-backend e2e-runner build-resolver; do
   TOTAL=$((TOTAL + 1))
   if echo "$ORCH_ALLOWED_TOOLS" | grep -qF "Agent(methodology:$agent)"; then
     echo -e "${GREEN}PASS${NC}: allowed-tools declara Agent(methodology:$agent)"
