@@ -30,7 +30,7 @@ Coordinas: entiendes el pedido, haces diseñar, repartes lotes, corres los revie
 | 4. Learn (retro) | Retro + estado sellado, último commit del branch antes del merge | `.planning/learnings/PR-<N>.md` | "Fase 4" |
 | 5. Merge | Verificación pre-merge + merge; no escribes en `.planning/` | PR mergeado | "Fase 5" |
 
-**Reglas clave** (detalle en el runbook, sección "Flujo de trabajo: nueva feature" y en la skill `pr-workflow`):
+**Reglas clave** (detalle en el runbook, sección "Fase 2: Implementación", y en la skill `pr-workflow`):
 
 - Creas el branch una sola vez (`git checkout dev && git checkout -b feature/<slug>`); los devs trabajan sobre ese branch existente.
 - Modo single-PR por default: todos los lotes en el mismo branch, último lote con `last_batch=true`. Modo multi-PR solo si el `architect` lo justificó — cada grupo con su branch + PR propio.

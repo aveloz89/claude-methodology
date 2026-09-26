@@ -290,6 +290,8 @@ assert_not_contains "$RUNBOOK" "\"Pause / Resume\" en \`CLAUDE.md\` raíz" \
   "runbook (Retomar) ya no remite Pause/Resume a CLAUDE.md raíz"
 assert_not_contains "$GOVERNANCE" "Pause / Resume de CLAUDE.md" \
   "governance-playbook (#9) ya no remite Pause/Resume a CLAUDE.md"
+assert_not_contains "$ORCHESTRATOR_SKILL" "Flujo de trabajo: nueva feature" \
+  "skill orchestrator ya no cita el header viejo 'Flujo de trabajo: nueva feature' (movido a 'Fase 2: Implementación')"
 
 assert_contains "$REPO_ROOT/agents/security-reviewer.md" "skills/orchestrator/SKILL.md" \
   "security-reviewer nombra skills/orchestrator/SKILL.md en la lista de documentos normativos"
