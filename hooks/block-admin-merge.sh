@@ -1,6 +1,10 @@
 #!/bin/bash
 # Bloquea gh pr merge --admin que bypasea branch protections.
 #
+# hooks.json filtra la invocación con "if": "Bash(gh *)" — optimización de
+# latencia, no reemplaza la validación de abajo, que sigue mirando el
+# comando completo.
+#
 # Matching endurecido (#47): el match se sanea (spans quoted/heredoc) y se
 # ancla a posición de comando en vez de al string completo — mismo helper
 # que usa pre-merge-check.sh. Ver hooks/lib/guard-matching.sh.

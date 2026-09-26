@@ -1,6 +1,10 @@
 #!/bin/bash
 # Bloquea git reset --hard que descarta cambios irreversiblemente.
 #
+# hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
+# latencia, no reemplaza la validación de abajo, que sigue mirando el
+# comando completo.
+#
 # Contrato PreToolUse (auditoría best-practices): bloquear = stderr + exit 2,
 # permitir = exit 0 sin stdout. Ver hooks/block-force-push.sh para el mismo
 # cambio y el porqué de anclar con hooks/lib/guard-matching.sh (detecta el

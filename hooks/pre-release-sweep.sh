@@ -4,6 +4,10 @@
 # crea esos issues; este hook verifica que no se mergeen archivos con bugs
 # críticos pendientes.
 #
+# hooks.json filtra la invocación con "if": "Bash(gh *)" — optimización de
+# latencia, no reemplaza la validación de abajo, que sigue mirando el
+# comando completo.
+#
 # Contrato PreToolUse (auditoría best-practices): bloquear = stderr + exit
 # 2, permitir = exit 0 sin stdout — igual que pre-push-guard.sh y pre-
 # commit-guard.sh. Reemplaza el JSON {"decision":"block"}/{"continue":true}

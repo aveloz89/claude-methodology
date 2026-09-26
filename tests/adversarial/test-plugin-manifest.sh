@@ -97,6 +97,58 @@ for f in "$PLUGIN_JSON" "$MARKETPLACE_JSON" "$HOOKS_JSON"; do
 done
 
 echo ""
+echo "--- hooks.json: if por handler, matcher de SessionStart, timeout de pre-commit-guard ---"
+
+# assert_hook_if: verifica el campo "if" de la entrada de hooks.json cuyo
+# "command" termina en <script_name> — optimización de latencia (verificación
+# e del diseño): cada script sigue validando el comando completo, "if" solo
+# evita invocar el hook cuando ni siquiera aparece el token de comando.
+assert_hook_if() {
+  local script_name="$1"
+  local expected_if="$2"
+  local actual
+  actual=$(jq -r --arg name "$script_name" \
+    '.hooks.PreToolUse[].hooks[] | select(.command | endswith($name)) | .if // "MISSING"' \
+    "$HOOKS_JSON")
+  TOTAL=$((TOTAL + 1))
+  if [ "$actual" = "$expected_if" ]; then
+    echo -e "${GREEN}PASS${NC}: $script_name tiene if=\"$expected_if\""
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $script_name tiene if=\"$actual\" (esperado \"$expected_if\")"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_hook_if "block-force-push.sh" "Bash(git *)"
+assert_hook_if "block-hard-reset.sh" "Bash(git *)"
+assert_hook_if "pre-push-guard.sh" "Bash(git *)"
+assert_hook_if "pre-commit-guard.sh" "Bash(git *)"
+assert_hook_if "block-admin-merge.sh" "Bash(gh *)"
+assert_hook_if "pre-merge-check.sh" "Bash(gh *)"
+assert_hook_if "pre-release-sweep.sh" "Bash(gh *)"
+
+TOTAL=$((TOTAL + 1))
+SESSION_START_MATCHER=$(jq -r '.hooks.SessionStart[0].matcher' "$HOOKS_JSON")
+if [ "$SESSION_START_MATCHER" = "startup|resume|clear|compact" ]; then
+  echo -e "${GREEN}PASS${NC}: SessionStart.matcher es \"startup|resume|clear|compact\""
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart.matcher es \"$SESSION_START_MATCHER\" (esperado \"startup|resume|clear|compact\")"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+PCG_TIMEOUT=$(jq -r '.hooks.PreToolUse[].hooks[] | select(.command | endswith("pre-commit-guard.sh")) | .timeout' "$HOOKS_JSON")
+if [ "$PCG_TIMEOUT" = "600" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard.sh tiene timeout=600"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard.sh tiene timeout=$PCG_TIMEOUT (esperado 600)"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then

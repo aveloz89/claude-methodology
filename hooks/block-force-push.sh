@@ -1,6 +1,10 @@
 #!/bin/bash
 # Bloquea git push --force / -f que puede sobrescribir historia remota.
 #
+# hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
+# latencia, no reemplaza la validación de abajo, que sigue mirando el
+# comando completo.
+#
 # Contrato PreToolUse (auditoría best-practices): bloquear = stderr + exit 2,
 # permitir = exit 0 sin stdout — la doc prescribe exit 2 para hooks de
 # policy, y ya es el mecanismo de pre-push-guard.sh/pre-commit-guard.sh.
