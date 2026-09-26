@@ -21,13 +21,11 @@
       "id": "L1",
       "name": "hooks-formato-if-matcher-failclosed",
       "agent": "backend-dev",
-      "status": "in_progress",
-      "tasks_done": 4,
+      "status": "done",
+      "tasks_done": 5,
       "tasks_total": 5,
-      "current_task": 5,
-      "commits": [
-        "3ccd47e"
-      ],
+      "current_task": null,
+      "commits": [],
       "last_batch": false,
       "depends_on": []
     },

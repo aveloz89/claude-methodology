@@ -461,6 +461,48 @@ assert_allowed_cmd "pre-commit-guard: heredoc mentioning git commit is not a rea
 
 rm -rf "$PCG_TEST_DIR" "$FAKE_PYTEST_DIR"
 
+# --- pre-commit-guard.sh: watchdog fail-closed por tiempo (PRECOMMIT_TEST_BUDGET) ---
+# La suite corre en background; un bucle espera hasta PRECOMMIT_TEST_BUDGET
+# segundos (default 540). Si se agota, mata el grupo de procesos y bloquea
+# (exit 2) — el hook nunca falla abierto por un timeout. Fixture: un
+# "pytest" fake que duerme 5s (siempre "pasa" si llega a terminar).
+PCG_WD_TEST_DIR=$(mktemp -d)
+touch "$PCG_WD_TEST_DIR/pyproject.toml"
+FAKE_PYTEST_WD_DIR=$(mktemp -d)
+cat > "$FAKE_PYTEST_WD_DIR/pytest" <<'FAKE_PYTEST_WD_EOF'
+#!/bin/bash
+sleep 5
+exit 0
+FAKE_PYTEST_WD_EOF
+chmod +x "$FAKE_PYTEST_WD_DIR/pytest"
+
+TOTAL=$((TOTAL + 1))
+PCG_WD_JSON=$(jq -n --arg cmd "git commit -m wip" '{tool_input: {command: $cmd}}')
+PCG_WD_EXIT=0
+PCG_WD_STDERR=$(cd "$PCG_WD_TEST_DIR" && echo "$PCG_WD_JSON" | PATH="$FAKE_PYTEST_WD_DIR:$PATH" PRECOMMIT_TEST_BUDGET=1 bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PCG_WD_EXIT=$?
+sleep 1
+PCG_WD_ORPHAN=$(pgrep -f "$FAKE_PYTEST_WD_DIR/pytest" || true)
+if [ "$PCG_WD_EXIT" -eq 2 ] && echo "$PCG_WD_STDERR" | grep -qF "superó" && [ -z "$PCG_WD_ORPHAN" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=1 con suite de 5s bloquea fail-closed sin proceso huérfano"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=1 con suite de 5s bloquea fail-closed sin proceso huérfano (exit code: $PCG_WD_EXIT, stderr: $PCG_WD_STDERR, huérfano: $PCG_WD_ORPHAN)"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+PCG_WD2_EXIT=0
+(cd "$PCG_WD_TEST_DIR" && echo "$PCG_WD_JSON" | PATH="$FAKE_PYTEST_WD_DIR:$PATH" PRECOMMIT_TEST_BUDGET=10 bash "$HOOKS_DIR/pre-commit-guard.sh" > /dev/null 2>&1) || PCG_WD2_EXIT=$?
+if [ "$PCG_WD2_EXIT" -eq 0 ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=10 con suite de 5s pasa (tests ok, dentro del presupuesto)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=10 con suite de 5s pasa (tests ok, dentro del presupuesto) (exit code: $PCG_WD2_EXIT)"
+  FAIL=$((FAIL + 1))
+fi
+
+rm -rf "$PCG_WD_TEST_DIR" "$FAKE_PYTEST_WD_DIR"
+
 # [ronda 2, tarea 3] Cierra #50 de verdad para este guard: hoy, sin jq en
 # PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, el guard
 # nunca detecta el "git commit" y pasa en silencio (fail-open, exit 0) sin

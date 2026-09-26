@@ -151,6 +151,61 @@ elif _guard_planning_only_change; then
   exit 0
 fi
 
+# Watchdog fail-closed por tiempo (auditoría best-practices): sin esto, una
+# suite colgada supera el timeout del harness (hooks.json), que DESCARTA la
+# salida del hook y deja pasar el commit sin tests (doc "Timeouts") — el
+# hook nunca falla abierto por diseño, así que un cuelgue no puede ser la
+# excepción. PRECOMMIT_TEST_BUDGET (default 540, env sobreescribible) es
+# menor que el timeout de hooks.json (600) para que el watchdog interno
+# siempre gane. Reusa la FORMA del watchdog de hooks/lib/guard-matching.sh
+# (un temporizador que corta lo que corre más de la cuenta), no la lib: ahí
+# es un alarm(5) de perl sobre sí mismo; acá hace falta matar un PROCESO
+# EXTERNO (pytest/npm y sus hijos), así que el mecanismo es un job de bash
+# en su propio grupo de procesos (`set -m`) + kill del grupo completo
+# (`kill -- -$pgid`), no una señal a sí mismo — matar solo el pid de arriba
+# (`kill -9 "$pid"`) deja a los hijos del test runner huérfanos corriendo.
+_guard_run_with_budget() {
+  local budget="${PRECOMMIT_TEST_BUDGET:-540}"
+  local outfile pgid_file
+  outfile=$(mktemp)
+  pgid_file=$(mktemp)
+
+  (
+    set -m
+    "$@" > "$outfile" 2>&1 &
+    job_pid=$!
+    echo "$job_pid" > "$pgid_file"
+    wait "$job_pid"
+  ) &
+  local runner_pid=$!
+
+  local waited=0
+  while kill -0 "$runner_pid" 2>/dev/null; do
+    if [ "$waited" -ge "$budget" ]; then
+      local job_pgid
+      job_pgid=$(cat "$pgid_file" 2>/dev/null)
+      if [ -n "$job_pgid" ]; then
+        kill -TERM -- "-$job_pgid" 2>/dev/null
+        sleep 1
+        kill -KILL -- "-$job_pgid" 2>/dev/null
+      fi
+      kill -KILL "$runner_pid" 2>/dev/null
+      cat "$outfile"
+      echo "BLOCKED: la suite superó ${budget}s; el hook no falla abierto. Acotá la suite o subí PRECOMMIT_TEST_BUDGET." >&2
+      rm -f "$outfile" "$pgid_file"
+      exit 2
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  wait "$runner_pid" 2>/dev/null
+  local rc=$?
+  cat "$outfile"
+  rm -f "$outfile" "$pgid_file"
+  return "$rc"
+}
+
 # Detectar el test runner del proyecto
 if [ -f "package.json" ]; then
   # Node.js project — detectar package manager
@@ -186,10 +241,10 @@ if [ -f "package.json" ]; then
 
       if [ "$SCOPED" = true ]; then
         echo "Running tests before commit ($PKG_MGR, workspace(s): $WORKSPACE_SCOPE_LABEL)..." >&2
-        "${WORKSPACE_SCOPE_CMD[@]}" 2>&1
+        _guard_run_with_budget "${WORKSPACE_SCOPE_CMD[@]}"
       else
         echo "Running tests before commit ($PKG_MGR)..." >&2
-        $PKG_MGR test 2>&1
+        _guard_run_with_budget "$PKG_MGR" test
       fi
       if [ $? -ne 0 ]; then
         echo "BLOCKED: Tests failed. Fix tests before committing." >&2
@@ -202,7 +257,7 @@ elif [ -f "pytest.ini" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
   # Python project
   if command -v pytest > /dev/null 2>&1; then
     echo "Running pytest before commit..." >&2
-    pytest 2>&1
+    _guard_run_with_budget pytest
     if [ $? -ne 0 ]; then
       echo "BLOCKED: Tests failed. Fix tests before committing." >&2
       exit 2
