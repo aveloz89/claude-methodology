@@ -355,6 +355,42 @@ assert_contains "$GLOBAL_CLAUDE_MD" "pre-commit-guard.sh" \
   "Verificación pre-commit menciona que el paso 1 lo refuerza pre-commit-guard.sh"
 
 echo ""
+echo "--- skills/orchestrator/SKILL.md: allowed-tools acota Bash y declara sus agentes ---"
+
+ORCH_ALLOWED_TOOLS=$(grep -E "^allowed-tools:" "$ORCHESTRATOR_SKILL" | head -1)
+
+TOTAL=$((TOTAL + 1))
+if echo "$ORCH_ALLOWED_TOOLS" | grep -qE '(^|, )Bash(,|$)'; then
+  echo -e "${RED}FAIL${NC}: allowed-tools todavía tiene Bash sin acotar"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "${GREEN}PASS${NC}: allowed-tools no tiene Bash sin acotar"
+  PASS=$((PASS + 1))
+fi
+
+for scope in 'Bash(git *)' 'Bash(gh *)' 'Bash(jq *)'; do
+  TOTAL=$((TOTAL + 1))
+  if echo "$ORCH_ALLOWED_TOOLS" | grep -qF -- "$scope"; then
+    echo -e "${GREEN}PASS${NC}: allowed-tools declara $scope"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: allowed-tools no declara $scope"
+    FAIL=$((FAIL + 1))
+  fi
+done
+
+for agent in architect ui-ux db-specialist backend-dev frontend-dev docs security-reviewer qa-frontend qa-backend e2e-runner; do
+  TOTAL=$((TOTAL + 1))
+  if echo "$ORCH_ALLOWED_TOOLS" | grep -qF "Agent(methodology:$agent)"; then
+    echo -e "${GREEN}PASS${NC}: allowed-tools declara Agent(methodology:$agent)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: allowed-tools no declara Agent(methodology:$agent)"
+    FAIL=$((FAIL + 1))
+  fi
+done
+
+echo ""
 echo "--- Tuteo consistente en global/CLAUDE.md y skills/orchestrator/SKILL.md ---"
 
 assert_no_voseo() {
