@@ -65,7 +65,16 @@ SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 # árbol ("-C <ruta>", "--git-dir"/"--work-tree") antes de "push" — sin
 # esto, "git -c user.name=x push --force" no matcheaba y el force push
 # real pasaba SIN EVALUAR. Ver hooks/lib/guard-matching.sh.
-FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b.*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
+#
+# El ".*" entre "push\b" y la flag NO cruza un separador de comando real
+# (&&, ;, |) — ronda 2, security LOW, falso bloqueo: antes, "git push
+# origin feature/fix-flaky && echo -f" (sin --force) bloqueaba igual,
+# porque el ".*" greedy se estiraba hasta la "-f" de "echo -f", un
+# comando DISTINTO después del "&&". La invocación real de "push" termina
+# en el primer separador de comando. Un salto de línea real no necesita
+# entrar al charset: grep procesa línea por línea por defecto, así que
+# ninguna de las dos partes del patrón puede cruzar uno sin ayuda extra.
+FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
 
 if echo "$SANITIZED_COMMAND" | grep -qE "$FORCE_PATTERN"; then
   echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2

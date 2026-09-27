@@ -619,6 +619,21 @@ assert_blocked_cmd "block-force-push: git push -f sigue bloqueando (borde real)"
   "block-force-push.sh" \
   "git push -f"
 
+# Ronda 2 (review dual, security LOW, falso bloqueo): el ".*" entre
+# "push\b" y la flag cruzaba un separador de comando real y agarraba la
+# "-f" de un comando DISTINTO después de "&&" — "git push origin
+# feature/fix-flaky" (sin --force) seguido de "echo -f" bloqueaba como si
+# el push mismo llevara --force.
+assert_allowed_cmd "block-force-push: git push origin feature/fix-flaky && echo -f allowed (no cruza && , ronda 2)" \
+  "block-force-push.sh" \
+  "git push origin feature/fix-flaky && echo -f"
+assert_blocked_cmd "block-force-push: git push -f sigue bloqueando tras el fix del separador (ronda 2)" \
+  "block-force-push.sh" \
+  "git push -f"
+assert_blocked_cmd "block-force-push: git push origin x -f sigue bloqueando tras el fix del separador (ronda 2)" \
+  "block-force-push.sh" \
+  "git push origin x -f"
+
 # D-07 (review dual ronda 1, informativo): opciones globales de git antes
 # del subcomando — "-c <clave=valor>" (una o varias) y "--no-pager" — son
 # formas honestas que antes no matcheaban el ancla "git\s+push" (nada
