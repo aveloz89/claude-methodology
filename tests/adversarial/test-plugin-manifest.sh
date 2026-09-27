@@ -836,6 +836,14 @@ assert_contains "$REPO_ROOT/tests/adversarial/README.md" "product-reviewer" \
   "tests/adversarial/README.md menciona los checks nuevos de product-reviewer"
 
 echo ""
+echo "--- tests/validation/agent-validation.md: sección Product Reviewer ---"
+
+assert_contains "$AGENT_VALIDATION" "## Product Reviewer" \
+  "agent-validation.md tiene la sección Product Reviewer"
+assert_contains "$AGENT_VALIDATION" "solo Preguntas" \
+  "agent-validation.md documenta el expected behavior de un brief vago (devuelve solo Preguntas, D-05)"
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then
