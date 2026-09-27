@@ -362,32 +362,8 @@ _guard_run_suite_in() {
       local test_cmd
       test_cmd=$(jq -r '.scripts.test' package.json)
       if [ "$test_cmd" != "null" ] && [ "$test_cmd" != "" ] && [ "$test_cmd" != "echo \"Error: no test specified\" && exit 1" ]; then
-        # Scoping por workspace en monorepos: correr "$pkg_mgr test" en la
-        # raíz de un monorepo dispara TODAS las suites en cada commit, aunque
-        # el commit toque un solo workspace. hooks/lib/workspace-scope.sh
-        # resuelve, con criterio conservador, si el commit se puede acotar a
-        # los workspaces realmente tocados.
-        #
-        # A diferencia de guard-matching.sh más arriba, esta lib NO es
-        # fail-closed: si no existe, no es legible, o no logra resolver un
-        # subconjunto con confianza, simplemente no se activa el scoping y se
-        # sigue el camino de siempre ($pkg_mgr test) — nunca bloquea el
-        # commit por su ausencia.
-        local scoped=false
-        local ws_lib="${0%/*}/lib/workspace-scope.sh"
-        if [ -r "$ws_lib" ]; then
-          # shellcheck source=lib/workspace-scope.sh
-          source "$ws_lib"
-          workspace_scope_resolve "$pkg_mgr" && scoped=true
-        fi
-
-        if [ "$scoped" = true ]; then
-          echo "Running tests before commit ($pkg_mgr, workspace(s): $WORKSPACE_SCOPE_LABEL) [$dir]..." >&2
-          _guard_run_with_budget "$budget" "${WORKSPACE_SCOPE_CMD[@]}"
-        else
-          echo "Running tests before commit ($pkg_mgr) [$dir]..." >&2
-          _guard_run_with_budget "$budget" "$pkg_mgr" test
-        fi
+        echo "Running tests before commit ($pkg_mgr) [$dir]..." >&2
+        _guard_run_with_budget "$budget" "$pkg_mgr" test
         rc=$?
         [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
       fi
