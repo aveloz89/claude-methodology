@@ -874,6 +874,88 @@ assert_contains "$AGENT_VALIDATION" "solo Preguntas" \
   "agent-validation.md documenta el expected behavior de un brief vago (devuelve solo Preguntas, D-05)"
 
 echo ""
+echo "--- agents/qa-backend.md, qa-frontend.md, security-reviewer.md: regla de sandbox para pruebas que escriben archivos ---"
+
+# extract_section <file> <heading>: extrae el texto desde la línea que
+# empieza con "$heading" (encabezado propio, p. ej. "## Pruebas que escriben
+# archivos") hasta la línea anterior al siguiente "## " (o EOF). Usa awk en
+# vez de sed/grep porque necesita el rango completo de líneas, no un solo
+# match — el mismo patrón que usa reviewer_sandbox_files() en pre-push-guard
+# no aplica acá porque esto es Markdown, no hooks.json.
+extract_section() {
+  local file="$1" heading="$2"
+  awk -v h="$heading" '
+    $0 == h { found=1; print; next }
+    found && /^## / { exit }
+    found { print }
+  ' "$file"
+}
+
+QA_BACKEND="$REPO_ROOT/agents/qa-backend.md"
+QA_FRONTEND="$REPO_ROOT/agents/qa-frontend.md"
+SECURITY_REVIEWER="$REPO_ROOT/agents/security-reviewer.md"
+SANDBOX_HEADING="## Pruebas que escriben archivos"
+
+SECTION_QA_BACKEND=$(extract_section "$QA_BACKEND" "$SANDBOX_HEADING")
+SECTION_QA_FRONTEND=$(extract_section "$QA_FRONTEND" "$SANDBOX_HEADING")
+SECTION_SECURITY_REVIEWER=$(extract_section "$SECURITY_REVIEWER" "$SANDBOX_HEADING")
+
+TOTAL=$((TOTAL + 1))
+if [ -n "$SECTION_QA_BACKEND" ]; then
+  echo -e "${GREEN}PASS${NC}: agents/qa-backend.md tiene la sección \"$SANDBOX_HEADING\""
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: agents/qa-backend.md no tiene la sección \"$SANDBOX_HEADING\""
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+if [ -n "$SECTION_QA_FRONTEND" ]; then
+  echo -e "${GREEN}PASS${NC}: agents/qa-frontend.md tiene la sección \"$SANDBOX_HEADING\""
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: agents/qa-frontend.md no tiene la sección \"$SANDBOX_HEADING\""
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+if [ -n "$SECTION_SECURITY_REVIEWER" ]; then
+  echo -e "${GREEN}PASS${NC}: agents/security-reviewer.md tiene la sección \"$SANDBOX_HEADING\""
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: agents/security-reviewer.md no tiene la sección \"$SANDBOX_HEADING\""
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+if [ "$SECTION_QA_BACKEND" = "$SECTION_QA_FRONTEND" ] && [ "$SECTION_QA_FRONTEND" = "$SECTION_SECURITY_REVIEWER" ] && [ -n "$SECTION_QA_BACKEND" ]; then
+  echo -e "${GREEN}PASS${NC}: la sección \"$SANDBOX_HEADING\" es idéntica en los 3 agentes"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: la sección \"$SANDBOX_HEADING\" difiere entre qa-backend.md, qa-frontend.md y security-reviewer.md"
+  FAIL=$((FAIL + 1))
+fi
+
+assert_contains "$QA_BACKEND" "git worktree add --detach" \
+  "agents/qa-backend.md exige worktree --detach o directorio temporal para pruebas que escriben archivos"
+assert_contains "$QA_FRONTEND" "git worktree add --detach" \
+  "agents/qa-frontend.md exige worktree --detach o directorio temporal para pruebas que escriben archivos"
+assert_contains "$SECURITY_REVIEWER" "git worktree add --detach" \
+  "agents/security-reviewer.md exige worktree --detach o directorio temporal para pruebas que escriben archivos"
+
+for f in "$QA_BACKEND" "$QA_FRONTEND" "$SECURITY_REVIEWER"; do
+  label="agents/$(basename "$f")"
+  assert_contains "$f" "nunca con redirecciones" \
+    "$label prohíbe redirecciones (>, tee, git show ... >, cp) sobre el árbol del repo"
+  assert_contains "$f" "dangerously-skip-permissions" \
+    "$label prohíbe --dangerously-skip-permissions"
+  assert_contains "$f" "bypassPermissions" \
+    "$label prohíbe --permission-mode bypassPermissions"
+  assert_contains "$f" "NO CUBIERTO" \
+    "$label exige declarar en NO CUBIERTO lo que requeriría permisos saltados"
+done
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then
