@@ -198,9 +198,6 @@ fi
 #      intacto — este hook nunca falla abierto por falta de un campo
 #      opcional.
 
-INPUT=$(cat)
-COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
-
 # Resolución del path del lib sin depender de un binario externo (dirname):
 # "${0%/*}" es el idioma de shell para dirname cuando $0 trae al menos un
 # "/" — siempre el caso dado cómo el harness invoca los hooks. Ver #50: la
@@ -213,19 +210,7 @@ if [ ! -r "$LIB" ]; then
 fi
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
-
-# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
-# para por qué se detecta sobre $INPUT y no sobre $COMMAND. Se chequea antes
-# de cualquier otro gate de este archivo — con un NUL, ni el gate permisivo
-# de abajo ni la gramática única pueden confiar en que $COMMAND refleja el
-# comando completo que se ejecutaría.
-if guard_command_has_nul "$INPUT"; then
-  echo "BLOCKED: pre-merge-check: el comando trae un byte NUL" >&2
-  exit 2
-fi
-
-SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
-SANITIZE_STATUS=$?
+guard_init "pre-merge-check"
 
 # "perl falló en tiempo de ejecución" y "perl ausente" (chequeado arriba,
 # antes de leer stdin) son el mismo estado para este guard: bloquea. Los
@@ -239,10 +224,10 @@ SANITIZE_STATUS=$?
 # le gana la extracción a la invocación real y el guard termina
 # verificando el PR equivocado en vez de bloquear por "sin número
 # explícito", que es lo que correspondería. Ver guard_sanitize() en
-# hooks/lib/guard-matching.sh para el contrato de exit status. El status
-# se captura en SANITIZE_STATUS en la línea de arriba, inmediatamente
-# después de la asignación — no como un "$?" leído más abajo, que un
-# comando insertado entre medio podría pisar en silencio.
+# hooks/lib/guard-matching.sh para el contrato de exit status. guard_init
+# lo captura en GUARD_SANITIZE_STATUS inmediatamente después de la
+# asignación — no como un "$?" leído más abajo, que un comando insertado
+# entre medio podría pisar en silencio.
 #
 # Gate permisivo sobre el texto CRUDO (no el saneado, que no es confiable
 # acá) antes de bloquear: este guard corre sobre TODAS las llamadas Bash
@@ -260,7 +245,7 @@ SANITIZE_STATUS=$?
 # limitación ya existe hoy en el camino de fallback de abajo (el check de
 # "es una invocación real", más adelante en este archivo), así que acotar
 # no empeora nada.
-if [ "$SANITIZE_STATUS" -ne 0 ]; then
+if [ "$GUARD_SANITIZE_STATUS" -ne 0 ]; then
   if echo "$COMMAND" | grep -qi 'gh' && echo "$COMMAND" | grep -qi 'pr' && echo "$COMMAND" | grep -qi 'merge'; then
     echo "BLOCKED: pre-merge-check no operativo: el saneo del comando falló (perl abortó en tiempo de ejecución) — no se puede confiar en la extracción del número de PR sobre texto sin sanear" >&2
     exit 2
@@ -454,7 +439,6 @@ fi
 # Con --repo explícito el guard nunca corre gh repo view (mismo criterio
 # que el check de GIT_DIR/GIT_WORK_TREE de arriba), así que el cwd de la
 # sesión deja de importar: --repo ya es el remedio.
-INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 if [ -z "$EXPLICIT_REPO" ] && [ -n "$INPUT_CWD" ]; then
   PROC_CWD=$(pwd -P)
   IN_CWD=$(cd "$INPUT_CWD" 2>/dev/null && pwd -P)
