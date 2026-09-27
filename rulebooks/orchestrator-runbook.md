@@ -442,7 +442,7 @@ Al recibir el plan de lotes del architect, crea:
 - **Señal de éxito:** [métrica o evento observable, dónde se mide, plazo]
 
 ### Criterios de aceptación (si pasó por product-reviewer)
-1. [criterio verificable con sí/no] — origen: brief §<sección> | product-reviewer
+1. [criterio verificable con sí/no] — origen: brief §<sección> | nuevo
 [Si no pasó por product-reviewer, omitir ambas secciones]
 
 ### Design System (si aplica)

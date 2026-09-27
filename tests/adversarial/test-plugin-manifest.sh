@@ -786,6 +786,10 @@ echo "--- Fase 0.3: formatos de BRIEF.md, context isolation y reporte de review 
 
 assert_contains "$RUNBOOK" "### Resultado esperado (si pasó por product-reviewer)" \
   "runbook formato BRIEF.md tiene la sección Resultado esperado"
+assert_contains "$RUNBOOK" "origen: brief §<sección> | nuevo" \
+  "runbook BRIEF.md usa la misma etiqueta de origen (nuevo) que agents/product-reviewer.md"
+assert_not_contains "$RUNBOOK" "origen: brief §<sección> | product-reviewer" \
+  "runbook ya no usa product-reviewer como etiqueta de origen (desalineada con el agente)"
 assert_contains "$RUNBOOK" "### Criterios de aceptación (si pasó por product-reviewer)" \
   "runbook formato BRIEF.md tiene la sección Criterios de aceptación"
 assert_contains "$RUNBOOK" "\`product-reviewer\` recibe:" \
