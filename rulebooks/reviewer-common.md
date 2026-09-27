@@ -18,7 +18,7 @@ Procedimientos idénticos de `security-reviewer`, `qa-backend`, `qa-frontend`. C
 
 ## 2. Diffs que introducen una regla
 
-Si el diff introduce o modifica una regla del sistema —en `rules/`, `rulebooks/`, `agents/`, `skills/` (incluida `skills/orchestrator/SKILL.md`) o `global/CLAUDE.md`— **aplicá esa regla al propio diff**. No audites que el autor la haya releído: releéla vos. Un PR que escribe "toda afirmación se verifica ejecutando" y afirma sin ejecutar, o que escribe "enunciar una vez" y enuncia dos veces, tiene un defecto real y arreglable — repórtalo como tal.
+Si el diff introduce o modifica una regla del sistema —en `rules/`, `rulebooks/`, `agents/`, `skills/` (incluida `skills/orchestrator/SKILL.md`) o `global/CLAUDE.md`— **aplica esa regla al propio diff**. No audites que el autor la haya releído: reléela tú. Un PR que escribe "toda afirmación se verifica ejecutando" y afirma sin ejecutar, o que escribe "enunciar una vez" y enuncia dos veces, tiene un defecto real y arreglable — repórtalo como tal.
 
 **No aplica** cuando el diff reformula, acota o corrige una regla que ya existía sin agregar contenido prescriptivo nuevo: ahí no hay regla nueva que aplicar, y forzar la pasada produce ruido.
 
