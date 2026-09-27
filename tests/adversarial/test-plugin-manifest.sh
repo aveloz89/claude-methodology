@@ -874,6 +874,32 @@ assert_contains "$AGENT_VALIDATION" "solo Preguntas" \
   "agent-validation.md documenta el expected behavior de un brief vago (devuelve solo Preguntas, D-05)"
 
 echo ""
+echo "--- .claude/settings.json: no duplica el registro de hooks del plugin (#78) ---"
+
+SETTINGS_JSON="$REPO_ROOT/.claude/settings.json"
+
+TOTAL=$((TOTAL + 1))
+HAS_HOOKS=$(jq 'has("hooks")' "$SETTINGS_JSON")
+if [ "$HAS_HOOKS" = "false" ]; then
+  echo -e "${GREEN}PASS${NC}: .claude/settings.json no tiene clave \"hooks\""
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: .claude/settings.json todavía tiene clave \"hooks\" (duplica el registro de hooks/hooks.json)"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+ACTUAL_PERMISSIONS=$(jq -c '.permissions' "$SETTINGS_JSON")
+EXPECTED_PERMISSIONS='{"allow":["Bash(gh issue:*)","Bash(gh label:*)"]}'
+if [ "$ACTUAL_PERMISSIONS" = "$EXPECTED_PERMISSIONS" ]; then
+  echo -e "${GREEN}PASS${NC}: .claude/settings.json conserva \"permissions\" sin cambios"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: .claude/settings.json cambió \"permissions\" (actual: $ACTUAL_PERMISSIONS, esperado: $EXPECTED_PERMISSIONS)"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then
