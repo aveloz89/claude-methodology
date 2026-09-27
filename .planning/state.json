@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "feature": "audit-best-practices",
-  "branch": "feature/merge-agents",
-  "pr": 81,
-  "review_sha": "0922c37",
-  "updated": "2026-09-26T00:00:00Z",
+  "feature": "product-reviewer",
+  "branch": "feature/product-reviewer",
+  "pr": 82,
+  "review_sha": "a88af9c",
+  "updated": "2026-09-26T20:45:00Z",
   "phases": {
     "brainstorming": "done",
     "design": "done",
@@ -18,56 +18,59 @@
   },
   "batches": [
     {
-      "id": "L5",
-      "name": "build-resolver-a-rulebook",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 3,
-      "tasks_total": 3,
-      "current_task": null,
-      "commits": [
-        "3a28451",
-        "8b523df",
-        "6cda5cf"
-      ],
-      "last_batch": false,
-      "depends_on": []
-    },
-    {
-      "id": "L6",
-      "name": "db-specialist-a-backend-dev",
+      "id": "P1",
+      "name": "agente-y-lint",
       "agent": "backend-dev",
       "status": "done",
       "tasks_done": 4,
       "tasks_total": 4,
       "current_task": null,
       "commits": [
-        "05189ee",
-        "82f1f0c",
-        "6e82186",
-        "5a3fefe",
-        "7027a7b"
+        "afa6776",
+        "f726ce9",
+        "8339327",
+        "411f2f1"
+      ],
+      "last_batch": false,
+      "depends_on": []
+    },
+    {
+      "id": "P2",
+      "name": "skill-y-runbook",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 5,
+      "tasks_total": 5,
+      "current_task": null,
+      "commits": [
+        "14d6268",
+        "47bbf93",
+        "b25bac0",
+        "b7d4935",
+        "17df04a"
       ],
       "last_batch": false,
       "depends_on": [
-        "L5"
+        "P1"
       ]
     },
     {
-      "id": "L7",
-      "name": "disparadores-docs-ui-ux",
+      "id": "P3",
+      "name": "new-project-consumidores-cierre",
       "agent": "backend-dev",
       "status": "done",
-      "tasks_done": 2,
-      "tasks_total": 2,
+      "tasks_done": 5,
+      "tasks_total": 5,
       "current_task": null,
       "commits": [
-        "f0de801",
-        "d7aadeb"
+        "d4cf910",
+        "b15a8f1",
+        "2ca1942",
+        "746778f"
       ],
       "last_batch": true,
       "depends_on": [
-        "L6"
+        "P2"
       ]
     }
   ]

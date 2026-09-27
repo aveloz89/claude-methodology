@@ -53,7 +53,7 @@ ALLOWED_MODEL="sonnet opus haiku fable inherit"
 # queda mencionado en prosa como `<agente>` en otro directorio del
 # contrato, esta lista sigue conociendo el nombre y el check (g) más abajo
 # lo reporta como mención colgante en vez de dejar de verificarlo.
-HISTORICAL_AGENTS="architect backend-dev build-resolver db-specialist docs e2e-runner frontend-dev latent-bugs-sweep qa-backend qa-frontend refactor security-reviewer ui-ux"
+HISTORICAL_AGENTS="architect backend-dev build-resolver db-specialist docs e2e-runner frontend-dev latent-bugs-sweep product-reviewer qa-backend qa-frontend refactor security-reviewer ui-ux"
 
 pass() { echo -e "${GREEN}PASS${NC}: $1"; PASS=$((PASS + 1)); }
 fail() { echo -e "${RED}FAIL${NC}: $1"; FAIL=$((FAIL + 1)); }

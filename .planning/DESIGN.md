@@ -1,292 +1,298 @@
-## Diseño: audit-best-practices
+## Diseño: product-reviewer
 
 ### Resumen
-
-Alinear la metodología con la doc oficial en tres grupos independientes: (1) fixes técnicos de hooks, frontmatter y validación del plugin; (2) partir `global/CLAUDE.md` en un núcleo corto siempre cargado + skill `orchestrator` bajo demanda; (3) fusionar `build-resolver` y `db-specialist` en rulebooks que cargan los devs (sujeto a aprobación del usuario). Tres PRs secuenciales, seis lotes, todos para `backend-dev`.
+Agregar el subagente `product-reviewer` (opus, solo lectura, contexto limpio) que corre entre el cierre del brainstorming y `ui-ux`/`architect`, solo en proyectos cuyo `CLAUDE.md` declara `Tipo: producto con usuarios` y solo en features nuevas. Devuelve un reporte corto (veredicto, resultado esperado, criterios de aceptación); el orchestrator lo presenta con `AskUserQuestion` y escribe lo aceptado en dos secciones nuevas de `BRIEF.md`.
 
 ### Search-first
-
-No aplica librería externa: es un cambio de proceso y de scripts Bash sobre el propio repo. Se investigó la doc oficial (hooks, sub-agents, skills, plugins CLI, memory, permissions; copias en el scratchpad de esta sesión) y se verificó el comportamiento real de la CLI 2.1.274 en directorios temporales. Las decisiones de abajo citan lo verificado, no lo leído.
-
-### Verificaciones empíricas (ejecutadas, CLI 2.1.274, modo `-p`)
-
-| # | Pregunta | Método | Resultado |
-|---|---|---|---|
-| a | ¿El stdout/`additionalContext` de `SessionStart` llega a los subagentes? | Repo temporal con hook `SessionStart` (matcher `startup\|resume\|clear\|compact`) que loguea su stdin e imprime `MARKER-ZEBRA-7731`; agente `probe` (haiku) que responde si ve el marker; `claude -p` pide lanzarlo | **No llega.** El hook corrió **una sola vez** (`source: startup`, sin `agent_type`), `SubagentStart` sí disparó, y el subagente respondió `SEEN: no`. La frase de la doc ("applies to subagents") describe hooks de tool events (`PreToolUse`, etc.), no `SessionStart`. Límite: verificado en `-p`; en sesión interactiva el mecanismo es el mismo evento por sesión, no se probó |
-| b | Tokens reales del `CLAUDE.md` | `claude -p --model haiku --output-format json "Reply ok"` en dos repos temporales, uno con `global/CLAUDE.md` copiado como `CLAUDE.md` de proyecto y otro sin; suma de `input + cache_creation + cache_read` | **44.430 − 38.034 = 6.396 tokens** para 20.963 bytes (3,28 B/token). El método es reproducible y es el que usa el lote 4 para medir el "después" |
-| c | ¿`Agent(security-reviewer)` matchea `methodology:security-reviewer`? | Plugin temporal `tp` con agente `probe` (`--plugin-dir`); `permissions.deny` en tres variantes | `deny: ["Agent(probe)"]` → el agente **corrió** (`PROBE-RAN`). `deny: ["Agent(tp:probe)"]` → **denegado**. Sin deny → corrió sin pedir permiso. Conclusión: el nombre pelado no matchea; la forma correcta es `Agent(methodology:<agente>)`. Además, el tool `Agent` no pidió permiso en ningún caso: `allowed-tools` con `Agent(...)` es hoy un no-op en la práctica; se corrige por corrección, no porque desbloquee algo |
-| d | ¿Qué validación es la correcta y cómo resolver la advertencia del `CLAUDE.md` raíz? | `claude plugin validate --strict` sobre `.`, `.claude-plugin/plugin.json`, `agents`, `skills` en el repo y en tres plugins temporales (CLAUDE.md en raíz / en `.claude/` / ambos manifests) | Con `marketplace.json` presente, `validate .` valida **solo el marketplace** (doc: "marketplace.json, when it exists; otherwise plugin.json"). La validación del plugin es `--strict .claude-plugin/plugin.json`, y hoy falla por el `CLAUDE.md` raíz. Con el archivo en **`.claude/CLAUDE.md`** pasa `--strict` y sigue cargando como instrucciones del proyecto (verificado: una regla puesta ahí cambió la respuesta de `claude -p`). El dev-loop no cambia: el symlink `~/.claude/skills/methodology` carga el plugin por `plugin.json`, no por el CLAUDE.md. Hallazgo extra: `validate agents` pasa con `memory: true` y `permissionMode: plan` — el validador no detecta valores inválidos ni campos ignorados; hace falta un lint propio |
-| e | ¿El campo `if` funciona con comandos compuestos y dentro del `hooks.json` de un plugin? | Hook `if: "Bash(git *)"` que loguea el comando; en settings de proyecto y en plugin vía `--plugin-dir` | Disparó para `echo hi && git status --short`, `git -C . log …` y `cd . && git status`; no disparó para `echo bye`. `--strict` no objeta el campo. Es seguro usar `Bash(git *)` / `Bash(gh *)` como superconjunto de lo que cada guard matchea |
-
-Otros hechos verificados que condicionan el diseño:
-
-- `tests/adversarial/test-hooks.sh` (321 asserts, verde) **no tiene ningún test** de `block-force-push.sh`, `block-hard-reset.sh` ni `pre-release-sweep.sh`. La migración de formato de esos hooks empieza en rojo real.
-- `.claude/settings.json` (trackeado) registra los 14 hooks a nivel proyecto **además** de `hooks/hooks.json`: en este repo cada hook dispara dos veces (el dedupe de `subagent-stop-log.sh` lo admite). Contradice el `CLAUDE.md` del repo ("el registro vive únicamente en `hooks/hooks.json`"). Fuera del brief; ver Riesgos.
-- Log de invocaciones (`~/.claude/methodology/logs/`, 2.926 líneas, 2026-08 → 2026-09-26, 4 repos): `frontend-dev` 107, `backend-dev` 79, `security-reviewer` 55, `qa-frontend` 41, `qa-backend` 31, `ui-ux` 27, `docs` 24, `architect` 14, `e2e-runner` 8, **`db-specialist` 2, `build-resolver` 2**, `refactor` 2, `latent-bugs-sweep` 2. 2.505 líneas `unknown` (subagentes anidados o payload sin `agent_type`): la proporción entre agentes nombrados es la señal, no los absolutos.
+Se salta: es un cambio de proceso específico de este repo y el brief ya fija la solución (D-04). Lo único reutilizado es lo que ya existe en el repo: el patrón de agente read-only (`security-reviewer`, `latent-bugs-sweep`: `tools: Read, Grep, Glob` + `disallowedTools`), el patrón de fase condicional (Fase 0.5 de `ui-ux`), y los helpers de test (`assert_contains`, `assert_no_voseo`, sandbox RED) de `tests/adversarial/`.
 
 ### Arquitectura
+No cambia. Aplica la decisión del 2026-09-26 "agentes solo por frontera de contexto": la frontera que justifica este agente es el **contexto limpio** — su valor es no haber estado en el brainstorming (brief, "Descartado explícitamente"). Un rulebook que leyera el orchestrator no la daría. `global/CLAUDE.md` no se toca: la fase vive en el nivel 2 (skill) y el detalle en el nivel 3 (runbook).
 
-Proyecto existente; se mantiene el layout plugin + `install.sh` residual (`ARCHITECTURE.md`, 2026-08-14). Cambios estructurales de este diseño:
+---
 
-- **Progressive disclosure en tres niveles** para el orchestrator: `global/CLAUDE.md` (siempre, ≤10 KB) → `skills/orchestrator/SKILL.md` (al iniciar trabajo que termina en PR, <500 líneas) → `rulebooks/orchestrator-runbook.md` (formatos exactos, bajo demanda, sin cambios de contenido).
-- **Especialidades como rulebooks, no como agentes**, cuando no hay frontera de contexto (ver "Fusión de agentes").
+### 1. Prompt de `agents/product-reviewer.md`
 
-### Archivos afectados
-
-**PR 1 — fixes técnicos** (branch existente `feature/audit-best-practices`)
-
-- `hooks/block-force-push.sh`, `hooks/block-hard-reset.sh`, `hooks/block-admin-merge.sh`, `hooks/pre-release-sweep.sh`, `hooks/pre-merge-check.sh` — salida `exit 2` + stderr en vez de `{"decision":"block"}`; `exit 0` sin stdout en vez de `{"continue":true}`.
-- `hooks/pre-commit-guard.sh` — watchdog interno fail-closed.
-- `hooks/hooks.json` — `if` por handler, matcher de `SessionStart`, timeout de `pre-commit-guard`.
-- `agents/e2e-runner.md`, `agents/security-reviewer.md`, `agents/latent-bugs-sweep.md` — frontmatter; `effort: high` solo en los reviewers sonnet (`qa-frontend`, `qa-backend`) — decisión del usuario D-05.
-- `skills/new-project/SKILL.md`, `skills/refactor-scan/SKILL.md` — `disable-model-invocation: true`; `skills/pr-workflow/SKILL.md`, `skills/review-pr/SKILL.md`, `skills/refactor-scan/SKILL.md` — `Agent(methodology:…)`.
-- `rulebooks/agent-budget.md` — línea 3 (`maxTurns` no existe; el techo es el contexto y el corte).
-- `CLAUDE.md` → `.claude/CLAUDE.md` (git mv) + instrucción de validación corregida; `README.md` (Estructura, línea 143; sección Release).
-- `global/CLAUDE.md` — solo el texto de "Corren en background".
-- `tests/adversarial/test-hooks.sh`, `tests/adversarial/test-plugin-manifest.sh`, **nuevo** `tests/adversarial/test-frontmatter.sh`.
-
-**PR 2 — división del CLAUDE.md** (branch nuevo `feature/orchestrator-skill`, desde `dev` tras mergear PR 1)
-
-- `global/CLAUDE.md` — reescritura al núcleo.
-- **nuevo** `skills/orchestrator/SKILL.md`.
-- `hooks/session-start-context.sh` — recordatorio de una línea.
-- `rulebooks/orchestrator-runbook.md` (líneas 3, 42, 261, 263, 531, 786, 794), `rulebooks/governance-playbook.md` (147), `README.md` (7, 46-52, Estructura), `.claude-plugin/marketplace.json` (descripción), `tests/validation/agent-validation.md` (sección Orchestrator), `tests/adversarial/test-plugin-manifest.sh`.
-
-**PR 3 — fusión de agentes** (branch nuevo `feature/merge-agents`, desde `dev` tras mergear PR 2; solo si el usuario aprueba)
-
-- **borrar** `agents/build-resolver.md`, `agents/db-specialist.md`; **nuevos** `rulebooks/build-errors.md`, `rulebooks/db-migrations.md`.
-- `agents/backend-dev.md`, `agents/architect.md`, `agents/qa-backend.md`, `agents/frontend-dev.md`, `agents/e2e-runner.md`, `agents/refactor.md`, `agents/security-reviewer.md`, `agents/latent-bugs-sweep.md` (menciones), `rulebooks/dev-common.md`, `rulebooks/orchestrator-runbook.md`, `rulebooks/governance-playbook.md`, `skills/orchestrator/SKILL.md`, `skills/pr-workflow/SKILL.md`, `README.md`, `.claude-plugin/marketplace.json`.
-
-### Contratos
-
-No hay API. Los contratos son de formato:
-
-**Hooks PreToolUse (uno solo para todos):** bloquear = mensaje en stderr + `exit 2`; permitir = `exit 0` sin stdout. Se elige `exit 2` sobre `hookSpecificOutput.permissionDecision` porque: (1) la doc lo prescribe para policy ("If your hook is meant to enforce a policy, use exit 2") y dice que bloquea aunque otro JSON diga `allow`; (2) permissions.md: un hook con exit 2 se evalúa **antes** de las allow rules; (3) `pre-commit-guard.sh` y `pre-push-guard.sh` ya lo usan y los helpers `assert_blocked_cmd`/`assert_allowed_cmd` de la suite son por exit code — queda **un** mecanismo y una familia de asserts; (4) no depende de `jq` para serializar el motivo (hoy `block()` de `pre-merge-check.sh` sí). Costo: los 6 `assert_pre_merge_*` y los 2 `assert_bam_*` que hoy grepean `"decision":"block"` pasan a exit code + grep de stderr. La doc pide no mezclar mecanismos por hook: ningún hook migrado imprime JSON.
-
-**`hooks/hooks.json` (PreToolUse):**
-
-```json
-{ "type": "command", "if": "Bash(git *)", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/block-force-push.sh", "timeout": 10 }
-```
-
-| Hook | `if` | Por qué es superconjunto del guard |
-|---|---|---|
-| block-force-push, block-hard-reset, pre-push-guard, pre-commit-guard | `Bash(git *)` | los cuatro exigen el token `git` en posición de comando |
-| block-admin-merge, pre-merge-check, pre-release-sweep | `Bash(gh *)` | los tres exigen `gh` en posición de comando |
-
-`if` es optimización de latencia (verificación e): cada script sigue validando el comando completo; el header de cada hook lo dice en una línea.
-
-`SessionStart.matcher`: `"startup|resume|clear|compact"`. `pre-commit-guard.timeout`: `600`.
-
-**`pre-commit-guard.sh` fail-closed:** la suite corre en background; un bucle espera hasta `PRECOMMIT_TEST_BUDGET` segundos (default `540`, env sobreescribible); al vencer, mata el grupo de procesos y termina con `BLOCKED: la suite superó ${PRECOMMIT_TEST_BUDGET}s; el hook no falla abierto. Acotá la suite o subí PRECOMMIT_TEST_BUDGET.` + `exit 2`. Como 540 < 600, el watchdog interno siempre gana al timeout del harness (que descartaría la salida y dejaría pasar el commit — doc "Timeouts"). Patrón de watchdog ya existente en `hooks/lib/guard-matching.sh` (perl); reusar la forma, no la lib.
-
-**Frontmatter de agentes (lint en `tests/adversarial/test-frontmatter.sh`):** claves permitidas = `name, description, model, tools, disallowedTools, maxTurns, skills, memory, background, omitClaudeMd, effort, isolation`; prohibidas por ignoradas en plugin = `permissionMode, hooks, mcpServers, initialPrompt`; `memory ∈ {user, project, local}`; `effort ∈ {low, medium, high, xhigh, max}`; `model ∈ {sonnet, opus, haiku, fable, inherit}`; `name` = nombre del archivo. **Skills:** toda entrada `Agent(x)` en `allowed-tools` tiene forma `Agent(methodology:<agente>)` con `<agente>` ∈ `agents/`; `disable-model-invocation: true` obligatorio en `new-project` y `refactor-scan`, prohibido en `pr-workflow`, `review-pr` y `orchestrator`. **Referencias:** todo `methodology:<x>` y toda mención `` `<agente>` `` de la lista histórica (`build-resolver`, `db-specialist`, …) en `agents/ rulebooks/ skills/ README.md .claude/CLAUDE.md` debe corresponder a un archivo en `agents/` (este check es el RED del PR 3).
-
-**Valores propuestos por agente:**
-
-| Agente | `effort` | `maxTurns` | Cambio de frontmatter |
-|---|---|---|---|
-| architect (fable), ui-ux, security-reviewer (opus) | hereda | no | security-reviewer: quitar `permissionMode` |
-| backend-dev, frontend-dev, qa-frontend, qa-backend, docs, refactor, e2e-runner, latent-bugs-sweep, (db-specialist, build-resolver mientras existan) | `high` | no | e2e-runner: `memory: project`; latent-bugs-sweep: quitar `permissionMode` |
-
-Justificación: el autor corre la sesión en `xhigh` y los subagentes lo heredan; `high` en los sonnet acota costo donde el trabajo es de ejecución, sin tocar diseño ni seguridad. **No** se define `maxTurns`: corta a mitad de un ciclo TDD y devuelve salida parcial; el control de budget real es el cap de 5 tareas + commit por tarea. Se corrige `agent-budget.md` línea 3 para que no atribuya el techo a un `maxTurns` que nadie configura.
-
-### Schemas de validación
-
-No aplica (sin código de aplicación). Los contratos de formato de arriba se verifican con los tests listados.
-
-### Esquema DB
-
-No aplica.
-
-### División de `global/CLAUDE.md`
-
-**Qué se queda (núcleo, objetivo ≤ 10.240 bytes y ≤ 130 líneas, test de regresión en `test-plugin-manifest.sh`):**
-
-| Sección | Bytes hoy → estimado | Nota |
-|---|---|---|
-| Título + intro + Convenciones generales | 716 → 600 | idioma; `rules/` vs `rulebooks/` en dos líneas |
-| Rol de la sesión principal (nuevo) | 644 → 700 | redacción abajo |
-| Workflow obligatorio (brainstorming, diseño, TDD, review dual, 80 %) | 1.608 → 1.200 | las condiciones para saltar brainstorming van a la skill |
-| PR y merge: invariantes | 1.067 → 1.000 | sin cambios de fondo |
-| Gitflow + formato de commits | 1.167 → 1.100 | |
-| Hooks | 1.405 → 900 | texto de "Corren en background" corregido ya en PR 1 |
-| Verificación pre-commit (devs) | 1.184 → 900 | aplica a todo subagente que commitea |
-| Estado `.planning/` | 916 → 300 | solo qué es y "una feature a la vez"; detalle en skill |
-| Reglas operativas comunes | 2.863 → 1.300 | quedan: escribe simple, tarea atómica, frontend delgado, debugging, verificar antes de afirmar |
-| Reglas por lenguaje | 407 → 350 | |
-| **Total** | **20.963 → ≈ 8.400 bytes (≈ 2.600 tokens, −59 %)** | |
-
-**Qué se mueve a la skill:** rol detallado del orchestrator, Lotes, Equipo de subagentes (tabla + degradación de modelo), Handoff/context isolation, Flujo de trabajo por fases y sus reglas clave, Pause/Resume, tracker de sesión, "reporta al usuario", "toda decisión con opciones (AskUserQuestion)", governance.
-
-**Redacción exacta de la regla corta del rol** (sección nueva, reemplaza "Tu rol como orchestrator"):
+Contenido completo (≤150 líneas; el dev lo copia tal cual y ajusta solo si un test lo exige):
 
 ```markdown
-## Rol de la sesión principal
-
-La sesión principal —el *orchestrator*— coordina: entiende el pedido, hace diseñar,
-reparte lotes a los subagentes, corre los reviews y mergea. No escribe código de
-producción ni tests; eso lo hacen los subagentes que reciben un lote. Esta regla
-describe a quien delega. Si estás leyendo esto como subagente, tu prompt define tu
-trabajo y esta sección no te aplica.
-
-Al empezar una feature, un fix o cualquier trabajo que termine en un PR, la sesión
-principal carga la skill `orchestrator` (`/methodology:orchestrator`) antes de
-delegar nada. Si al ir a delegar notás que no la tenés cargada, cargala en ese
-momento. El hook de inicio de sesión lo recuerda.
-```
-
-**Skill `skills/orchestrator/SKILL.md`** (objetivo ≈ 220 líneas, tope 500; test de regresión):
-
-```yaml
 ---
-name: orchestrator
-description: Manual de la sesión principal para coordinar una feature o un fix de punta a punta — fases 0 a 5, qué subagente invocar en cada una, lotes y handoff, tracker de sesión, pause/resume. Cargar al iniciar cualquier trabajo que termine en un PR, antes de delegar el primer lote.
-user-invocable: true
-allowed-tools: Read, Grep, Glob, Bash
-argument-hint: "[feature|fix] <descripción corta>"
+name: product-reviewer
+description: "Revisor de producto. Cuestiona si una feature vale la pena y deja resultado esperado y criterios de aceptación medibles a partir de BRIEF.md. Lo invoca el orchestrator después del brainstorming y antes de ui-ux y architect, solo en proyectos cuyo CLAUDE.md tiene la línea `Tipo: producto con usuarios` y solo en features nuevas. Solo lee; nunca modifica archivos ni habla con el usuario."
+model: opus
+tools: Read, Grep, Glob
+disallowedTools: Write, Edit, Bash, Agent
 ---
+
+# Product Reviewer
+
+Eres un product manager senior con contexto limpio: no estuviste en el brainstorming, y eso es a propósito. Tu valor es la mirada independiente sobre un brief que el usuario y el orchestrator ya dan por bueno. Respondes tres preguntas: si vale la pena, qué esperamos obtener y cómo sabremos que funcionó.
+
+## Qué recibes y qué entregas
+
+**Recibes del orchestrator:** `.planning/BRIEF.md` y, si existe, el path al `README.md` del proyecto. Nada más: ni historial, ni diseño técnico.
+
+**Entregas:** un reporte en el formato de abajo, como texto de tu respuesta. No escribes archivos: el orchestrator se lo presenta al usuario y escribe en `BRIEF.md` lo que el usuario acepte.
+
+**Si te falta contexto** que cambia el veredicto, el resultado esperado o un criterio (quién es el usuario, qué hace hoy sin la feature), no supongas: devuelve solo `### Preguntas` (máximo 5, cada una con por qué importa y, si ayuda, 2-3 respuestas posibles) y ningún veredicto. El orchestrator se las pasa al usuario, suma las respuestas al brief y te reanuda. Si no te falta nada, entrega el reporte directo. (D-05, usuario: siempre preguntar antes que suponer.)
+
+## Cómo evalúas
+
+1. **Problema real.** ¿Qué hace hoy el usuario sin esta feature y qué le cuesta? Si el brief no lo dice, esa es la primera razón del veredicto.
+2. **Alternativa más barata.** ¿Se obtiene el mismo resultado con menos alcance (un ajuste de copy, una opción que ya existe, un paso manual)? Si sí, el veredicto tiende a "reducir alcance".
+3. **Señal de éxito.** ¿Qué cambia de forma observable si la feature funciona? Un número, un evento o un comportamiento que alguien pueda mirar después del release. Si el producto no mide nada todavía, propón la señal más barata de obtener (un evento en logs, un conteo manual a la semana).
+4. **Criterios verificables.** Cada criterio de aceptación se responde con sí o no sin interpretar. "Que sea rápido" no es un criterio; "la lista carga en menos de 2 s con 500 elementos" sí. Reescribes los que el brief ya trae y agregas los que faltan, cada uno con su origen.
+
+Lees el brief y el README. Abres código solo para confirmar que algo que el brief da por nuevo ya existe; no auditas el repo.
+
+## Reglas
+
+- **No bloqueas.** Tu veredicto es un insumo; decide el usuario. Aunque digas "repensar", el flujo sigue si el usuario quiere. Por eso el reporte se escribe para decidir en un minuto, no para convencer.
+- **Corto.** Reporte de 40 líneas o menos. Si tienes más que decir, prioriza: lo que cambia la decisión va primero; el resto se cae.
+- **Sin roadmap, backlog ni PRD.** Evalúas esta feature, no el producto.
+- **Español latam estándar con tuteo, sin voseo.** Sin mayúsculas de énfasis; las negritas solo en las etiquetas del formato.
+- **Todo criterio y toda señal los puede verificar alguien que no estuvo en la conversación.**
+
+## Formato del reporte
+
+```markdown
+## Revisión de producto: <nombre de la feature>
+
+### Veredicto: seguir | reducir alcance | repensar
+- <razón 1>
+- <razón 2>
+- <razón 3, opcional>
+
+### Resultado esperado
+- **Para el usuario:** <una frase: qué puede hacer o qué deja de sufrir>
+- **Señal de éxito:** <métrica o evento observable, dónde se mide y en qué plazo>
+
+### Criterios de aceptación
+1. <criterio verificable> — origen: brief §<sección> | nuevo
+2. ...
+
+### Supuestos
+- <supuesto que hiciste por falta de contexto, o "ninguno">
+
+### Si reducir alcance o repensar
+- <qué sacar del alcance, o qué pregunta responder antes de diseñar; máximo 3 líneas>
 ```
 
-Sin `disable-model-invocation` (el modelo debe poder cargarla solo). Sin `Agent(...)` en `allowed-tools`: verificación c muestra que el tool no pide permiso; listar once agentes sería mantenimiento sin efecto. Sin `context: fork`: la skill es conocimiento para la sesión, no una tarea aislada.
+La última sección se omite cuando el veredicto es "seguir".
 
-Estructura (cada sección enuncia lo accionable y remite al runbook por nombre de sección; **nada del runbook se copia**):
+## Ejemplo breve
 
-1. Rol y alcance (≈10 líneas) — cuándo aplica, qué no hace.
-2. Mapa del flujo (≈30) — tabla `Fase → qué hacés → artefacto → sección del runbook`, fases 0 a 5 como hoy en CLAUDE.md, con las reglas clave (setup del branch una vez, `last_batch`, un push por ronda, fixes en el mismo branch, re-lanzar solo reviewers con issues, 3 intentos de CI, E2E flaky).
-3. Brainstorming (≈10) — condiciones para saltarlo (las cuatro actuales) y "en cualquier duda, brainstormea".
-4. Equipo de subagentes (≈30) — tabla actual (agente, modelo, rol, cuándo) + degradación de modelo + criterio db-complejo (puntero al runbook).
-5. Lotes y handoff (≈25) — cap 5, lote ≠ PR, validación del plan (3 reintentos), context isolation en cinco líneas, puntero al template del runbook.
-6. Tracker de sesión (≈10) — qué tareas crear y cuándo marcar `completed`; puntero.
-7. Estado `.planning/` y Pause/Resume (≈25) — lista de archivos, cleanup, pausar/retomar (puntero a "Retomar (resume)").
-8. Cómo hablás con el usuario (≈15) — reporta progreso, decisiones con `AskUserQuestion` y opciones, governance ante lo inesperado.
-9. Cuándo abrir el runbook (≈10) — tabla situación → sección.
+Brief: "exportar el listado de clientes a CSV desde el panel de admin, con filtros, columnas configurables y envío semanal programado".
 
-**Recordatorio del hook** (`session-start-context.sh`, una línea antes del cierre `===`, siempre que haya repo git):
+```markdown
+## Revisión de producto: exportar clientes a CSV
 
-```bash
-echo "Sesión principal: si este turno arranca una feature, un fix o algo que termine en PR, cargá la skill methodology:orchestrator antes de delegar."
+### Veredicto: reducir alcance
+- El problema declarado es "contabilidad pide la lista a fin de mes"; un export completo con las columnas actuales lo resuelve.
+- Columnas configurables y envío semanal no tienen un usuario identificado en el brief.
+
+### Resultado esperado
+- **Para el usuario:** contabilidad obtiene la lista de clientes sin pedirla a soporte.
+- **Señal de éxito:** cero tickets de "lista de clientes" en soporte en el mes siguiente al release (hoy: 3-4 por mes según el brief).
+
+### Criterios de aceptación
+1. El botón "Exportar CSV" descarga todas las filas visibles según los filtros activos — origen: brief §Flujo paso 2
+2. El archivo abre en Excel y Google Sheets con acentos correctos (UTF-8 con BOM) — nuevo
+3. Con 10 000 clientes, la descarga empieza en menos de 5 s — nuevo
+
+### Supuestos
+- Contabilidad usa Excel; si usa otra herramienta, el criterio 2 cambia.
+
+### Si reducir alcance o repensar
+- Sacar columnas configurables y envío semanal; reevaluar si aparece un segundo pedido.
 ```
 
-El prefijo "Sesión principal:" es defensa en profundidad; la verificación a muestra que el texto no llega a los subagentes. Test: en el sandbox de `test-hooks.sh`, la salida del hook contiene `methodology:orchestrator`.
+## Qué no haces
 
-**Referencias cruzadas a actualizar en el PR 2:**
+- No hablas con el usuario ni con otros agentes; solo respondes al orchestrator.
+- No escribes ni editas archivos; `BRIEF.md` lo actualiza el orchestrator.
+- No diseñas la solución técnica, no estimas esfuerzo ni propones stack.
+- No priorizas contra otras features ni armas roadmap.
+- No repites el brainstorming: el brief ya existe, tú lo cuestionas.
+```
 
-| Archivo | Línea(s) | Cambio |
+**Por qué cada regla:**
+
+| Regla | Por qué |
+|---|---|
+| `tools: Read, Grep, Glob` + `disallowedTools: Write, Edit, Bash, Agent` | Read-only por contrato (brief: "no edita archivos"). Sin `Bash`: no necesita ejecutar nada y `tools` sí restringe en agentes (a diferencia de `allowed-tools` en skills, PR-80). `Agent` fuera: no se autoinvoca ni delega. |
+| `description` con disparador | El orchestrator decide con la description; lleva la condición de activación y el momento (después del brainstorming, antes de `ui-ux`/`architect`). |
+| Contexto limpio, sin historial | Es la frontera de contexto que justifica el agente (ARCHITECTURE.md 2026-09-26). |
+| Preguntas antes que supuestos (D-05) | Decisión del usuario: un supuesto equivocado sobre el usuario o el problema invalida el veredicto. La ronda extra solo ocurre cuando falta algo que lo cambia. |
+| No bloquea | D-02. |
+| ≤40 líneas | "Reporte corto: el objetivo es no complicar." Un tope numérico es verificable; "corto" no. |
+| Criterio = sí/no sin interpretar, con origen | Es lo que consumen architect (traza a tareas) y QA (cobertura). El origen distingue lo que el usuario ya pidió de lo que el agente agregó. |
+| Tuteo sin voseo, sin mayúsculas de énfasis | PR-81 (`assert_no_voseo`) y tono del repo. |
+| Ejemplo con veredicto "reducir alcance" | Es el veredicto más útil y el más difícil de escribir bien; "seguir" no necesita ejemplo. |
+
+---
+
+### 2. Detección de "producto con usuarios"
+
+**Línea exacta** en el `CLAUDE.md` del proyecto (raíz o `.claude/CLAUDE.md`), sin negritas ni otro formato, sola en su línea (se admite como ítem de lista con `- ` inicial):
+
+```
+Tipo: producto con usuarios
+```
+
+Valores que `/new-project` conoce: `producto con usuarios`, `herramienta interna`, `librería o tooling`. **Solo el primero activa** al agente; cualquier otro valor, o la ausencia de la línea, equivale a "no corre".
+
+**Cómo la lee el orchestrator:** el `CLAUDE.md` del proyecto ya está en su contexto en toda sesión. Si duda, `Grep` (ya está en `allowed-tools`) con el patrón `^(- )?Tipo: producto con usuarios$` sobre `CLAUDE.md` y `.claude/CLAUDE.md`. Sin `Bash`.
+
+**Si falta:** no corre y el orchestrator **no pregunta** si agregarla (brief, "Reglas de negocio"). El README documenta la línea para quien quiera activarla a mano en un proyecto existente.
+
+**Cambios a `skills/new-project/SKILL.md`** (paso 3, "Generar CLAUDE.md"):
+
+- Antes de generar el archivo, pregunta con `AskUserQuestion` "¿Qué tipo de proyecto es?" con tres opciones: `producto con usuarios` (recomendada si el stack tiene frontend: "activa la revisión de producto en cada feature nueva"), `herramienta interna` ("sin revisión de producto"), `librería o tooling` ("sin revisión de producto").
+- Escribe la línea `Tipo: <valor elegido>` como primera línea después del encabezado del `CLAUDE.md` generado, tal cual, sin negritas.
+- Agrega a la lista de contenido del paso 3 el ítem: "Tipo de proyecto (`Tipo: producto con usuarios` activa `product-reviewer`; los otros valores no)".
+
+---
+
+### 3. Integración
+
+#### 3.1 `skills/orchestrator/SKILL.md`
+
+- **`allowed-tools`:** agregar `Agent(methodology:product-reviewer)` (forma exigida por el lint (d)).
+- **Mapa del flujo (§2):** nueva fila entre 0 y 0.5:
+
+  `| 0.3. Revisión de producto | Invocas `product-reviewer` solo si el `CLAUDE.md` del proyecto tiene la línea `Tipo: producto con usuarios` y hubo brainstorming (feature nueva, no fix ni cambio técnico); presentas el reporte con `AskUserQuestion`; no bloquea | secciones "Resultado esperado" y "Criterios de aceptación" de `.planning/BRIEF.md` | "Fase 0.3" |`
+
+- **Tabla de equipo (§4):** nueva fila antes de `ui-ux`:
+
+  `| `product-reviewer` | opus | Cuestiona si la feature vale la pena; deja resultado esperado y criterios de aceptación medibles (read-only). No bloquea | Después del brainstorming, antes de `ui-ux` y `architect`, solo si el `CLAUDE.md` del proyecto declara `Tipo: producto con usuarios` |`
+
+  La fila de `ui-ux` pasa a decir "Después del brainstorming (y de `product-reviewer` si corrió), antes del architect, si hay UI".
+- **Degradación (§4):** agregar `` `product-reviewer` → sonnet aceptable siempre`` a la frase existente.
+- **§9 "Cuándo abrir el runbook":** fila `| Presentar el reporte de `product-reviewer` y qué escribir en `BRIEF.md` | "Fase 0.3" |`.
+
+#### 3.2 `rulebooks/orchestrator-runbook.md`
+
+Nueva subsección entre "Fase 0" y "Fase 0.5":
+
+```markdown
+### Fase 0.3: Revisión de producto (solo productos con usuarios)
+
+**Condición (las dos a la vez):**
+
+1. El `CLAUDE.md` del proyecto (raíz o `.claude/CLAUDE.md`) tiene una línea que, sin el `- ` inicial si es ítem de lista, es exactamente `Tipo: producto con usuarios`. Ya lo tienes en contexto; si dudas, `Grep` con `^(- )?Tipo: producto con usuarios$`. Sin la línea, o con otro valor, no corre y no preguntas si agregarla.
+2. Hubo brainstorming (Fase 0 no se saltó). Si se saltó —bug fix o cambio técnico— tampoco corre.
+
+**Cómo invocar:** `product-reviewer` recibe solo `.planning/BRIEF.md` y el path a `README.md` si existe. Sin historial, sin `ARCHITECTURE.md`, sin `DESIGN.md`. Una invocación por feature; si el brief cambia de fondo después del reporte (otra ronda de brainstorming), puedes invocarlo una segunda vez, no más.
+
+**Cómo lo presentas:** copias el reporte tal cual (≤40 líneas) y preguntas con `AskUserQuestion`:
+
+- **Incorporar todo** — resultado esperado y criterios van a `BRIEF.md` tal cual. Recomendada si el veredicto es "seguir".
+- **Elegir qué incorporar** — segunda pregunta con dos bloques: resultado esperado (incorporar / no) y criterios (todos / solo los de origen brief / solo los nuevos / ninguno). Recomendada si el veredicto es "reducir alcance" o "repensar".
+- **Seguir sin cambios** — `BRIEF.md` queda igual salvo la decisión registrada.
+
+Si el usuario quiere replantear la feature, vuelves a Fase 0 (otra ronda); no lo decides por él.
+
+**Qué escribes en `BRIEF.md`:** las secciones `### Resultado esperado` y `### Criterios de aceptación` (formato en "Formatos de archivos") con lo aceptado, y en "Decisiones tomadas" una línea `[D-NN] (usuario) Veredicto de product-reviewer: <veredicto>; se incorporó <todo | resultado esperado y criterios N, N | nada>`. Si el usuario redujo el alcance, actualizas "Alcance" y "Descartado explícitamente" en la misma pasada. El reporte completo no se persiste.
+```
+
+Además:
+
+- **"Context isolation":** nueva viñeta `` `product-reviewer` recibe: `BRIEF.md` completo + path a `README.md` si existe. Nada más.``
+- **Formato de `BRIEF.md`:** dos secciones nuevas después de "Descartado explícitamente" y antes de "Design System":
+
+  ```markdown
+  ### Resultado esperado (si pasó por product-reviewer)
+  - **Para el usuario:** [una frase]
+  - **Señal de éxito:** [métrica o evento observable, dónde se mide, plazo]
+
+  ### Criterios de aceptación (si pasó por product-reviewer)
+  1. [criterio verificable con sí/no] — origen: brief §<sección> | product-reviewer
+  [Si no pasó por product-reviewer, omitir ambas secciones]
+  ```
+- **"Formato de reporte de review"** (secciones QA Frontend / QA Backend): una línea opcional `Criterios de aceptación del brief: cubiertos N de M (lista los no cubiertos). Solo si BRIEF.md los trae; no bloquea por sí solo.`
+
+#### 3.3 Cómo los usan `architect` y QA (referencia, no bloqueo)
+
+- **`agents/architect.md`**, §1 "Análisis de la tarea", viñeta nueva: "Si `BRIEF.md` trae `### Criterios de aceptación`, cada criterio se traza a al menos una tarea atómica de algún lote; anota el número junto a la tarea (`[CA-2]`). Un criterio que no cabe en el plan va a Riesgos con la razón. No bloquea: es la forma de que QA sepa qué mirar."
+- **`agents/qa-backend.md` y `agents/qa-frontend.md`**, párrafo nuevo en la sección de handoff (qué recibes) o, si no existe, al inicio del proceso de revisión: "**Criterios de aceptación del brief (referencia).** Si `BRIEF.md` trae `### Criterios de aceptación`, en tu reporte listas cuáles cubre el diff (con test o evidencia) y cuáles no. Un criterio sin cubrir no bloquea por sí solo: lo anotas como observación para que el usuario decida; bloqueas solo por tus criterios de siempre."
+
+#### 3.4 README, marketplace y tests
+
+- **`README.md`:** encabezado `### Agentes (12)` y "estos 12 agentes"; fila `| **product-reviewer** | opus | Cuestiona si la feature vale la pena y deja resultado esperado y criterios de aceptación medibles (read-only, no bloquea). Solo en proyectos con `Tipo: producto con usuarios` |` antes de `ui-ux`; `product-reviewer.md` en el árbol de `agents/`; en el diagrama "Workflow" una línea `→ Product reviewer (solo productos con usuarios): ¿vale la pena?, resultado esperado, criterios de aceptación` después de "Brief"; en "Configuración por proyecto" (línea ~202, "Los agentes detectan el stack…") un párrafo: "Si el `CLAUDE.md` del proyecto tiene la línea `Tipo: producto con usuarios`, el orchestrator invoca `product-reviewer` después del brainstorming de cada feature nueva. Sin la línea no corre; `/new-project` la escribe al preguntar el tipo de proyecto."
+- **`.claude-plugin/marketplace.json`:** description `"Metodología completa: 12 agentes, 14 hooks, 5 skills"`. Sin bump de versión (se hace en release).
+- **`tests/adversarial/test-frontmatter.sh`:** `product-reviewer` en `HISTORICAL_AGENTS`.
+- **`tests/adversarial/test-plugin-manifest.sh`:** asserts nuevos (detalle en el plan): frontmatter read-only del agente con sandbox RED, tope de 150 líneas, palabras del veredicto y encabezados compartidos con `BRIEF.md`, `assert_no_voseo` y lista explícita de mayúsculas de énfasis prohibidas, `product-reviewer` en el loop de `allowed-tools`, Fase 0.3 en skill y runbook, formato de `BRIEF.md`, conteo de agentes derivado de `ls agents/*.md` contra README y marketplace, `Tipo: producto con usuarios` en `new-project`, criterios de aceptación en architect y QAs.
+- **`tests/validation/agent-validation.md`:** sección `## Product Reviewer` con prompt canónico (un brief vago de feature en un producto) y expected behaviors (veredicto con 2-3 razones, señal medible, criterios sí/no con origen, ≤40 líneas, no escribe archivos; con un brief al que le falta el usuario o el problema, devuelve solo Preguntas) y red flags (propone stack, arma roadmap, bloquea).
+
+---
+
+### 4. Qué cambia
+
+| Archivo | Cambio | Lote |
 |---|---|---|
-| `rulebooks/orchestrator-runbook.md` | 3 | "el comportamiento esencial vive en `CLAUDE.md` raíz" → en la skill `orchestrator` |
-| | 42, 261, 263, 531 | "regla operativa de `CLAUDE.md`" / "invariante 3 de `CLAUDE.md`" / "Gitflow en `CLAUDE.md`" / "Pause / Resume en `CLAUDE.md`" → las invariantes y Gitflow siguen en CLAUDE.md (sin cambio); AskUserQuestion y Pause/Resume → skill |
-| | 786, 794 | el grep anti-drift agrega `skills/orchestrator/SKILL.md`; "nunca en `global/CLAUDE.md`" queda y se refuerza con el test de tamaño |
-| `rulebooks/governance-playbook.md` | 147 | Pause/Resume → skill |
-| `agents/security-reviewer.md` 18, `agents/qa-backend.md` 13, runbook 609 | lista de documentos normativos: ya incluye `skills/`; agregar la skill por nombre para que el diff mixto la clasifique como normativo |
-| `agents/backend-dev.md` 65, `agents/qa-backend.md` 143 | "exclusiones de coverage en CLAUDE.md raíz" — se quedan en el núcleo (Workflow #5); sin cambio, verificar |
-| `rulebooks/dev-common.md` 16, `agents/*` "formato de commits en CLAUDE.md raíz" | se queda en el núcleo; sin cambio, verificar |
-| `README.md` | 7, 46-52, Estructura | orchestrator "definido en `global/CLAUDE.md` + skill `orchestrator`"; tabla Skills (5); árbol |
-| `.claude-plugin/marketplace.json` | 9 | "5 skills" |
-| `tests/validation/agent-validation.md` | Orchestrator | expected behavior: carga la skill antes de delegar |
-| `install.sh` | — | sin cambio: la skill viaja por el plugin; `global/CLAUDE.md` se sigue symlinkeando |
-| `tests/adversarial/test-plugin-manifest.sh` | — | skill existe, <500 líneas, frontmatter sin `disable-model-invocation`; `global/CLAUDE.md` ≤ 10.240 bytes y ≤ 130 líneas |
+| `agents/product-reviewer.md` | nuevo, prompt de §1 | 1 (T1) |
+| `tests/adversarial/test-frontmatter.sh` | `product-reviewer` en `HISTORICAL_AGENTS` | 1 (T1) |
+| `tests/adversarial/test-plugin-manifest.sh` | asserts del agente (read-only + sandbox RED, ≤150 líneas, veredicto/encabezados, voseo/mayúsculas) | 1 (T1-T4) |
+| `tests/adversarial/test-plugin-manifest.sh` | `product-reviewer` en loop de `allowed-tools`; asserts de Fase 0.3 en skill y runbook; formato `BRIEF.md`; context isolation | 2 (T1-T4) |
+| `skills/orchestrator/SKILL.md` | `allowed-tools`, fila 0.3, fila de equipo, fila `ui-ux`, degradación, §9 | 2 (T1, T2) |
+| `rulebooks/orchestrator-runbook.md` | Fase 0.3; context isolation; formato `BRIEF.md`; línea en reporte de review | 2 (T3, T4) |
+| `tests/adversarial/test-plugin-manifest.sh` | asserts de new-project, architect/QAs, conteo de agentes, agent-validation | 3 (T1-T4) |
+| `skills/new-project/SKILL.md` | paso 3: pregunta tipo y escribe `Tipo:` | 3 (T1) |
+| `agents/architect.md` | viñeta de criterios de aceptación en §1 | 3 (T2) |
+| `agents/qa-backend.md`, `agents/qa-frontend.md` | párrafo "Criterios de aceptación del brief (referencia)" | 3 (T2) |
+| `README.md` | conteo 12, fila, árbol, workflow, párrafo de detección | 3 (T3) |
+| `.claude-plugin/marketplace.json` | "12 agentes" | 3 (T3) |
+| `tests/adversarial/README.md` | fila de `test-frontmatter.sh`/`test-plugin-manifest.sh` menciona los checks nuevos | 3 (T3) |
+| `tests/validation/agent-validation.md` | sección `## Product Reviewer` | 3 (T4) |
+| `global/CLAUDE.md` | **no cambia** (tope de tamaño; la fase vive en skill + runbook). Se confirma con el grep DoD | 3 (T5) |
+| `.planning/ARCHITECTURE.md` | decisión recurrente (activación por línea en `CLAUDE.md`) | architect, ya escrita |
 
-### Fusión de agentes (decisión del usuario)
+---
 
-Criterio aplicado (guía oficial): un agente aparte se justifica cuando **necesita un contexto que el invocador no tiene o no debería cargar** (fresco, aislado, o de otro tamaño), no por ser otro tipo de problema. Datos: log de invocaciones arriba.
+### 5. Plan de implementación
 
-| Candidato | Recomendación | Argumento | Qué cambia |
-|---|---|---|---|
-| **`build-resolver`** | **Fusionar** → `rulebooks/build-errors.md` | 2 invocaciones en ~2.900. El error de build nace en el contexto del dev que lo produjo; el "fix mínimo" necesita exactamente ese contexto (qué cambió, por qué). Un agente fresco tiene que reconstruirlo. Lo que aporta el prompt (clasificación del error, criterio de dependencias, escalaciones, anti-patrones) es conocimiento, no frontera de contexto: cabe en un rulebook que el dev lee cuando el build falla | Borrar `agents/build-resolver.md`; crear `rulebooks/build-errors.md` (mismo contenido, tono bajado); `dev-common.md` sección "Build roto" (leer el rulebook; 3 intentos; escalar al orchestrator); runbook Fase 2 "si un dev reporta error de build" → re-invocar al mismo dev con el rulebook, y Fase 2.8 asignación de fixes; `governance-playbook.md`; `pr-workflow` (quitar `Agent(methodology:build-resolver)` y el texto); README (12 agentes), `marketplace.json`, tabla de la skill. Invocación directa del usuario ("me atoré con el build"): la sesión delega a `backend-dev`/`frontend-dev` con el rulebook |
-| **`db-specialist`** | **Fusionar** en `backend-dev` → `rulebooks/db-migrations.md` | 2 invocaciones frente a 79 de `backend-dev`. Trabaja sobre el mismo contexto (`DESIGN.md` sección de datos + schema actual) que el dev que después consume el schema; la separación existía por especialidad y por orden (schema primero), y el orden lo garantiza el plan de lotes, no el agente. El prompt de 18,6 KB se paga entero en cada invocación aunque la tarea sea una migración | Borrar `agents/db-specialist.md`; crear `rulebooks/db-migrations.md` (criterios de complejidad, testing de DB, expand-contract, EXPLAIN, estado de la DB de test en HANDOFF, sección DB de `ARCHITECTURE.md`); `backend-dev.md` sección "Lote de DB complejo: leé el rulebook"; `architect.md`: el plan marca el lote `db-complejo` y va primero; runbook: "Criterios completos: db-specialist vs backend-dev" → "Cuándo un lote es DB complejo" + handoff template incluye el rulebook; menciones en `qa-backend`, `frontend-dev`, `e2e-runner`, `refactor`, `security-reviewer`, `latent-bugs-sweep`, `dev-common.md`, README, `marketplace.json`, skill |
-| **`docs`** | **Mantener**, con criterio de salto | 24 invocaciones ≈ una por feature (7 % del total). Sí es frontera de contexto: lee el diff completo con contexto fresco; en features multi-dev el último dev solo tiene su slice y llega con el budget más gastado (5 tareas hechas). Fusionarlo en `last_batch=true` ahorra ~1 invocación por feature y carga al eslabón más débil | Solo en la skill/runbook Fase 2.5: el orchestrator salta `docs` cuando `git diff --stat` no toca superficie pública (solo tests, `.planning/`, código interno sin cambios en README/API/CLI/config) |
-| **`ui-ux` + `architect` en UI chica** | **Mantener separados**, endurecer el disparador | 27 invocaciones de `ui-ux` contra 14 del architect: se invoca más de lo que el criterio actual prevé. Es frontera de contexto real: produce el design system (archivos grandes) y el architect solo necesita el bloque "Para incluir en el brief". Fusionarlos cargaría al architect (fable) con diseño visual que no necesita | Skill/runbook Fase 0.5: invocar `ui-ux` solo si no existe `design-system/<proyecto>/MASTER.md` o el brief introduce una página crítica o un patrón nuevo; en UI chica el architect referencia `MASTER.md` y el frontend-dev aplica su checklist. `ui-ux.md` "Cuándo NO invocarte" ya lo dice; sin cambio ahí |
+**Estrategia de PR:** single-PR (branch `feature/product-reviewer`, base `dev`).
+**Agente de todos los lotes:** `backend-dev` (diff de documentos normativos + bash; QA lo revisa `qa-backend`, runbook "Documentos normativos").
+**TDD:** cada tarea agrega primero el assert en `tests/adversarial/test-plugin-manifest.sh` (o el cambio en `test-frontmatter.sh`), lo ve en rojo con `bash tests/adversarial/test-plugin-manifest.sh && bash tests/adversarial/test-frontmatter.sh`, aplica el cambio, lo ve en verde y commitea. Los tests no corren por hook en este repo (no hay `package.json`): el dev los corre a mano antes de cada commit. Reglas de idioma para los `.sh`: `rules/bash.md`; para los asserts de texto, listas explícitas (PR-81).
 
-Si el usuario aprueba solo una de las dos fusiones, el PR 3 se reduce al lote correspondiente; el test de referencias del PR 1 sigue válido.
+#### Lote 1 — agente y lint (backend-dev)
+**Depende de:** ninguno · **last_batch:** false
 
-### Tono: criterio para los archivos que se toquen
+- [ ] T1: `agents/product-reviewer.md` existe con el frontmatter de §1 — assert nuevo `assert_agent_read_only <file>`: `model: opus`, `tools:` sin `Write`/`Edit`/`Bash`, `disallowedTools:` con `Write`, `Edit`, `Bash` y `Agent`; más `product-reviewer` en `HISTORICAL_AGENTS` de `test-frontmatter.sh`. Rojo con el archivo ausente; verde al crearlo con el prompt completo de §1.
+- [ ] T2: el prompt cumple el contrato de tamaño y formato — asserts: `wc -l` ≤ 150; contiene `seguir | reducir alcance | repensar`, `### Resultado esperado`, `### Criterios de aceptación` y la regla de `### Preguntas` (encabezados compartidos con el formato de `BRIEF.md`).
+- [ ] T3: tono — `assert_no_voseo "$REPO_ROOT/agents/product-reviewer.md"` y assert de lista explícita de mayúsculas de énfasis prohibidas (`NUNCA`, `SIEMPRE`, `SOLO`, `OBLIGATORIO`, `NO ` como palabra) ausentes del archivo.
+- [ ] T4: sandbox RED de `assert_agent_read_only`: un agente temporal con `tools: Read, Write` y sin `disallowedTools` falla el helper; otro con el frontmatter correcto pasa (mismo patrón que los sandboxes existentes; nunca sobre archivos reales).
 
-Aplica a cada archivo tocado en los tres PRs, y lo verifica `qa-backend` con los mismos greps:
+#### Lote 2 — orchestrator: skill y runbook (backend-dev)
+**Depende de:** Lote 1 (el lint (d) exige que `agents/product-reviewer.md` exista antes de referenciarlo) · **last_batch:** false
 
-1. **Mayúsculas de énfasis** (`NUNCA`, `NO`, `SIEMPRE`, `SOLO`, `OBLIGATORIO`, `BLOQUEANTE`) solo en las invariantes: no mergear sin aprobación explícita, no mergear con CI en rojo, nunca push directo a `main` ni `--force`, la sesión principal no escribe código. Todo lo demás en minúscula y con el porqué: "no hagas X" → "X rompe Y; hacé Z".
-2. **Negritas**: como máximo una por párrafo o ítem, y solo sobre el término que decide (archivo, flag, estado). Nunca frases completas.
-3. **Listas de anti-patrones en imperativo negativo** ("NO agregues…") → tabla "en vez de → hacé" o prosa con la razón.
-4. Métrica de cierre por archivo tocado: `grep -c NUNCA` ≤ 1 (`global/CLAUDE.md` ≤ 3, uno por invariante); `grep -oE '\bNO\b'` = 0 fuera de encabezados del tipo "Cuándo NO invocar"; negritas ≤ 1 cada 10 líneas. Hoy: `CLAUDE.md` 4/3/75, `build-resolver.md` 0/25/65, `orchestrator-runbook.md` 1/18/157 (el runbook no se toca en tono salvo las líneas editadas).
+- [ ] T1: la skill declara al agente — `product-reviewer` en el loop `for agent in architect ui-ux …` de `test-plugin-manifest.sh` (rojo) → `Agent(methodology:product-reviewer)` en `allowed-tools` (verde; `test-frontmatter.sh` (d) sigue verde).
+- [ ] T2: la skill tiene la fase — asserts sobre `SKILL.md`: `0.3. Revisión de producto`, `Tipo: producto con usuarios`, `` `product-reviewer` → sonnet``; cambios de §3.1 (fila del mapa, fila de equipo, fila `ui-ux`, degradación, §9). `assert_no_voseo` de la skill ya existe y debe seguir verde; la skill sigue < 500 líneas.
+- [ ] T3: el runbook tiene la Fase 0.3 — asserts: `### Fase 0.3`, `Tipo: producto con usuarios`, `Sin la línea`, `Incorporar todo`, `Elegir qué incorporar`, `Seguir sin cambios`; texto de §3.2. Agregar `assert_no_voseo "$RUNBOOK"` solo si ya pasa sobre el runbook actual (verificarlo ejecutando; si no pasa, dejar el assert acotado a la sección nueva y anotarlo).
+- [ ] T4: formatos — asserts: `### Resultado esperado`, `### Criterios de aceptación` y `` `product-reviewer` recibe:`` en el runbook; secciones nuevas de `BRIEF.md`, viñeta de context isolation y línea en "Formato de reporte de review" (§3.2).
 
-### Infraestructura Docker
+#### Lote 3 — new-project, consumidores, README, marketplace, cierre (backend-dev)
+**Depende de:** Lote 2 · **last_batch:** true
 
-No aplica.
+- [ ] T1: `/new-project` pregunta y escribe el tipo — assert `Tipo: producto con usuarios` en `skills/new-project/SKILL.md`; cambios de §2 (paso 3).
+- [ ] T2: architect y QAs referencian los criterios — assert `Criterios de aceptación` en `agents/architect.md`, `agents/qa-backend.md`, `agents/qa-frontend.md`; textos de §3.3.
+- [ ] T3: conteo de agentes coherente — assert dinámico: `N=$(ls agents/*.md | wc -l)`; README contiene `### Agentes ($N)` y marketplace `"$N agentes"`; README contiene `product-reviewer` (tabla, árbol, workflow, párrafo de detección); `tests/adversarial/README.md` actualizado.
+- [ ] T4: `tests/validation/agent-validation.md` tiene `## Product Reviewer` (assert) con el contenido de §3.4.
+- [ ] T5: cierre — grep DoD anti-drift (`11 agentes`, `Agentes (11)`, `ANTES del architect`, `product-reviewer`, `Tipo:`) sobre `global/`, `README.md`, `rulebooks/`, `agents/`, `skills/`, `.planning/` (solo documentos vivos: `STATE.md`, `LEARNINGS.md`); reconciliar restos; confirmar que `global/CLAUDE.md` no cambió; `claude plugin validate --strict .claude-plugin/plugin.json` y `claude plugin validate --strict .`; las tres suites de `tests/adversarial/` en verde. Evidencia (salida del grep y de validate) en el reporte del lote.
 
-### Frontend
-
-No aplica.
-
-### Plan de implementación
-
-**Estrategia de PR:** multi-PR (3), secuenciales.
-**Justificación:** (1) los grupos son genuinamente independientes en propósito y casi disjuntos en archivos; (2) cada uno es shippeable solo; (3) juntos superan 1.000 LoC de naturaleza mixta (bash + frontmatter + reescritura de prosa + borrado/creación de agentes). Además la metodología no mezcla refactor y feature: el PR 3 es un refactor estructural del sistema de agentes y requiere aprobación aparte del usuario; el PR 1 son bug fixes; el PR 2 es un cambio de proceso. Se secuencian (no en paralelo) porque los tres tocan `README.md`, `marketplace.json` y `test-plugin-manifest.sh`. El branch actual `feature/audit-best-practices` es el del PR 1; los siguientes se crean desde `dev` después de cada merge.
-
-Todos los lotes los toma `backend-dev` (bash + markdown; reglas `bash.md`). Review dual: `security-reviewer` en opus (los hooks son guards de seguridad; no degradar) + `qa-backend` (diff normativo).
-
-#### Lote 1 — Hooks: formato de bloqueo, `if`, matcher y fail-closed (backend-dev)
-**Depende de:** ninguno
-**PR:** PR 1 · `last_batch=false`
-
-- [ ] Tarea 1: `block-force-push.sh` y `block-hard-reset.sh` bloquean con stderr + `exit 2` y permiten con `exit 0` sin stdout. RED: tests nuevos con `assert_blocked_cmd`/`assert_allowed_cmd` (hoy no existe ninguno para estos hooks): `git push --force`, `git push -f origin x`, `cd a && git push --force` bloquean; `git push`, `git reset --soft HEAD~1` pasan.
-- [ ] Tarea 2: `block-admin-merge.sh` y `pre-release-sweep.sh` migran al mismo contrato; los `assert_bam_*` pasan a exit code + grep de stderr; `pre-release-sweep` gana tests (bloquea con issue `latent-bug` CRÍTICO sobre archivo del diff usando el `gh` fake existente; pasa sin issues; pasa si el comando no es `gh pr create --base main`).
-- [ ] Tarea 3: `pre-merge-check.sh` — `block()` escribe el motivo en stderr y `exit 2`; los seis `{"continue":true}` pasan a `exit 0`; `assert_pre_merge_blocked/continue` y variantes pasan a exit code (el motivo sigue verificable en stderr).
-- [ ] Tarea 4: `hooks.json` — `if` por handler según la tabla, `SessionStart.matcher = "startup|resume|clear|compact"`, `pre-commit-guard.timeout = 600`; `test-plugin-manifest.sh` verifica los tres con `jq` (RED antes del cambio). Nota de una línea en el header de cada hook: `if` es optimización, el script valida el comando completo.
-- [ ] Tarea 5: `pre-commit-guard.sh` fail-closed por tiempo: watchdog `PRECOMMIT_TEST_BUDGET` (default 540); test en sandbox con `pyproject.toml` + `pytest` fake que duerme 5 s: con `PRECOMMIT_TEST_BUDGET=1` → `exit 2` y sin proceso huérfano; con `=10` → `exit 0`.
-
-#### Lote 2 — Frontmatter, skills y validación del plugin (backend-dev)
-**Depende de:** Lote 1 (mismo `test-plugin-manifest.sh`)
-**PR:** PR 1 · `last_batch=true`
-
-- [ ] Tarea 1: **nuevo** `tests/adversarial/test-frontmatter.sh` con el lint de agentes (claves permitidas/prohibidas, `memory`, `effort`, `model`, `name` = archivo). RED con el repo actual (`memory: true`, `permissionMode`); GREEN: `e2e-runner` `memory: project`, quitar `permissionMode` en `security-reviewer` y `latent-bugs-sweep`.
-- [ ] Tarea 2: `effort: high` solo en `qa-frontend` y `qa-backend` (decisión del usuario D-05: los devs quedan en default para no subir el costo; el lint lo acepta) y `rulebooks/agent-budget.md` línea 3 reescrita: el techo es la ventana de contexto y el corte de la invocación, no un `maxTurns` configurado; se explica por qué no se configura.
-- [ ] Tarea 3: el lint cubre skills: `Agent(...)` namespaced y existente, `disable-model-invocation: true` en `new-project` y `refactor-scan`, ausente en `pr-workflow` y `review-pr`; corregir las cuatro skills. Incluye el check "toda referencia a un agente en `agents/ rulebooks/ skills/ README.md` existe en `agents/`" (pasa hoy; es el RED del PR 3).
-- [ ] Tarea 4: `git mv CLAUDE.md .claude/CLAUDE.md`; `test-plugin-manifest.sh` corre `claude plugin validate --strict .claude-plugin/plugin.json` **y** `--strict .` (RED: el primero falla hoy); instrucción de validación en `.claude/CLAUDE.md` y README (sección Release + árbol) actualizadas.
-- [ ] Tarea 5: `global/CLAUDE.md` sección Hooks: "commit sin suite verde" pasa de "Corren en background" a "Bloquean el comando" (con la omisión de solo-`.planning/`); tono según criterio en las líneas tocadas de este PR (headers de hooks, `agent-budget.md`).
-
-#### Lote 3 — Skill `orchestrator`, núcleo del CLAUDE.md y recordatorio (backend-dev)
-**Depende de:** PR 1 mergeado (branch nuevo `feature/orchestrator-skill`)
-**PR:** PR 2 · `last_batch=false`
-
-- [ ] Tarea 1: crear `skills/orchestrator/SKILL.md` con el frontmatter y la estructura de nueve secciones; contenido movido desde `global/CLAUDE.md`, remitiendo al runbook por nombre de sección sin copiarlo; tono según criterio. Test: existe, <500 líneas, `name: orchestrator`, sin `disable-model-invocation`, `user-invocable: true`.
-- [ ] Tarea 2: reescribir `global/CLAUDE.md` al núcleo con la redacción exacta del rol; test: ≤ 10.240 bytes y ≤ 130 líneas (RED: hoy 20.963/190). Verificar que la lista de "lo que se mueve" no queda en ninguno de los dos lados dos veces.
-- [ ] Tarea 3: recordatorio en `session-start-context.sh`; test en sandbox: la salida contiene `methodology:orchestrator`; sigue sin imprimirse fuera de un repo git.
-- [ ] Tarea 4: referencias cruzadas en rulebooks (`orchestrator-runbook.md` 3, 42, 261, 263, 531, 786, 794; `governance-playbook.md` 147; `dev-common.md` verificar).
-- [ ] Tarea 5: referencias en agentes (`security-reviewer` 18, `qa-backend` 13/143, `backend-dev` 65: verificar que lo citado sigue en el núcleo), README (7, tabla Skills, árbol), `marketplace.json` ("5 skills"), `agent-validation.md` (Orchestrator: "carga la skill antes de delegar").
-
-#### Lote 4 — Medición y cierre del PR 2 (backend-dev)
-**Depende de:** Lote 3
-**PR:** PR 2 · `last_batch=true`
-
-- [ ] Tarea 1: medir tokens del `CLAUDE.md` nuevo con el método de la verificación b (dos repos temporales, `claude -p --output-format json`), registrar antes/después en `.planning/STATE.md` y en el body del PR; si el resultado supera 3.200 tokens, recortar antes de cerrar.
-- [ ] Tarea 2: grep anti-drift del DoD (runbook "Anti-drift") sobre los términos movidos (`Equipo de subagentes`, `Flujo de trabajo: nueva feature`, `Tracker de tareas`, `Pause / Resume`, `Degradación de modelo`) en `agents/ rulebooks/ skills/ README.md .planning/`; reconciliar lo que quede apuntando al lugar viejo.
-- [ ] Tarea 3: `claude plugin validate --strict .claude-plugin/plugin.json` y la suite completa (`test-hooks.sh`, `test-plugin-manifest.sh`, `test-frontmatter.sh`) verdes; métricas de tono del criterio sobre `global/CLAUDE.md` y la skill.
-
-#### Lote 5 — `build-resolver` → `rulebooks/build-errors.md` (backend-dev)
-**Depende de:** PR 2 mergeado y aprobación del usuario (branch nuevo `feature/merge-agents`)
-**PR:** PR 3 · `last_batch=false`
-
-- [ ] Tarea 1: crear `rulebooks/build-errors.md` desde `agents/build-resolver.md` (clasificación, causa raíz, criterio de dependencias, escalaciones, fix mínimo, 3 intentos) con el tono bajado (la tabla de anti-patrones pasa a "en vez de → hacé"); borrar el agente. RED: el check de referencias del lint falla hasta la tarea 3.
-- [ ] Tarea 2: `dev-common.md` sección "Build roto" (leer el rulebook, 3 intentos, escalar); runbook Fase 2 y 2.8 (re-invocar al mismo dev con el rulebook; CI: build → dev del PR); `governance-playbook.md`; `pr-workflow` (allowed-tools y texto).
-- [ ] Tarea 3: skill `orchestrator` (tabla de equipo), README (tabla y "Agentes (12)"), `marketplace.json`; el lint de referencias vuelve a verde.
-
-#### Lote 6 — `db-specialist` → `rulebooks/db-migrations.md` en `backend-dev` (backend-dev)
-**Depende de:** Lote 5
-**PR:** PR 3 · `last_batch=true`
-
-- [ ] Tarea 1: crear `rulebooks/db-migrations.md` desde `agents/db-specialist.md` (criterios de complejidad, división de schemas con el architect, testing de DB y coverage, expand-contract, EXPLAIN, estado de la DB de test en HANDOFF, sección DB de `ARCHITECTURE.md`); borrar el agente. RED por el lint de referencias.
-- [ ] Tarea 2: `backend-dev.md` sección "Lote de DB complejo" (cargar el rulebook; el lote DB va primero y el siguiente lote consume el schema sin modificarlo); `architect.md` (marca `db-complejo` en el plan en vez de asignar `db-specialist`); runbook ("Criterios completos" → "Cuándo un lote es DB complejo"; handoff template; Fase 2 orden de lotes).
-- [ ] Tarea 3: menciones en `qa-backend`, `frontend-dev`, `e2e-runner`, `refactor`, `security-reviewer`, `latent-bugs-sweep`, `dev-common.md`, skill, README ("Agentes (11)"), `marketplace.json`; lint verde.
-- [ ] Tarea 4: verificación final del branch: suite completa, `validate --strict`, métricas de tono sobre los dos rulebooks nuevos y los agentes tocados.
+---
 
 ### Riesgos
+- **Referencia antes del archivo:** el lint (d)/(f) falla si la skill declara `Agent(methodology:product-reviewer)` sin `agents/product-reviewer.md` → Lote 1 antes de Lote 2, secuencial.
+- **Detección frágil por formato:** `**Tipo:** producto…` o `Tipo: Producto con usuarios` no matchean → `/new-project` escribe la forma exacta, el README la documenta literal, y el patrón tolera solo `- ` inicial. Un falso negativo es la dirección segura (el agente no corre).
+- **`AskUserQuestion` con muchos criterios:** el tope de opciones por pregunta obliga a no listar criterios uno por uno → la opción "Elegir qué incorporar" usa bloques (todos / origen brief / nuevos / ninguno), no selección múltiple; el usuario afina en texto libre si hace falta.
+- **Drift de tono o tamaño del prompt:** cubierto por tests (≤150 líneas, `assert_no_voseo`, lista de mayúsculas).
+- **`assert_no_voseo` sobre el runbook actual puede estar rojo por texto preexistente** (el helper hoy no lo cubre) → Lote 2 T3 lo verifica ejecutando antes de agregarlo; si está rojo, acota el assert y lo anota en el reporte, no lo arregla (cambios quirúrgicos).
+- **`global/CLAUDE.md` sin cambio:** intencional por el tope de tamaño; el workflow #1 ya remite a la skill para las condiciones de brainstorming, y la fase 0.3 hereda esa condición. Confirmado por el grep de Lote 3 T5.
+- **Segunda invocación por feature:** permitida una sola vez tras un cambio de fondo del brief; más allá es señal de que el brainstorming no cerró, y se vuelve a Fase 0.
 
-- **Migrar cinco guards de formato en un lote** → cada hook tiene test de bloqueo y de paso antes de tocarlo (tareas 1-3 empiezan en rojo); el guard de no-contaminación de la suite protege el repo real.
-- **`if` demasiado estrecho abriría un hueco** (el hook ni corre) → se usa `Bash(git *)`/`Bash(gh *)`, superconjunto de todos los anclajes; verificado con compuestos y `git -C`; queda documentado como optimización.
-- **Watchdog de `pre-commit-guard` mata suites legítimamente largas** → 540 s default y env sobreescribible; el mensaje dice cómo subirlo. Antes, esas mismas suites hacían pasar el commit sin tests.
-- **`.claude/settings.json` duplica los 14 hooks a nivel proyecto** → fuera del brief; abrir issue `stale-docs`/`latent-bug` para quitar el bloque `hooks` (el plugin ya los provee vía skills-dir) y dejar solo `permissions`. Mientras tanto, en este repo el `SessionStart` sin matcher ya dispara en todas las fuentes.
-- **El orchestrator no carga la skill** → línea en el núcleo + recordatorio del hook + descripción de la skill con el disparador en la primera frase; `agent-validation.md` lo vuelve verificable a mano.
-- **Contradicción residual entre núcleo, skill y runbook** → tarea 2 del lote 4 (grep anti-drift) y el test de tamaño del núcleo evitan que el detalle vuelva a subir.
-- **Fusiones rechazadas a medias** → cada una es un lote independiente; el PR 3 puede llevar solo uno.
-- **`effort: high` no disponible en algún modelo** → la doc dice que Claude Code corre el nivel que puede; sin efecto adverso.
-- **Instalaciones existentes de terceros** → `global/CLAUDE.md` se reinstala con `./install.sh`; la skill llega por `claude plugin update`. README ya lo dice; no cambia.
+
+### Cambio D-05 (usuario, durante el lote 1)
+
+Siempre preguntar antes que suponer. El agente devuelve solo `### Preguntas` cuando le falta algo que cambia el veredicto; el orchestrator relaya las preguntas al usuario (con `AskUserQuestion` si son cerradas, en prosa si son abiertas), suma las respuestas a `BRIEF.md` y reanuda al mismo agente con `SendMessage` para que conserve el contexto. La sección `### Supuestos` del reporte se elimina. **Lote 2** agrega este ciclo a la Fase 0.3 del runbook y a la skill. **Lote 1** ajusta el prompt y su test. Las secciones 1 y 3.2 de arriba quedan reemplazadas por esta regla donde choquen.

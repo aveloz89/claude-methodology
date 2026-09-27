@@ -1,44 +1,52 @@
-## Brief: audit-best-practices
+## Brief: product-reviewer
 
 ### Objetivo
-Alinear la metodología con las prácticas oficiales de Anthropic, según la auditoría `AUDIT-best-practices-2026-09.md`. Se busca bajar el contexto que carga cada subagente, corregir defectos técnicos del plugin y los hooks, y reducir el overhead multi-agente donde no aporta.
+Sumar un "par de ojos" de producto que cuestione si una feature vale la pena y deje claro qué esperamos obtener de ella, con criterios de aceptación medibles. El usuario suele llegar con ideas vagas. Tiene que ser liviano, sin volver más complicado el flujo.
 
 ### Alcance
 - Incluye:
-  1. **Dividir el rol de orchestrator.** En `global/CLAUDE.md` queda una regla corta, siempre cargada: la sesión principal coordina y delega, no escribe código; los subagentes implementan lo que se les asigna. Se redacta para que ningún dev la lea como prohibición propia. El manual detallado (tabla de agentes, fases 0-5, lotes, tracker, degradación de modelo) pasa a una skill `orchestrator` cargada bajo demanda al iniciar trabajo de feature o fix. `CLAUDE.md` dice cuándo cargarla y el hook de sesión lo recuerda para evitar olvidos.
-  2. Dejar en `global/CLAUDE.md` solo lo que aplica siempre y a todos (idioma, gitflow, formato de commits, TDD, invariantes de merge, reglas operativas). Objetivo: bajar sustancialmente de los 20.963 bytes actuales, medido.
-  3. Fixes técnicos de la auditoría: `memory: true` → `project`; quitar `permissionMode` ignorado; `maxTurns` (y `effort` si aplica) o corregir `agent-budget.md`; migrar los hooks del `decision: block` deprecado; `pre-commit-guard` fail-closed ante timeout; matcher de SessionStart `startup|resume|clear|compact`; `if` en hooks Bash como optimización; `disable-model-invocation` en skills con efectos secundarios; corregir la validación del plugin (`plugin.json`, advertencia del CLAUDE.md raíz) y la instrucción en `CLAUDE.md` del repo; corregir el texto "Corren en background" del pre-commit.
-  4. **Evaluar y ejecutar fusión de agentes** donde la guía "dividir por límites de contexto" lo justifique. Candidatos: `docs`, `build-resolver`, `db-specialist` vs `backend-dev`, ui-ux + architect en UI chica. El architect decide con argumentos y el usuario aprueba en el diseño.
-  5. Bajar el tono agresivo (mayúsculas, "NUNCA", negritas en exceso) en los archivos que se toquen, dejando el énfasis para las 2-3 reglas que lo ameritan.
+  - Subagente nuevo `agents/product-reviewer.md`: modelo opus (degradable a sonnet), de solo lectura, con contexto limpio.
+  - Invocación en el flujo: después de que el orchestrator cierra el brainstorming y escribe `BRIEF.md`, y antes de `ui-ux` y del architect.
+  - Activación: solo en proyectos cuyo `CLAUDE.md` declare que es un producto con usuarios reales (una línea, p. ej. `Tipo: producto con usuarios`), y solo en features nuevas. No corre en bug fixes ni cambios técnicos (las mismas condiciones que permiten saltar el brainstorming).
+  - `/new-project` pregunta el tipo de proyecto y escribe esa línea.
+  - Integración en la skill `orchestrator` (fase y tabla de equipo), el runbook, el README, el marketplace y los tests (lint de frontmatter y referencias).
 - NO incluye:
-  - El agente de producto/PM: va en un feature y PR aparte, después de este.
-  - Los issues abiertos #71, #73, #77.
-  - Agent Teams.
+  - Roadmap, backlog, priorización de issues ni PRD largo.
+  - Verificación al final del PR contra los criterios de aceptación (descartado; ver abajo).
+  - Cambios al brainstorming del orchestrator: sigue igual.
 
 ### Usuarios y permisos
-El usuario de la metodología (autor y terceros que instalan el plugin). Terceros reciben los cambios por plugin + `install.sh`; la skill nueva se distribuye por plugin.
+Lo invoca el orchestrator. El reporte vuelve al orchestrator, que se lo presenta al usuario. El subagente no habla con el usuario ni edita archivos.
 
 ### Flujo principal
-1. El usuario abre sesión. `CLAUDE.md` corto y el hook de inicio fijan el rol del orchestrator y recuerdan cargar la skill.
-2. Al iniciar una feature o fix, el orchestrator carga la skill `orchestrator` y sigue las fases.
-3. Los subagentes cargan solo el `CLAUDE.md` corto + su prompt + lo que les pasa el handoff.
+1. El orchestrator hace el brainstorming con el usuario y escribe `BRIEF.md`, como hoy.
+2. Si el proyecto es un producto con usuarios y la tarea es una feature nueva, invoca `product-reviewer` con el `BRIEF.md` y, si hace falta contexto del producto, el README.
+3. `product-reviewer` devuelve un reporte corto:
+   - **¿Vale la pena?** Un veredicto entre seguir, reducir alcance y repensar, con 2-3 razones.
+   - **Qué esperamos obtener:** el resultado para el usuario en una frase y cómo sabremos que funcionó (métrica o señal observable).
+   - **Criterios de aceptación medibles:** los del brief reescritos para que se puedan verificar, más los que falten.
+4. El orchestrator le presenta el reporte al usuario con `AskUserQuestion`: incorporar todo, elegir qué incorporar o seguir sin cambios.
+5. Lo aceptado se escribe en `BRIEF.md` (secciones nuevas "Resultado esperado" y "Criterios de aceptación"), que usan el architect y QA.
 
 ### Reglas de negocio
-- Las invariantes (merge con aprobación explícita, CI verde, review dual bloqueante, gitflow) siguen siempre cargadas; no se mueven a la skill.
-- Toda afirmación sobre el comportamiento de la plataforma se verifica ejecutándola; si no se puede, se escribe como no verificada.
+- **No bloquea nunca.** Aunque el veredicto sea "repensar", decide el usuario.
+- Reporte corto: el objetivo es no complicar.
+- Proyecto sin la línea de tipo en su `CLAUDE.md` → no corre, y el orchestrator no pregunta.
 
 ### Edge cases discutidos
-- Que el orchestrator olvide cargar la skill: mitigado por la línea en `CLAUDE.md` + el recordatorio del hook. Si al delegar nota que no la tiene, la carga.
-- La doc dice que el `additionalContext` de SessionStart también llega a los subagentes. El recordatorio del hook debe ser corto y no contradecir el rol de los subagentes. **Verificar con prueba real.**
-- Instalaciones existentes: `install.sh` copia `global/CLAUDE.md`; el cambio llega al reinstalar.
-- Referencias cruzadas: rulebooks, agentes y skills que apunten a secciones de `CLAUDE.md` que se mueven deben actualizarse (DoD anti-drift, `orchestrator-runbook.md`).
+- Repos de tooling o metodología (como este): no tienen la línea, así que nunca se activa.
+- Bug fix o cambio técnico en un producto: se salta.
+- Opus rate-limited: degradar a sonnet es aceptable.
 
 ### Decisiones tomadas
-- [D-01] (usuario) Atacar la auditoría antes que el agente PM, para que el PM nazca con frontmatter y tono corregidos.
-- [D-02] (usuario) Incluir la división de `CLAUDE.md` y la fusión de agentes en este trabajo.
-- [D-03] (usuario) Opción 1: rol corto siempre cargado en `CLAUDE.md` + manual como skill `orchestrator` bajo demanda + recordatorio del hook de sesión.
+- [D-01] (usuario) No sustituye el brainstorming: funciona como filtro de "vale la pena" y de qué esperamos obtener.
+- [D-02] (usuario) No bloquea.
+- [D-03] (usuario) Solo en productos con usuarios reales, no en repos como este.
+- [D-04] (usuario) Propuesta aprobada: subagente entre el brief y el architect, activado por una línea en el `CLAUDE.md` del proyecto.
+- [D-05] (usuario) Siempre preguntar antes que suponer. Si al agente le falta algo que cambia su veredicto, devuelve solo preguntas; el orchestrator se las pasa al usuario y reanuda al agente con las respuestas.
 
 ### Descartado explícitamente
-- **Agente principal vía `agent`/`--agent`:** reemplaza todo el system prompt de Claude Code y requiere configuración por proyecto; la doc no muestra que un plugin pueda activarlo.
-- **`omitClaudeMd` en subagentes:** también les quita el `CLAUDE.md` del proyecto (comandos de test, stack).
-- **Inyectar el manual por SessionStart:** según la doc llega a los subagentes, así que no ahorra nada.
+- **Skill que entrevista al usuario:** el brainstorming ya cumple esa función. Lo que falta es la mirada independiente, que solo da un contexto limpio.
+- **Revisión al final del PR** contra los criterios: una invocación más por feature; el usuario prefiere no complicar.
+- **Preguntar en cada brainstorming** si pasar por el PM: se prefirió la activación por configuración.
+- Roadmap, backlog y PRD.

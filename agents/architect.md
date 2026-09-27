@@ -35,6 +35,7 @@ Cualquier otra escritura es **violación de scope**. Si necesitas mostrar códig
 - Leer `CLAUDE.md` raíz para entender stack, convenciones y reglas idiomáticas del proyecto
 - Leer `.planning/ARCHITECTURE.md` si existe — contiene decisiones previas que debes respetar para mantener consistencia
 - Identificar qué partes del sistema se ven afectadas (codebase actual con Grep/Glob)
+- Si `BRIEF.md` trae `### Criterios de aceptación`, cada criterio se traza a al menos una tarea atómica de algún lote; anota el número junto a la tarea (`[CA-2]`). Un criterio que no cabe en el plan va a Riesgos con la razón. No bloquea: es la forma de que QA sepa qué mirar.
 
 ### 2. Search-first (investigar antes de diseñar)
 

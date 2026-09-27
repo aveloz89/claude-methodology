@@ -38,6 +38,16 @@ A diferencia de `DESIGN.md` (que vive solo durante una feature), este archivo pe
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-09-26] Agentes opcionales se activan por una línea declarativa en el `CLAUDE.md` del proyecto
+
+**Contexto:** `product-reviewer` solo tiene sentido en productos con usuarios reales, no en repos de tooling o metodología. Preguntar en cada brainstorming si corre agrega fricción; inferirlo del código es adivinar.
+
+**Decisión:** un agente o fase opcional que depende del tipo de proyecto se activa por una línea exacta, sin formato, en el `CLAUDE.md` del proyecto (raíz o `.claude/CLAUDE.md`): `Tipo: producto con usuarios`. `/new-project` la pregunta y la escribe; el orchestrator la lee del contexto (o con `Grep`, patrón `^(- )?Tipo: producto con usuarios$`). Sin la línea, la fase no corre y el orchestrator no pregunta.
+
+**Justificación:** el `CLAUDE.md` del proyecto ya está en contexto en toda sesión, así que la detección no cuesta tools ni turnos; una línea literal es greppable y testeable; el falso negativo (no correr) es la dirección segura. Alternativas descartadas: preguntar en cada feature (fricción), variable de entorno (invisible en el repo), detección heurística por stack (adivina).
+
+**Implicación:** futuras fases o agentes condicionales al tipo de proyecto reutilizan la misma clave `Tipo:` con un valor nuevo o existente, no una línea propia. La forma exacta se documenta en el README y en la skill que la escribe; los tests aseguran que ambas coincidan. El agente que se activa así sigue la regla de frontera de contexto (entrada anterior): `product-reviewer` la cumple por contexto limpio.
+
 ### [2026-09-26] Hooks bloqueantes: un solo mecanismo, stderr + `exit 2`
 
 **Contexto:** cuatro guards de `PreToolUse` bloqueaban con `{"decision":"block"}` a nivel raíz (deprecado para ese evento) y dos con `exit 2`; la suite tenía dos familias de asserts. La doc prescribe `exit 2` para hooks de policy: bloquea aunque otro JSON diga `allow` y se evalúa antes de las allow rules.
