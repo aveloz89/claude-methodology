@@ -10,7 +10,8 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 ## Decisiones
 
 - [D-01] (usuario) Los 4 issues, un PR cada uno, en ese orden.
-- [D-02] (usuario) #77 completo, incluidas las formas disfrazadas.
+- [D-02] (usuario) ~~#77 completo, incluidas las formas disfrazadas.~~ Reemplazada por D-05.
+- [D-05] (usuario, 2026-09-27) #77 acotado a errores honestos (`+main`, `-fu`, `git -C … push`, `gh -R … --admin`, bloqueo falso con heredocs, NUL, 4 detalles de docs). Las formas disfrazadas se documentan fuera de alcance, por costo.
 - [D-03] (usuario) #78 autorizado a quitar el bloque `hooks` de `.claude/settings.json` después de verificar.
 - [D-04] (usuario) #71: aclarar y cerrar. Los reviewers no pueden escribir (`Write`/`Edit` prohibidos) y el orchestrator es el único que escribe el registro; se deja explícito en el runbook y en los prompts, con test.
 

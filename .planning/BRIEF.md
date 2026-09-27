@@ -5,7 +5,7 @@ Cerrar los 4 issues abiertos, uno por PR, en orden #78 → #71 → #73 → #77.
 
 ### Decisiones tomadas
 - [D-01] (usuario) Los 4 issues, un PR cada uno, en ese orden.
-- [D-02] (usuario) #77 completo: también se persiguen las formas disfrazadas, no solo los errores honestos. El usuario conoce el costo (retro del PR #76).
+- [D-02] (usuario) ~~#77 completo~~ → reemplazada por D-05: #77 acotado a errores honestos; las formas disfrazadas se documentan fuera de alcance, por costo.
 - [D-03] (usuario) #78: autorizado a quitar el bloque `hooks` de `.claude/settings.json` después de verificar que el plugin carga los hooks.
 
 ### Brainstorming
