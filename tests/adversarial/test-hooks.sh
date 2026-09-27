@@ -1422,6 +1422,68 @@ _pskip_assert_blocked_forms \
 rm -rf "$PCG_OTHER_DIR"
 _pskip_cleanup_worktree
 
+# _pskip_setup_other / _pskip_cleanup_other (#73, Lote 2): segundo repo
+# git temporal, hermano de $PSKIP_DIR por defecto (ambos directamente bajo
+# el mismo $TMPDIR vía "mktemp -d"), o dentro de un directorio padre
+# explícito ($1) cuando el test necesita un HOME temporal a medida (R10).
+# Reusa el mismo $PSKIP_MARK que $PSKIP_DIR: su script de test también
+# escribe "pwd -P" ahí, así que _pskip_assert_marker_tree sirve igual para
+# afirmar en qué árbol corrió.
+_pskip_setup_other() {
+  local parent="${1:-}"
+  if [ -n "$parent" ]; then
+    PSKIP_OTHER=$(mktemp -d "$parent/other.XXXXXX")
+  else
+    PSKIP_OTHER=$(mktemp -d)
+  fi
+  PSKIP_OTHER=$(cd "$PSKIP_OTHER" && pwd -P)
+  (
+    cd "$PSKIP_OTHER" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p .planning src
+    cat > package.json <<EOF
+{ "name": "root", "private": true, "scripts": { "test": "pwd -P > $PSKIP_MARK/test.ran && exit 1" } }
+EOF
+    echo "# STATE" > .planning/x.md
+    echo "console.log(1)" > src/a.js
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+  echo "cambio-other" >> "$PSKIP_OTHER/src/a.js"
+}
+
+_pskip_cleanup_other() {
+  rm -rf "$PSKIP_OTHER"
+}
+
+# R9 (#73, Lote 2): ruta relativa a BASE_DIR — repo OTHER hermano de
+# PSKIP_DIR con código sucio → "cd ../<other> && git commit" resuelve a
+# OTHER. B6 resuelve con "cd BASE_DIR && cd ruta": una ruta relativa se
+# interpreta relativa a BASE_DIR, no al cwd del propio proceso del hook.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_other
+assert_blocked_cmd "pre-commit-guard: cd ../<other> (ruta relativa) && git commit resuelve a OTHER, corre suites" \
+  "pre-commit-guard.sh" "cd ../$(basename "$PSKIP_OTHER") && git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker_tree "pre-commit-guard: ruta relativa — el runner corrió en OTHER" "$PSKIP_OTHER"
+_pskip_cleanup_other
+
+# R10 (#73, Lote 2): prefijo "~/" — se expande contra HOME (nunca contra
+# BASE_DIR ni con "eval" del resto de la ruta) — repo OTHER dentro de un
+# HOME temporal → "cd ~/<other> && git commit" resuelve a OTHER.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+PCG_HOME=$(mktemp -d)
+PCG_HOME=$(cd "$PCG_HOME" && pwd -P)
+_pskip_setup_other "$PCG_HOME"
+HOME="$PCG_HOME" assert_blocked_cmd "pre-commit-guard: cd ~/<other> (prefijo ~/) && git commit resuelve a OTHER, corre suites" \
+  "pre-commit-guard.sh" "cd ~/$(basename "$PSKIP_OTHER") && git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker_tree "pre-commit-guard: prefijo ~/ — el runner corrió en OTHER" "$PSKIP_OTHER"
+_pskip_cleanup_other
+rm -rf "$PCG_HOME"
+
 # R8: ".cwd" del input reemplaza al cwd del proceso como BASE_DIR — el
 # proceso corre en el árbol principal (sucio solo .planning/), pero el JSON
 # trae "cwd": $PSKIP_WT (worktree con código sucio); sin redirección en el

@@ -145,7 +145,19 @@ _guard_resolve_dash_c() {
 # "cd" que no tiene esta forma exacta.
 _guard_resolve_cd() {
   [[ "$COMMAND" =~ ^cd[[:blank:]]+([^[:space:]]+)[[:blank:]]*(\&\&|\;) ]] || return 1
-  printf '%s' "${BASH_REMATCH[1]}"
+  local raw_path="${BASH_REMATCH[1]}"
+
+  # Prefijo "~/" (único caso de expansión permitido): se expande contra
+  # $HOME del ENTORNO del hook, nunca con "eval" ni sub-shell sobre el
+  # resto de la ruta — un "~/" a secas (sin nada detrás) no matchea este
+  # case (le falta el "/" final) y sigue de largo tal cual, así que
+  # termina fallando TREE_PATH_RE/la existencia del directorio más abajo
+  # en vez de resolver a "$HOME" entero.
+  case "$raw_path" in
+    "~/"*) raw_path="$HOME${raw_path#\~}" ;;
+  esac
+
+  printf '%s' "$raw_path"
 }
 
 # "--git-dir"/"--work-tree"/"GIT_DIR="/"GIT_WORK_TREE=" nunca se resuelven
