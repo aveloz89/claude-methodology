@@ -12,35 +12,11 @@
 # hooks/lib/guard-matching.sh. Antes, "git commit -m x && git push origin
 # main" o "npm test && git push" pasaban sin bloquear porque el match
 # exigía "git push" al INICIO del string.
-#
-# Fail-closed sin jq y sin lib (mismo cierre que #50 en los otros guards de
-# git): sin jq, COMMAND queda vacío y un push real a main pasaba en
-# silencio.
-if ! command -v jq > /dev/null 2>&1; then
-  echo "BLOCKED: pre-push-guard no operativo: falta jq" >&2
-  exit 2
-fi
-
 LIB="${0%/*}/lib/guard-matching.sh"
-if [ ! -r "$LIB" ]; then
-  echo "BLOCKED: pre-push-guard no operativo: falta hooks/lib/guard-matching.sh" >&2
-  exit 2
-fi
+[ -r "$LIB" ] || { echo "BLOCKED: pre-push-guard no operativo: falta hooks/lib/guard-matching.sh" >&2; exit 2; }
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
-
-INPUT=$(cat)
-COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
-INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
-
-# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
-# para por qué se detecta sobre $INPUT y no sobre $COMMAND.
-if guard_command_has_nul "$INPUT"; then
-  echo "BLOCKED: pre-push-guard: el comando trae un byte NUL" >&2
-  exit 2
-fi
-
-SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
+guard_init "pre-push-guard"
 
 # Solo interceptar git push (una mención quoted no cuenta, E2). Tolera
 # opciones de árbol ("git -C <ruta> push") y prefijo de entorno
@@ -79,11 +55,7 @@ fi
 # BASE_DIR es el árbol de la SESIÓN, no el cwd del proceso del hook —
 # ambos coinciden salvo que ".cwd" venga de una llamada Bash previa distinta
 # del cwd real del proceso.
-if [ -n "$INPUT_CWD" ] && [ -d "$INPUT_CWD" ]; then
-  BASE_DIR=$(cd "$INPUT_CWD" && pwd -P)
-else
-  BASE_DIR=$(pwd -P)
-fi
+BASE_DIR=$(guard_session_dir) || BASE_DIR=$(pwd -P)
 
 # Verificar si se está pusheando a main directamente (no como parte de un PR merge)
 CURRENT_BRANCH=$(git -C "$BASE_DIR" branch --show-current 2>/dev/null)
