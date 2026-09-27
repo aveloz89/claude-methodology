@@ -58,11 +58,17 @@
       "id": "G3",
       "name": "pre-push-pre-release",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
+      "status": "done",
+      "tasks_done": 5,
       "tasks_total": 5,
       "current_task": null,
-      "commits": [],
+      "commits": [
+        "fa8824a",
+        "d606138",
+        "f158d2d",
+        "40b2e8c",
+        "6af636b"
+      ],
       "last_batch": false,
       "depends_on": [
         "G2"
