@@ -442,6 +442,16 @@ assert_contains "$ORCHESTRATOR_SKILL" "salta \`docs\`" \
   "skill orchestrator fila 2.5 documenta el salto de docs"
 
 echo ""
+echo "--- Fase 0.5: disparadores estrictos para invocar ui-ux ---"
+
+assert_contains "$RUNBOOK" "solo si no existe \`design-system" \
+  "runbook Fase 0.5 invoca ui-ux solo si no existe MASTER.md o hay página crítica/patrón nuevo"
+assert_contains "$RUNBOOK" "el \`frontend-dev\` aplica su checklist" \
+  "runbook Fase 0.5 dice que en UI chica el frontend-dev aplica el checklist de MASTER.md"
+assert_contains "$ORCHESTRATOR_SKILL" "solo si no existe \`MASTER.md\`" \
+  "skill orchestrator fila 0.5 invoca ui-ux solo si no existe MASTER.md o hay página crítica/patrón nuevo"
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then

@@ -47,7 +47,7 @@ Antes de diseñar o implementar nada, entiende qué quiere el usuario. **Nunca a
 
 ### Fase 0.5: Design system (si hay UI)
 
-Si la tarea involucra trabajo visual, invoca `ui-ux` ANTES del architect.
+Invoca `ui-ux` solo si no existe `design-system/<proyecto>/MASTER.md`, o si el brief introduce una página crítica o un patrón visual nuevo. Si `MASTER.md` ya existe y la UI del brief es chica, no lo invocas: el `architect` referencia `MASTER.md` en el brief y el `frontend-dev` aplica su checklist directamente, sin pasar por `ui-ux`.
 
 **Cómo invocar `ui-ux`:**
 
