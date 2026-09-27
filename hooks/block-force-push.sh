@@ -4,47 +4,11 @@
 # hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
 # latencia, no reemplaza la validación de abajo, que sigue mirando el
 # comando completo.
-#
-# Contrato PreToolUse (auditoría best-practices): bloquear = stderr + exit 2,
-# permitir = exit 0 sin stdout — la doc prescribe exit 2 para hooks de
-# policy, y ya es el mecanismo de pre-push-guard.sh/pre-commit-guard.sh.
-#
-# Ancla el match a posición de comando (mismo helper que pre-merge-check.sh,
-# block-admin-merge.sh y pre-commit-guard.sh) para detectar el push real
-# dentro de un comando compuesto, ej. "cd repo && git push --force" — antes
-# el match exigía "git" al INICIO del string y ese caso pasaba sin bloquear.
-# Ver hooks/lib/guard-matching.sh. Fail-closed si el lib no existe o no es
-# legible: un `source` fallido dejaría guard_sanitize()/GUARD_ANCHOR
-# indefinidos y el grep de abajo nunca matchearía — fail-open silencioso.
-#
-# Fail-closed sin jq (mismo cierre que #50 en block-admin-merge.sh y
-# pre-commit-guard.sh): sin jq, el parseo de COMMAND más abajo devuelve
-# vacío, el grep nunca matchea, y un "git push --force" real pasaba en
-# silencio. CAMBIA el contrato de este hook: antes, sin jq, pasaba.
-if ! command -v jq > /dev/null 2>&1; then
-  echo "BLOCKED: block-force-push no operativo: falta jq" >&2
-  exit 2
-fi
-
 LIB="${0%/*}/lib/guard-matching.sh"
-if [ ! -r "$LIB" ]; then
-  echo "BLOCKED: block-force-push no operativo: falta hooks/lib/guard-matching.sh" >&2
-  exit 2
-fi
+[ -r "$LIB" ] || { echo "BLOCKED: block-force-push no operativo: falta hooks/lib/guard-matching.sh" >&2; exit 2; }
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
-
-INPUT=$(cat)
-COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
-
-# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
-# para por qué se detecta sobre $INPUT y no sobre $COMMAND.
-if guard_command_has_nul "$INPUT"; then
-  echo "BLOCKED: block-force-push: el comando trae un byte NUL" >&2
-  exit 2
-fi
-
-SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
+guard_init "block-force-push"
 
 # #77 comentario 2: un refspec forzado (+<ref>, ej. "git push origin
 # +main") es equivalente a --force y antes pasaba sin bloquear, igual que
