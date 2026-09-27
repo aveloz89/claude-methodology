@@ -530,6 +530,17 @@ echo "--- pre-commit-guard.sh ---"
 assert_allowed "Non-commit command passes through" "pre-commit-guard.sh" "git status"
 assert_allowed "Git diff passes through" "pre-commit-guard.sh" "git diff"
 
+# Negativos de GIT_COMMIT_RE (#73): opciones de árbol entre "git" y
+# "commit" cuentan como invocación real, pero cualquier otro texto entre
+# medio NO — "git log | grep commit" y "git log --grep commit" no son un
+# commit, y no deben interceptarse ni con el detector ampliado.
+assert_allowed_cmd "pre-commit-guard: git log | grep commit no se intercepta" \
+  "pre-commit-guard.sh" "git log | grep commit"
+assert_allowed_cmd "pre-commit-guard: git log --grep commit no se intercepta" \
+  "pre-commit-guard.sh" "git log --grep commit"
+assert_allowed_cmd "pre-commit-guard: git show HEAD no se intercepta" \
+  "pre-commit-guard.sh" "git show HEAD"
+
 # Nota: el test de commit bloqueado depende de que haya un test runner configurado
 # en el proyecto. En este repo (methodology) no hay package.json ni pytest,
 # así que el hook permite el commit (no encuentra test runner).
@@ -878,6 +889,16 @@ assert_allowed_cmd "pre-commit-guard: solo .planning/ modificado → salta suite
   "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
 _pskip_assert_marker "pre-commit-guard: solo .planning/ modificado — el test runner NO corrió" no
 
+# (a2) [#73] Una mención de "git -C" dentro del MENSAJE del commit (texto
+# quoted, guard_sanitize lo elimina antes de cualquier chequeo) no debe
+# enrutarse al resolver de "-C" — sigue siendo un commit normal por el
+# camino rápido, así que con solo .planning/ sucio sigue saltando.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+assert_allowed_cmd "pre-commit-guard: mención de \"git -C\" dentro del mensaje del commit va por el camino rápido (no se enruta al resolver de -C)" \
+  "pre-commit-guard.sh" 'git commit -m "git -C /x commit"' "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: mención de git -C en el mensaje — el test runner NO corrió" no
+
 # (b) .planning/x.md + src/a.js → corre (bloquea: el runner siempre falla).
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
@@ -1203,33 +1224,6 @@ assert_allowed_cmd "pre-commit-guard: git -C <worktree> commit resuelve al workt
 _pskip_assert_marker "pre-commit-guard: git -C <worktree> (solo .planning/ ahí) — el runner NO corrió" no
 _pskip_cleanup_worktree
 
-# (i) [transitorio #73 — GIT_COMMIT_RE (Etapa A, tarea 2) ya detecta esta
-# forma como invocación real de commit, pero Etapa B todavía no la resuelve
-# ni la bloquea (llega en un lote siguiente, ver X1 en DESIGN.md): hasta
-# entonces, el chequeo de "no tomar el salto" sigue viéndola y fuerza a
-# correr suites contra el árbol principal (código de más, nunca de menos).
-# Deja de ser "status quo sin cambio" (#212) desde esta tarea: la forma
-# empieza a interceptarse, aunque todavía corra en el árbol equivocado en
-# vez de bloquear con el mensaje accionable.
-_pskip_reset
-echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-_pskip_setup_worktree
-assert_blocked_cmd "pre-commit-guard: --git-dir/--work-tree a otro worktree — ya se intercepta (Etapa A), corre suites contra el árbol principal (Etapa B pendiente)" \
-  "pre-commit-guard.sh" "git --git-dir=$PSKIP_WT/.git --work-tree=$PSKIP_WT commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: --git-dir/--work-tree a otro worktree — el test runner corrió (Etapa B pendiente)" yes
-_pskip_cleanup_worktree
-
-# (j) parte 2 [security HIGH, sigue vigente hasta que un lote siguiente
-# resuelva/bloquee "--git-dir"/"--work-tree" en Etapa B]: mención de
-# "--work-tree" en una invocación separada (no la que commitea) convive con
-# un "git commit" real y local en el mismo árbol sucio solo .planning/. Ante
-# la duda, no se toma el salto: corre de más.
-_pskip_reset
-echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-assert_blocked_cmd "pre-commit-guard: mención de \"--work-tree\" en el mismo comando que un commit local → no toma el salto, corre suites" \
-  "pre-commit-guard.sh" "git --git-dir=/nonexistent/.git --work-tree=/nonexistent status; git commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: mención de --work-tree junto a un commit local — el test runner corrió" yes
-
 # --- pre-commit-guard.sh: #73 resolución del árbol objetivo del commit ---
 # Ver .planning/DESIGN.md "Contrato 1". _pskip_assert_blocked_forms: variante
 # de _pskip_assert_marker para los casos que deben bloquear SIN correr
@@ -1256,6 +1250,71 @@ _pskip_assert_blocked_forms() {
     FAIL=$((FAIL + 1))
   fi
 }
+
+
+# X1 (#73, reemplaza (i)): "--git-dir"/"--work-tree" nunca se resuelven
+# (fuera de alcance por diseño, ver TREE_FORM_HELP) — bloquean sin correr,
+# ya sea a otro worktree real o mencionados junto a un "git commit" local
+# (reemplaza también la parte 2 de (j): antes corría de más "ante la duda",
+# ahora bloquea directo con el mensaje accionable).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git --git-dir=<wt> --work-tree=<wt> commit → bloquea sin correr" \
+  "git --git-dir=$PSKIP_WT/.git --work-tree=$PSKIP_WT commit -am x"
+_pskip_cleanup_worktree
+
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: --work-tree con espacio (sin '=') → bloquea sin correr" \
+  "git --git-dir /nonexistent/.git --work-tree /nonexistent commit -am x"
+
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: solo --work-tree (sin --git-dir) → bloquea sin correr" \
+  "git --work-tree=/nonexistent commit -am x"
+
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: mención de \"--work-tree\" junto a un \"git commit\" local en el mismo comando → bloquea sin correr" \
+  "git --git-dir=/nonexistent/.git --work-tree=/nonexistent status; git commit -am x"
+
+# X2: "GIT_DIR=…"/"GIT_WORK_TREE=…" como prefijo de entorno EN EL TEXTO del
+# comando — tampoco se resuelven, bloquean sin correr.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: GIT_DIR=<wt>/.git git commit → bloquea sin correr" \
+  "GIT_DIR=$PSKIP_WT/.git git commit -am x"
+_pskip_cleanup_worktree
+
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: GIT_WORK_TREE=/nonexistent git commit → bloquea sin correr" \
+  "GIT_WORK_TREE=/nonexistent git commit -am x"
+
+# X3: "GIT_DIR"/"GIT_WORK_TREE" en el ENTORNO DEL PROCESO del hook (no en el
+# texto del comando) — mismo criterio que pre-merge-check.sh: bloquea sin
+# correr, sin importar qué diga el comando interceptado.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+TOTAL=$((TOTAL + 1))
+PCG_ENV_JSON=$(jq -n --arg cmd "git commit -am x" '{tool_input: {command: $cmd}}')
+PCG_ENV_EXIT=0
+PCG_ENV_STDERR=$(cd "$PSKIP_DIR" && echo "$PCG_ENV_JSON" | GIT_WORK_TREE=/nonexistent bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PCG_ENV_EXIT=$?
+if [ "$PCG_ENV_EXIT" -eq 2 ] && echo "$PCG_ENV_STDERR" | grep -qF "Formas aceptadas" && [ ! -f "$PSKIP_MARK/test.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: GIT_WORK_TREE en el entorno del proceso del hook → bloquea sin correr"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: GIT_WORK_TREE en el entorno del proceso del hook → bloquea sin correr (exit=$PCG_ENV_EXIT, stderr=\"$PCG_ENV_STDERR\")"
+  FAIL=$((FAIL + 1))
+fi
 
 # X15a (#73, reemplaza la parte 1 de (j)): mezcla de árboles en un comando
 # compuesto — un "git -C X" en una invocación y un "git commit" LOCAL (sin

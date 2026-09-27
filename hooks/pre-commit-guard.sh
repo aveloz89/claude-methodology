@@ -131,13 +131,32 @@ _guard_resolve_dash_c() {
   printf '%s' "$candidate"
 }
 
-# Etapa B (parcial, este lote): sin "-C" en el texto → camino rápido sobre
-# BASE_DIR (toplevel real o BASE_DIR tal cual). Con "-C" → se resuelve con
+# "--git-dir"/"--work-tree"/"GIT_DIR="/"GIT_WORK_TREE=" nunca se resuelven
+# (fuera de alcance por diseño, documentado en TREE_FORM_HELP): a diferencia
+# de "-C", no hay forma de saber si valen para TODO el comando o solo para
+# la invocación de "git" a la que están pegados sin parsear de verdad el
+# shell — así que siempre bloquean, sin importar si acompañan al "git
+# commit" real o aparecen en otra invocación del mismo comando compuesto
+# (defensa en profundidad, reemplaza (j) parte 2 en test-hooks.sh). Mismo
+# criterio para el entorno DEL PROCESO del hook (no el texto del comando):
+# "pre-merge-check.sh" ya bloquea igual ante "GIT_DIR"/"GIT_WORK_TREE"
+# seteadas ahí.
+if [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ]; then
+  _guard_block_tree "GIT_DIR/GIT_WORK_TREE en el entorno del hook"
+fi
+if echo "$SANITIZED_COMMAND" | grep -qE -- "--git-dir|--work-tree"; then
+  _guard_block_tree "--git-dir/--work-tree no se resuelven"
+fi
+if echo "$SANITIZED_COMMAND" | grep -qE "(^|\s|;|&&|\|)(GIT_DIR|GIT_WORK_TREE)="; then
+  _guard_block_tree "GIT_DIR/GIT_WORK_TREE como prefijo de entorno en el comando no se resuelven"
+fi
+
+# Etapa B (resto): sin "-C" en el texto → camino rápido sobre BASE_DIR
+# (toplevel real o BASE_DIR tal cual). Con "-C" → se resuelve con
 # _guard_resolve_dash_c y se valida que la ruta exista y sea un repo git
 # real; cualquier falla bloquea SIN correr suites (a diferencia del camino
 # rápido, acá no hay "correr de más" posible: no se sabe en qué árbol
-# correr). "cd"/"pushd"/"--git-dir"/"--work-tree"/"GIT_DIR="/"GIT_WORK_TREE="
-# quedan para próximos lotes.
+# correr). "cd"/"pushd" quedan para un lote siguiente.
 if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+-C\s"; then
   DASH_C_PATH=$(_guard_resolve_dash_c) || _guard_block_tree "no se pudo resolver una única ruta de 'git -C' en el comando"
   RESOLVED_DIR=$(cd "$BASE_DIR" 2>/dev/null && cd "$DASH_C_PATH" 2>/dev/null && pwd -P) || _guard_block_tree "la ruta '$DASH_C_PATH' no existe"
@@ -244,12 +263,11 @@ _guard_planning_only_change() {
 # sobre el tope del stack): con solo "cd\s" y sin "pushd" en la lista,
 # "pushd $WT && git commit" y "cd; git commit" tomaban el salto en
 # silencio (ni "pushd" estaba cubierto, ni un "cd" pelado seguido de ";"
-# trae el espacio que "cd\s" exigía). "--git-dir"/"--work-tree" siguen en
-# esta lista (aunque ya matchean el detector de Etapa A de arriba) porque
-# Etapa B todavía no los resuelve ni bloquea (llega en un lote siguiente):
-# hasta entonces, la única red de seguridad para esas formas es no tomar el
-# salto acá — un falso positivo acá solo corre suites de más.
-if echo "$SANITIZED_COMMAND" | grep -qE "${CD_PUSHD_RE}|--git-dir|--work-tree"; then
+# trae el espacio que "cd\s" exigía). "-C"/"--git-dir"/"--work-tree"/
+# "GIT_DIR="/"GIT_WORK_TREE=" ya no hace falta que estén en esta lista: la
+# Etapa B de arriba los resuelve (y hace "cd" al árbol real) o bloquea antes
+# de llegar acá — nunca siguen de largo con TARGET_DIR sin resolver.
+if echo "$SANITIZED_COMMAND" | grep -qE "$CD_PUSHD_RE"; then
   : # comando redirige a otro árbol (sin resolver/bloquear todavía en Etapa
     # B): camino normal, no se evalúa el salto
 elif _guard_planning_only_change; then
