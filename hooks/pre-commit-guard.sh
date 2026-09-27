@@ -59,7 +59,18 @@ guard_init "pre-commit-guard"
 # guard_sanitize, y el detector igual tiene que disparar. "commit" puede
 # venir pegado a ";"/"&"/"|"/")" sin espacio — el charset no agrega "-" ni
 # letras, así que "commit-tree"/"commit-graph" no matchean.
-GIT_COMMIT_RE="${GUARD_ANCHOR}((GIT_DIR|GIT_WORK_TREE)=\S*\s+)*git\s+${GUARD_GIT_OPTS}commit(\s|\$|[;&|)])"
+#
+# El prefijo de asignación es CUALQUIER "NOMBRE=valor" (identificador de
+# entorno válido), no solo GIT_DIR/GIT_WORK_TREE (ronda 1 review, security
+# MEDIUM): "HUSKY=0 git commit -m x" o "GIT_AUTHOR_NAME=bot git commit -m
+# x" antes solo se toleraban con esos dos nombres exactos, así que
+# cualquier OTRA asignación de entorno al frente del comando no matcheaba
+# GIT_COMMIT_RE y el commit real pasaba de largo en la línea 65 (exit 0)
+# sin correr tests. GIT_DIR/GIT_WORK_TREE como prefijo siguen bloqueando
+# igual que hoy: los detecta, más abajo, el check dedicado de las líneas
+# 97-99, que corre sobre el mismo SANITIZED_COMMAND una vez que este regex
+# ya interceptó el comando.
+GIT_COMMIT_RE="${GUARD_ANCHOR}([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*git\s+${GUARD_GIT_OPTS}commit(\s|\$|[;&|)])"
 if ! echo "$SANITIZED_COMMAND" | grep -qE "$GIT_COMMIT_RE"; then
   exit 0
 fi

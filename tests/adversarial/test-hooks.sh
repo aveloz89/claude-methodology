@@ -1038,6 +1038,25 @@ assert_allowed_cmd "pre-commit-guard: git commit-graph write no se intercepta" \
   "$FAKE_PYTEST_TERM_DIR:$PATH" \
   "$PCG_TERM_DIR"
 
+# GIT_COMMIT_RE (ronda 1 review, security MEDIUM): un prefijo de asignación
+# de entorno DISTINTO de GIT_DIR/GIT_WORK_TREE (ej. "HUSKY=0",
+# "GIT_AUTHOR_NAME=bot") antes solo se toleraba con esos dos nombres
+# exactos — cualquier otra asignación no matcheaba GIT_COMMIT_RE y el
+# commit real pasaba sin correr tests. Mismo fixture (pytest fake que
+# siempre falla) para que la intercepción sea observable por el efecto
+# (bloquea) y no por el nombre del regex.
+assert_blocked_cmd "pre-commit-guard: HUSKY=0 git commit -m x (prefijo de entorno ajeno a GIT_DIR/GIT_WORK_TREE) se intercepta" \
+  "pre-commit-guard.sh" \
+  "HUSKY=0 git commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_blocked_cmd "pre-commit-guard: GIT_AUTHOR_NAME=bot git commit -m x se intercepta" \
+  "pre-commit-guard.sh" \
+  "GIT_AUTHOR_NAME=bot git commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
 rm -rf "$PCG_TERM_DIR" "$FAKE_PYTEST_TERM_DIR"
 
 # --- pre-commit-guard.sh: watchdog fail-closed por tiempo (PRECOMMIT_TEST_BUDGET) ---
