@@ -415,6 +415,23 @@ assert_allowed_cmd "block-force-push: git push origin 'feat/+x' (token quoted) a
   "block-force-push.sh" \
   "git push origin 'feat/+x'"
 
+# #77 comentario 2 (C2): flag -f dentro de un cluster corto (ej. "-fu",
+# "-uf") — antes solo "-f"/"--force" como token exacto disparaba.
+assert_blocked_cmd "block-force-push: git push -fu origin x (cluster corto) blocks" \
+  "block-force-push.sh" \
+  "git push -fu origin x"
+assert_blocked_cmd "block-force-push: git push -uf origin x (cluster corto) blocks" \
+  "block-force-push.sh" \
+  "git push -uf origin x"
+
+# Negativos (C4): flags sin 'f' no deben disparar el cluster.
+assert_allowed_cmd "block-force-push: git push -u origin feature/x allowed" \
+  "block-force-push.sh" \
+  "git push -u origin feature/x"
+assert_allowed_cmd "block-force-push: git push --delete origin x allowed" \
+  "block-force-push.sh" \
+  "git push --delete origin x"
+
 echo ""
 
 # --- block-hard-reset.sh ---
