@@ -22,7 +22,7 @@ El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesió
 | 0.5. Design system | Invocas `ui-ux` solo si no existe `MASTER.md` o el brief trae página crítica/patrón nuevo; si no, el `architect` referencia `MASTER.md` | `design-system/<proyecto>/MASTER.md` | "Fase 0.5" |
 | 1. Diseño | El `architect` diseña y parte en lotes | `.planning/DESIGN.md` | "Fase 1" |
 | 2. Implementación | Invocas devs por lote, con `last_batch=true|false` | commits locales | "Fase 2" |
-| 2.5. Documentación | Invocas `docs` sobre el diff local, sin push; salta `docs` si el diff no toca superficie pública (registra el salto en el body del PR) | docs actualizados | "Fase 2.5" |
+| 2.5. Documentación | Invocas `docs` sobre el diff local, sin push; salta `docs` si el diff no toca superficie pública (registra el salto en el body del PR); cambios en hooks, permisos, auth o controles de seguridad siempre invocan `docs` | docs actualizados | "Fase 2.5" |
 | 2.6. Review dual local | `security-reviewer` + `qa-*` en paralelo sobre el diff local; fixes sin push hasta veredictos limpios | `.planning/reviews/pre-pr-<slug>.md` | skill `pr-workflow` |
 | 2.7. Push + PR | Push + `gh pr create` + reconciliación del registro (lo haces tú) | PR abierto | "Comandos `gh` específicos" |
 | 2.8. Monitoreo CI | `gh pr checks --watch --fail-fast` | CI verde | "Fase 2.8" |

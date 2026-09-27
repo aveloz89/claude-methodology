@@ -47,7 +47,7 @@ Antes de diseñar o implementar nada, entiende qué quiere el usuario. **Nunca a
 
 ### Fase 0.5: Design system (si hay UI)
 
-Invoca `ui-ux` solo si no existe `design-system/<proyecto>/MASTER.md`, o si el brief introduce una página crítica o un patrón visual nuevo. Si `MASTER.md` ya existe y la UI del brief es chica, no lo invocas: el `architect` referencia `MASTER.md` en el brief y el `frontend-dev` aplica su checklist directamente, sin pasar por `ui-ux`.
+Invoca `ui-ux` solo si no existe `design-system/<proyecto>/MASTER.md`, o si el brief introduce una página crítica o un patrón visual nuevo. Si `MASTER.md` ya existe y la UI del brief es chica, no lo invocas: el `architect` referencia `MASTER.md` en el brief y el `frontend-dev` lee `MASTER.md` y aplica sus constraints directamente, sin pasar por `ui-ux`.
 
 **Cómo invocar `ui-ux`:**
 
@@ -135,7 +135,7 @@ Reinvoca al mismo dev (el que produjo el error) con la instrucción de leer `rul
 
 ### Fase 2.5: Documentación (pre-push)
 
-Cuando el último lote reporta completado, corre `git diff --stat <base>...HEAD`. Si el diff solo toca tests, `.planning/` o código interno — sin cambios en README, API, CLI ni config —, salta `docs` y lo registra en el body del PR. En cualquier otro caso, invoca `docs` con: branch, base branch y la instrucción de leer el diff local (`git diff <base>...HEAD`). El `docs` genera/actualiza docs y **commitea al branch SIN pushear** — su commit viaja en el push inicial (presupuesto de CI: evita un run de Actions solo por docs).
+Cuando el último lote reporta completado, corre `git diff --stat <base>...HEAD`. Si el diff solo toca tests, `.planning/` o código interno — sin cambios en README, API, CLI ni config —, salta `docs` y lo registra en el body del PR. Excepción: cambios en hooks, permisos, auth o controles de seguridad siempre invocan `docs`, aunque el resto del diff clasifique como código interno. En cualquier otro caso, invoca `docs` con: branch, base branch y la instrucción de leer el diff local (`git diff <base>...HEAD`). El `docs` genera/actualiza docs y **commitea al branch SIN pushear** — su commit viaja en el push inicial (presupuesto de CI: evita un run de Actions solo por docs).
 
 Si reporta "sin cambios necesarios", avanza directo a Fase 2.6.
 
