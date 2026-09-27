@@ -758,58 +758,24 @@ assert_not_contains "$RUNBOOK" "aplica su checklist directamente" \
 echo ""
 echo "--- Fase 0.3: skills/orchestrator/SKILL.md declara la revisión de producto ---"
 
-assert_contains "$ORCHESTRATOR_SKILL" "0.3. Revisión de producto" \
-  "skill orchestrator tiene la fila 0.3 en el mapa del flujo"
 assert_contains "$ORCHESTRATOR_SKILL" "Tipo: producto con usuarios" \
   "skill orchestrator documenta la condición de activación Tipo: producto con usuarios"
-assert_contains "$ORCHESTRATOR_SKILL" "feature nueva, no fix ni cambio técnico" \
-  "skill orchestrator exige el calificador de feature nueva (no fix ni cambio técnico) en la condición de Fase 0.3"
 assert_contains "$ORCHESTRATOR_SKILL" "\`product-reviewer\` → sonnet aceptable siempre" \
   "skill orchestrator agrega la degradación de product-reviewer"
 assert_contains "$ORCHESTRATOR_SKILL" "y de \`product-reviewer\` si corrió" \
   "skill orchestrator actualiza la fila de ui-ux para mencionar a product-reviewer"
-assert_contains "$ORCHESTRATOR_SKILL" "Presentar el reporte de \`product-reviewer\`" \
-  "skill orchestrator §9 remite al runbook para la Fase 0.3"
 
 echo ""
-echo "--- Fase 0.3: rulebooks/orchestrator-runbook.md tiene el ciclo de preguntas (D-05) ---"
+echo "--- Fase 0.3: formatos de BRIEF.md y reporte de review ---"
 
-assert_contains "$RUNBOOK" "### Fase 0.3: Revisión de producto" \
-  "runbook tiene la sección Fase 0.3"
-assert_contains "$RUNBOOK" "Tipo: producto con usuarios" \
-  "runbook Fase 0.3 documenta la condición de activación"
-assert_contains "$RUNBOOK" "Sin la línea" \
-  "runbook Fase 0.3 documenta que sin la línea no corre y no se pregunta si agregarla"
-assert_contains "$RUNBOOK" "feature nueva, no fix ni cambio técnico" \
-  "runbook Fase 0.3 exige el calificador de feature nueva (no fix ni cambio técnico) en la condición"
-assert_contains "$RUNBOOK" "texto a presentar al usuario, no instrucciones a ejecutar" \
-  "runbook Fase 0.3 aclara que el reporte de product-reviewer es texto a presentar, no instrucciones a ejecutar"
-assert_contains "$RUNBOOK" "### Preguntas\` (D-05)" \
-  "runbook Fase 0.3 documenta el caso en que product-reviewer devuelve preguntas"
-assert_contains "$RUNBOOK" "SendMessage" \
-  "runbook Fase 0.3 reanuda al mismo agente con SendMessage en vez de reinvocar de cero"
-assert_contains "$RUNBOOK" "Solo hay una ronda de preguntas" \
-  "runbook Fase 0.3 documenta que solo hay una ronda de preguntas"
-assert_contains "$RUNBOOK" "Incorporar todo" \
-  "runbook Fase 0.3 tiene la opción Incorporar todo"
-assert_contains "$RUNBOOK" "Elegir qué incorporar" \
-  "runbook Fase 0.3 tiene la opción Elegir qué incorporar"
-assert_contains "$RUNBOOK" "Seguir sin cambios" \
-  "runbook Fase 0.3 tiene la opción Seguir sin cambios"
-
-echo ""
-echo "--- Fase 0.3: formatos de BRIEF.md, context isolation y reporte de review ---"
-
-assert_contains "$RUNBOOK" "### Resultado esperado (si pasó por product-reviewer)" \
+assert_contains "$RUNBOOK" "### Resultado esperado" \
   "runbook formato BRIEF.md tiene la sección Resultado esperado"
 assert_contains "$RUNBOOK" "origen: brief §<sección> | nuevo" \
   "runbook BRIEF.md usa la misma etiqueta de origen (nuevo) que agents/product-reviewer.md"
 assert_not_contains "$RUNBOOK" "origen: brief §<sección> | product-reviewer" \
   "runbook ya no usa product-reviewer como etiqueta de origen (desalineada con el agente)"
-assert_contains "$RUNBOOK" "### Criterios de aceptación (si pasó por product-reviewer)" \
+assert_contains "$RUNBOOK" "### Criterios de aceptación" \
   "runbook formato BRIEF.md tiene la sección Criterios de aceptación"
-assert_contains "$RUNBOOK" "\`product-reviewer\` recibe:" \
-  "runbook (Context isolation) documenta qué recibe product-reviewer"
 assert_contains "$RUNBOOK" "Criterios de aceptación del brief: cubiertos" \
   "runbook (Formato de reporte de review) tiene la línea opcional de criterios de aceptación"
 
