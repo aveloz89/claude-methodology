@@ -4,7 +4,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** product-reviewer: subagente de producto que cuestiona si una feature vale la pena y deja criterios de aceptación medibles. No bloquea; solo corre en productos con usuarios reales. Diseño cerrado (fase 0.3, detección `Tipo: producto con usuarios`, 3 lotes en un PR). En lote 1.
+- **Feature:** product-reviewer: subagente de producto que cuestiona si una feature vale la pena y deja criterios de aceptación medibles. No bloquea; solo corre en productos con usuarios reales. PR #82 abierto: review dual aprobado, retro en `learnings/PR-82.md`; pendiente de aprobación de merge.
 - **Última actualización:** 2026-09-26
 
 ## Decisiones
