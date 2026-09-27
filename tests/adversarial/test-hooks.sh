@@ -1747,6 +1747,100 @@ _pskip_assert_marker_tree "pre-commit-guard: subdirectorio — el runner corrió
 
 _pskip_cleanup
 
+# --- pre-commit-guard.sh: runner solo en un subdirectorio (#73 ronda 1, security HIGH) ---
+echo "--- pre-commit-guard.sh: runner solo en un subdirectorio (#73 ronda 1) ---"
+
+# _pnest_setup: repo git temporal SIN runner en la raíz — el único test
+# runner detectable vive en frontend/package.json (falla siempre, dejando
+# el marcador con "pwd -P" para afirmar en qué árbol corrió). Antes de este
+# fix, el hook siempre subía al toplevel antes de buscar el runner: con
+# este layout hacía "exit 0" sin correr nada, aunque la sesión estuviera
+# parada justo en el directorio que sí tiene runner — regresión fail-open
+# contra `dev` hallada por security-reviewer en la ronda 1 de #73.
+_pnest_setup() {
+  PNEST_DIR=$(mktemp -d)
+  PNEST_DIR=$(cd "$PNEST_DIR" && pwd -P)
+  PNEST_MARK=$(mktemp -d)
+  (
+    cd "$PNEST_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p .planning frontend
+    cat > frontend/package.json <<EOF
+{ "name": "frontend", "private": true, "scripts": { "test": "pwd -P > $PNEST_MARK/test.ran && exit 1" } }
+EOF
+    echo "# STATE" > .planning/x.md
+    echo "console.log(1)" > frontend/a.js
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+}
+
+_pnest_cleanup() {
+  rm -rf "$PNEST_DIR" "$PNEST_MARK"
+}
+
+# (nested-a) Camino rápido + ".cwd" apuntando al subdirectorio con runner:
+# el resolver tiene que buscar desde ahí hacia arriba (inclusive el
+# toplevel) y quedarse con la PRIMERA coincidencia — acá, el propio
+# directorio de partida.
+_pnest_setup
+echo "cambio" >> "$PNEST_DIR/frontend/a.js"
+HOOK_JSON_CWD="$PNEST_DIR/frontend" assert_blocked_cmd "pre-commit-guard: runner solo en frontend/, .cwd=frontend → encuentra el runner y corre (bloquea)" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$PNEST_DIR/frontend"
+TOTAL=$((TOTAL + 1))
+if [ -f "$PNEST_MARK/test.ran" ] && [ "$(cat "$PNEST_MARK/test.ran")" = "$(cd "$PNEST_DIR/frontend" && pwd -P)" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: runner en subdirectorio vía .cwd — corrió en frontend/"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: runner en subdirectorio vía .cwd — corrió en frontend/ (marcador: \"$(cat "$PNEST_MARK/test.ran" 2>/dev/null)\")"
+  FAIL=$((FAIL + 1))
+fi
+_pnest_cleanup
+
+# (nested-b) Forma "cd <ruta> && git commit …" desde la raíz — el resolver
+# de "cd" ya calcula RESOLVED_DIR (frontend); la búsqueda del runner debe
+# arrancar ahí, no en el toplevel.
+_pnest_setup
+echo "cambio" >> "$PNEST_DIR/frontend/a.js"
+assert_blocked_cmd "pre-commit-guard: cd frontend && git commit (runner solo en frontend/) → encuentra el runner y corre (bloquea)" \
+  "pre-commit-guard.sh" "cd frontend && git commit -am x" "$PATH" "$PNEST_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$PNEST_MARK/test.ran" ] && [ "$(cat "$PNEST_MARK/test.ran")" = "$(cd "$PNEST_DIR/frontend" && pwd -P)" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: cd frontend — el runner corrió en frontend/"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: cd frontend — el runner corrió en frontend/ (marcador: \"$(cat "$PNEST_MARK/test.ran" 2>/dev/null)\")"
+  FAIL=$((FAIL + 1))
+fi
+_pnest_cleanup
+
+# (nested-c) Forma "git -C <ruta> commit …" desde la raíz — mismo caso con
+# el resolver de "-C".
+_pnest_setup
+echo "cambio" >> "$PNEST_DIR/frontend/a.js"
+assert_blocked_cmd "pre-commit-guard: git -C frontend commit (runner solo en frontend/) → encuentra el runner y corre (bloquea)" \
+  "pre-commit-guard.sh" "git -C frontend commit -am x" "$PATH" "$PNEST_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$PNEST_MARK/test.ran" ] && [ "$(cat "$PNEST_MARK/test.ran")" = "$(cd "$PNEST_DIR/frontend" && pwd -P)" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: git -C frontend — el runner corrió en frontend/"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: git -C frontend — el runner corrió en frontend/ (marcador: \"$(cat "$PNEST_MARK/test.ran" 2>/dev/null)\")"
+  FAIL=$((FAIL + 1))
+fi
+_pnest_cleanup
+
+# (nested-d, negativo) Runner en la raíz, ".cwd" en la raíz → igual que hoy
+# (reusa _pskip_setup/_pskip_assert_marker_tree, ya con runner en la raíz).
+_pskip_setup
+echo "cambio" >> "$PSKIP_DIR/src/a.js"
+HOOK_JSON_CWD="$PSKIP_DIR" assert_blocked_cmd "pre-commit-guard: runner en la raíz, .cwd en la raíz → comportamiento sin cambios" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker_tree "pre-commit-guard: runner en la raíz — el runner corrió en la raíz (sin cambios)" "$PSKIP_DIR"
+_pskip_cleanup
+
 # --- pre-commit-guard.sh: workspace scoping (monorepo) ---
 echo "--- pre-commit-guard.sh: workspace scoping (monorepo) ---"
 

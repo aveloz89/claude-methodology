@@ -278,16 +278,31 @@ fi
 # ruta exista y sea un repo git real; cualquier falla bloquea SIN correr
 # suites (a diferencia del camino rápido, acá no hay "correr de más"
 # posible: no se sabe en qué árbol correr).
+# SESSION_DIR (#73 ronda 1, security HIGH): el directorio real de la sesión
+# antes de subir a TARGET_DIR (el toplevel) — BASE_DIR en el camino rápido,
+# RESOLVED_DIR en las formas "-C"/"cd". _guard_find_runner_dir, más abajo,
+# busca el test runner empezando ACÁ y subiendo hasta TARGET_DIR inclusive,
+# en vez de mirar solo el toplevel. Antes de este fix, un layout con el
+# runner solo en un subdirectorio ("frontend/package.json", sin
+# "package.json" en la raíz) hacía que el hook subiera SIEMPRE al toplevel
+# antes de buscar, no encontrara nada ahí y saliera en 0 sin correr tests
+# — regresión fail-open contra `dev`, hallada por security-reviewer en la
+# ronda 1 de #73. TARGET_DIR sigue siendo el árbol donde se evalúan
+# git status/el salto de .planning/ (sin cambios: esos chequeos necesitan
+# rutas relativas a la raíz del repo, no al subdirectorio de la sesión).
 if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+-C\s"; then
   DASH_C_PATH=$(_guard_resolve_dash_c) || _guard_block_tree "no se pudo resolver una única ruta de 'git -C' en el comando"
   RESOLVED_DIR=$(cd "$BASE_DIR" 2>/dev/null && cd "$DASH_C_PATH" 2>/dev/null && pwd -P) || _guard_block_tree "la ruta '$DASH_C_PATH' no existe"
   TARGET_DIR=$(git -C "$RESOLVED_DIR" rev-parse --show-toplevel 2>/dev/null) || _guard_block_tree "'$DASH_C_PATH' no es un repo git"
+  SESSION_DIR="$RESOLVED_DIR"
 elif echo "$SANITIZED_COMMAND" | grep -qE "$CD_PUSHD_RE"; then
   CD_PATH=$(_guard_resolve_cd) || _guard_block_tree "no se pudo resolver una única ruta de 'cd' al inicio del comando"
   RESOLVED_DIR=$(cd "$BASE_DIR" 2>/dev/null && cd "$CD_PATH" 2>/dev/null && pwd -P) || _guard_block_tree "la ruta '$CD_PATH' no existe"
   TARGET_DIR=$(git -C "$RESOLVED_DIR" rev-parse --show-toplevel 2>/dev/null) || _guard_block_tree "'$CD_PATH' no es un repo git"
+  SESSION_DIR="$RESOLVED_DIR"
 else
   TARGET_DIR=$(_guard_toplevel_or_base "$BASE_DIR")
+  SESSION_DIR="$BASE_DIR"
 fi
 
 cd "$TARGET_DIR" || _guard_block_tree "no se pudo entrar al árbol resuelto ($TARGET_DIR)"
@@ -377,6 +392,35 @@ if _guard_planning_only_change; then
   echo "Solo cambios en .planning/: sin suites." >&2
   exit 0
 fi
+
+# _guard_find_runner_dir (#73 ronda 1, security HIGH): busca el test runner
+# empezando en SESSION_DIR y subiendo directorio por directorio hasta
+# TARGET_DIR (el toplevel) inclusive, quedándose con la PRIMERA coincidencia
+# (la más cercana a la sesión). "$1" (dir) siempre parte siendo descendiente
+# de "$2" (top) o igual — lo garantiza cómo se calculó SESSION_DIR/TARGET_DIR
+# más arriba (el segundo siempre es el toplevel real que contiene al
+# primero) — el "case" es una red de seguridad ante un cómputo futuro que
+# rompiera esa garantía: si "dir" deja de ser descendiente de "top" antes de
+# llegar a él, corta y devuelve "top" en vez de seguir subiendo sin límite.
+_guard_find_runner_dir() {
+  local dir="$1" top="$2"
+  while :; do
+    if [ -f "$dir/package.json" ] || [ -f "$dir/pyproject.toml" ] || [ -f "$dir/setup.py" ] || [ -f "$dir/pytest.ini" ]; then
+      printf '%s' "$dir"
+      return 0
+    fi
+    [ "$dir" = "$top" ] && { printf '%s' "$top"; return 0; }
+    case "$dir" in
+      "$top"/*) : ;;
+      *) printf '%s' "$top"; return 0 ;;
+    esac
+    dir="${dir%/*}"
+    [ -z "$dir" ] && dir="/"
+  done
+}
+
+RUNNER_DIR=$(_guard_find_runner_dir "$SESSION_DIR" "$TARGET_DIR")
+cd "$RUNNER_DIR" || _guard_block_tree "no se pudo entrar al directorio del runner ($RUNNER_DIR)"
 
 # Watchdog fail-closed por tiempo (auditoría best-practices): sin esto, una
 # suite colgada supera el timeout del harness (hooks.json), que DESCARTA la
