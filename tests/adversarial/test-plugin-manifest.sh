@@ -942,7 +942,7 @@ for i in 0 1 2; do
   fi
 
   assert_section_contains "$section" "git worktree add --detach" \
-    "$label exige worktree --detach o directorio temporal para pruebas que escriben archivos"
+    "$label exige worktree --detach para escrituras sobre el repo (scratchpad/mktemp -d no lo necesita)"
   assert_section_contains "$section" "git worktree remove" \
     "$label exige eliminar el worktree con git worktree remove al terminar"
   assert_section_contains "$section" "git stash" \
@@ -961,6 +961,10 @@ done
 
 assert_contains "$SECURITY_REVIEWER" "### NO CUBIERTO" \
   "security-reviewer.md tiene la sección NO CUBIERTO en el formato de reporte (revisión inicial)"
+
+SECURITY_REREVIEW_SECTION=$(extract_section "$SECURITY_REVIEWER" "## Security Re-Review")
+assert_section_contains "$SECURITY_REREVIEW_SECTION" "### NO CUBIERTO" \
+  "security-reviewer.md tiene la sección NO CUBIERTO en el formato de Security Re-Review"
 
 echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
