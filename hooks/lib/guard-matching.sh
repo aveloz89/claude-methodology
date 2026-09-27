@@ -27,6 +27,25 @@
 # shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
 GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
 
+# Fragmento de regex ERE que consume, cero o más veces, una opción de árbol
+# de git ("-C <ruta>"/"-C=<ruta>", "--git-dir"/"--work-tree" con o sin "=")
+# seguida de su valor y un separador — usado entre "git" y el subcomando
+# vigilado (commit, push, reset) para detectar "git -C <ruta> <subcomando>"
+# como la misma invocación. Antes vivía inline en GIT_COMMIT_RE
+# (pre-commit-guard.sh); un guard nuevo que necesite el mismo fragmento no
+# tiene que copiarlo a mano.
+# shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
+GUARD_GIT_TREE_OPTS='((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?\s+)*'
+
+# Fragmento de regex ERE que reconoce "gh ... pr ... merge" tolerando hasta
+# 2 tokens entre "gh"/"pr" y entre "pr"/"merge" (formas como "gh -R x pr
+# merge N", que gh acepta de verdad). Antes vivía inline en
+# pre-merge-check.sh como GH_PR_MERGE_RE; solo decide si el comando
+# MENCIONA una invocación de merge, nunca extrae nada de él (ver el punto
+# 6 del header de pre-merge-check.sh).
+# shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
+GUARD_GH_PR_MERGE_RE='gh\s+(\S+\s+){0,2}pr\s+(\S+\s+){0,2}merge'
+
 # guard_sanitize: recibe el comando crudo como $1 y devuelve por stdout el
 # texto saneado (sin spans quoted ni cuerpos de heredoc). Exit status: 0
 # si saneó de verdad, 1 si degradó al fallback (perl ausente o perl falló

@@ -111,7 +111,7 @@ SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 # interceptar. El charset no agrega "-" ni letras, así que "commit-tree" y
 # "commit-graph" siguen sin matchear (ninguno de sus caracteres siguientes
 # cae en "\s|\$|[;&|)]").
-GIT_COMMIT_RE="${GUARD_ANCHOR}((GIT_DIR|GIT_WORK_TREE)=\S*\s+)*git\s+((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?\s+)*commit(\s|\$|[;&|)])"
+GIT_COMMIT_RE="${GUARD_ANCHOR}((GIT_DIR|GIT_WORK_TREE)=\S*\s+)*git\s+${GUARD_GIT_TREE_OPTS}commit(\s|\$|[;&|)])"
 if ! echo "$SANITIZED_COMMAND" | grep -qE "$GIT_COMMIT_RE"; then
   exit 0
 fi

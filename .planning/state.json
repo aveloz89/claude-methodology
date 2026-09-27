@@ -22,9 +22,9 @@
       "name": "lib-heredoc-nul",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 0,
+      "tasks_done": 3,
       "tasks_total": 5,
-      "current_task": null,
+      "current_task": "T4",
       "commits": [],
       "last_batch": false,
       "depends_on": []

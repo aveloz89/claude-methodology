@@ -150,7 +150,7 @@ fi
 #      ciego de comillas documentado en guard-matching.sh:58-65 (un par de
 #      comillas de spans DISTINTOS se emparejan entre sí y se tragan el
 #      comando real de en medio) — no es un hueco nuevo de este archivo.
-#      Tampoco se ensancha GH_PR_MERGE_RE (abajo) para tolerar más de 2
+#      Tampoco se ensancha GUARD_GH_PR_MERGE_RE (abajo) para tolerar más de 2
 #      tokens entre gh/pr/merge y así detectar flags de repo repetidos
 #      ANTES de "pr" o "merge" (ej. `gh pr -R o/a -R o/red merge 5`, que
 #      hoy pasa sin validar, 0 llamadas): ensanchar el tope genérico a 4
@@ -260,7 +260,7 @@ if [ "$SANITIZE_STATUS" -ne 0 ]; then
   exit 0
 fi
 
-# [D-04] GH_PR_MERGE_RE decide, sobre el texto SANEADO, si el comando
+# [D-04] GUARD_GH_PR_MERGE_RE decide, sobre el texto SANEADO, si el comando
 # MENCIONA una invocación de merge — es todo lo que le queda a este
 # regex: ya no se usa para extraer nada (eso lo hace la gramática única
 # sobre el texto crudo, más abajo). Tolera hasta 2 tokens entre "gh"/"pr"
@@ -291,9 +291,10 @@ fi
 # por coincidencia trae las palabras sueltas "gh"/"pr"/"merge" sin
 # comillas entra a validar la gramática y bloquea con el mensaje de forma
 # — sobre-bloqueo, no sub-bloqueo, la dirección segura de este archivo.
-GH_PR_MERGE_RE='gh\s+(\S+\s+){0,2}pr\s+(\S+\s+){0,2}merge'
+# GUARD_GH_PR_MERGE_RE vive en hooks/lib/guard-matching.sh (movido ahí para
+# que block-admin-merge.sh lo reutilice sin duplicar el fragmento).
 
-if ! echo "$SANITIZED_COMMAND" | grep -qE "${GH_PR_MERGE_RE}\b"; then
+if ! echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_GH_PR_MERGE_RE}\b"; then
   exit 0
 fi
 
