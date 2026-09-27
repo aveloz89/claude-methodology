@@ -21,11 +21,16 @@
       "id": "G1",
       "name": "lib-heredoc-nul",
       "agent": "backend-dev",
-      "status": "in_progress",
-      "tasks_done": 3,
+      "status": "done",
+      "tasks_done": 5,
       "tasks_total": 5,
-      "current_task": "T4",
-      "commits": [],
+      "current_task": null,
+      "commits": [
+        "a2be826",
+        "f9ca072",
+        "5853e43",
+        "8b076ae"
+      ],
       "last_batch": false,
       "depends_on": []
     },

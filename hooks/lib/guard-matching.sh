@@ -20,6 +20,28 @@
 # real — un wrapper como bash -c "..." no se detecta porque el comando real
 # queda dentro de una string que este helper sanitiza. Aceptable: los guards
 # protegen errores honestos del orchestrator, no evasión adversarial.
+#
+# Fuera de alcance de los guards (documentado, no parcheado — #77, D-05).
+# Los guards de hooks/ protegen errores honestos del orchestrator y los
+# devs: formas que alguien escribe de buena fe. No son un parser de shell
+# ni un control de evasión. Verificado contra los hooks reales
+# (2026-09-27), estas formas pasan sin bloquear y quedan así por decisión:
+#   - comillas partidas o escapadas que rompen el emparejamiento del
+#     saneo: echo \'; gh pr merge 5; echo \', $'it\'s' && gh pr merge 5;
+#   - heredoc con delimitador comillado a medias (<<E"OF"), delimitador
+#     con caracteres fuera de [A-Za-z0-9_-], o una línea del cuerpo que
+#     termina en \ justo antes del terminador;
+#   - la flag o el subcomando en una variable (F=--force; git push $F),
+#     eval, bash -c '...'/sh -c, alias y funciones de git/gh definidas en
+#     el mismo comando o en uno anterior (w() { gh "$@"; }; w pr merge 5
+#     pasa);
+#   - la palabra del binario alterada o disfrazada: "gh", g\h, env git …,
+#     /usr/bin/git …, command git … (el "if" de hooks.json tampoco
+#     dispara para las tres últimas: compara cada subcomando por prefijo
+#     y solo descarta asignaciones VAR=x al frente; ver la tabla "Bash if
+#     matching" de la doc de hooks).
+# Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá:
+# la salida es escribir el comando en su forma directa.
 
 # Fragmento de regex ERE que ancla el match a posición de comando: inicio
 # de string/línea, o justo después de un separador de comandos (&&, ||, ;,
