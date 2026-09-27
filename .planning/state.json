@@ -33,11 +33,16 @@
       "id": "T2",
       "name": "forma-cd-y-bloqueos",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
+      "status": "done",
+      "tasks_done": 4,
       "tasks_total": 4,
       "current_task": null,
-      "commits": [],
+      "commits": [
+        "ec16fcb",
+        "bb4a1e1",
+        "5758bf7",
+        "ece0f34"
+      ],
       "last_batch": false,
       "depends_on": [
         "T1"
