@@ -98,20 +98,9 @@ Además de la lista genérica (`~/.claude/rulebooks/reviewer-common.md` §8), bu
 
 ### 8. Implementation Principles (frontend)
 
-Valida que el diff cumple `~/.claude/rules/implementation-principles.md`:
+Ver `~/.claude/rulebooks/reviewer-common.md` §8 — YAGNI, defensive code, abstracciones especulativas, refactor colateral y comentarios redundantes son idénticos para backend y frontend. Delta específico de frontend:
 
-- **YAGNI:** ¿hay componentes, props, hooks o estados que no responden al brief? ¿hay configurabilidad o flexibilidad no pedida?
 - **Frontend delgado:** ¿hay cálculos de negocio (precios, descuentos, permisos), transformaciones complejas de datos, o validaciones de regla de negocio dentro del componente? Eso debe vivir en backend (ver "Frontend delgado" en CLAUDE.md raíz). El frontend solo renderiza, captura input, llama al API y maneja estado de UI (loading, modales, formularios en edición). → **bloqueante** si encuentras lógica de negocio en componentes.
-- **Defensive code:** validación de props para casos imposibles (ej: validar que un prop tipado como `string` no sea `null` cuando TypeScript ya lo garantiza)
-- **Abstracciones especulativas:** un nuevo `useFooHelper`, HOC, factory o wrapper que envuelve una sola llamada
-- **Refactor colateral:** renames, reorganización de imports, cambios de estilo en código no relacionado al brief
-- **Comentarios redundantes:** describen QUÉ hace el código en vez de POR QUÉ. **Excepción**: regex complejos, fórmulas matemáticas, workarounds documentados con link a issue (ver `~/.claude/rules/implementation-principles.md`).
-
-Severidad:
-
-- Lógica de negocio en frontend → **bloqueante**
-- Scope creep severo (feature/componente no pedido) → **bloqueante**
-- Scope creep leve (un comentario sobrante, una validación defensiva menor) → **sugerencia**
 
 ### 9. Regresiones
 

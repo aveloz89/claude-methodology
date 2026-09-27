@@ -149,18 +149,7 @@ Además de la lista genérica (`~/.claude/rulebooks/reviewer-common.md` §8), bu
 
 ### 9. Implementation Principles (backend)
 
-Valida que el diff cumple `~/.claude/rules/implementation-principles.md`:
-
-- **YAGNI:** ¿hay endpoints, parámetros opcionales, servicios o handlers que no responden al brief? ¿hay configurabilidad no pedida?
-- **Defensive code:** validaciones para casos imposibles **dentro de servicios** (recuerda el matiz: validación en boundaries SÍ es legítima)
-- **Abstracciones especulativas:** helper, factory, mixin o interface que envuelve una sola llamada o una sola implementación concreta
-- **Refactor colateral:** renames, reorganización, cambios de estilo en código no relacionado al brief
-- **Comentarios redundantes:** describen QUÉ hace el código en vez de POR QUÉ. **Excepción**: regex complejos, fórmulas matemáticas, workarounds documentados con link a issue.
-
-Severidad:
-
-- Scope creep severo (endpoint nuevo, modelo nuevo, migración no pedida) → **bloqueante**
-- Scope creep leve (un `try/except` defensivo en lógica interna, comentario sobrante) → **sugerencia**
+Ver `~/.claude/rulebooks/reviewer-common.md` §8 — la validación de YAGNI, defensive code, abstracciones especulativas, refactor colateral y comentarios redundantes es idéntica para backend y frontend. Sin delta específico de backend: el matiz de validación en boundaries ya está en `~/.claude/rules/implementation-principles.md`, y "endpoint/modelo/migración no pedida" es scope creep severo bajo la misma regla de §8.
 
 ### 10. Regresiones
 

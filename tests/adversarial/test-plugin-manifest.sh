@@ -727,6 +727,20 @@ assert_not_contains "$GOVERNANCE" "El fallback completo (leer \`HANDOFF.md\`, co
   "governance-playbook.md #10 ya no repite el detalle del fallback, solo remite a agent-budget.md"
 
 echo ""
+echo "--- qa-backend.md y qa-frontend.md: Implementation Principles remite a reviewer-common.md §8 en vez de duplicarlo ---"
+
+assert_contains "$REPO_ROOT/agents/qa-backend.md" "rulebooks/reviewer-common.md\` §8" \
+  "qa-backend.md Implementation Principles remite a reviewer-common.md §8"
+assert_not_contains "$REPO_ROOT/agents/qa-backend.md" "**Defensive code:** validaciones para casos imposibles **dentro de servicios**" \
+  "qa-backend.md ya no duplica la lista de Implementation Principles de reviewer-common.md §8"
+assert_contains "$REPO_ROOT/agents/qa-frontend.md" "rulebooks/reviewer-common.md\` §8" \
+  "qa-frontend.md Implementation Principles remite a reviewer-common.md §8"
+assert_contains "$REPO_ROOT/agents/qa-frontend.md" "Frontend delgado:" \
+  "qa-frontend.md conserva el delta de Frontend delgado, específico de su capa"
+assert_not_contains "$REPO_ROOT/agents/qa-frontend.md" "un nuevo \`useFooHelper\`" \
+  "qa-frontend.md ya no duplica la lista de Implementation Principles de reviewer-common.md §8"
+
+echo ""
 echo "--- rulebooks/db-migrations.md: referencia circular corregida ---"
 
 assert_not_contains "$DB_MIGRATIONS" "Migraciones de DB: simple vs complejo" \
