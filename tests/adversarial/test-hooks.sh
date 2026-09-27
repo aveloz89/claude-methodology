@@ -677,6 +677,24 @@ assert_blocked_cmd "block-force-push: refspec feature/x:main con --force-with-le
 assert_blocked_cmd "block-force-push: --force en feature/x sigue bloqueando (la excepción no alcanza a --force)" \
   "block-force-push.sh" "git push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
 
+# Ronda 1 review (security MEDIUM): el segmento evaluado se tomaba desde el
+# PRIMER "push\b" del comando, sin importar si venía de un "git push" real —
+# un "git stash push" o un directorio/branch que contiene la palabra "push"
+# capturaban el segmento equivocado y el "main"/"dev" real del git push
+# quedaba fuera de la porción evaluada, colando el push a rama protegida.
+assert_blocked_cmd "block-force-push: refspec HEAD:refs/heads/main con --force-with-lease bloquea" \
+  "block-force-push.sh" "git push --force-with-lease origin HEAD:refs/heads/main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: refspec feature/x:refs/heads/dev con --force-with-lease bloquea" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/x:refs/heads/dev" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: --force-with-lease --all bloquea (no alcanza la excepción)" \
+  "block-force-push.sh" "git push --force-with-lease --all origin" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: --force-with-lease --mirror bloquea (no alcanza la excepción)" \
+  "block-force-push.sh" "git push --force-with-lease --mirror" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: git stash push antes de un git push --force-with-lease a main bloquea" \
+  "block-force-push.sh" "git stash push -m wip && git push --force-with-lease origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: cd a un directorio con 'push' en el nombre antes de un git push --force-with-lease a main bloquea" \
+  "block-force-push.sh" "cd /Users/x/push-service && git push --force-with-lease origin main" "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 NO_GIT_BFP_DIR=$(mktemp -d)

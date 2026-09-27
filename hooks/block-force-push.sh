@@ -26,12 +26,26 @@ guard_init "block-force-push"
 # --force) bloquearía igual, porque el charset se estiraría hasta la
 # "-f" de un comando distinto después del separador.
 
+# El branch se decide por el cwd DE LA SESIÓN (guard_session_dir), no por lo
+# que diga el propio comando: un "cd"/"git -C" junto al "git push" en el
+# mismo comando no lo redirige acá, lo bloquea pre-push-guard.sh (mismo
+# criterio que ese guard) antes de que este código corra.
+#
 # guard_force_with_lease_allowed: 0 (permitido) solo si el branch actual
-# (de guard_session_dir) NO es main/master/dev y ningún token del segmento
-# "push ... " (hasta el primer &&/;/|) es exactamente main/master/dev ni un
-# refspec hacia/desde uno de esos tres (x:main, main:x). Fuera de un repo
-# git, o sin poder resolver el branch, bloquea (fail-closed) — no hay forma
-# segura de asumir "no es main".
+# (de guard_session_dir) NO es main/master/dev y el segmento del "git ...
+# push ..." real (anclado a posición de comando con GUARD_ANCHOR, hasta el
+# primer &&/;/|) no lleva --all/--mirror ni menciona main/master/dev como
+# token, refspec (x:main, main:x) o destino "refs/heads/(main|master|dev)".
+# Fuera de un repo git, o sin poder resolver el branch, bloquea
+# (fail-closed) — no hay forma segura de asumir "no es main".
+#
+# El segmento se toma del match ANCLADO de FORCE_PATTERN (mismo prefijo
+# "git\s+${GUARD_GIT_OPTS}push\b"), no del primer "push\b" suelto del
+# comando: un "git stash push" antes del push real, o un directorio/branch
+# que contiene la palabra "push" (ej. "push-service"), capturaban ese
+# "push\b" ajeno y dejaban el "main"/"dev" del git push real afuera del
+# segmento evaluado — coló un push a rama protegida (review ronda 1,
+# security MEDIUM).
 guard_force_with_lease_allowed() {
   local dir branch push_segment
   dir=$(guard_session_dir) || return 1
@@ -39,8 +53,12 @@ guard_force_with_lease_allowed() {
   case "$branch" in
     main | master | dev) return 1 ;;
   esac
-  push_segment=$(echo "$SANITIZED_COMMAND" | grep -oE 'push\b[^&|;]*' | head -1)
-  ! echo "$push_segment" | grep -qE '(^|[[:space:]:])(main|master|dev)([[:space:]:]|$)'
+  push_segment=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*" | head -1)
+  # --all y --mirror empujan TODOS los refs remotos (o los espejan) sin
+  # importar qué otro ref aparezca en el resto del comando: la excepción de
+  # --force-with-lease no los cubre, siempre bloquean.
+  echo "$push_segment" | grep -qE '(^|[[:space:]])--(all|mirror)([[:space:]]|$)' && return 1
+  ! echo "$push_segment" | grep -qE '(^|[[:space:]:])(main|master|dev)([[:space:]:]|$)|refs/heads/(main|master|dev)([[:space:]:]|$)'
 }
 
 FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
