@@ -38,6 +38,16 @@ A diferencia de `DESIGN.md` (que vive solo durante una feature), este archivo pe
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-09-26] Guards que dependen del directorio: `cwd` del input + allowlist de redirecciones
+
+**Contexto:** `pre-commit-guard.sh` corría `git status` y el runner en el cwd del proceso del hook, y `pre-merge-check.sh` resolvía el repo con `gh repo view` ahí mismo, sin saber si ese directorio era el del comando interceptado (#73, #77 §4). Verificado con CLI 2.1.283 en modo de permisos default: el JSON de `PreToolUse` trae `cwd`, que refleja el `cd` persistido de llamadas Bash anteriores (incluido un directorio agregado con `--add-dir`), y el proceso del hook corre exactamente ahí; `CLAUDE_PROJECT_DIR` no sigue al `cd`. El `if: "Bash(git *)"` de `hooks.json` dispara también con `FOO=1 git …`, `cd X && git …` y `git -C X …`.
+
+**Decisión:** un hook que necesita saber en qué directorio actúa el comando lee `.cwd` del input (con fallback al cwd del proceso si el campo no viene) y trata una discrepancia con el proceso como fail-closed. Para redirecciones dentro del texto del comando, allowlist cerrada de formas literales sobre el texto crudo (`cd <ruta> &&` al inicio y una sola vez, `git -C <ruta>` con una sola ruta) con charset `[A-Za-z0-9_./-]` (más prefijo `~/`); todo lo demás (`pushd`, subshells, variables, comillas, `--git-dir`/`--work-tree`, `GIT_DIR`/`GIT_WORK_TREE`) bloquea con un mensaje que nombra las formas aceptadas y el escape: hacer el `cd` en una llamada previa para que llegue por `.cwd`.
+
+**Justificación:** interpretar shell arbitrario es una carrera perdida (retro PR-76); una allowlist literal es verificable y cada forma lleva su caso positivo, su caso de bloqueo y sus negativos (retro PR-79). El escape por `.cwd` cubre cualquier forma que no esté en la lista sin parsear nada.
+
+**Implicación:** un guard nuevo que dependa del directorio no usa `$PWD` a secas ni `CLAUDE_PROJECT_DIR`; parte de `.cwd`. Si acepta rutas del texto del comando, las valida contra ese charset antes de usarlas y nunca las pasa por `eval`. Los tests afirman en qué árbol actuó el hook (marcador con `pwd -P`), no solo el exit code.
+
 ### [2026-09-26] Agentes opcionales se activan por una línea declarativa en el `CLAUDE.md` del proyecto
 
 **Contexto:** `product-reviewer` solo tiene sentido en productos con usuarios reales, no en repos de tooling o metodología. Preguntar en cada brainstorming si corre agrega fricción; inferirlo del código es adivinar.

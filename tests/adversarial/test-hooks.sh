@@ -177,6 +177,11 @@ assert_allowed() {
 # comandos con comillas embebidas (regression tests de #47: una mención
 # quoted del comando vigilado no debe romper el JSON de entrada ni,
 # por construcción incorrecta, esconder un falso positivo/negativo real).
+#
+# HOOK_JSON_CWD (#73): si está seteada (variable de entorno, no parámetro,
+# para no romper la firma de todos los call sites existentes), agrega el
+# campo "cwd" al JSON de entrada — simula el .cwd que manda el harness real.
+# Sin ella, el JSON queda exactamente como antes (comportamiento actual).
 assert_blocked_cmd() {
   local test_name="$1"
   local hook="$2"
@@ -186,7 +191,11 @@ assert_blocked_cmd() {
   TOTAL=$((TOTAL + 1))
 
   local json exit_code=0
-  json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  if [ -n "${HOOK_JSON_CWD:-}" ]; then
+    json=$(jq -n --arg cmd "$command" --arg cwd "$HOOK_JSON_CWD" '{tool_input: {command: $cmd}, cwd: $cwd}')
+  else
+    json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  fi
   (cd "$run_cwd" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/$hook" > /dev/null 2>&1) || exit_code=$?
 
   if [ "$exit_code" -eq 2 ]; then
@@ -207,7 +216,11 @@ assert_allowed_cmd() {
   TOTAL=$((TOTAL + 1))
 
   local json exit_code=0
-  json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  if [ -n "${HOOK_JSON_CWD:-}" ]; then
+    json=$(jq -n --arg cmd "$command" --arg cwd "$HOOK_JSON_CWD" '{tool_input: {command: $cmd}, cwd: $cwd}')
+  else
+    json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  fi
   (cd "$run_cwd" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/$hook" > /dev/null 2>&1) || exit_code=$?
 
   if [ "$exit_code" -eq 0 ]; then
@@ -517,6 +530,17 @@ echo "--- pre-commit-guard.sh ---"
 assert_allowed "Non-commit command passes through" "pre-commit-guard.sh" "git status"
 assert_allowed "Git diff passes through" "pre-commit-guard.sh" "git diff"
 
+# Negativos de GIT_COMMIT_RE (#73): opciones de árbol entre "git" y
+# "commit" cuentan como invocación real, pero cualquier otro texto entre
+# medio NO — "git log | grep commit" y "git log --grep commit" no son un
+# commit, y no deben interceptarse ni con el detector ampliado.
+assert_allowed_cmd "pre-commit-guard: git log | grep commit no se intercepta" \
+  "pre-commit-guard.sh" "git log | grep commit"
+assert_allowed_cmd "pre-commit-guard: git log --grep commit no se intercepta" \
+  "pre-commit-guard.sh" "git log --grep commit"
+assert_allowed_cmd "pre-commit-guard: git show HEAD no se intercepta" \
+  "pre-commit-guard.sh" "git show HEAD"
+
 # Nota: el test de commit bloqueado depende de que haya un test runner configurado
 # en el proyecto. En este repo (methodology) no hay package.json ni pytest,
 # así que el hook permite el commit (no encuentra test runner).
@@ -565,6 +589,57 @@ assert_allowed_cmd "pre-commit-guard: heredoc mentioning git commit is not a rea
   "$PCG_TEST_DIR"
 
 rm -rf "$PCG_TEST_DIR" "$FAKE_PYTEST_DIR"
+
+# GIT_COMMIT_RE (#73 ronda 1, security MEDIUM): "commit(\s|$)" no intercepta
+# un "git commit" seguido de un terminador de comando pegado (";", "&", "|",
+# ")") sin espacio antes del siguiente comando — en `dev` (matching más
+# simple) esas formas sí se interceptaban. Mismo fixture que arriba
+# (pyproject.toml + pytest fake que siempre falla) para que la intercepción
+# sea observable por el efecto (bloquea) y no por el nombre del regex.
+PCG_TERM_DIR=$(mktemp -d)
+touch "$PCG_TERM_DIR/pyproject.toml"
+FAKE_PYTEST_TERM_DIR=$(mktemp -d)
+cat > "$FAKE_PYTEST_TERM_DIR/pytest" <<'FAKE_PYTEST_TERM_EOF'
+#!/bin/bash
+exit 1
+FAKE_PYTEST_TERM_EOF
+chmod +x "$FAKE_PYTEST_TERM_DIR/pytest"
+
+assert_blocked_cmd "pre-commit-guard: git commit; (terminador ';' pegado) se intercepta" \
+  "pre-commit-guard.sh" \
+  "git commit;" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_blocked_cmd "pre-commit-guard: git add . && git commit&&git push (terminador '&&' pegado) se intercepta" \
+  "pre-commit-guard.sh" \
+  "git add . && git commit&&git push" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_blocked_cmd "pre-commit-guard: (git commit) (terminador ')' pegado) se intercepta" \
+  "pre-commit-guard.sh" \
+  "(git commit)" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+# Negativo: "git commit-tree"/"git commit-graph" no son un commit real y no
+# deben interceptarse — con el mismo fixture (fake pytest que siempre
+# falla), si el regex ampliado matcheara por error, el fake correría y
+# bloquearía (falso positivo observable).
+assert_allowed_cmd "pre-commit-guard: git commit-tree no se intercepta" \
+  "pre-commit-guard.sh" \
+  "git commit-tree HEAD^{tree}" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_allowed_cmd "pre-commit-guard: git commit-graph write no se intercepta" \
+  "pre-commit-guard.sh" \
+  "git commit-graph write" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+rm -rf "$PCG_TERM_DIR" "$FAKE_PYTEST_TERM_DIR"
 
 # --- pre-commit-guard.sh: watchdog fail-closed por tiempo (PRECOMMIT_TEST_BUDGET) ---
 # La suite corre en background; un bucle espera hasta PRECOMMIT_TEST_BUDGET
@@ -780,6 +855,13 @@ echo "--- pre-commit-guard.sh: salto para commits de solo .planning/ ---"
 # (exit 1) y deja un marcador si corrió — misma técnica que
 # _wsscope_npm_setup más arriba, para distinguir "no corrió" (marcador
 # ausente) de "corrió y (falla, como siempre)".
+#
+# El marcador guarda "pwd -P" (#73), no un simple "ran": npm ejecuta el
+# script "test" con cwd = el directorio del package.json que lo declara, así
+# que el contenido del marcador es evidencia directa de EN QUÉ ÁRBOL corrió
+# el runner — necesario para distinguir "corrió en el árbol correcto" de
+# "corrió en el árbol equivocado" (_pskip_assert_marker_tree), algo que un
+# marcador de solo presencia no puede afirmar.
 _pskip_setup() {
   PSKIP_DIR=$(mktemp -d)
   PSKIP_DIR=$(cd "$PSKIP_DIR" && pwd -P)
@@ -791,7 +873,7 @@ _pskip_setup() {
     git config user.name "Sandbox"
     mkdir -p .planning src
     cat > package.json <<EOF
-{ "name": "root", "private": true, "scripts": { "test": "echo ran > $PSKIP_MARK/test.ran && exit 1" } }
+{ "name": "root", "private": true, "scripts": { "test": "pwd -P > $PSKIP_MARK/test.ran && exit 1" } }
 EOF
     echo "# STATE" > .planning/x.md
     echo "# A" > .planning/a.md
@@ -825,6 +907,30 @@ _pskip_assert_marker() {
   fi
 }
 
+# _pskip_assert_marker_tree (#73): a diferencia de _pskip_assert_marker
+# (solo presencia), afirma que el runner corrió Y que corrió en el árbol
+# esperado — comparando el contenido del marcador (pwd -P) contra la ruta
+# esperada, también resuelta con pwd -P (symlinks de macOS, ej.
+# /var -> /private/var). Sin esto, un hook que resuelve el árbol OBJETIVO
+# mal pero por casualidad corre en algún árbol con test runner pasaría en
+# verde igual — es la señal que distingue el fix real.
+_pskip_assert_marker_tree() {
+  local test_name="$1" expected_tree="$2"
+  local expected_resolved got=ausente
+  TOTAL=$((TOTAL + 1))
+  expected_resolved=$(cd "$expected_tree" 2>/dev/null && pwd -P)
+  if [ -f "$PSKIP_MARK/test.ran" ]; then
+    got=$(cat "$PSKIP_MARK/test.ran")
+  fi
+  if [ -n "$expected_resolved" ] && [ "$got" = "$expected_resolved" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (árbol=$got)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (árbol=$got, esperado=$expected_resolved)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 _pskip_setup
 
 # (a) Solo .planning/x.md modificado → exit 0 y NO corre el test runner.
@@ -833,6 +939,26 @@ echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 assert_allowed_cmd "pre-commit-guard: solo .planning/ modificado → salta suites (exit 0)" \
   "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
 _pskip_assert_marker "pre-commit-guard: solo .planning/ modificado — el test runner NO corrió" no
+
+# (a2) [#73] Una mención de "git -C" dentro del MENSAJE del commit (texto
+# quoted, guard_sanitize lo elimina antes de cualquier chequeo) no debe
+# enrutarse al resolver de "-C" — sigue siendo un commit normal por el
+# camino rápido, así que con solo .planning/ sucio sigue saltando.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+assert_allowed_cmd "pre-commit-guard: mención de \"git -C\" dentro del mensaje del commit va por el camino rápido (no se enruta al resolver de -C)" \
+  "pre-commit-guard.sh" 'git commit -m "git -C /x commit"' "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: mención de git -C en el mensaje — el test runner NO corrió" no
+
+# (a3) [#73, Lote 2] Mismo caso que (a2) pero con "cd": una mención de
+# "cd /tmp && git commit" dentro del MENSAJE del commit (texto quoted) no
+# debe enrutarse al resolver de "cd" — guard_sanitize la elimina antes de
+# CD_PUSHD_RE, así que sigue siendo un commit normal por el camino rápido.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+assert_allowed_cmd "pre-commit-guard: mención de \"cd /tmp && git commit\" dentro del mensaje va por el camino rápido (no se enruta al resolver de cd)" \
+  "pre-commit-guard.sh" 'git commit -m "cd /tmp && git commit"' "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: mención de \"cd /tmp && git commit\" en el mensaje — el test runner NO corrió" no
 
 # (b) .planning/x.md + src/a.js → corre (bloquea: el runner siempre falla).
 _pskip_reset
@@ -1040,125 +1166,679 @@ _pskip_cleanup_worktree() {
   rm -rf "$PSKIP_WT"
 }
 
-# (g) cd a otro worktree con código sucio, árbol principal sucio solo
-# .planning/ → NO toma el salto (corre suites, bloquea: el runner siempre
-# falla). Es la reparación real del HIGH.
+# _pskip_assert_blocked_forms: variante de _pskip_assert_marker para los
+# casos que deben bloquear SIN correr suites (a diferencia de (a)-(j) más
+# abajo, que bloquean corriendo el runner fake que siempre falla) — afirma
+# exit 2, marcador ausente y el mensaje de "Formas aceptadas" en stderr
+# (contrato del mensaje de bloqueo). Se define acá arriba (antes de las
+# primeras formas que la usan, #73 Lote 2) porque tanto la serie R/X de
+# "cd" como la de "git -C"/"--git-dir" la necesitan.
+_pskip_assert_blocked_forms() {
+  local test_name="$1" hook_command="$2" run_path="${3:-$PATH}" run_cwd="${4:-$PSKIP_DIR}"
+  local json exit_code=0 stderr_out
+  if [ -n "${HOOK_JSON_CWD:-}" ]; then
+    json=$(jq -n --arg cmd "$hook_command" --arg cwd "$HOOK_JSON_CWD" '{tool_input: {command: $cmd}, cwd: $cwd}')
+  else
+    json=$(jq -n --arg cmd "$hook_command" '{tool_input: {command: $cmd}}')
+  fi
+  stderr_out=$(cd "$run_cwd" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || exit_code=$?
+  TOTAL=$((TOTAL + 1))
+  if [ "$exit_code" -eq 2 ] && echo "$stderr_out" | grep -qF "Formas aceptadas" && [ ! -f "$PSKIP_MARK/test.ran" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name"
+    PASS=$((PASS + 1))
+  else
+    local marker_state=ausente
+    [ -f "$PSKIP_MARK/test.ran" ] && marker_state=presente
+    echo -e "${RED}FAIL${NC}: $test_name (exit=$exit_code, marcador=$marker_state, stderr=\"$stderr_out\")"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# R1-R4 (#73, Lote 2, reemplazan (g)): "cd <ruta> && git commit …" / "cd
+# <ruta>; …" ahora SÍ resuelve el árbol objetivo (allowlist B3 de
+# DESIGN.md) — antes de este fix, el chequeo de redirección solo evitaba
+# el salto de .planning/ pero seguía corriendo el runner sobre BASE_DIR
+# (el árbol principal), nunca sobre el árbol al que el comando redirige
+# de verdad.
+
+# R1: árbol principal sucio solo .planning/, worktree con código sucio →
+# "cd $WT && git commit" resuelve al worktree, corre suites AHÍ (bloquea:
+# el runner siempre falla).
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 _pskip_setup_worktree
-assert_blocked_cmd "pre-commit-guard: cd a otro worktree con código sucio → no toma el salto del árbol principal, corre suites" \
+assert_blocked_cmd "pre-commit-guard: cd <worktree> && git commit resuelve al worktree, corre suites" \
   "pre-commit-guard.sh" "cd $PSKIP_WT && git commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: cd a otro worktree — el test runner corrió" yes
+_pskip_assert_marker_tree "pre-commit-guard: cd <worktree> — el runner corrió en el worktree" "$PSKIP_WT"
 _pskip_cleanup_worktree
 
-# (g2)-(g6) Extiende (g): "cd" no es el único comando que redirige de
-# árbol ("pushd" hace lo mismo) y el ancla "cd\s" exigía un argumento con
-# espacio detrás — un "cd" pelado (sin argumento, target implícito $HOME)
-# seguido directo de ";", "&&" (sin espacio de por medio) o fin de línea
-# no matcheaba, así que SÍ tomaba el salto sobre el árbol principal
-# (sucio solo .planning/) mientras el comando redirigía a otro lado.
-# Verificado en rojo contra el hook sin este fix: "pushd $WT && git
-# commit" y "cd; git commit" no matcheaban el chequeo de redirección.
+# R2 (inverso de R1): árbol principal sucio con código FUERA de
+# .planning/, worktree sucio solo bajo .planning/ (ambos lados existen
+# ahí: el worktree comparte el historial de PSKIP_DIR) → "cd $WT && git
+# commit" resuelve al worktree, y ahí SÍ aplica el salto (exit 0, sin
+# runner).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/src/a.js"
+git -C "$PSKIP_DIR" branch -q pskip-wt
+PSKIP_WT=$(mktemp -d)
+PSKIP_WT=$(cd "$PSKIP_WT" && pwd -P)
+git -C "$PSKIP_DIR" worktree add -q "$PSKIP_WT" pskip-wt > /dev/null 2>&1
+echo "cambio-planning-wt" >> "$PSKIP_WT/.planning/x.md"
+assert_allowed_cmd "pre-commit-guard: cd <worktree> && git commit resuelve al worktree, ahí solo .planning/ → salta suites" \
+  "pre-commit-guard.sh" "cd $PSKIP_WT && git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: cd <worktree> (solo .planning/ ahí) — el runner NO corrió" no
+_pskip_cleanup_worktree
 
-# (g2) pushd a otro worktree con código sucio → no toma el salto, corre
-# suites (mismo escenario que (g), con pushd en vez de cd).
+# R3: terminador ";" en vez de "&&", con un "git add -A" entre medio — la
+# forma B3 exige "cd" al inicio seguido directo de "&&" o ";", sin
+# importar qué venga después en el comando compuesto.
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 _pskip_setup_worktree
-assert_blocked_cmd "pre-commit-guard: pushd a otro worktree con código sucio → no toma el salto, corre suites" \
-  "pre-commit-guard.sh" "pushd $PSKIP_WT && git commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: pushd a otro worktree — el test runner corrió" yes
+assert_blocked_cmd "pre-commit-guard: cd <worktree>; git add -A && git commit resuelve al worktree, corre suites" \
+  "pre-commit-guard.sh" "cd $PSKIP_WT; git add -A && git commit -m x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker_tree "pre-commit-guard: cd <worktree> con ';' — el runner corrió en el worktree" "$PSKIP_WT"
 _pskip_cleanup_worktree
 
-# (g3) "cd" pelado seguido de ";" (sin espacio de por medio) → no toma el
-# salto, corre suites. No hace falta worktree: el punto es que el patrón
-# textual detecte la redirección sin importar a dónde apunte "cd" en la
-# práctica.
+# R4: heredoc en el mensaje de commit que MENCIONA "cd /x && git commit" —
+# guard_sanitize ya quita el cuerpo del heredoc antes de contar
+# ocurrencias de "cd"/"pushd", así que la única ocurrencia real sigue
+# siendo la del "cd $WT" del inicio y el resolver no se confunde con la
+# mención de dentro del mensaje.
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-assert_blocked_cmd "pre-commit-guard: cd pelado seguido de ';' (sin espacio) → no toma el salto, corre suites" \
-  "pre-commit-guard.sh" "cd; git commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: cd pelado ';' — el test runner corrió" yes
+_pskip_setup_worktree
+PCG_HEREDOC_CMD="cd $PSKIP_WT && git commit -m \"\$(cat <<'EOF'"$'\n'"msg con cd /x && git commit"$'\n'"EOF"$'\n'")\""
+assert_blocked_cmd "pre-commit-guard: cd <worktree> && git commit -m con heredoc que menciona 'cd' resuelve al worktree" \
+  "pre-commit-guard.sh" "$PCG_HEREDOC_CMD" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker_tree "pre-commit-guard: heredoc con mención de 'cd' — el runner corrió en el worktree" "$PSKIP_WT"
+_pskip_cleanup_worktree
 
-# (g4) "cd" pelado seguido de "&&" sin espacio ("cd&&...", a diferencia de
-# "cd && ..." que ya matcheaba antes por el espacio) → no toma el salto,
-# corre suites.
+# X4 (#73, Lote 2, reemplaza (g2)): "pushd" no es "cd" — la forma B3 exige
+# literalmente "cd" al inicio del comando; "pushd $WT && git commit"
+# bloquea sin correr, no se le adivina el árbol.
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-assert_blocked_cmd "pre-commit-guard: cd pelado seguido de '&&' sin espacio → no toma el salto, corre suites" \
-  "pre-commit-guard.sh" "cd&&git commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: cd pelado '&&' sin espacio — el test runner corrió" yes
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: pushd <worktree> && git commit → bloquea sin correr (no es 'cd')" \
+  "pushd $PSKIP_WT && git commit -am x"
+_pskip_cleanup_worktree
 
-# (g5) "cd" pelado seguido de newline (comando multilínea real, ej. un
-# script de dos líneas) → no toma el salto, corre suites.
+# X5 (#73, Lote 2, reemplazan (g3)-(g6)): "cd" pelado (sin ruta) en sus
+# cuatro variantes — la forma B3 exige una ruta capturable entre "cd" y el
+# terminador; sin ruta, no hay candidato y bloquea sin correr.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd pelado seguido de ';' → bloquea sin correr" \
+  "cd; git commit -am x"
+
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd pelado seguido de '&&' sin espacio → bloquea sin correr" \
+  "cd&&git commit -am x"
+
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 CD_BARE_NEWLINE=$(printf 'cd\ngit commit -am x')
-assert_blocked_cmd "pre-commit-guard: cd pelado seguido de newline → no toma el salto, corre suites" \
-  "pre-commit-guard.sh" "$CD_BARE_NEWLINE" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: cd pelado newline — el test runner corrió" yes
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd pelado seguido de newline → bloquea sin correr" \
+  "$CD_BARE_NEWLINE"
 
-# (g6) Regresión doble: "cd && git commit" (CON espacio, ya matcheaba
-# antes de este fix) sigue corriendo suites, y una mención de "cd x"
-# dentro de un string ("echo \"cd x\" && git commit") no es una
-# invocación real — guard_sanitize ya la quitó antes de este chequeo — y
-# sigue saltando con .planning/ sucio solo.
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-assert_blocked_cmd "pre-commit-guard: cd && git commit (con espacio, ya cubierto) sigue corriendo suites" \
-  "pre-commit-guard.sh" "cd && git commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: cd && git commit (regresión) — el test runner corrió" yes
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd && git commit (pelado, con espacio) → bloquea sin correr" \
+  "cd && git commit -am x"
 
+# X6 (#73, Lote 2): "cd -" — target implícito (directorio anterior);
+# aunque quede entre comillas dentro de "cd \"$ruta\"", bash sigue
+# tratando el argumento "-" como especial (equivalente a "cd -" sin
+# comillas): sin este rechazo explícito, resolvería a $OLDPWD del propio
+# proceso del hook en vez de bloquear — no es una ruta, es un alias
+# dependiente de historial que no se puede tratar como literal.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd - && git commit → bloquea sin correr (target implícito, no una ruta)" \
+  "cd - && git commit -am x"
+
+# X7 (#73, Lote 2): subshell — "(cd $WT && git commit -am x)": el ancla
+# exige "cd" al INICIO del comando; con "(" antes, el string no empieza
+# con "cd" y no hay candidato.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: (cd <worktree> && git commit) en subshell → bloquea sin correr" \
+  "(cd $PSKIP_WT && git commit -am x)"
+_pskip_cleanup_worktree
+
+# X8 (#73, Lote 2): "cd" no al inicio del comando ("npm ci && cd $WT &&
+# git commit -am x") — mismo motivo que X7: el ancla es sobre el INICIO
+# del string, no sobre GUARD_ANCHOR (que sí matchea "cd" tras "&&" para
+# la detección de redirección, pero eso solo decide QUE hay redirección,
+# no de dónde sale la ruta).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: npm ci && cd <worktree> && git commit (cd no al inicio) → bloquea sin correr" \
+  "npm ci && cd $PSKIP_WT && git commit -am x"
+_pskip_cleanup_worktree
+
+# X9 (#73, Lote 2): dos "cd" en el mismo comando compuesto — a qué árbol
+# es ambiguo (mezclar formas no se adivina, se bloquea).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd <worktree> && git commit && cd - (dos cd) → bloquea sin correr" \
+  "cd $PSKIP_WT && git commit -am x && cd -"
+_pskip_cleanup_worktree
+
+# X10 (#73, Lote 2): "cd" con ruta real seguido de NEWLINE (no "&&" ni
+# ";") antes de "git commit" — el terminador exigido por B3 no acepta
+# fin de línea sin blanco de por medio, a diferencia de X5 (cd pelado sin
+# ruta): acá SÍ hay una ruta capturable, pero el terminador no matchea.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+CD_PATH_NEWLINE=$(printf 'cd %s\ngit commit -am x' "$PSKIP_WT")
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd <worktree> seguido de newline (sin '&&'/';') → bloquea sin correr" \
+  "$CD_PATH_NEWLINE"
+_pskip_cleanup_worktree
+
+# X11 (análogo a la forma "-C"): ruta con "$" sin expandir (literal, tal
+# como llega el comando — nadie lo ejecuta). "$WT_VAR" no cumple
+# TREE_PATH_RE y, aunque lo cumpliera, tampoco existe como directorio
+# real — bloquea sin correr por cualquiera de las dos razones.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd \$WT_VAR (ruta con \$, literal) && git commit → bloquea sin correr" \
+  'cd $WT_VAR && git commit -am x'
+
+# X12 (análogo a la forma "-C"): ruta entre comillas — el charset excluye
+# comillas, así que el candidato (con las comillas incluidas, literales)
+# nunca pasa como ruta real, sin importar si el directorio real existe.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd \"<worktree>\" (ruta entre comillas) && git commit → bloquea sin correr" \
+  "cd \"$PSKIP_WT\" && git commit -am x"
+_pskip_cleanup_worktree
+
+# X13: ruta con espacio (entre comillas, ej. "/a b") — el token que el
+# ancla captura se corta en el primer blanco, así que nunca hay un
+# candidato coherente con el terminador inmediatamente después.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd \"/a b\" (ruta con espacio) && git commit → bloquea sin correr" \
+  'cd "/a b" && git commit -am x'
+
+# X14 (análogo a la forma "-C"): ruta que existe pero no es un repo git.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+PCG_NOTAREPO_CD_DIR=$(mktemp -d)
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd <directorio que no es repo> && git commit → bloquea sin correr" \
+  "cd $PCG_NOTAREPO_CD_DIR && git commit -am x"
+rm -rf "$PCG_NOTAREPO_CD_DIR"
+
+# Negativo: una mención de "cd x" dentro de un string ("echo \"cd x\" &&
+# git commit") no es una invocación real — guard_sanitize ya la quitó
+# antes de este chequeo — y sigue saltando con .planning/ sucio solo (no
+# se enruta al resolver de "cd" en absoluto).
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 assert_allowed_cmd "pre-commit-guard: mención de \"cd x\" dentro de un string sigue saltando" \
   "pre-commit-guard.sh" 'echo "cd x" && git commit -am x' "$PATH" "$PSKIP_DIR"
 _pskip_assert_marker "pre-commit-guard: mención de cd en string — el test runner NO corrió (sigue saltando)" no
 
-# (h) "git -C <worktree> commit": nunca llega a matchear "git\s+commit"
-# (queda "-C <ruta>" en medio) — el hook entero sale en el filtro de
-# arriba, exit 0 sin correr nada. Status quo exacto (#212, fuera de
-# alcance): así se comportaba antes de este PR y se sigue comportando
-# igual después.
+# (#73, Lote 2, Tarea 4) Contrato del mensaje de bloqueo: nombra las TRES
+# formas aceptadas ("git commit …", "cd <ruta> && …", "git -C <ruta> …")
+# Y el escape ("hacé el cd en una llamada Bash previa"). Los tests con
+# _pskip_assert_blocked_forms de arriba solo verifican la presencia de
+# "Formas aceptadas" (contrato mínimo compartido); este test lee el
+# stderr completo para afirmar el contenido, no solo el encabezado.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+PCG_MSG_JSON=$(jq -n --arg cmd "cd; git commit -am x" '{tool_input: {command: $cmd}}')
+PCG_MSG_EXIT=0
+PCG_MSG_STDERR=$(cd "$PSKIP_DIR" && echo "$PCG_MSG_JSON" | PATH="$PATH" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PCG_MSG_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$PCG_MSG_EXIT" -eq 2 ] \
+  && echo "$PCG_MSG_STDERR" | grep -qF "'git commit …' en el cwd de la sesión" \
+  && echo "$PCG_MSG_STDERR" | grep -qF "'cd <ruta> && git commit …'" \
+  && echo "$PCG_MSG_STDERR" | grep -qF "'git -C <ruta> commit …'" \
+  && echo "$PCG_MSG_STDERR" | grep -qF "hacé el cd en una llamada Bash previa"; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: el mensaje de bloqueo nombra las tres formas y el escape"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: el mensaje de bloqueo nombra las tres formas y el escape (exit=$PCG_MSG_EXIT, stderr=\"$PCG_MSG_STDERR\")"
+  FAIL=$((FAIL + 1))
+fi
+
+# R5-R7 (#73, reemplazan (h)): "git -C <worktree> commit" ahora SÍ resuelve
+# el árbol objetivo — antes de este fix ni siquiera matcheaba el filtro de
+# "git commit" (quedaba "-C <ruta>" en medio) y el hook salía en el
+# detector de arriba sin evaluar nada. Cambio de contrato documentado en
+# DESIGN.md ("Riesgos"): formas que antes pasaban de largo ahora se
+# resuelven (o bloquean si son ambiguas, ver X-series más abajo).
+
+# R5: árbol principal sucio solo .planning/, worktree con código sucio →
+# "git -C $WT commit" resuelve al worktree, corre suites ahí (bloquea: el
+# runner siempre falla).
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 _pskip_setup_worktree
-assert_allowed_cmd "pre-commit-guard: git -C a otro worktree — no matchea el filtro de \"git commit\", status quo (#212, sin cambio)" \
+assert_blocked_cmd "pre-commit-guard: git -C <worktree> commit resuelve al worktree, corre suites" \
   "pre-commit-guard.sh" "git -C $PSKIP_WT commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: git -C a otro worktree — el test runner NO corrió (nunca se interceptó)" no
+_pskip_assert_marker_tree "pre-commit-guard: git -C <worktree> — el runner corrió en el worktree" "$PSKIP_WT"
 _pskip_cleanup_worktree
 
-# (i) "git --git-dir=... --work-tree=... commit": mismo motivo que (h).
+# R6: "-C" repetido con la MISMA ruta en cada invocación del comando
+# compuesto → sigue resolviendo (una sola ruta candidata tras sort -u).
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 _pskip_setup_worktree
-assert_allowed_cmd "pre-commit-guard: --git-dir/--work-tree a otro worktree — no matchea el filtro de \"git commit\", status quo (#212, sin cambio)" \
-  "pre-commit-guard.sh" "git --git-dir=$PSKIP_WT/.git --work-tree=$PSKIP_WT commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: --git-dir/--work-tree a otro worktree — el test runner NO corrió (nunca se interceptó)" no
+assert_blocked_cmd "pre-commit-guard: git -C <worktree> repetido (misma ruta) resuelve al worktree, corre suites" \
+  "pre-commit-guard.sh" "git -C $PSKIP_WT add -A && git -C $PSKIP_WT commit -m x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker_tree "pre-commit-guard: git -C repetido — el runner corrió en el worktree" "$PSKIP_WT"
 _pskip_cleanup_worktree
 
-# (j) [security HIGH, defensa en profundidad] Comando compuesto: una
-# mención de "git -C" en una invocación separada (no la que commitea)
-# convive con un "git commit" real y local en el mismo árbol sucio solo
-# .planning/. A diferencia de (h), acá SÍ se llega a
-# _guard_planning_only_change (el "git commit" del final matchea el
-# filtro de arriba sin ningún "-C" en el medio) — esto es lo único que
-# ejercita de verdad la rama "-C"/"--git-dir"/"--work-tree" del chequeo
-# nuevo (en invocación única es sintácticamente imposible que esas
-# opciones convivan con el match de "git commit", ver (h)/(i)). Ante la
-# duda, no se toma el salto: corre de más.
+# R7 (inverso de R5): árbol principal sucio con código FUERA de .planning/,
+# worktree sucio solo bajo .planning/ (ambos lados existen ahí: el worktree
+# comparte el historial de PSKIP_DIR) → "git -C $WT commit" resuelve al
+# worktree, y ahí SÍ aplica el salto de .planning/ (exit 0, sin runner).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/src/a.js"
+git -C "$PSKIP_DIR" branch -q pskip-wt
+PSKIP_WT=$(mktemp -d)
+PSKIP_WT=$(cd "$PSKIP_WT" && pwd -P)
+git -C "$PSKIP_DIR" worktree add -q "$PSKIP_WT" pskip-wt > /dev/null 2>&1
+echo "cambio-planning-wt" >> "$PSKIP_WT/.planning/x.md"
+assert_allowed_cmd "pre-commit-guard: git -C <worktree> commit resuelve al worktree, ahí solo .planning/ → salta suites" \
+  "pre-commit-guard.sh" "git -C $PSKIP_WT commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: git -C <worktree> (solo .planning/ ahí) — el runner NO corrió" no
+_pskip_cleanup_worktree
+
+# --- pre-commit-guard.sh: #73 resolución del árbol objetivo del commit ---
+# Ver .planning/DESIGN.md "Contrato 1". _pskip_assert_blocked_forms está
+# definida más arriba (antes de X4/X5).
+
+# X1 (#73, reemplaza (i)): "--git-dir"/"--work-tree" nunca se resuelven
+# (fuera de alcance por diseño, ver TREE_FORM_HELP) — bloquean sin correr,
+# ya sea a otro worktree real o mencionados junto a un "git commit" local
+# (reemplaza también la parte 2 de (j): antes corría de más "ante la duda",
+# ahora bloquea directo con el mensaje accionable).
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-assert_blocked_cmd "pre-commit-guard: mención de \"git -C\" en el mismo comando que un commit local → no toma el salto, corre suites" \
-  "pre-commit-guard.sh" "git -C /nonexistent status; git commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: mención de git -C junto a un commit local — el test runner corrió" yes
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git --git-dir=<wt> --work-tree=<wt> commit → bloquea sin correr" \
+  "git --git-dir=$PSKIP_WT/.git --work-tree=$PSKIP_WT commit -am x"
+_pskip_cleanup_worktree
 
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-assert_blocked_cmd "pre-commit-guard: mención de \"--work-tree\" en el mismo comando que un commit local → no toma el salto, corre suites" \
-  "pre-commit-guard.sh" "git --git-dir=/nonexistent/.git --work-tree=/nonexistent status; git commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: mención de --work-tree junto a un commit local — el test runner corrió" yes
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: --work-tree con espacio (sin '=') → bloquea sin correr" \
+  "git --git-dir /nonexistent/.git --work-tree /nonexistent commit -am x"
 
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: solo --work-tree (sin --git-dir) → bloquea sin correr" \
+  "git --work-tree=/nonexistent commit -am x"
+
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: mención de \"--work-tree\" junto a un \"git commit\" local en el mismo comando → bloquea sin correr" \
+  "git --git-dir=/nonexistent/.git --work-tree=/nonexistent status; git commit -am x"
+
+# X2: "GIT_DIR=…"/"GIT_WORK_TREE=…" como prefijo de entorno EN EL TEXTO del
+# comando — tampoco se resuelven, bloquean sin correr.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: GIT_DIR=<wt>/.git git commit → bloquea sin correr" \
+  "GIT_DIR=$PSKIP_WT/.git git commit -am x"
+_pskip_cleanup_worktree
+
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: GIT_WORK_TREE=/nonexistent git commit → bloquea sin correr" \
+  "GIT_WORK_TREE=/nonexistent git commit -am x"
+
+# X3: "GIT_DIR"/"GIT_WORK_TREE" en el ENTORNO DEL PROCESO del hook (no en el
+# texto del comando) — mismo criterio que pre-merge-check.sh: bloquea sin
+# correr, sin importar qué diga el comando interceptado.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+TOTAL=$((TOTAL + 1))
+PCG_ENV_JSON=$(jq -n --arg cmd "git commit -am x" '{tool_input: {command: $cmd}}')
+PCG_ENV_EXIT=0
+PCG_ENV_STDERR=$(cd "$PSKIP_DIR" && echo "$PCG_ENV_JSON" | GIT_WORK_TREE=/nonexistent bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PCG_ENV_EXIT=$?
+if [ "$PCG_ENV_EXIT" -eq 2 ] && echo "$PCG_ENV_STDERR" | grep -qF "Formas aceptadas" && [ ! -f "$PSKIP_MARK/test.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: GIT_WORK_TREE en el entorno del proceso del hook → bloquea sin correr"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: GIT_WORK_TREE en el entorno del proceso del hook → bloquea sin correr (exit=$PCG_ENV_EXIT, stderr=\"$PCG_ENV_STDERR\")"
+  FAIL=$((FAIL + 1))
+fi
+
+# X15a (#73, reemplaza la parte 1 de (j)): mezcla de árboles en un comando
+# compuesto — un "git -C X" en una invocación y un "git commit" LOCAL (sin
+# -C) en otra, en el mismo árbol sucio solo .planning/. Antes de este fix
+# corría suites de más (ante la duda); ahora bloquea sin correr nada: la
+# regla B4 exige que NO haya un "git commit" bare conviviendo con el "-C" —
+# mezclar formas no se adivina, se bloquea con el mensaje accionable.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: mención de \"git -C\" junto a un \"git commit\" local en el mismo comando → bloquea sin correr (mezcla de árboles)" \
+  "git -C /nonexistent status; git commit -am x"
+
+# X14: ruta inexistente — "git -C" resuelve una única candidata, pero no
+# existe. Bloquea sin correr (no "no es repo", que sería otro mensaje, pero
+# el contrato solo exige "Formas aceptadas" en stderr).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git -C <ruta inexistente> commit → bloquea sin correr" \
+  "git -C /nonexistent-tree-73 commit -am x"
+
+# X14b: ruta que existe pero no es un repo git.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+PCG_NOTAREPO_DIR=$(mktemp -d)
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git -C <directorio que no es repo> commit → bloquea sin correr" \
+  "git -C $PCG_NOTAREPO_DIR commit -am x"
+rm -rf "$PCG_NOTAREPO_DIR"
+
+# X11 (análogo -C): ruta con "$" sin expandir (literal, tal como llega el
+# comando — nadie lo ejecuta). El candidato extraído es literalmente
+# "$WT_VAR" (con el símbolo incluido): no cumple TREE_PATH_RE y, aunque lo
+# cumpliera, tampoco existe como directorio real — bloquea sin correr por
+# cualquiera de las dos razones, nunca lo trata como una ruta válida.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git -C \$WT_VAR (ruta con \$, literal) commit → bloquea sin correr" \
+  'git -C $WT_VAR commit -am x'
+
+# X12 (análogo -C): ruta entre comillas — guard_sanitize colapsa el span
+# quoted a un espacio, así que el candidato extraído termina siendo la
+# palabra "commit" (el siguiente token no-blanco tras "-C" una vez colapsada
+# la ruta real) en vez de la ruta del worktree. Verificado que ese
+# candidato no resuelve (no existe un directorio "commit" en el árbol
+# principal): bloquea sin correr — nunca debe tratar el artefacto del saneo
+# como si fuera la ruta real ni salir por el camino rápido.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git -C \"<worktree>\" (ruta entre comillas) commit → bloquea sin correr" \
+  "git -C \"$PSKIP_WT\" commit -am x"
+_pskip_cleanup_worktree
+
+# X15b: dos "-C" con rutas DISTINTAS — a qué árbol es ambiguo, bloquea sin
+# correr (sort -u deja más de una candidata).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+PCG_OTHER_DIR=$(mktemp -d)
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git -C <worktree> add -A && git -C <otro> commit (rutas distintas) → bloquea sin correr" \
+  "git -C $PSKIP_WT add -A && git -C $PCG_OTHER_DIR commit -m x"
+rm -rf "$PCG_OTHER_DIR"
+_pskip_cleanup_worktree
+
+# X15c (#73 ronda 1, informativo): dos "-C" pegados a la MISMA invocación de
+# "git" antes del "commit" real ("git -C O -C R commit") — a diferencia de
+# R6 (arriba, dos invocaciones SEPARADAS de "git -C" con la MISMA ruta, que
+# sí resuelve), acá la extracción "git\s+-C\s+[^[:space:]]+" solo capturaba
+# el PRIMER "-C" de la invocación (el segundo no está pegado a un "git"
+# propio) — git de verdad interpreta "-C" repetido de forma acumulativa
+# (cada "-C" es relativo al anterior), algo que este guard no reproduce.
+#
+# Para que el bug sea observable por su efecto real (no solo por bloquear
+# "por casualidad" con rutas inexistentes): O es un repo real SIN runner y
+# SIN cambios sucios (candidato inofensivo), R es un repo real CON runner
+# que siempre falla y con un archivo sucio fuera de .planning/. Antes de
+# este fix, la extracción se quedaba solo con "O" (primera "-C"), lo
+# resolvía como único árbol (repo válido, existe), no encontraba runner ahí
+# y el hook salía en 0 — un commit real a R pasaba sin correr sus tests.
+PCG_MULTIC_O=$(mktemp -d)
+(cd "$PCG_MULTIC_O" && git init -q && git config user.email sandbox@example.com && git config user.name Sandbox) > /dev/null 2>&1
+
+PCG_MULTIC_R=$(mktemp -d)
+FAKE_PYTEST_MULTIC_DIR=$(mktemp -d)
+cat > "$FAKE_PYTEST_MULTIC_DIR/pytest" <<'FAKE_PYTEST_MULTIC_EOF'
+#!/bin/bash
+exit 1
+FAKE_PYTEST_MULTIC_EOF
+chmod +x "$FAKE_PYTEST_MULTIC_DIR/pytest"
+(
+  cd "$PCG_MULTIC_R" || exit 1
+  git init -q
+  git config user.email sandbox@example.com
+  git config user.name Sandbox
+  mkdir -p .planning
+  echo "# STATE" > .planning/x.md
+  touch pyproject.toml
+  git add -A
+  git commit -q -m init
+) > /dev/null 2>&1
+echo "cambio" > "$PCG_MULTIC_R/dirty.txt"
+
+assert_blocked_cmd "pre-commit-guard: git -C O -C R commit (dos '-C' en la misma invocación, O inofensivo, R real) → bloquea sin correr" \
+  "pre-commit-guard.sh" \
+  "git -C $PCG_MULTIC_O -C $PCG_MULTIC_R commit -am x" \
+  "$FAKE_PYTEST_MULTIC_DIR:$PATH"
+
+rm -rf "$PCG_MULTIC_O" "$PCG_MULTIC_R" "$FAKE_PYTEST_MULTIC_DIR"
+
+# _pskip_setup_other / _pskip_cleanup_other (#73, Lote 2): segundo repo
+# git temporal, hermano de $PSKIP_DIR por defecto (ambos directamente bajo
+# el mismo $TMPDIR vía "mktemp -d"), o dentro de un directorio padre
+# explícito ($1) cuando el test necesita un HOME temporal a medida (R10).
+# Reusa el mismo $PSKIP_MARK que $PSKIP_DIR: su script de test también
+# escribe "pwd -P" ahí, así que _pskip_assert_marker_tree sirve igual para
+# afirmar en qué árbol corrió.
+_pskip_setup_other() {
+  local parent="${1:-}"
+  if [ -n "$parent" ]; then
+    PSKIP_OTHER=$(mktemp -d "$parent/other.XXXXXX")
+  else
+    PSKIP_OTHER=$(mktemp -d)
+  fi
+  PSKIP_OTHER=$(cd "$PSKIP_OTHER" && pwd -P)
+  (
+    cd "$PSKIP_OTHER" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p .planning src
+    cat > package.json <<EOF
+{ "name": "root", "private": true, "scripts": { "test": "pwd -P > $PSKIP_MARK/test.ran && exit 1" } }
+EOF
+    echo "# STATE" > .planning/x.md
+    echo "console.log(1)" > src/a.js
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+  echo "cambio-other" >> "$PSKIP_OTHER/src/a.js"
+}
+
+_pskip_cleanup_other() {
+  rm -rf "$PSKIP_OTHER"
+}
+
+# R9 (#73, Lote 2): ruta relativa a BASE_DIR — repo OTHER hermano de
+# PSKIP_DIR con código sucio → "cd ../<other> && git commit" resuelve a
+# OTHER. B6 resuelve con "cd BASE_DIR && cd ruta": una ruta relativa se
+# interpreta relativa a BASE_DIR, no al cwd del propio proceso del hook.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_other
+assert_blocked_cmd "pre-commit-guard: cd ../<other> (ruta relativa) && git commit resuelve a OTHER, corre suites" \
+  "pre-commit-guard.sh" "cd ../$(basename "$PSKIP_OTHER") && git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker_tree "pre-commit-guard: ruta relativa — el runner corrió en OTHER" "$PSKIP_OTHER"
+_pskip_cleanup_other
+
+# R10 (#73, Lote 2): prefijo "~/" — se expande contra HOME (nunca contra
+# BASE_DIR ni con "eval" del resto de la ruta) — repo OTHER dentro de un
+# HOME temporal → "cd ~/<other> && git commit" resuelve a OTHER.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+PCG_HOME=$(mktemp -d)
+PCG_HOME=$(cd "$PCG_HOME" && pwd -P)
+_pskip_setup_other "$PCG_HOME"
+HOME="$PCG_HOME" assert_blocked_cmd "pre-commit-guard: cd ~/<other> (prefijo ~/) && git commit resuelve a OTHER, corre suites" \
+  "pre-commit-guard.sh" "cd ~/$(basename "$PSKIP_OTHER") && git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker_tree "pre-commit-guard: prefijo ~/ — el runner corrió en OTHER" "$PSKIP_OTHER"
+_pskip_cleanup_other
+rm -rf "$PCG_HOME"
+
+# R8: ".cwd" del input reemplaza al cwd del proceso como BASE_DIR — el
+# proceso corre en el árbol principal (sucio solo .planning/), pero el JSON
+# trae "cwd": $PSKIP_WT (worktree con código sucio); sin redirección en el
+# TEXTO del comando, el árbol objetivo es el que indica ".cwd", no el cwd
+# real del proceso.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+HOOK_JSON_CWD="$PSKIP_WT" assert_blocked_cmd "pre-commit-guard: .cwd del input (worktree con código sucio) reemplaza el cwd del proceso" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker_tree "pre-commit-guard: .cwd del input — el runner corrió en el worktree" "$PSKIP_WT"
+_pskip_cleanup_worktree
+
+# X16: ".cwd" del input inválido (no es un directorio) bloquea sin correr
+# nada — nunca cae al cwd del proceso en silencio.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+HOOK_JSON_CWD="/nonexistent-$$" _pskip_assert_blocked_forms \
+  "pre-commit-guard: .cwd del input inválido (no es directorio) bloquea sin correr" \
+  "git commit -am x"
+
+# R11: proceso corriendo en un SUBDIRECTORIO del repo (no la raíz) — el
+# camino rápido (sin redirección en el comando) resuelve el toplevel del
+# árbol antes de decidir el salto de .planning/, así que un cambio sucio en
+# src/ (fuera de la raíz observada) sigue disparando las suites. Antes de
+# este fix, un "[ -f package.json ]" evaluado en el subdirectorio no
+# encontraba el runner y el commit pasaba sin tests.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/src/a.js"
+assert_blocked_cmd "pre-commit-guard: proceso en subdirectorio del repo → resuelve el toplevel, corre suites" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$PSKIP_DIR/src"
+_pskip_assert_marker_tree "pre-commit-guard: subdirectorio — el runner corrió en el toplevel" "$PSKIP_DIR"
+
+_pskip_cleanup
+
+# --- pre-commit-guard.sh: runner solo en un subdirectorio (#73 ronda 1, security HIGH) ---
+echo "--- pre-commit-guard.sh: runner solo en un subdirectorio (#73 ronda 1) ---"
+
+# _pnest_setup: repo git temporal SIN runner en la raíz — el único test
+# runner detectable vive en frontend/package.json (falla siempre, dejando
+# el marcador con "pwd -P" para afirmar en qué árbol corrió). Antes de este
+# fix, el hook siempre subía al toplevel antes de buscar el runner: con
+# este layout hacía "exit 0" sin correr nada, aunque la sesión estuviera
+# parada justo en el directorio que sí tiene runner — regresión fail-open
+# contra `dev` hallada por security-reviewer en la ronda 1 de #73.
+_pnest_setup() {
+  PNEST_DIR=$(mktemp -d)
+  PNEST_DIR=$(cd "$PNEST_DIR" && pwd -P)
+  PNEST_MARK=$(mktemp -d)
+  (
+    cd "$PNEST_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p .planning frontend
+    cat > frontend/package.json <<EOF
+{ "name": "frontend", "private": true, "scripts": { "test": "pwd -P > $PNEST_MARK/test.ran && exit 1" } }
+EOF
+    echo "# STATE" > .planning/x.md
+    echo "console.log(1)" > frontend/a.js
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+}
+
+_pnest_cleanup() {
+  rm -rf "$PNEST_DIR" "$PNEST_MARK"
+}
+
+# (nested-a) Camino rápido + ".cwd" apuntando al subdirectorio con runner:
+# el resolver tiene que buscar desde ahí hacia arriba (inclusive el
+# toplevel) y quedarse con la PRIMERA coincidencia — acá, el propio
+# directorio de partida.
+_pnest_setup
+echo "cambio" >> "$PNEST_DIR/frontend/a.js"
+HOOK_JSON_CWD="$PNEST_DIR/frontend" assert_blocked_cmd "pre-commit-guard: runner solo en frontend/, .cwd=frontend → encuentra el runner y corre (bloquea)" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$PNEST_DIR/frontend"
+TOTAL=$((TOTAL + 1))
+if [ -f "$PNEST_MARK/test.ran" ] && [ "$(cat "$PNEST_MARK/test.ran")" = "$(cd "$PNEST_DIR/frontend" && pwd -P)" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: runner en subdirectorio vía .cwd — corrió en frontend/"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: runner en subdirectorio vía .cwd — corrió en frontend/ (marcador: \"$(cat "$PNEST_MARK/test.ran" 2>/dev/null)\")"
+  FAIL=$((FAIL + 1))
+fi
+_pnest_cleanup
+
+# (nested-b) Forma "cd <ruta> && git commit …" desde la raíz — el resolver
+# de "cd" ya calcula RESOLVED_DIR (frontend); la búsqueda del runner debe
+# arrancar ahí, no en el toplevel.
+_pnest_setup
+echo "cambio" >> "$PNEST_DIR/frontend/a.js"
+assert_blocked_cmd "pre-commit-guard: cd frontend && git commit (runner solo en frontend/) → encuentra el runner y corre (bloquea)" \
+  "pre-commit-guard.sh" "cd frontend && git commit -am x" "$PATH" "$PNEST_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$PNEST_MARK/test.ran" ] && [ "$(cat "$PNEST_MARK/test.ran")" = "$(cd "$PNEST_DIR/frontend" && pwd -P)" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: cd frontend — el runner corrió en frontend/"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: cd frontend — el runner corrió en frontend/ (marcador: \"$(cat "$PNEST_MARK/test.ran" 2>/dev/null)\")"
+  FAIL=$((FAIL + 1))
+fi
+_pnest_cleanup
+
+# (nested-c) Forma "git -C <ruta> commit …" desde la raíz — mismo caso con
+# el resolver de "-C".
+_pnest_setup
+echo "cambio" >> "$PNEST_DIR/frontend/a.js"
+assert_blocked_cmd "pre-commit-guard: git -C frontend commit (runner solo en frontend/) → encuentra el runner y corre (bloquea)" \
+  "pre-commit-guard.sh" "git -C frontend commit -am x" "$PATH" "$PNEST_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$PNEST_MARK/test.ran" ] && [ "$(cat "$PNEST_MARK/test.ran")" = "$(cd "$PNEST_DIR/frontend" && pwd -P)" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: git -C frontend — el runner corrió en frontend/"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: git -C frontend — el runner corrió en frontend/ (marcador: \"$(cat "$PNEST_MARK/test.ran" 2>/dev/null)\")"
+  FAIL=$((FAIL + 1))
+fi
+_pnest_cleanup
+
+# (nested-d, negativo) Runner en la raíz, ".cwd" en la raíz → igual que hoy
+# (reusa _pskip_setup/_pskip_assert_marker_tree, ya con runner en la raíz).
+_pskip_setup
+echo "cambio" >> "$PSKIP_DIR/src/a.js"
+HOOK_JSON_CWD="$PSKIP_DIR" assert_blocked_cmd "pre-commit-guard: runner en la raíz, .cwd en la raíz → comportamiento sin cambios" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker_tree "pre-commit-guard: runner en la raíz — el runner corrió en la raíz (sin cambios)" "$PSKIP_DIR"
 _pskip_cleanup
 
 # --- pre-commit-guard.sh: workspace scoping (monorepo) ---
@@ -2622,6 +3302,109 @@ rm -rf "$FAKE_GH_D04_DIR"
 rm -rf "$FAKE_GH_DIR"
 
 rm -rf "$FAKE_GH_DIR"
+
+# ============================================================
+# [#73] pre-merge-check.sh: .cwd del input vs cwd del proceso, sin --repo
+# (Contrato 2 de .planning/DESIGN.md). Mismo criterio de "afirma qué
+# CONSULTÓ" que la sección D-04: un bloqueo se confirma con 0 llamadas al
+# gh falso, no solo con el exit code.
+# ============================================================
+echo "--- pre-merge-check.sh: cwd del input (#73) ---"
+
+FAKE_GH_PMC_CWD_DIR=$(mktemp -d)
+FAKE_GH_PMC_CWD_LOG="$FAKE_GH_PMC_CWD_DIR/calls.log"
+cat > "$FAKE_GH_PMC_CWD_DIR/gh" <<FAKE_GH_PMC_CWD_EOF
+#!/bin/bash
+echo "\$*" >> "$FAKE_GH_PMC_CWD_LOG"
+case "\$1 \$2" in
+  "repo view") echo "session/repo" ;;
+  "pr view") echo '{"reviewDecision":null}' ;;
+  "api graphql") echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}' ;;
+  "pr checks") printf 'some-check\tpass\t1s\n' ;;
+  *) exit 1 ;;
+esac
+FAKE_GH_PMC_CWD_EOF
+chmod +x "$FAKE_GH_PMC_CWD_DIR/gh"
+
+assert_pmc_cwd_continue() {
+  local test_name="$1" cmd="$2" cwd="$3" expected_repo="$4"
+  TOTAL=$((TOTAL + 1))
+  : > "$FAKE_GH_PMC_CWD_LOG"
+  local json exit_code=0
+  json=$(jq -n --arg cmd "$cmd" --arg cwd "$cwd" '{tool_input: {command: $cmd}, cwd: $cwd}')
+  echo "$json" | PATH="$FAKE_GH_PMC_CWD_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 0 ] && grep -qF -- "--repo $expected_repo" "$FAKE_GH_PMC_CWD_LOG"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue, repo consultado: $expected_repo)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, log: $(cat "$FAKE_GH_PMC_CWD_LOG" | tr '\n' ' '))"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pmc_cwd_continue_no_cwd_field() {
+  local test_name="$1" cmd="$2" expected_repo="$3"
+  TOTAL=$((TOTAL + 1))
+  : > "$FAKE_GH_PMC_CWD_LOG"
+  local json exit_code=0
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  echo "$json" | PATH="$FAKE_GH_PMC_CWD_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 0 ] && grep -qF -- "--repo $expected_repo" "$FAKE_GH_PMC_CWD_LOG"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue, repo consultado: $expected_repo)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, log: $(cat "$FAKE_GH_PMC_CWD_LOG" | tr '\n' ' '))"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pmc_cwd_blocked_no_calls() {
+  local test_name="$1" cmd="$2" cwd="$3" expected_substring="$4"
+  TOTAL=$((TOTAL + 1))
+  : > "$FAKE_GH_PMC_CWD_LOG"
+  local json exit_code=0 calls stderr_file
+  stderr_file=$(mktemp)
+  json=$(jq -n --arg cmd "$cmd" --arg cwd "$cwd" '{tool_input: {command: $cmd}, cwd: $cwd}')
+  echo "$json" | PATH="$FAKE_GH_PMC_CWD_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>"$stderr_file" || exit_code=$?
+  calls=$(wc -l < "$FAKE_GH_PMC_CWD_LOG" | tr -d ' ')
+  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file" && [ "$calls" = "0" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked, 0 consultas a gh)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"), consultas: $calls)"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$stderr_file"
+}
+
+PMC_PROC_CWD=$(pwd -P)
+PMC_OTHER_DIR=$(mktemp -d)
+
+# M1: .cwd == cwd del proceso -> continúa, consulta el repo de la sesión.
+assert_pmc_cwd_continue "[#73][M1] .cwd = cwd del proceso -> continúa, consulta el repo de la sesión" \
+  "gh pr merge 45" "$PMC_PROC_CWD" "session/repo"
+
+# M2: .cwd distinto (directorio existente), sin --repo -> bloquea sin consultar.
+assert_pmc_cwd_blocked_no_calls "[#73][M2] .cwd distinto del cwd del proceso, sin --repo -> bloquea sin consultar" \
+  "gh pr merge 45" "$PMC_OTHER_DIR" "--repo"
+
+# M3: .cwd inexistente, sin --repo -> bloquea sin consultar.
+assert_pmc_cwd_blocked_no_calls "[#73][M3] .cwd inexistente, sin --repo -> bloquea sin consultar" \
+  "gh pr merge 45" "/nonexistent-pmc-cwd-$$" "--repo"
+
+# M4: .cwd distinto, pero con --repo explícito -> el check de cwd no aplica
+# (--repo YA es el remedio que el mensaje de M2/M3 sugiere), continúa
+# consultando el repo indicado.
+assert_pmc_cwd_continue "[#73][M4] .cwd distinto pero --repo explícito -> continúa, consulta ese repo" \
+  "gh pr merge 45 --repo o/r" "$PMC_OTHER_DIR" "o/r"
+
+# M5: .cwd ausente del JSON (CLI viejo o test sin ese campo) -> comportamiento
+# actual, sin bloqueo por este check (ya cubierto por el resto de esta
+# sección, que nunca manda cwd; se deja explícito por claridad del contrato).
+assert_pmc_cwd_continue_no_cwd_field "[#73][M5] .cwd ausente del JSON -> comportamiento actual, continúa" \
+  "gh pr merge 45" "session/repo"
+
+rm -rf "$FAKE_GH_PMC_CWD_DIR" "$PMC_OTHER_DIR"
 
 echo ""
 
