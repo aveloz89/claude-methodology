@@ -4,7 +4,7 @@
   "branch": "fix/guards-honest-errors",
   "pr": null,
   "review_sha": null,
-  "updated": "2026-09-27T00:00:00Z",
+  "updated": "2026-09-27T00:10:00Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "done",
@@ -78,11 +78,17 @@
       "id": "G4",
       "name": "issue-86-runners-subdir",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
+      "status": "done",
+      "tasks_done": 5,
       "tasks_total": 5,
       "current_task": null,
-      "commits": [],
+      "commits": [
+        "bf5eec0",
+        "ca8c6f9",
+        "04a7208",
+        "9d6407d",
+        "8b0bd65"
+      ],
       "last_batch": false,
       "depends_on": [
         "G3"
