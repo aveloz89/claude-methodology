@@ -747,13 +747,13 @@ else
 fi
 
 echo ""
-echo "--- agents/qa-backend.md, qa-frontend.md, security-reviewer.md: regla de sandbox para pruebas que escriben archivos ---"
+echo "--- rulebooks/reviewer-common.md: regla de sandbox para pruebas que escriben archivos ---"
 
 # extract_section <file> <heading>: extrae el texto desde la línea que
-# empieza con "$heading" (encabezado propio, p. ej. "## Pruebas que escriben
-# archivos") hasta la línea anterior al siguiente "## " (o EOF). Usa awk en
-# vez de sed/grep porque necesita devolver el rango completo de líneas, no
-# un solo match.
+# empieza con "$heading" (encabezado propio, p. ej. "## 3. Pruebas que
+# escriben archivos") hasta la línea anterior al siguiente "## " (o EOF).
+# Usa awk en vez de sed/grep porque necesita devolver el rango completo de
+# líneas, no un solo match.
 extract_section() {
   local file="$1" heading="$2"
   awk -v h="$heading" '
@@ -764,10 +764,7 @@ extract_section() {
 }
 
 # assert_section_contains <section> <pattern> <label>: como assert_contains
-# pero sobre un string ya extraído en vez de un archivo — así el patrón
-# buscado tiene que estar dentro de la sección nueva, no en cualquier parte
-# del archivo (p. ej. "NO CUBIERTO" ya existía en qa-backend.md y
-# qa-frontend.md antes de este bloque, fuera de esta sección).
+# pero sobre un string ya extraído en vez de un archivo.
 assert_section_contains() {
   local section="$1" pattern="$2" label="$3"
   TOTAL=$((TOTAL + 1))
@@ -783,53 +780,41 @@ assert_section_contains() {
 QA_BACKEND="$REPO_ROOT/agents/qa-backend.md"
 QA_FRONTEND="$REPO_ROOT/agents/qa-frontend.md"
 SECURITY_REVIEWER="$REPO_ROOT/agents/security-reviewer.md"
-SANDBOX_HEADING="## Pruebas que escriben archivos"
+REVIEWER_COMMON="$REPO_ROOT/rulebooks/reviewer-common.md"
+SANDBOX_HEADING="## 3. Pruebas que escriben archivos"
 
-SECTION_QA_BACKEND=$(extract_section "$QA_BACKEND" "$SANDBOX_HEADING")
-SECTION_QA_FRONTEND=$(extract_section "$QA_FRONTEND" "$SANDBOX_HEADING")
-SECTION_SECURITY_REVIEWER=$(extract_section "$SECURITY_REVIEWER" "$SANDBOX_HEADING")
+SECTION_REVIEWER_COMMON=$(extract_section "$REVIEWER_COMMON" "$SANDBOX_HEADING")
 
 TOTAL=$((TOTAL + 1))
-if [ "$SECTION_QA_BACKEND" = "$SECTION_QA_FRONTEND" ] && [ "$SECTION_QA_FRONTEND" = "$SECTION_SECURITY_REVIEWER" ] && [ -n "$SECTION_QA_BACKEND" ]; then
-  echo -e "${GREEN}PASS${NC}: la sección \"$SANDBOX_HEADING\" es idéntica en los 3 agentes"
+if [ -n "$SECTION_REVIEWER_COMMON" ]; then
+  echo -e "${GREEN}PASS${NC}: rulebooks/reviewer-common.md tiene la sección \"$SANDBOX_HEADING\""
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: la sección \"$SANDBOX_HEADING\" difiere entre qa-backend.md, qa-frontend.md y security-reviewer.md"
+  echo -e "${RED}FAIL${NC}: rulebooks/reviewer-common.md no tiene la sección \"$SANDBOX_HEADING\""
   FAIL=$((FAIL + 1))
 fi
 
-SECTION_LABELS=("agents/qa-backend.md" "agents/qa-frontend.md" "agents/security-reviewer.md")
-SECTION_VALUES=("$SECTION_QA_BACKEND" "$SECTION_QA_FRONTEND" "$SECTION_SECURITY_REVIEWER")
+assert_section_contains "$SECTION_REVIEWER_COMMON" "git worktree add --detach" \
+  "reviewer-common.md exige worktree --detach para escrituras sobre el repo (scratchpad/mktemp -d no lo necesita)"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "git worktree remove" \
+  "reviewer-common.md exige eliminar el worktree con git worktree remove al terminar"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "git stash" \
+  "reviewer-common.md prohíbe git stash por ser compartido entre worktrees"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "corre sobre el árbol del repo" \
+  "reviewer-common.md prohíbe que un comando que escriba corra sobre el árbol del repo"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "dangerously-skip-permissions" \
+  "reviewer-common.md prohíbe --dangerously-skip-permissions"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "bypassPermissions" \
+  "reviewer-common.md prohíbe --permission-mode bypassPermissions"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "acceptEdits" \
+  "reviewer-common.md prohíbe --permission-mode acceptEdits"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "NO CUBIERTO" \
+  "reviewer-common.md exige declarar en NO CUBIERTO lo que requeriría permisos saltados"
 
-for i in 0 1 2; do
-  label="${SECTION_LABELS[$i]}"
-  section="${SECTION_VALUES[$i]}"
-
-  TOTAL=$((TOTAL + 1))
-  if [ -n "$section" ]; then
-    echo -e "${GREEN}PASS${NC}: $label tiene la sección \"$SANDBOX_HEADING\""
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $label no tiene la sección \"$SANDBOX_HEADING\""
-    FAIL=$((FAIL + 1))
-  fi
-
-  assert_section_contains "$section" "git worktree add --detach" \
-    "$label exige worktree --detach para escrituras sobre el repo (scratchpad/mktemp -d no lo necesita)"
-  assert_section_contains "$section" "git worktree remove" \
-    "$label exige eliminar el worktree con git worktree remove al terminar"
-  assert_section_contains "$section" "git stash" \
-    "$label prohíbe git stash por ser compartido entre worktrees"
-  assert_section_contains "$section" "corre sobre el árbol del repo" \
-    "$label prohíbe que un comando que escriba corra sobre el árbol del repo"
-  assert_section_contains "$section" "dangerously-skip-permissions" \
-    "$label prohíbe --dangerously-skip-permissions"
-  assert_section_contains "$section" "bypassPermissions" \
-    "$label prohíbe --permission-mode bypassPermissions"
-  assert_section_contains "$section" "acceptEdits" \
-    "$label prohíbe --permission-mode acceptEdits"
-  assert_section_contains "$section" "NO CUBIERTO" \
-    "$label exige declarar en NO CUBIERTO lo que requeriría permisos saltados"
+for agent in qa-backend qa-frontend security-reviewer; do
+  AGENT_FILE="$REPO_ROOT/agents/$agent.md"
+  assert_contains "$AGENT_FILE" "rulebooks/reviewer-common.md" \
+    "agents/$agent.md referencia rulebooks/reviewer-common.md"
 done
 
 assert_contains "$SECURITY_REVIEWER" "### NO CUBIERTO" \

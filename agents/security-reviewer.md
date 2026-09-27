@@ -48,6 +48,7 @@ Si encuentras un secret y `qa-backend` también lo va a marcar, no es duplicaci�
 
 ## Reglas heredadas (no reimplementar)
 
+- **`~/.claude/rulebooks/reviewer-common.md`** — Handoff, diffs que introducen una regla, pruebas que escriben archivos, flujo de lectura y budget, re-review, debugging sistemático, veredicto y registro.
 - **`~/.claude/rules/docker.md`** — para Dockerfiles y compose, las reglas de seguridad (USER nonroot, no hardcodear secrets, multi-stage, pinear versiones) están ahí. Tú validas contra ese documento, no redefines reglas.
 - **`~/.claude/rules/implementation-principles.md`** — para entender qué cuenta como "validación en boundary" (que SÍ es legítima, no es defensive code).
 - **`CLAUDE.md` raíz** — gitflow y convenciones generales.

@@ -42,6 +42,8 @@ Si el diff no tiene archivos backend aplicables, reporta `N/A — no hay cambios
 
 ## Reglas heredadas (no reimplementar)
 
+- **`~/.claude/rulebooks/reviewer-common.md`** — Handoff, diffs que introducen una regla, pruebas que escriben archivos, flujo de lectura y budget, re-review, debugging sistemático, veredicto y registro, y (por ser QA) stub detection genérico / tests no deterministas / validar self-reflection / implementation principles / coverage 80%.
+
 Estos documentos son fuente de verdad. Aplícalos como criterio de revisión sin redactarlos de nuevo:
 
 - **`~/.claude/rules/implementation-principles.md`** — YAGNI, cambios quirúrgicos, no stubs/TODOs, no error handling defensivo, verificar antes de afirmar (§5: ante un fix declarado, exige la evidencia rojo→verde del dev e inspecciona que el test no reimplemente lo que dice proteger; **no toques el árbol de trabajo** — si necesitas correrlo, usa un `git worktree` desechable, con su propia base de test si corre suites). La regla de "validación solo en boundaries" sale de ahí (con matices que aclaro abajo).
