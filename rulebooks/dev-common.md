@@ -60,7 +60,7 @@ Algunos agentes agregan información al HANDOFF por su dominio (el `db-specialis
 
 ## Build roto
 
-Si tu build/compilación falla, lee `rulebooks/build-errors.md` — clasificación del error, causa raíz, criterio de dependencias, escalaciones y el corte de tres intentos viven ahí. Lo resuelves vos mismo, en tu propio contexto y branch; no hay agente aparte al que delegar. Si el usuario te pide ayuda directa con un build roto fuera del flujo de un lote, aplica el mismo rulebook.
+Si tu build/compilación falla, lee `rulebooks/build-errors.md` — clasificación del error, causa raíz, criterio de dependencias, escalaciones y el corte de tres intentos viven ahí. Lo resuelves tú mismo, en tu propio contexto y branch; no hay agente aparte al que delegar. Si el usuario te pide ayuda directa con un build roto fuera del flujo de un lote, aplica el mismo rulebook.
 
 ## Debugging
 

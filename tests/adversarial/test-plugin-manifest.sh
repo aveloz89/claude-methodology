@@ -413,7 +413,7 @@ assert_no_voseo() {
   local pattern='\b([A-Za-zÁÉÍÓÚñ]*(ás|és|ís)|Cargá|cargala|obtené|leelo|retomá|[Vv]os)\b'
   TOTAL=$((TOTAL + 1))
   local hits
-  hits=$(grep -noE "$pattern" "$file" | grep -vE ':(está|estás|Después|después|acá|inglés)$' || true)
+  hits=$(grep -noE "$pattern" "$file" | grep -vE ':(está|estás|Después|después|acá|inglés|más)$' || true)
   if [ -z "$hits" ]; then
     echo -e "${GREEN}PASS${NC}: $file usa tuteo (sin formas voseantes)"
     PASS=$((PASS + 1))
@@ -425,6 +425,8 @@ assert_no_voseo() {
 
 assert_no_voseo "$REPO_ROOT/global/CLAUDE.md"
 assert_no_voseo "$ORCHESTRATOR_SKILL"
+assert_no_voseo "$REPO_ROOT/rulebooks/build-errors.md"
+assert_no_voseo "$REPO_ROOT/rulebooks/db-migrations.md"
 
 echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"

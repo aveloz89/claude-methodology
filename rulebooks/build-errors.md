@@ -54,7 +54,7 @@ Si tu fix hace pasar el error pero introduce uno nuevo: no acumules fixes sobre 
 
 Al escalar, reporta: qué cambio propones (de qué versión a qué versión, o qué dependencia agregar), por qué resolvería el build, y qué riesgo trae (breaking changes conocidos, CVE, incompatibilidad).
 
-## En vez de → hacé
+## En vez de → hacer
 
 | En vez de | Hacé |
 |---|---|
@@ -65,7 +65,7 @@ Al escalar, reporta: qué cambio propones (de qué versión a qué versión, o q
 | desactivar una regla de lint para evitar el error | arreglar el código que la viola |
 | downgrade del runtime (Node, Python, Go, .NET) para esquivar el error | si la versión actual rompe el build, es decisión del architect actualizar el código o pinear el runtime |
 | aflojar `strict`/`mypy`/`clippy` (`strict: false`, `--no-strict-features`) | esas reglas existen por algo; arreglar el código que no las cumple |
-| refactorizar código no relacionado mientras arreglás el build | fix quirúrgico solamente — el refactor va en su propio PR |
+| refactorizar código no relacionado mientras arreglas el build | fix quirúrgico solamente — el refactor va en su propio PR |
 | "limpiar" imports no usados que no son la causa del error | dejarlos; si son la causa, sí se tocan |
 | agregar features o cambiar comportamiento de paso | eso no es un fix de build |
 
@@ -91,7 +91,7 @@ No pusheas fuera de las excepciones ya definidas en `dev-common.md` — el commi
 
 Si después de tres intentos de fix el build sigue fallando, no sigas iterando a ciegas:
 
-1. No uses `git reset --hard` (el hook `block-hard-reset.sh` lo bloquea). Alternativas seguras: `git reset --soft <commit-antes-de-tus-intentos>` + `git checkout -- .` o `git stash`; o `git revert <rango>` si preferís no reescribir historia.
+1. No uses `git reset --hard` (el hook `block-hard-reset.sh` lo bloquea). Alternativas seguras: `git reset --soft <commit-antes-de-tus-intentos>` + `git checkout -- .` o `git stash`; o `git revert <rango>` si prefieres no reescribir historia.
 2. Reporta al orchestrator qué intentaste y por qué no funcionó.
 3. Sugiere a quién escalar: architect si requiere decisión de stack, al dueño del dominio si requiere conocimiento específico, al usuario si es ambiguo.
 
