@@ -20,7 +20,7 @@ No todo lo que llega como "el build falla" es un error de build. Clasifica prime
 | Runtime error en producción/staging | no | bug de lógica, mismo dueño |
 | Error en CI por servicio externo caído | no | reportar al usuario, no es de build |
 
-Si el error cae en la columna "no", el fix sigue siendo tuyo (sos el dev del lote) pero ya no es un problema de build: aplica el flujo normal de tu agente, no este rulebook.
+Si el error cae en la columna "no", el fix sigue siendo tuyo (eres el dev del lote) pero ya no es un problema de build: aplica el flujo normal de tu agente, no este rulebook.
 
 ## Causa raíz
 
@@ -56,7 +56,7 @@ Al escalar, reporta: qué cambio propones (de qué versión a qué versión, o q
 
 ## En vez de → hacer
 
-| En vez de | Hacé |
+| En vez de | Haz |
 |---|---|
 | `@ts-ignore`, `@ts-expect-error`, `# type: ignore`, `#[allow(...)]` para silenciar un type/lint error | arreglar el tipo o el código |
 | `any` / `cast(Type, value)` sin validación para esquivar un type error | tipar correctamente |

@@ -413,10 +413,18 @@ echo "--- Tuteo consistente en global/CLAUDE.md y skills/orchestrator/SKILL.md -
 
 assert_no_voseo() {
   local file="$1"
-  local pattern='\b([A-Za-zÁÉÍÓÚñ]*(ás|és|ís)|Cargá|cargala|obtené|leelo|retomá|[Vv]os)\b'
+  # [A-Za-zÁÉÍÓÚñ]+[áéí] cubre "sos" (vía alternativa explícita) y los
+  # imperativos voseantes con tilde final (Hacé, hacé, Cargá...). Es más
+  # amplio que un ás/és/ís final, así que necesita más exclusiones abajo.
+  local pattern='\b([A-Za-zÁÉÍÓÚñ]*(ás|és|ís)|Cargá|cargala|obtené|leelo|retomá|[Vv]os|sos|[A-Za-zÁÉÍÓÚñ]+[áéí])\b'
   TOTAL=$((TOTAL + 1))
   local hits
-  hits=$(grep -noE "$pattern" "$file" | grep -vE ':(está|estás|Después|después|acá|inglés|más)$' || true)
+  # LC_ALL=en_US.UTF-8: en locale C, grep trata los acentos como no-word y
+  # \b marca borde en cualquier lado de una vocal acentuada (matchearía
+  # "metodologí" dentro de "metodología"). Con locale UTF-8 los acentos
+  # cuentan como caracteres de palabra y \b funciona como se espera.
+  hits=$(LC_ALL=en_US.UTF-8 grep -noiE "$pattern" "$file" \
+    | LC_ALL=en_US.UTF-8 grep -viE ':(está|estás|después|acá|inglés|más|así|aquí|también|esté|sí|ahí|qué|aplicará)$' || true)
   if [ -z "$hits" ]; then
     echo -e "${GREEN}PASS${NC}: $file usa tuteo (sin formas voseantes)"
     PASS=$((PASS + 1))
@@ -500,34 +508,6 @@ assert_contains "$RUNBOOK" "lee \`MASTER.md\` y aplica sus constraints" \
   "runbook Fase 0.5 usa el mismo término que agents/frontend-dev.md (constraints, no checklist)"
 assert_not_contains "$RUNBOOK" "aplica su checklist directamente" \
   "runbook Fase 0.5 ya no usa el término checklist, ausente en agents/frontend-dev.md"
-
-echo ""
-echo "--- Voseo: sos e imperativos voseantes con tilde final ---"
-
-assert_no_voseo_extended() {
-  local file="$1"
-  local pattern='\b([A-Za-zÁÉÍÓÚñ]*(ás|és|ís)|Cargá|cargala|obtené|leelo|retomá|[Vv]os|sos|[A-Za-zÁÉÍÓÚñ]+[áéí])\b'
-  TOTAL=$((TOTAL + 1))
-  local hits
-  # LC_ALL=en_US.UTF-8: en locale C, grep trata los acentos como no-word y
-  # \b marca borde en cualquier lado de una vocal acentuada (ej: matchea
-  # "metodologí" dentro de "metodología"). Con locale UTF-8 los acentos
-  # cuentan como caracteres de palabra y \b funciona como se espera.
-  hits=$(LC_ALL=en_US.UTF-8 grep -noiE "$pattern" "$file" \
-    | LC_ALL=en_US.UTF-8 grep -viE ':(está|estás|después|acá|inglés|más|así|aquí|también|esté|sí|ahí|qué|aplicará)$' || true)
-  if [ -z "$hits" ]; then
-    echo -e "${GREEN}PASS${NC}: $file usa tuteo (sin voseo, incluye sos e imperativos con tilde)"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $file tiene formas voseantes: $(echo "$hits" | tr '\n' ' ')"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_no_voseo_extended "$REPO_ROOT/rulebooks/build-errors.md"
-assert_no_voseo_extended "$REPO_ROOT/rulebooks/db-migrations.md"
-assert_no_voseo_extended "$REPO_ROOT/global/CLAUDE.md"
-assert_no_voseo_extended "$ORCHESTRATOR_SKILL"
 
 echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
