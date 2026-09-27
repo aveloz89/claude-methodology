@@ -7,8 +7,8 @@
   "updated": "2026-09-26T00:00:00Z",
   "phases": {
     "brainstorming": "done",
-    "design": "in_progress",
-    "implementation": "pending",
+    "design": "done",
+    "implementation": "in_progress",
     "docs": "pending",
     "review": "pending",
     "pr": "pending",
@@ -16,5 +16,46 @@
     "e2e": "pending",
     "merge": "pending"
   },
-  "batches": []
+  "batches": [
+    {
+      "id": "P1",
+      "name": "agente-y-lint",
+      "agent": "backend-dev",
+      "status": "in_progress",
+      "tasks_done": 0,
+      "tasks_total": 4,
+      "current_task": null,
+      "commits": [],
+      "last_batch": false,
+      "depends_on": []
+    },
+    {
+      "id": "P2",
+      "name": "skill-y-runbook",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 4,
+      "current_task": null,
+      "commits": [],
+      "last_batch": false,
+      "depends_on": [
+        "P1"
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "new-project-consumidores-cierre",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 5,
+      "current_task": null,
+      "commits": [],
+      "last_batch": true,
+      "depends_on": [
+        "P2"
+      ]
+    }
+  ]
 }
