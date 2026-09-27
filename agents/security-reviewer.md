@@ -340,6 +340,9 @@ Cuando te piden re-revisar después de fixes:
 ### Nuevos issues introducidos
 - [NINGUNO / lista]
 
+### NO CUBIERTO
+- Verificaciones que requerirían permisos saltados (ver "Pruebas que escriben archivos") y cómo las haría el usuario, o "ninguna"
+
 ### Veredicto
 - [APROBADO / BLOQUEANTE]
 ```
