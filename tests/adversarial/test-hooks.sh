@@ -565,6 +565,36 @@ assert_blocked_cmd "block-force-push: cd a && git -C repo push -fu blocks" \
   "block-force-push.sh" \
   "cd a && git -C repo push -fu"
 
+# Falso bloqueo (review dual ronda 1, security LOW): el cluster corto de
+# C2/C4 no tenía borde izquierdo — "-[a-zA-Z]*f[a-zA-Z]*" matchea la "f"
+# de un TOKEN que no es una flag, como el sufijo "-form"/"-flags" de un
+# nombre de branch, si "push\s+" ya consumió el espacio anterior y no queda
+# ningún separador real antes del "-" para exigir un borde. Fix: la
+# alternativa del cluster exige un espacio (o el inicio de la cadena)
+# inmediato antes del "-", nunca un "-" en medio de un token.
+assert_allowed_cmd "block-force-push: git push -u origin fix/login-form allowed (falso bloqueo)" \
+  "block-force-push.sh" \
+  "git push -u origin fix/login-form"
+assert_allowed_cmd "block-force-push: git push origin fix/update-footer allowed (falso bloqueo)" \
+  "block-force-push.sh" \
+  "git push origin fix/update-footer"
+assert_allowed_cmd "block-force-push: git push -u origin feature/add-feature-flags allowed (falso bloqueo)" \
+  "block-force-push.sh" \
+  "git push -u origin feature/add-feature-flags"
+assert_allowed_cmd "block-force-push: git push --no-verify -u origin feat allowed (falso bloqueo)" \
+  "block-force-push.sh" \
+  "git push --no-verify -u origin feat"
+# Negativo del fix: el cluster corto sigue bloqueando con borde real.
+assert_blocked_cmd "block-force-push: git push -fu origin x sigue bloqueando (borde real)" \
+  "block-force-push.sh" \
+  "git push -fu origin x"
+assert_blocked_cmd "block-force-push: git push -uf origin x sigue bloqueando (borde real)" \
+  "block-force-push.sh" \
+  "git push -uf origin x"
+assert_blocked_cmd "block-force-push: git push -f sigue bloqueando (borde real)" \
+  "block-force-push.sh" \
+  "git push -f"
+
 echo ""
 
 # --- block-hard-reset.sh ---

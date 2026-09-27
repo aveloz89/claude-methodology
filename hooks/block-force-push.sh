@@ -51,7 +51,15 @@ SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 # la flag -f dentro de un cluster corto (ej. "-fu", "-uf") y "git -C <ruta>
 # push" (GUARD_GIT_TREE_OPTS detecta el mismo push real con esa opción de
 # árbol entre "git" y "push").
-FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_TREE_OPTS}push\s+.*((-f|--force)\b|-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
+#
+# Borde izquierdo del cluster (review dual ronda 1, security LOW, falso
+# bloqueo): sin "(^|[[:space:]])" antes del "-", el cluster matchea la "f"
+# de un TOKEN que no es una flag, como el sufijo "-form"/"-flags" de un
+# nombre de branch ("fix/login-form", "feature/add-feature-flags") —
+# "push\s+" ya consumió el único espacio real antes del "-" de la flag,
+# así que "push\b" (en vez de "push\s+") deja ese espacio disponible para
+# que el propio cluster lo exija como borde.
+FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_TREE_OPTS}push\b.*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
 
 if echo "$SANITIZED_COMMAND" | grep -qE "$FORCE_PATTERN"; then
   echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2
