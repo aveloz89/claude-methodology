@@ -52,24 +52,29 @@ GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
 # Fragmento de regex ERE que consume, cero o más veces, una opción de árbol
 # de git ("-C <ruta>"/"-C=<ruta>", "--git-dir"/"--work-tree" con o sin "=")
 # seguida de su valor y un separador — usado entre "git" y el subcomando
-# vigilado (commit, push, reset) para detectar "git -C <ruta> <subcomando>"
-# como la misma invocación. Antes vivía inline en GIT_COMMIT_RE
+# vigilado (commit) para detectar "git -C <ruta> <subcomando>" como la
+# misma invocación. Antes vivía inline en GIT_COMMIT_RE
 # (pre-commit-guard.sh); un guard nuevo que necesite el mismo fragmento no
 # tiene que copiarlo a mano.
-# shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
+#
+# Los guards de push/reset (block-force-push, block-hard-reset,
+# pre-push-guard) usan GUARD_GIT_OPTS en vez de este fragmento — ver abajo.
+# shellcheck disable=SC2034 # se usa en pre-commit-guard.sh
 GUARD_GIT_TREE_OPTS='((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?\s+)*'
 
-# Fragmento de regex ERE que consume, cero o más veces, una opción global de
-# git que no cambia el árbol de trabajo: "-c <clave=valor>" (una o varias)
-# y "--no-pager" — usado junto a GUARD_GIT_TREE_OPTS entre "git" y el
-# subcomando vigilado (push, reset --hard). D-07 (review dual ronda 1): sin
-# esto, "git -c user.name=x push" o "git --no-pager reset --hard" no
-# matcheaban el "git\s+push"/"git\s+reset\s+--hard" que cada guard ancla —
-# el "-c ..."/"--no-pager" quedaba entre medio sin que ningún fragmento lo
-# consumiera — así que el push/reset real pasaba SIN EVALUAR, no bloqueado
-# a propósito: un fail-open silencioso sobre una forma honesta.
-# shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
-GUARD_GIT_GLOBAL_OPTS='((-c\s+\S+|--no-pager)\s+)*'
+# Fragmento de regex ERE que consume, cero o más veces y EN CUALQUIER ORDEN,
+# las opciones de git que pueden aparecer entre "git" y el subcomando
+# vigilado (push, reset --hard): opciones de árbol ("-C <ruta>",
+# "--git-dir"/"--work-tree" con o sin "="), "-c <clave=valor>", "--no-pager"
+# y "-P". Una sola alternancia repetida en vez de dos fragmentos
+# concatenados (GUARD_GIT_TREE_OPTS + una versión anterior de esto, "global
+# opts"): la concatenación solo reconocía UN orden fijo entre ambos grupos
+# — "git -C /x -c a=b push --force" (árbol después de "-c") no matcheaba
+# ninguno de los dos fragmentos, y el force push real pasaba SIN EVALUAR
+# (ronda 2 del review dual, security LOW). git acepta estas opciones en
+# cualquier orden antes del subcomando; el regex ahora también.
+# shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh y pre-push-guard.sh
+GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
 
 # Fragmento de regex ERE que reconoce "gh ... pr ... merge" tolerando hasta
 # 2 tokens entre "gh"/"pr" y entre "pr"/"merge" (formas como "gh -R x pr

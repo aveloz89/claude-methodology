@@ -362,6 +362,14 @@ assert_blocked_cmd "pre-push-guard: 'git -c user.name=x push origin main' bloque
   "pre-push-guard.sh" "git -c user.name=x push origin main" "$PATH" "$SANDBOX_REPO"
 assert_blocked_cmd "pre-push-guard: 'git --no-pager push origin main' bloquea (D-07)" \
   "pre-push-guard.sh" "git --no-pager push origin main" "$PATH" "$SANDBOX_REPO"
+
+# Ronda 2 (review dual, security LOW): mismo fix de orden — "-C" antes de
+# "-c" no matcheaba PUSH_RE con la concatenación de fragmentos de orden
+# fijo (bloquea igual por la vía de "no resuelve redirecciones", al
+# detectar "-C" más abajo, pero antes ni llegaba ahí: salía en 0 sin
+# evaluar nada).
+assert_blocked_cmd "pre-push-guard: 'git -C . -c a=b push' en main bloquea (-C antes de -c, ronda 2)" \
+  "pre-push-guard.sh" "git -C . -c a=b push" "$PATH" "$SANDBOX_REPO"
 (cd "$SANDBOX_REPO" && git reset -q --hard "$PUSH_D07_HEAD")
 
 # E4: el branch se lee del ".cwd" del input, no del cwd del PROCESO del
@@ -629,6 +637,18 @@ assert_allowed_cmd "block-force-push: git -c user.name=x push (sin force) allowe
   "block-force-push.sh" \
   "git -c user.name=x push"
 
+# Ronda 2 (review dual, security LOW): GUARD_GIT_OPTS reemplaza la
+# concatenación de dos fragmentos con orden fijo (árbol, luego -c/
+# --no-pager) por una sola alternancia repetida — antes, un orden
+# DISTINTO al fijo ("-C" antes de "-c", o "-P") no matcheaba ninguno de
+# los dos fragmentos y el force push real pasaba SIN EVALUAR.
+assert_blocked_cmd "block-force-push: git -C /x -c a=b push --force blocks (-C antes de -c, ronda 2)" \
+  "block-force-push.sh" \
+  "git -C /x -c a=b push --force"
+assert_blocked_cmd "block-force-push: git -P push --force blocks (ronda 2)" \
+  "block-force-push.sh" \
+  "git -P push --force"
+
 echo ""
 
 # --- block-hard-reset.sh ---
@@ -688,6 +708,13 @@ assert_blocked_cmd "block-hard-reset: git --no-pager reset --hard blocks (D-07)"
 assert_allowed_cmd "block-hard-reset: git -c user.name=x reset --soft allowed (D-07)" \
   "block-hard-reset.sh" \
   "git -c user.name=x reset --soft"
+
+# Ronda 2 (review dual, security LOW): mismo fix de orden que
+# block-force-push — "-C" antes de "-c" no matcheaba con la concatenación
+# de fragmentos de orden fijo.
+assert_blocked_cmd "block-hard-reset: git -C /x -c a=b reset --hard blocks (-C antes de -c, ronda 2)" \
+  "block-hard-reset.sh" \
+  "git -C /x -c a=b reset --hard"
 
 echo ""
 
