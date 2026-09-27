@@ -899,6 +899,16 @@ assert_allowed_cmd "pre-commit-guard: mención de \"git -C\" dentro del mensaje 
   "pre-commit-guard.sh" 'git commit -m "git -C /x commit"' "$PATH" "$PSKIP_DIR"
 _pskip_assert_marker "pre-commit-guard: mención de git -C en el mensaje — el test runner NO corrió" no
 
+# (a3) [#73, Lote 2] Mismo caso que (a2) pero con "cd": una mención de
+# "cd /tmp && git commit" dentro del MENSAJE del commit (texto quoted) no
+# debe enrutarse al resolver de "cd" — guard_sanitize la elimina antes de
+# CD_PUSHD_RE, así que sigue siendo un commit normal por el camino rápido.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+assert_allowed_cmd "pre-commit-guard: mención de \"cd /tmp && git commit\" dentro del mensaje va por el camino rápido (no se enruta al resolver de cd)" \
+  "pre-commit-guard.sh" 'git commit -m "cd /tmp && git commit"' "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: mención de \"cd /tmp && git commit\" en el mensaje — el test runner NO corrió" no
+
 # (b) .planning/x.md + src/a.js → corre (bloquea: el runner siempre falla).
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
@@ -1339,6 +1349,30 @@ echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 assert_allowed_cmd "pre-commit-guard: mención de \"cd x\" dentro de un string sigue saltando" \
   "pre-commit-guard.sh" 'echo "cd x" && git commit -am x' "$PATH" "$PSKIP_DIR"
 _pskip_assert_marker "pre-commit-guard: mención de cd en string — el test runner NO corrió (sigue saltando)" no
+
+# (#73, Lote 2, Tarea 4) Contrato del mensaje de bloqueo: nombra las TRES
+# formas aceptadas ("git commit …", "cd <ruta> && …", "git -C <ruta> …")
+# Y el escape ("hacé el cd en una llamada Bash previa"). Los tests con
+# _pskip_assert_blocked_forms de arriba solo verifican la presencia de
+# "Formas aceptadas" (contrato mínimo compartido); este test lee el
+# stderr completo para afirmar el contenido, no solo el encabezado.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+PCG_MSG_JSON=$(jq -n --arg cmd "cd; git commit -am x" '{tool_input: {command: $cmd}}')
+PCG_MSG_EXIT=0
+PCG_MSG_STDERR=$(cd "$PSKIP_DIR" && echo "$PCG_MSG_JSON" | PATH="$PATH" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PCG_MSG_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$PCG_MSG_EXIT" -eq 2 ] \
+  && echo "$PCG_MSG_STDERR" | grep -qF "'git commit …' en el cwd de la sesión" \
+  && echo "$PCG_MSG_STDERR" | grep -qF "'cd <ruta> && git commit …'" \
+  && echo "$PCG_MSG_STDERR" | grep -qF "'git -C <ruta> commit …'" \
+  && echo "$PCG_MSG_STDERR" | grep -qF "hacé el cd en una llamada Bash previa"; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: el mensaje de bloqueo nombra las tres formas y el escape"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: el mensaje de bloqueo nombra las tres formas y el escape (exit=$PCG_MSG_EXIT, stderr=\"$PCG_MSG_STDERR\")"
+  FAIL=$((FAIL + 1))
+fi
 
 # R5-R7 (#73, reemplazan (h)): "git -C <worktree> commit" ahora SÍ resuelve
 # el árbol objetivo — antes de este fix ni siquiera matcheaba el filtro de

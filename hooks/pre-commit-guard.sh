@@ -11,6 +11,48 @@
 # ancla a posición de comando en vez de al string completo — mismo helper
 # que usa pre-merge-check.sh. Ver hooks/lib/guard-matching.sh.
 #
+# Contrato de formas para resolver el ÁRBOL OBJETIVO del commit (#73): un
+# commit interceptado se resuelve solo si calza en una de tres formas — lo
+# que no calza, bloquea con el mensaje de "Formas aceptadas" (TREE_FORM_HELP
+# más abajo), nunca se adivina ni se corre "por si acaso":
+#   1. Sin redirección: el cwd de la sesión (".cwd" del input, o el cwd
+#      del proceso si el harness no lo manda — ver punto (a) abajo).
+#   2. "cd <ruta> && git commit …" / "cd <ruta>; …": "cd" al INICIO del
+#      comando, una sola vez, ruta literal (sin comillas/variables/
+#      espacios/"-"), seguida directo de "&&" o ";" (nunca newline). El
+#      único caso de expansión permitido es el prefijo "~/" contra $HOME.
+#   3. "git -C <ruta> commit …": la misma ruta en cada "git" del comando.
+# Ver .planning/DESIGN.md "Contrato 1" para el detalle regla por regla
+# (B1-B6) y la tabla de tests (R1-R11, X1-X16) que fija cada forma.
+#
+# Verificaciones empíricas (hechas, no deducidas — Claude Code 2.1.283,
+# macOS, `claude -p` en modo de permisos default, tres corridas):
+#   a. El JSON de un PreToolUse/Bash trae ".cwd", y refleja el "cd"
+#      persistido de una llamada Bash ANTERIOR (no el "cd" hecho dentro
+#      del mismo comando interceptado). Implicación: los subagentes tienen
+#      el cwd reseteado entre llamadas — su forma habitual de commit es
+#      "cd <ruta absoluta> && git commit …" en una sola llamada (forma 2),
+#      no una llamada previa de "cd". Un "cd" fuera de los directorios de
+#      trabajo del proyecto la herramienta Bash lo rechaza en modo default
+#      (no llega a ejecutarse; ".cwd" no cambia).
+#   b. El proceso del hook corre con el MISMO cwd que ".cwd" del input —
+#      por eso ".cwd" es la fuente de verdad de BASE_DIR, no un dato que
+#      haya que reconciliar contra `pwd` del propio proceso.
+#   c. `"if": "Bash(git *)"` de hooks.json dispara igual con "cd X && git
+#      …", "git -C X …" y prefijo de entorno en el texto — el filtro de
+#      hooks.json es una optimización de latencia, nunca reemplaza la
+#      validación de este archivo.
+#
+# Fuera de alcance (documentado, no parcheado — no confundir con un hueco
+# no advertido):
+#   - Evasión deliberada (wrappers "bash -c", funciones "git()", "\g\it"):
+#     mismo modelo de amenaza que hooks/lib/guard-matching.sh:19-22. Estos
+#     guards protegen errores honestos del flujo del orchestrator/dev, no
+#     un adversario con control del comando.
+#   - Huecos del saneo COMPARTIDO (comillas desbalanceadas, heredoc con
+#     delimitador a medias) que borran el comando real antes de que este
+#     hook lo vea: #77, no de este archivo.
+#
 # Fail-closed sin jq (cierra #50 para este guard): sin jq, el parseo de
 # COMMAND más abajo devuelve vacío, el grep nunca matchea, y el guard
 # pasaba en silencio — un commit pasaba sin correr tests. CAMBIA el
