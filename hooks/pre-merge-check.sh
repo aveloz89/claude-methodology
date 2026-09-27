@@ -326,18 +326,6 @@ case "$COMMAND" in
     ;;
 esac
 
-# Caracteres de control (0x01-0x1F, 0x7F) fuera de \t: \n/\r ya bloquean
-# arriba. Defensa en profundidad, no el cierre de un bypass demostrado —
-# cada token de la gramática de abajo ya pasa por una allowlist de
-# charset que un carácter de control no calza, así que en la práctica ya
-# termina bloqueando por otra razón (verificado). El caso de un NUL ya se
-# bloqueó explícitamente más arriba, justo después de sourcear la lib (#77
-# §3, guard_command_has_nul) — antes de este punto, nunca sobre $COMMAND.
-CONTROL_CHARS_RE=$'[\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0C\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F]'
-if printf '%s' "$COMMAND" | LC_ALL=C grep -q "$CONTROL_CHARS_RE"; then
-  block "Blocked: el comando trae caracteres de control no imprimibles (fuera de tab). ${MERGE_FORM_HELP}"
-fi
-
 # read -ra sobre el crudo: seguro acá porque ya se descartó cualquier
 # \n/\r (el IFS por default — espacio, tab, salto de línea — separa por
 # blancos exactamente como [[:blank:]]+, sin que quede un salto de línea

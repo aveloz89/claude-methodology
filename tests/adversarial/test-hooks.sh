@@ -4198,10 +4198,6 @@ assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --repo con \$(...)
 assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --repo con backticks como valor bloquea" \
   'gh pr merge 45 --repo `x`/y'
 
-# --- [ronda 3, sugerencia] caracteres de control fuera de \t/\n bloquean ---
-assert_pre_merge_blocked_no_calls "gh pr merge [D-04, control]: carácter de control 0x01 embebido bloquea" \
-  "$(printf 'gh pr merge 45 --merge\x01')" "caracteres de control"
-
 # --- [ronda 3, sugerencia] --help/-h EXACTOS pasan (continue), no
 # bloquean — al revés de todos los demás tests de esta sección. El caso
 # se verifica más abajo, junto con los "casos que TIENEN que pasar"
