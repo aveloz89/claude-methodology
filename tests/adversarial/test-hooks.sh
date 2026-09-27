@@ -1232,6 +1232,104 @@ _pskip_assert_blocked_forms \
   "pre-commit-guard: cd && git commit (pelado, con espacio) → bloquea sin correr" \
   "cd && git commit -am x"
 
+# X6 (#73, Lote 2): "cd -" — target implícito (directorio anterior);
+# aunque quede entre comillas dentro de "cd \"$ruta\"", bash sigue
+# tratando el argumento "-" como especial (equivalente a "cd -" sin
+# comillas): sin este rechazo explícito, resolvería a $OLDPWD del propio
+# proceso del hook en vez de bloquear — no es una ruta, es un alias
+# dependiente de historial que no se puede tratar como literal.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd - && git commit → bloquea sin correr (target implícito, no una ruta)" \
+  "cd - && git commit -am x"
+
+# X7 (#73, Lote 2): subshell — "(cd $WT && git commit -am x)": el ancla
+# exige "cd" al INICIO del comando; con "(" antes, el string no empieza
+# con "cd" y no hay candidato.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: (cd <worktree> && git commit) en subshell → bloquea sin correr" \
+  "(cd $PSKIP_WT && git commit -am x)"
+_pskip_cleanup_worktree
+
+# X8 (#73, Lote 2): "cd" no al inicio del comando ("npm ci && cd $WT &&
+# git commit -am x") — mismo motivo que X7: el ancla es sobre el INICIO
+# del string, no sobre GUARD_ANCHOR (que sí matchea "cd" tras "&&" para
+# la detección de redirección, pero eso solo decide QUE hay redirección,
+# no de dónde sale la ruta).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: npm ci && cd <worktree> && git commit (cd no al inicio) → bloquea sin correr" \
+  "npm ci && cd $PSKIP_WT && git commit -am x"
+_pskip_cleanup_worktree
+
+# X9 (#73, Lote 2): dos "cd" en el mismo comando compuesto — a qué árbol
+# es ambiguo (mezclar formas no se adivina, se bloquea).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd <worktree> && git commit && cd - (dos cd) → bloquea sin correr" \
+  "cd $PSKIP_WT && git commit -am x && cd -"
+_pskip_cleanup_worktree
+
+# X10 (#73, Lote 2): "cd" con ruta real seguido de NEWLINE (no "&&" ni
+# ";") antes de "git commit" — el terminador exigido por B3 no acepta
+# fin de línea sin blanco de por medio, a diferencia de X5 (cd pelado sin
+# ruta): acá SÍ hay una ruta capturable, pero el terminador no matchea.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+CD_PATH_NEWLINE=$(printf 'cd %s\ngit commit -am x' "$PSKIP_WT")
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd <worktree> seguido de newline (sin '&&'/';') → bloquea sin correr" \
+  "$CD_PATH_NEWLINE"
+_pskip_cleanup_worktree
+
+# X11 (análogo a la forma "-C"): ruta con "$" sin expandir (literal, tal
+# como llega el comando — nadie lo ejecuta). "$WT_VAR" no cumple
+# TREE_PATH_RE y, aunque lo cumpliera, tampoco existe como directorio
+# real — bloquea sin correr por cualquiera de las dos razones.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd \$WT_VAR (ruta con \$, literal) && git commit → bloquea sin correr" \
+  'cd $WT_VAR && git commit -am x'
+
+# X12 (análogo a la forma "-C"): ruta entre comillas — el charset excluye
+# comillas, así que el candidato (con las comillas incluidas, literales)
+# nunca pasa como ruta real, sin importar si el directorio real existe.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd \"<worktree>\" (ruta entre comillas) && git commit → bloquea sin correr" \
+  "cd \"$PSKIP_WT\" && git commit -am x"
+_pskip_cleanup_worktree
+
+# X13: ruta con espacio (entre comillas, ej. "/a b") — el token que el
+# ancla captura se corta en el primer blanco, así que nunca hay un
+# candidato coherente con el terminador inmediatamente después.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd \"/a b\" (ruta con espacio) && git commit → bloquea sin correr" \
+  'cd "/a b" && git commit -am x'
+
+# X14 (análogo a la forma "-C"): ruta que existe pero no es un repo git.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+PCG_NOTAREPO_CD_DIR=$(mktemp -d)
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd <directorio que no es repo> && git commit → bloquea sin correr" \
+  "cd $PCG_NOTAREPO_CD_DIR && git commit -am x"
+rm -rf "$PCG_NOTAREPO_CD_DIR"
+
 # Negativo: una mención de "cd x" dentro de un string ("echo \"cd x\" &&
 # git commit") no es una invocación real — guard_sanitize ya la quitó
 # antes de este chequeo — y sigue saltando con .planning/ sucio solo (no

@@ -144,8 +144,28 @@ _guard_resolve_dash_c() {
 # regla y caen al bloqueo genérico (B5): no se adivina a qué apunta un
 # "cd" que no tiene esta forma exacta.
 _guard_resolve_cd() {
+  # Exactamente UNA ocurrencia de "cd"/"pushd" en el saneado: dos "cd" en
+  # el mismo comando compuesto (o un "cd" + un "pushd") es "a qué árbol"
+  # ambiguo — mezclar formas no se adivina, se bloquea. Mismo criterio que
+  # _guard_resolve_dash_c con "-C" repetido (ahí sí se permite si es la
+  # MISMA ruta; acá ni se llega a comparar rutas, ninguna forma real del
+  # issue necesita dos "cd").
+  local occurrences count
+  occurrences=$(echo "$SANITIZED_COMMAND" | grep -oE "$CD_PUSHD_RE")
+  count=$(printf '%s\n' "$occurrences" | grep -c .)
+  [ "$count" -eq 1 ] || return 1
+
   [[ "$COMMAND" =~ ^cd[[:blank:]]+([^[:space:]]+)[[:blank:]]*(\&\&|\;) ]] || return 1
   local raw_path="${BASH_REMATCH[1]}"
+
+  # "cd -" (destino implícito, el directorio anterior) no es una ruta: es
+  # un alias que depende de $OLDPWD del proceso, no del texto del comando.
+  # Rechazo explícito en vez de dejarlo caer solo: bash igual reconoce "-"
+  # como especial dentro de "cd \"$ruta\"" (comillas no lo neutralizan), y
+  # confiar en que eso "por las buenas" termine bloqueando sería frágil —
+  # depende de un efecto colateral (que "cd -" imprime la ruta nueva por
+  # stdout, ensuciando la variable con dos líneas) y no de una regla.
+  [ "$raw_path" = "-" ] && return 1
 
   # Prefijo "~/" (único caso de expansión permitido): se expande contra
   # $HOME del ENTORNO del hook, nunca con "eval" ni sub-shell sobre el
@@ -156,6 +176,11 @@ _guard_resolve_cd() {
   case "$raw_path" in
     "~/"*) raw_path="$HOME${raw_path#\~}" ;;
   esac
+
+  # TREE_PATH_RE (charset sin comillas/"$"/espacios/etc.): la ruta que
+  # termina en `cd "$raw_path"` tiene que ser literal — nunca el artefacto
+  # de algo que el shell habría expandido o citado.
+  echo "$raw_path" | grep -qE "$TREE_PATH_RE" || return 1
 
   printf '%s' "$raw_path"
 }
