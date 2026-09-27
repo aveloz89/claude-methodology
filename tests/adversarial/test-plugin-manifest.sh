@@ -556,6 +556,36 @@ if [ -f "$PRODUCT_REVIEWER" ]; then
     "agents/product-reviewer.md ya no ofrece \"declara supuestos\" como alternativa a preguntar (D-05)"
   assert_not_contains "$PRODUCT_REVIEWER" "### Supuestos" \
     "agents/product-reviewer.md ya no tiene la sección Supuestos en el formato del reporte (D-05)"
+
+  assert_no_voseo "$PRODUCT_REVIEWER"
+
+  # assert_no_emphasis_caps: lista explícita de mayúsculas de énfasis
+  # prohibidas (mismo patrón que assert_no_voseo: lista explícita en vez de
+  # heurística genérica, para no necesitar lista blanca de excepciones).
+  # Case-sensitive (sin -i): "no" en minúscula es una palabra normal del
+  # español; solo la forma en mayúsculas de énfasis está prohibida.
+  assert_no_emphasis_caps() {
+    local file="$1"
+    local forms=(NUNCA SIEMPRE SOLO OBLIGATORIO NO)
+    local delim='[^[:alpha:]]'
+    TOTAL=$((TOTAL + 1))
+    local hits="" word pattern word_hits
+    for word in "${forms[@]}"; do
+      pattern="(^|${delim})(${word})(${delim}|\$)"
+      word_hits=$(grep -noE "$pattern" "$file" || true)
+      if [ -n "$word_hits" ]; then
+        hits="${hits}${word_hits}"$'\n'
+      fi
+    done
+    if [ -z "$hits" ]; then
+      echo -e "${GREEN}PASS${NC}: $file sin mayúsculas de énfasis prohibidas"
+      PASS=$((PASS + 1))
+    else
+      echo -e "${RED}FAIL${NC}: $file tiene mayúsculas de énfasis: $(echo "$hits" | tr '\n' ' ')"
+      FAIL=$((FAIL + 1))
+    fi
+  }
+  assert_no_emphasis_caps "$PRODUCT_REVIEWER"
 fi
 
 echo ""
