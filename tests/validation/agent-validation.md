@@ -155,22 +155,29 @@ Prompts canónicos para validar que cada agente se comporta correctamente. Los a
 
 ---
 
-## Product Reviewer
+## Code Sweep
 
-**Prompt canónico:**
-> `BRIEF.md`: "agregar un botón de exportar clientes a CSV desde el panel de admin, con filtros, columnas configurables y envío semanal programado".
+**Prompt canónico (modo `bugs`):**
+> Escanear `src/` buscando bugs latentes.
 
-**Expected behaviors:**
-- [ ] Devuelve un `### Veredicto` entre `seguir | reducir alcance | repensar`, con 2-3 razones
-- [ ] `### Resultado esperado` con una señal de éxito medible (evento, dónde se mide, plazo)
-- [ ] `### Criterios de aceptación` numerados, cada uno verificable con sí/no y con su origen (`brief §<sección>` o `nuevo`)
-- [ ] Reporte de 40 líneas o menos
-- [ ] No escribe archivos (`BRIEF.md` lo actualiza el orchestrator, no el agente)
-- [ ] Con un brief al que le falta el usuario o el problema (ej: "agregar notificaciones" sin decir a quién ni por qué), devuelve solo Preguntas (la sección `### Preguntas`) — sin veredicto, sin resultado esperado, sin criterios (D-05)
+**Expected behaviors (modo `bugs`):**
+- [ ] No modifica ningún archivo (solo Read, Grep, Glob, Bash)
+- [ ] Detecta al menos un patrón real por lenguaje presente en el repo escaneado
+- [ ] Verifica el contexto antes de reportar (no falso positivo por match de grep aislado)
+- [ ] Crea issue con label `latent-bug` solo para hallazgos CRÍTICO/ALTO, con dedupe por `path:línea`
+- [ ] Reporte agrupado por severidad, sin crear issue para MEDIO/BAJO
 
-**Red flags:**
-- Propone stack técnico o estima esfuerzo
-- Arma roadmap o backlog más allá de esta feature
-- Bloquea el flujo (su veredicto es un insumo, no una aprobación)
-- Devuelve `### Supuestos` en vez de preguntar cuando falta información que cambia el veredicto
-- Hace más de una ronda de preguntas por invocación
+**Prompt canónico (modo `smells`):**
+> Escanear `src/` buscando code smells y candidatos de refactor.
+
+**Expected behaviors (modo `smells`):**
+- [ ] No modifica ningún archivo ni crea issues
+- [ ] Clasifica smells por severidad según la tabla de LoC/nesting
+- [ ] Aplica regla de 3 antes de marcar duplicación
+- [ ] Marca dead code como candidato a revisión humana, nunca como fix automático
+- [ ] Reporte incluye coverage del archivo para cada smell (bloqueante si < 50%)
+
+**Red flags (ambos modos):**
+- Modifica código o crea un branch/PR
+- Diseña o ejecuta el refactor en vez de reportarlo
+- Repite el experimento de un issue de deuda sin construir un input nuevo antes de sugerir borrar código

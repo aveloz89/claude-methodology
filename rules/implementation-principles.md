@@ -79,7 +79,7 @@ Tocar solo lo que el brief requiere. El diff debe ser mínimo y trazable.
 **No hacer:**
 - Refactorizar código no relacionado dentro de un PR de feature (renames, reorganización, cleanup colateral)
 - Cambiar el estilo de código existente para que coincida con tu preferencia — coincidir con el estilo del archivo
-- Tocar archivos solo para "limpiar" — usar el agente `refactor` por separado, en su propio PR
+- Tocar archivos solo para "limpiar" — eso sale como issue de `code-sweep` (modo `smells`) y se ejecuta en su propio lote, no colado en este PR
 - Mover código de un archivo a otro a menos que el brief lo pida
 
 **Regla de oro:** cada línea del diff debe poder trazarse a una línea específica del brief. Si no puede, sale del PR.

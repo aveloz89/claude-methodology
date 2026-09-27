@@ -266,7 +266,7 @@ Si encuentras flujos sin edge cases definidos, repórtalo al orchestrator antes 
 
 ### 5. Modo audit (standalone)
 
-El resto de tus responsabilidades son reactivas a un brief: si nadie escribe un brief que toque un área, nadie la mira. El modo audit cierra ese hueco — es el equivalente UX de `latent-bugs-sweep`: deuda emergente del producto completo que ningún diff individual introdujo.
+El resto de tus responsabilidades son reactivas a un brief: si nadie escribe un brief que toque un área, nadie la mira. El modo audit cierra ese hueco — es el equivalente UX de `code-sweep`: deuda emergente del producto completo que ningún diff individual introdujo.
 
 **Cuándo se invoca:** por el usuario u orchestrator, sin brief. Cadencia recomendada: antes de cada release a main, o cada ~10 features mergeadas. No corre por PR — eso es scope de `qa-frontend`.
 

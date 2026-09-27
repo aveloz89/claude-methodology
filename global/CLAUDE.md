@@ -7,7 +7,7 @@ Núcleo global de la metodología: workflow, gitflow, dual review, TDD y reglas 
 ## Convenciones generales
 
 - **Idioma**: comunicación con el usuario, comentarios de PR, mensajes de commit y documentación en **español**. Código, nombres de variables, archivos y branches en **inglés**.
-- **`rules/` vs `rulebooks/`**: `rules/` son reglas idiomáticas por lenguaje + principios de implementación que aplican al código; `rulebooks/` son procesos meta del sistema de agentes (budget, governance, validación, runbook). Ambos viven en `~/.claude/`, pero solo las `rules/` se auto-cargan, según su frontmatter `paths:` (con `paths:` solo al tocar archivos que matchean, sin `paths:` en toda sesión); los `rulebooks/` no se cargan solos — se leen bajo demanda cuando un agente los necesita.
+- **`rules/` vs `rulebooks/`**: `rules/` son reglas idiomáticas por lenguaje + principios de implementación que aplican al código; `rulebooks/` son procesos meta del sistema de agentes (budget, governance, runbook). Ambos viven en `~/.claude/`, pero solo las `rules/` se auto-cargan, según su frontmatter `paths:` (con `paths:` solo al tocar archivos que matchean, sin `paths:` en toda sesión); los `rulebooks/` no se cargan solos — se leen bajo demanda cuando un agente los necesita.
 
 ## Rol de la sesión principal
 
@@ -57,7 +57,7 @@ Los hooks son enforcement del harness, no instrucciones tuyas — corren solos.
 
 **Bloquean el comando:** push directo a `main`, `gh pr merge --admin`, `git push --force`, `git reset --hard`, commit sin la suite de tests en verde, y (cuando reconoce la invocación) `gh pr merge` fuera de la forma exacta esperada — `gh pr merge --help`/`-h` exactos y solos pasan, no mergean nada. El `if` de `hooks.json` que decide qué invocación dispara cada hook es best-effort (matching por prefijo del comando, no un parser de shell): una forma que no puede resolver corre el hook igual, nunca lo salta por error. Si uno te bloquea, la solución nunca es esquivarlo.
 
-**Corren en background:** contexto de sesión al arrancar, aviso de contexto agotándose, checkpoint de review al crear un PR, detección de servicios Docker que necesitan restart, `latent-bugs-sweep` antes de un `gh pr create --base main`, snapshot de `.planning/` antes de compactar, log de invocaciones de subagentes, verificación de STATE desactualizado al cerrar sesión.
+**Corren en background:** contexto de sesión al arrancar, aviso de contexto agotándose, checkpoint de review al crear un PR, detección de servicios Docker que necesitan restart, snapshot de `.planning/` antes de compactar, log de invocaciones de subagentes.
 
 ## Verificación pre-commit (responsabilidad del subagente dev)
 
@@ -65,7 +65,7 @@ Antes de cada commit, el subagente dev ejecuta en orden: (1) tests con coverage 
 
 ## Estado persistente: `.planning/`
 
-`.planning/` guarda el estado de la feature activa — una a la vez — para que el trabajo sobreviva entre sesiones. Qué archivo cumple qué función, formatos y procedimiento de pausar/retomar: skill `orchestrator`.
+`.planning/` guarda el estado de la feature activa — una a la vez — para que el trabajo sobreviva entre sesiones. Es estado local, no versionado (salvo `.planning/ARCHITECTURE.md`, que persiste decisiones recurrentes). Qué archivo cumple qué función, formatos y procedimiento de pausar/retomar: skill `orchestrator`.
 
 ## Reglas operativas
 

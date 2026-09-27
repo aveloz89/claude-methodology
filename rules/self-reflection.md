@@ -53,7 +53,7 @@ Si el PR es grande (>15 archivos modificados o >2 lenguajes distintos), revisar 
 
 ### 3. Revisar el diff
 
-Para cada archivo modificado, revisar **solo las líneas del diff** contra las rules cargadas. No revisar el archivo completo — eso es scope del agente `refactor`, no de self-reflection.
+Para cada archivo modificado, revisar **solo las líneas del diff** contra las rules cargadas. No revisar el archivo completo — eso es scope de `code-sweep` (modo `smells`), no de self-reflection.
 
 Excepción: si una línea del diff modifica una función, revisar la función completa (porque el cambio puede haber roto la coherencia interna). **Tope:** si la función pasa de ~50 líneas, mantener la revisión a las líneas del diff y reportar el resto como issue legacy si hay violaciones visibles — no expandir el scope al revisar funciones largas heredadas.
 
@@ -75,7 +75,7 @@ Para cada violación, decidir su categoría:
 
 ### 6. Crear issues para violaciones no resueltas
 
-Tanto las **controvertidas** como las **legacy** generan un issue en el backlog. Esto evita que se pierdan y le da trabajo concreto al agente `refactor`.
+Tanto las **controvertidas** como las **legacy** generan un issue en el backlog. Esto evita que se pierdan y le da trabajo concreto a un dev en su propio lote de refactor.
 
 **Formato del issue (libre, pero con estos campos mínimos):**
 

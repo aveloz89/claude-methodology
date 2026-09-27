@@ -8,8 +8,8 @@ if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
 fi
 
 # Sanitiza texto libre proveniente de artefactos escritos por hooks/agentes
-# (state.json, marker de SessionEnd) antes de imprimirlo al contexto del
-# modelo: nunca confiar en que esos campos vengan bien formados. Quita
+# (state.json) antes de imprimirlo al contexto del modelo: nunca confiar en
+# que esos campos vengan bien formados. Quita
 # caracteres de control ASCII (\000-\037 y \177/DEL — incluye saltos de
 # línea, para que un valor multilínea no rompa el layout de una sola línea)
 # y trunca a ~80 chars. Limitación aceptada: caracteres Unicode zero-width
@@ -58,32 +58,6 @@ if command -v gh > /dev/null 2>&1 && command -v jq > /dev/null 2>&1; then
   fi
 fi
 
-# Marker de SessionEnd: aviso consume-once de STATE posiblemente
-# desactualizado, dejado por la sesión anterior (session-end-check.sh).
-if command -v jq > /dev/null 2>&1; then
-  TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
-  # Modo degradado: sin hooks/lib/slug.sh o sin ninguna herramienta de hash
-  # disponible, se omite SOLO esta sección (el resto del contexto se
-  # imprime igual) — SLUG queda vacío y el "if -n" de abajo la salta.
-  SLUG=""
-  LIB="${0%/*}/lib/slug.sh"
-  if [ -n "$TOPLEVEL" ] && [ -r "$LIB" ]; then
-    # shellcheck source=lib/slug.sh
-    source "$LIB"
-    SLUG=$(repo_slug "$TOPLEVEL") || SLUG=""
-  fi
-  if [ -n "$SLUG" ]; then
-    MARKER_FILE="$HOME/.claude/methodology/session-end/$SLUG.json"
-    if [ -f "$MARKER_FILE" ]; then
-      SIGNALS=$(jq -r '.signals // [] | join(", ")' "$MARKER_FILE" 2>/dev/null)
-      SIGNALS=$(sanitize_text "$SIGNALS")
-      echo ""
-      echo "⚠️ La sesión anterior cerró con STATE posiblemente desactualizado (señales: $SIGNALS). Verifica .planning/STATE.md y state.json antes de continuar."
-      rm -f "$MARKER_FILE" 2>/dev/null
-    fi
-  fi
-fi
-
 # Planning state
 if [ -d ".planning" ]; then
   echo ""
@@ -106,26 +80,6 @@ if [ -d ".planning" ]; then
     ' .planning/state.json 2>/dev/null)
     ACTIVE_STATUS=$(jq -r --arg ph "$ACTIVE_PHASE" '.phases[$ph] // "n/a"' .planning/state.json 2>/dev/null)
     echo "Fase activa: $ACTIVE_PHASE ($ACTIVE_STATUS)"
-    # Estado sellado (todas las fases done/skipped) pero seguimos parados en
-    # el branch del feature, no en la base: es el desfase de "el merge se
-    # sella en el commit de retro, antes de que el merge ocurra" (ver
-    # rulebooks/orchestrator-runbook.md). session-end-check.sh no lo cubre
-    # (compara mtimes, nunca mira phases) y sin este aviso "ninguna" se leía
-    # como "no queda nada pendiente". No se consulta gh: solo git local.
-    if [ "$ACTIVE_PHASE" = "ninguna" ]; then
-      SEAL_BRANCH=$(git branch --show-current 2>/dev/null)
-      # -n: en detached HEAD, "git branch --show-current" devuelve vacío y no
-      # hay "branch del feature" que reportar (no es el caso que este aviso
-      # cubre) — sin el guard, se imprimía igual con el branch vacío.
-      if [ -n "$SEAL_BRANCH" ] && [ "$SEAL_BRANCH" != "main" ] && [ "$SEAL_BRANCH" != "dev" ]; then
-        # pr no tiene validador (el schema del runbook es convención escrita,
-        # no un contrato): sanitize_text() antes de imprimirlo, igual que
-        # name/signals/títulos de issues más abajo en este archivo.
-        SEAL_PR=$(sanitize_text "$(jq -r '.pr // "ninguno"' .planning/state.json 2>/dev/null)")
-        echo ""
-        echo "⚠️ Estado sellado (todas las fases en done/skipped) pero seguimos en el branch del feature ($SEAL_BRANCH), no en la base. PR: $SEAL_PR. Verifica si el merge ya ocurrió (git log / GitHub) antes de asumir que no queda nada pendiente."
-      fi
-    fi
     # name es texto libre (lo escribe el architect/orchestrator): cada batch
     # se pasa completo en base64 (una línea, sin saltos, por construcción de
     # la codificación) para poder leer línea a línea aunque name traiga un

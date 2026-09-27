@@ -1,7 +1,7 @@
 #!/bin/bash
 # Helper compartido por los guards que interceptan comandos Bash
-# (pre-merge-check.sh, block-admin-merge.sh, pre-commit-guard.sh) — ver
-# issue #47. Antes de matchear el comando vigilado de cada guard, se sanean
+# (pre-merge-check.sh, block-admin-merge.sh, pre-commit-guard.sh). Antes de
+# matchear el comando vigilado de cada guard, se sanean
 # los spans quoted ('...'/"...") y los cuerpos de heredoc: son contenido
 # literal (ej. un mensaje de commit) que puede mencionar la frase vigilada
 # sin ser una invocación real. El match además se ancla a posición de
@@ -39,7 +39,10 @@
 #     /usr/bin/git …, command git … (el "if" de hooks.json tampoco
 #     dispara para las tres últimas: compara cada subcomando por prefijo
 #     y solo descarta asignaciones VAR=x al frente; ver la tabla "Bash if
-#     matching" de la doc de hooks).
+#     matching" de la doc de hooks);
+#   - block-force-push.sh: la flag entre comillas (`git push origin
+#     "--force"`, `git push '-f'`) y una redirección honesta (2>&1, >&2,
+#     &>log) o un ";" escapado antes de la flag de force.
 # Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá:
 # la salida es escribir el comando en su forma directa.
 
@@ -49,31 +52,15 @@
 # shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
 GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
 
-# Fragmento de regex ERE que consume, cero o más veces, una opción de árbol
-# de git ("-C <ruta>"/"-C=<ruta>", "--git-dir"/"--work-tree" con o sin "=")
-# seguida de su valor y un separador — usado entre "git" y el subcomando
-# vigilado (commit) para detectar "git -C <ruta> <subcomando>" como la
-# misma invocación. Antes vivía inline en GIT_COMMIT_RE
-# (pre-commit-guard.sh); un guard nuevo que necesite el mismo fragmento no
-# tiene que copiarlo a mano.
-#
-# Los guards de push/reset (block-force-push, block-hard-reset,
-# pre-push-guard) usan GUARD_GIT_OPTS en vez de este fragmento — ver abajo.
-# shellcheck disable=SC2034 # se usa en pre-commit-guard.sh
-GUARD_GIT_TREE_OPTS='((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?\s+)*'
-
 # Fragmento de regex ERE que consume, cero o más veces y EN CUALQUIER ORDEN,
 # las opciones de git que pueden aparecer entre "git" y el subcomando
-# vigilado (push, reset --hard): opciones de árbol ("-C <ruta>",
+# vigilado (push, reset --hard, commit): opciones de árbol ("-C <ruta>",
 # "--git-dir"/"--work-tree" con o sin "="), "-c <clave=valor>", "--no-pager"
-# y "-P". Una sola alternancia repetida en vez de dos fragmentos
-# concatenados (GUARD_GIT_TREE_OPTS + una versión anterior de esto, "global
-# opts"): la concatenación solo reconocía UN orden fijo entre ambos grupos
-# — "git -C /x -c a=b push --force" (árbol después de "-c") no matcheaba
-# ninguno de los dos fragmentos, y el force push real pasaba SIN EVALUAR
-# (ronda 2 del review dual, security LOW). git acepta estas opciones en
-# cualquier orden antes del subcomando; el regex ahora también.
-# shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh y pre-push-guard.sh
+# y "-P". Una sola alternancia repetida en vez de fragmentos concatenados en
+# un orden fijo: "git -C /x -c a=b push --force" (árbol después de "-c") no
+# matchearía un fragmento que solo tolerase un orden. git acepta estas
+# opciones en cualquier orden antes del subcomando; el regex también.
+# shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh, pre-push-guard.sh y pre-commit-guard.sh
 GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
 
 # Fragmento de regex ERE que reconoce "gh ... pr ... merge" tolerando hasta
@@ -102,8 +89,7 @@ GUARD_GH_PR_MERGE_RE='gh\s+(\S+\s+){0,2}pr\s+(\S+\s+){0,2}merge'
 # antes de este helper, que nunca dependió de perl). Es la dirección
 # segura para un guard que solo bloquea: sin perl hay más falsos positivos
 # posibles (texto quoted que menciona la frase vigilada), pero nunca un
-# falso negativo silencioso por dependencia ausente — evita reintroducir
-# en estos dos guards el mismo fail-open de #50. Se anuncia por stderr
+# falso negativo silencioso por dependencia ausente. Se anuncia por stderr
 # para que el modo degradado sea visible en vez de un fallback silencioso.
 guard_sanitize() {
   if command -v perl > /dev/null 2>&1; then
@@ -198,4 +184,40 @@ guard_sanitize() {
 # invisible para el guard.
 guard_command_has_nul() {
   echo "$1" | jq -e '.tool_input.command // "" | contains("\u0000")' > /dev/null 2>&1
+}
+
+# guard_block <motivo>: escribe "BLOCKED: <GUARD_NAME>: <motivo>" en stderr y
+# sale con 2. Requiere GUARD_NAME seteado por guard_init.
+guard_block() {
+  echo "BLOCKED: ${GUARD_NAME}: $1" >&2
+  exit 2
+}
+
+# guard_init <nombre-del-guard>: preámbulo común de los guards PreToolUse.
+# Se llama DESPUÉS de sourcear esta lib (el caller ya verificó que la lib
+# existe; sin lib no hay guard_init que llamar — ese check queda en el
+# guard). Deja definidas GUARD_NAME, INPUT, COMMAND, INPUT_CWD,
+# SANITIZED_COMMAND, GUARD_SANITIZE_STATUS. Nunca imprime en stdout.
+guard_init() {
+  GUARD_NAME="$1"
+  command -v jq > /dev/null 2>&1 || { echo "BLOCKED: ${GUARD_NAME} no operativo: falta jq" >&2; exit 2; }
+  INPUT=$(cat)
+  COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+  INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
+  guard_command_has_nul "$INPUT" && guard_block "el comando trae un byte NUL"
+  SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
+  GUARD_SANITIZE_STATUS=$?
+}
+
+# guard_session_dir: imprime el directorio de la sesión resuelto con
+# pwd -P (INPUT_CWD si vino en el JSON, el cwd del proceso si no). Devuelve
+# 1 sin imprimir nada si INPUT_CWD vino y no es un directorio — el caller
+# decide bloquear (guards de árbol) o seguir.
+guard_session_dir() {
+  if [ -n "$INPUT_CWD" ]; then
+    [ -d "$INPUT_CWD" ] || return 1
+    (cd "$INPUT_CWD" && pwd -P)
+  else
+    pwd -P
+  fi
 }

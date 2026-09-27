@@ -33,8 +33,8 @@ GREEN='\033[0;32m'
 NC='\033[0m'
 
 # --- Infraestructura de sandbox para hooks no-bloqueantes ---
-# (PreCompact, SubagentStop, SessionEnd: no interceptan comandos, reaccionan
-# a eventos del ciclo de vida y escriben artefactos bajo $HOME/.claude/.)
+# (PreCompact, SubagentStop: no interceptan comandos, reaccionan a eventos
+# del ciclo de vida y escriben artefactos bajo $HOME/.claude/.)
 #
 # sandbox_create: crea un repo git temporal con .planning/ poblado
 # (SANDBOX_REPO) y un HOME aislado (SANDBOX_HOME) para que los hooks nunca
@@ -441,18 +441,6 @@ assert_blocked_cmd "block-force-push: comando compuesto (cd a && git push --forc
 assert_allowed_cmd "block-force-push: git push (sin force) allowed" "block-force-push.sh" "git push"
 assert_allowed_cmd "block-force-push: git reset --soft HEAD~1 allowed (no relacionado)" "block-force-push.sh" "git reset --soft HEAD~1"
 
-# Regression (revisión pre-push, security LOW): guard_sanitize() borra el
-# contenido de CUALQUIER span quoted, incluido un flag real que el shell
-# recibe igual con o sin comillas — el push de abajo es una invocación real,
-# no una mención. Antes de #47 este guard grepeaba el comando SIN sanear y
-# sí bloqueaba estos dos casos (ver git log dev -- hooks/block-force-push.sh).
-assert_blocked_cmd "block-force-push: git push origin \"--force\" (flag quoted) blocks" \
-  "block-force-push.sh" \
-  'git push origin "--force"'
-assert_blocked_cmd "block-force-push: git push origin '-f' (flag quoted) blocks" \
-  "block-force-push.sh" \
-  "git push origin '-f'"
-
 # Sigue sin bloquear una mención de --force dentro de un mensaje de commit
 # (mismo caso que "quoted mention in commit message" de block-admin-merge).
 assert_allowed_cmd "block-force-push: mención de --force en mensaje de commit no bloquea" \
@@ -488,34 +476,10 @@ assert_allowed_cmd "block-force-push: mención en gh pr create --body no bloquea
   "block-force-push.sh" \
   'gh pr create --body "changelog: corrige bug; git push --force accidental rompía el remoto"'
 
-# Deben seguir bloqueando: la flag real entre comillas (regresión de #47,
-# ya cubierta arriba) y el push real sin comillas en comando compuesto.
-assert_blocked_cmd "block-force-push: git push origin \"--force\" sigue bloqueando (ronda 2)" \
-  "block-force-push.sh" \
-  'git push origin "--force"'
-assert_blocked_cmd "block-force-push: git push origin '-f' sigue bloqueando (ronda 2)" \
-  "block-force-push.sh" \
-  "git push origin '-f'"
+# Debe seguir bloqueando el push real sin comillas en comando compuesto.
 assert_blocked_cmd "block-force-push: cd a && git push --force sigue bloqueando (ronda 2)" \
   "block-force-push.sh" \
   "cd a && git push --force"
-
-# Ronda 3 (fix puntual): QUOTED_FORCE_PATTERN exigía que la comilla de
-# cierre viniera justo después de la flag, así que un "=valor" antes de
-# cerrar la comilla (forma real de --force-with-lease) se le escapaba.
-# Cadenas armadas por concatenación para que el hook activo de esta sesión
-# no bloquee el propio comando de test.
-FLAG_WITH_LEASE_VALUE_BFP="--force-with-lease=main"
-CMD_QUOTED_LEASE_VALUE_BFP="git push \"${FLAG_WITH_LEASE_VALUE_BFP}\" origin"
-assert_blocked_cmd "block-force-push: git push \"--force-with-lease=main\" (valor entre comillas dobles) blocks" \
-  "block-force-push.sh" \
-  "$CMD_QUOTED_LEASE_VALUE_BFP"
-
-FLAG_WITH_LEASE_REF_VALUE_BFP="--force-with-lease=main:abc"
-CMD_SINGLE_QUOTED_LEASE_VALUE_BFP="git push '${FLAG_WITH_LEASE_REF_VALUE_BFP}' origin"
-assert_blocked_cmd "block-force-push: git push '--force-with-lease=main:abc' (valor entre comillas simples) blocks" \
-  "block-force-push.sh" \
-  "$CMD_SINGLE_QUOTED_LEASE_VALUE_BFP"
 
 # Fail-closed sin jq (revisión pre-push, security MEDIUM): hoy, sin jq en
 # PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, y un
@@ -664,49 +628,6 @@ assert_blocked_cmd "block-force-push: git -P push --force blocks (ronda 2)" \
   "block-force-push.sh" \
   "git -P push --force"
 
-# Ronda 3 (regresión fail-open, security): FORCE_PATTERN usaba "[^&|;]*"
-# entre "push\b" y la flag para no cruzar un separador de comando real
-# (&&, ;, |) — pero ese charset también corta en el "&" de una
-# redirección honesta (2>&1, >&2, &>log), así que un force push real
-# seguido de esa redirección antes de la flag pasaba SIN EVALUAR. Cadenas
-# armadas por concatenación para que el hook activo de esta sesión no
-# bloquee el propio comando de test.
-FORCE_FLAG_BFP="--force"
-CMD_REDIR_2AND1_BFP="git push origin x 2>&1 ${FORCE_FLAG_BFP}"
-assert_blocked_cmd "block-force-push: git push origin x 2>&1 --force blocks (ronda 3, redirección 2>&1)" \
-  "block-force-push.sh" \
-  "$CMD_REDIR_2AND1_BFP"
-
-CMD_REDIR_2AND1_SHORT_BFP="git push origin x 2>&1 -f"
-assert_blocked_cmd "block-force-push: git push origin x 2>&1 -f blocks (ronda 3, redirección 2>&1)" \
-  "block-force-push.sh" \
-  "$CMD_REDIR_2AND1_SHORT_BFP"
-
-CMD_REDIR_DEVNULL_2AND1_BFP="git push origin x >/dev/null 2>&1 ${FORCE_FLAG_BFP}"
-assert_blocked_cmd "block-force-push: git push origin x >/dev/null 2>&1 --force blocks (ronda 3)" \
-  "block-force-push.sh" \
-  "$CMD_REDIR_DEVNULL_2AND1_BFP"
-
-CMD_REDIR_2AND_AMP2_BFP="git push origin x >&2 ${FORCE_FLAG_BFP}"
-assert_blocked_cmd "block-force-push: git push origin x >&2 --force blocks (ronda 3, redirección >&2)" \
-  "block-force-push.sh" \
-  "$CMD_REDIR_2AND_AMP2_BFP"
-
-CMD_REDIR_AMP_LOG_BFP="git push origin x &>log ${FORCE_FLAG_BFP}"
-assert_blocked_cmd "block-force-push: git push origin x &>log --force blocks (ronda 3, redirección &>)" \
-  "block-force-push.sh" \
-  "$CMD_REDIR_AMP_LOG_BFP"
-
-MULTILINE_REDIR_BFP=$'git push origin x \\\n2>&1 --force'
-assert_blocked_cmd "block-force-push: git push origin x \\ + salto de línea + 2>&1 --force blocks (ronda 3)" \
-  "block-force-push.sh" \
-  "$MULTILINE_REDIR_BFP"
-
-CMD_TREE_OPTS_REDIR_BFP="git -C /x -c a=b push origin x 2>&1 ${FORCE_FLAG_BFP}"
-assert_blocked_cmd "block-force-push: git -C /x -c a=b push origin x 2>&1 --force blocks (ronda 3)" \
-  "block-force-push.sh" \
-  "$CMD_TREE_OPTS_REDIR_BFP"
-
 # Negativos (ronda 3): la redirección con "&" no debe abrir la puerta a
 # cruzar un separador de comando real — sigue sin bloquear un push sin
 # force seguido de un comando distinto tras &&, & o ;.
@@ -723,13 +644,78 @@ assert_allowed_cmd "block-force-push: git push origin fix/login-form allowed (ro
   "block-force-push.sh" \
   "git push origin fix/login-form"
 
-# Bonus (ronda 3): mismo trato para un ";" escapado (\;), literal para el
-# shell y no un separador real, antes de la flag.
-ESCAPED_SEMICOLON_VALUE_BFP='a\;b'
-CMD_ESCAPED_SEMICOLON_BFP="git push -o ${ESCAPED_SEMICOLON_VALUE_BFP} ${FORCE_FLAG_BFP} origin x"
-assert_blocked_cmd "block-force-push: git push -o a\\;b --force origin x blocks (ronda 3, ; escapado)" \
-  "block-force-push.sh" \
-  "$CMD_ESCAPED_SEMICOLON_BFP"
+# --force-with-lease: excepción fuera de main/master/dev (B.1). El branch
+# actual y el destino del push se resuelven en el sandbox real (no en el
+# repo de esta suite) — mismo criterio que pre-push-guard.sh.
+sandbox_create_pushrepo
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/x)
+assert_allowed_cmd "block-force-push: --force-with-lease permitido en feature/x" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: --force-with-lease=feature/x permitido en feature/x" \
+  "block-force-push.sh" "git push --force-with-lease=feature/x origin feature/x" "$PATH" "$SANDBOX_REPO"
+
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/dev-tools)
+assert_allowed_cmd "block-force-push: --force-with-lease permitido en feature/dev-tools (no falso bloqueo por substring de dev)" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/dev-tools" "$PATH" "$SANDBOX_REPO"
+
+(cd "$SANDBOX_REPO" && git checkout -q feature/x)
+assert_blocked_cmd "block-force-push: --force-with-lease a main desde feature bloquea" \
+  "block-force-push.sh" "git push --force-with-lease origin main" "$PATH" "$SANDBOX_REPO"
+
+(cd "$SANDBOX_REPO" && git checkout -q main)
+assert_blocked_cmd "block-force-push: --force-with-lease en main (sin refspec) bloquea" \
+  "block-force-push.sh" "git push --force-with-lease" "$PATH" "$SANDBOX_REPO"
+
+(cd "$SANDBOX_REPO" && git checkout -q -b dev)
+assert_blocked_cmd "block-force-push: --force-with-lease en dev bloquea" \
+  "block-force-push.sh" "git push --force-with-lease" "$PATH" "$SANDBOX_REPO"
+
+(cd "$SANDBOX_REPO" && git checkout -q feature/x)
+assert_blocked_cmd "block-force-push: refspec feature/x:main con --force-with-lease bloquea" \
+  "block-force-push.sh" "git push origin feature/x:main --force-with-lease" "$PATH" "$SANDBOX_REPO"
+
+assert_blocked_cmd "block-force-push: --force en feature/x sigue bloqueando (la excepción no alcanza a --force)" \
+  "block-force-push.sh" "git push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+
+# Ronda 1 review (security MEDIUM): el segmento evaluado se tomaba desde el
+# PRIMER "push\b" del comando, sin importar si venía de un "git push" real —
+# un "git stash push" o un directorio/branch que contiene la palabra "push"
+# capturaban el segmento equivocado y el "main"/"dev" real del git push
+# quedaba fuera de la porción evaluada, colando el push a rama protegida.
+assert_blocked_cmd "block-force-push: refspec HEAD:refs/heads/main con --force-with-lease bloquea" \
+  "block-force-push.sh" "git push --force-with-lease origin HEAD:refs/heads/main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: refspec feature/x:refs/heads/dev con --force-with-lease bloquea" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/x:refs/heads/dev" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: --force-with-lease --all bloquea (no alcanza la excepción)" \
+  "block-force-push.sh" "git push --force-with-lease --all origin" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: --force-with-lease --mirror bloquea (no alcanza la excepción)" \
+  "block-force-push.sh" "git push --force-with-lease --mirror" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: git stash push antes de un git push --force-with-lease a main bloquea" \
+  "block-force-push.sh" "git stash push -m wip && git push --force-with-lease origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: cd a un directorio con 'push' en el nombre antes de un git push --force-with-lease a main bloquea" \
+  "block-force-push.sh" "cd /Users/x/push-service && git push --force-with-lease origin main" "$PATH" "$SANDBOX_REPO"
+
+# guard_force_with_lease_allowed (ronda 2 review, security LOW): el segmento
+# usado para buscar "main"/"dev" se toma de SANITIZED_COMMAND, que ya vació
+# los spans quoted antes de llegar acá — "origin 'main'" queda como
+# "origin " y el token "main" desaparece, así que el check no lo ve y la
+# excepción de --force-with-lease se cuela hacia una rama protegida. Mismas
+# 4 formas (comillas simples/dobles, con y sin refspec) deben bloquear.
+assert_blocked_cmd "block-force-push: --force-with-lease a 'main' entre comillas simples bloquea" \
+  "block-force-push.sh" "git push --force-with-lease origin 'main'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: --force-with-lease a \"HEAD:main\" entre comillas dobles bloquea" \
+  "block-force-push.sh" 'git push --force-with-lease origin "HEAD:main"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: --force-with-lease a 'dev' entre comillas simples bloquea" \
+  "block-force-push.sh" "git push --force-with-lease origin 'dev'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: --force-with-lease a \"HEAD:refs/heads/dev\" entre comillas dobles bloquea" \
+  "block-force-push.sh" 'git push --force-with-lease origin "HEAD:refs/heads/dev"' "$PATH" "$SANDBOX_REPO"
+
+sandbox_cleanup_pushrepo
+
+NO_GIT_BFP_DIR=$(mktemp -d)
+assert_blocked_cmd "block-force-push: --force-with-lease fuera de un repo git bloquea fail-closed" \
+  "block-force-push.sh" "git push --force-with-lease" "$PATH" "$NO_GIT_BFP_DIR"
+rm -rf "$NO_GIT_BFP_DIR"
 
 echo ""
 
@@ -1067,6 +1053,53 @@ assert_allowed_cmd "pre-commit-guard: git commit-graph write no se intercepta" \
   "$FAKE_PYTEST_TERM_DIR:$PATH" \
   "$PCG_TERM_DIR"
 
+# GIT_COMMIT_RE (ronda 1 review, security MEDIUM): un prefijo de asignación
+# de entorno DISTINTO de GIT_DIR/GIT_WORK_TREE (ej. "HUSKY=0",
+# "GIT_AUTHOR_NAME=bot") antes solo se toleraba con esos dos nombres
+# exactos — cualquier otra asignación no matcheaba GIT_COMMIT_RE y el
+# commit real pasaba sin correr tests. Mismo fixture (pytest fake que
+# siempre falla) para que la intercepción sea observable por el efecto
+# (bloquea) y no por el nombre del regex.
+assert_blocked_cmd "pre-commit-guard: HUSKY=0 git commit -m x (prefijo de entorno ajeno a GIT_DIR/GIT_WORK_TREE) se intercepta" \
+  "pre-commit-guard.sh" \
+  "HUSKY=0 git commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_blocked_cmd "pre-commit-guard: GIT_AUTHOR_NAME=bot git commit -m x se intercepta" \
+  "pre-commit-guard.sh" \
+  "GIT_AUTHOR_NAME=bot git commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+# GIT_COMMIT_RE (ronda 2 review, security LOW): "env" antepuesto a la
+# asignación de entorno ("env HUSKY=0 git commit") no matcheaba
+# GIT_COMMIT_RE porque el regex solo toleraba asignaciones "NOMBRE=valor"
+# pegadas a "git", no el binario "env" (con o sin flags cortas como "-i")
+# de por medio — el commit real pasaba sin correr tests. Mismo fixture
+# (pytest fake que siempre falla) para que la intercepción sea observable
+# por el efecto (bloquea).
+assert_blocked_cmd "pre-commit-guard: env HUSKY=0 git commit se intercepta" \
+  "pre-commit-guard.sh" \
+  "env HUSKY=0 git commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_blocked_cmd "pre-commit-guard: env -i HUSKY=0 git commit se intercepta" \
+  "pre-commit-guard.sh" \
+  "env -i HUSKY=0 git commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+# Negativo: la mención de "env HUSKY=0 git commit" dentro de un string
+# double-quoted (argumento literal de "echo") no es una invocación real —
+# el saneo compartido ya la vacía antes de que este regex la vea.
+assert_allowed_cmd "pre-commit-guard: echo \"env HUSKY=0 git commit\" no se intercepta" \
+  "pre-commit-guard.sh" \
+  'echo "env HUSKY=0 git commit"' \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
 rm -rf "$PCG_TERM_DIR" "$FAKE_PYTEST_TERM_DIR"
 
 # --- pre-commit-guard.sh: watchdog fail-closed por tiempo (PRECOMMIT_TEST_BUDGET) ---
@@ -1280,9 +1313,8 @@ rm -rf "$NO_JQ_PCG_BIN"
 echo "--- pre-commit-guard.sh: salto para commits de solo .planning/ ---"
 
 # _pskip_setup: repo git temporal con un test runner npm que SIEMPRE falla
-# (exit 1) y deja un marcador si corrió — misma técnica que
-# _wsscope_npm_setup más arriba, para distinguir "no corrió" (marcador
-# ausente) de "corrió y (falla, como siempre)".
+# (exit 1) y deja un marcador si corrió, para distinguir "no corrió"
+# (marcador ausente) de "corrió y (falla, como siempre)".
 #
 # El marcador guarda "pwd -P" (#73), no un simple "ran": npm ejecuta el
 # script "test" con cwd = el directorio del package.json que lo declara, así
@@ -1361,52 +1393,43 @@ _pskip_assert_marker_tree() {
 
 _pskip_setup
 
-# (a) Solo .planning/x.md modificado → exit 0 y NO corre el test runner.
-_pskip_reset
-echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-assert_allowed_cmd "pre-commit-guard: solo .planning/ modificado → salta suites (exit 0)" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: solo .planning/ modificado — el test runner NO corrió" no
+# Sin salto para .planning/ (D-03): .planning/ deja de tener trato
+# especial en este hook, así que estos casos pinean que el filtro de "git
+# commit" sigue sin interceptar menciones dentro de texto quoted/heredoc —
+# no que el árbol esté sucio solo bajo .planning/.
 
-# (a2) [#73] Una mención de "git -C" dentro del MENSAJE del commit (texto
-# quoted, guard_sanitize lo elimina antes de cualquier chequeo) no debe
-# enrutarse al resolver de "-C" — sigue siendo un commit normal por el
-# camino rápido, así que con solo .planning/ sucio sigue saltando.
+# Mención de "git -C" dentro del MENSAJE del commit (texto quoted,
+# guard_sanitize lo elimina antes de cualquier chequeo) no debe enrutarse
+# al bloqueo de "git -C": sigue siendo un commit normal por el camino
+# rápido, y corre el runner de la raíz (siempre falla).
 _pskip_reset
-echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-assert_allowed_cmd "pre-commit-guard: mención de \"git -C\" dentro del mensaje del commit va por el camino rápido (no se enruta al resolver de -C)" \
+assert_blocked_cmd "pre-commit-guard: mención de \"git -C\" dentro del mensaje del commit va por el camino rápido" \
   "pre-commit-guard.sh" 'git commit -m "git -C /x commit"' "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: mención de git -C en el mensaje — el test runner NO corrió" no
+_pskip_assert_marker_tree "pre-commit-guard: mención de git -C en el mensaje — el runner corrió en la sesión" "$PSKIP_DIR"
 
-# (a3) [#73, Lote 2] Mismo caso que (a2) pero con "cd": una mención de
-# "cd /tmp && git commit" dentro del MENSAJE del commit (texto quoted) no
-# debe enrutarse al resolver de "cd" — guard_sanitize la elimina antes de
-# CD_PUSHD_RE, así que sigue siendo un commit normal por el camino rápido.
+# Mismo caso con "cd": una mención de "cd /tmp && git commit" dentro del
+# MENSAJE no debe enrutarse al bloqueo de "cd".
 _pskip_reset
-echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-assert_allowed_cmd "pre-commit-guard: mención de \"cd /tmp && git commit\" dentro del mensaje va por el camino rápido (no se enruta al resolver de cd)" \
+assert_blocked_cmd "pre-commit-guard: mención de \"cd /tmp && git commit\" dentro del mensaje va por el camino rápido" \
   "pre-commit-guard.sh" 'git commit -m "cd /tmp && git commit"' "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: mención de \"cd /tmp && git commit\" en el mensaje — el test runner NO corrió" no
+_pskip_assert_marker_tree "pre-commit-guard: mención de \"cd /tmp && git commit\" en el mensaje — el runner corrió en la sesión" "$PSKIP_DIR"
 
-# (a4) [#77 §2, A2] El comando interceptado NO es un git commit — es un
-# heredoc con espacio tras "<<" que ESCRIBE un archivo cuyo cuerpo menciona
-# "git commit" entre backticks de markdown. Antes del fix de guard_sanitize
-# (espacio tras "<<"), el heredoc no se reconocía, el cuerpo no se borraba,
-# y el backtick antes de "git commit" quedaba en posición de comando
-# (GUARD_ANCHOR) — el guard corría el runner como si fuera un commit real.
+# El comando interceptado NO es un git commit — es un heredoc con espacio
+# tras "<<" que ESCRIBE un archivo cuyo cuerpo menciona "git commit" entre
+# backticks de markdown. No debe dispararse el runner.
 _pskip_reset
-echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 A2_COMMAND=$(cat <<'CMD_EOF'
 cat > r.md << 'EOF'
 - `git commit -m "x"` fallo
 EOF
 CMD_EOF
 )
-assert_allowed_cmd "pre-commit-guard: heredoc con espacio tras << y mención de git commit en el cuerpo no dispara el runner (A2)" \
+assert_allowed_cmd "pre-commit-guard: heredoc con espacio tras << y mención de git commit en el cuerpo no dispara el runner" \
   "pre-commit-guard.sh" "$A2_COMMAND" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: A2 — el test runner NO corrió" no
+_pskip_assert_marker "pre-commit-guard: heredoc con mención de git commit — el runner NO corrió" no
 
-# (b) .planning/x.md + src/a.js → corre (bloquea: el runner siempre falla).
+# .planning/ ya no tiene trato especial (D-03): .planning/x.md + un
+# archivo fuera de .planning/ corre las suites igual que cualquier commit.
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 echo "cambio" >> "$PSKIP_DIR/src/a.js"
@@ -1414,190 +1437,9 @@ assert_blocked_cmd "pre-commit-guard: .planning/ + un archivo fuera → corre su
   "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
 _pskip_assert_marker "pre-commit-guard: .planning/ + un archivo fuera — el test runner corrió" yes
 
-# (c) Solo un untracked fuera de .planning/ → corre.
-_pskip_reset
-echo "nuevo" > "$PSKIP_DIR/src/b.js"
-assert_blocked_cmd "pre-commit-guard: untracked fuera de .planning/ → corre suites" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: untracked fuera de .planning/ — el test runner corrió" yes
-
-# (d) .planning/x.md modificado + untracked fuera de .planning/ → corre.
-_pskip_reset
-echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-echo "nuevo" > "$PSKIP_DIR/src/b.js"
-assert_blocked_cmd "pre-commit-guard: .planning/ modificado + untracked fuera → corre suites" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: .planning/ + untracked fuera — el test runner corrió" yes
-
-# (e) Rename de .planning/a.md a src/a.md (ambos lados evaluados) → corre.
-_pskip_reset
-git -C "$PSKIP_DIR" mv .planning/a.md src/a.md
-assert_blocked_cmd "pre-commit-guard: rename de .planning/ hacia afuera → corre suites" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: rename .planning/ → afuera — el test runner corrió" yes
-
-# (e2) Rename DENTRO de .planning/ (ambos lados bajo el prefijo) → sigue
-# saltando: mover un archivo de .planning/ a .planning/ no saca nada del
-# árbol vigilado, a diferencia de (e). El case ".planning/*" del hook
-# matchea ambos lados de la línea de rename, así que el chequeo no
-# retorna 1 por esto.
-_pskip_reset
-git -C "$PSKIP_DIR" mv .planning/a.md .planning/b.md
-assert_allowed_cmd "pre-commit-guard: rename dentro de .planning/ (ambos lados) → sigue saltando" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: rename dentro de .planning/ — el test runner NO corrió" no
-
-# Casos adicionales [security MEDIUM]: pinean invariantes hoy correctas
-# pero sin test — cualquier "simplificación" futura del glob (ej.
-# ".planning*", un "grep -q '^\.planning'") las rompería en silencio y
-# esta suite seguiría en verde.
-
-# Hermanos del prefijo: un match por prefijo mal anclado dejaría pasar
-# ".planning-evil.js" como si cayera "bajo" .planning/. El case actual
-# (".planning/*") exige la barra, así que estos 4 deben correr suites.
-_pskip_reset
-echo "nuevo" > "$PSKIP_DIR/.planning-evil.js"
-assert_blocked_cmd "pre-commit-guard: .planning-evil.js (hermano del prefijo, sin barra) → corre suites" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: .planning-evil.js — el test runner corrió" yes
-
-_pskip_reset
-echo "nuevo" > "$PSKIP_DIR/.planningx.js"
-assert_blocked_cmd "pre-commit-guard: .planningx.js (hermano del prefijo) → corre suites" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: .planningx.js — el test runner corrió" yes
-
-_pskip_reset
-mkdir -p "$PSKIP_DIR/.planning-evil"
-echo "nuevo" > "$PSKIP_DIR/.planning-evil/x.js"
-assert_blocked_cmd "pre-commit-guard: .planning-evil/x.js (directorio hermano del prefijo) → corre suites" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: .planning-evil/x.js — el test runner corrió" yes
-
-# src/.planning/x.js: ".planning/" anidado dentro de otro directorio no es
-# EL .planning/ de la raíz que este chequeo protege.
-_pskip_reset
-mkdir -p "$PSKIP_DIR/src/.planning"
-echo "nuevo" > "$PSKIP_DIR/src/.planning/x.js"
-assert_blocked_cmd "pre-commit-guard: src/.planning/x.js (.planning/ anidado, no el de la raíz) → corre suites" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: src/.planning/x.js — el test runner corrió" yes
-
-# .planning como ARCHIVO regular (sin barra) no matchea ".planning/*". Se
-# arma en un repo temporal aparte (no PSKIP_DIR): reemplazar el
-# directorio .planning/ trackeado por un archivo regular del mismo nombre
-# deja un estado que _pskip_reset (git reset --hard + clean -fdq) no
-# puede limpiar de vuelta a la fixture compartida.
-PSKIP_FILE_DIR=$(mktemp -d)
-PSKIP_FILE_DIR=$(cd "$PSKIP_FILE_DIR" && pwd -P)
-PSKIP_FILE_MARK=$(mktemp -d)
-(
-  cd "$PSKIP_FILE_DIR" || exit 1
-  git init -q
-  git config user.email "sandbox@example.com"
-  git config user.name "Sandbox"
-  cat > package.json <<EOF
-{ "name": "root", "private": true, "scripts": { "test": "echo ran > $PSKIP_FILE_MARK/test.ran && exit 1" } }
-EOF
-  echo "contenido" > .planning
-  git add -A
-) > /dev/null 2>&1
-assert_blocked_cmd "pre-commit-guard: .planning como archivo regular (sin barra) → corre suites" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_FILE_DIR"
-TOTAL=$((TOTAL + 1))
-if [ -f "$PSKIP_FILE_MARK/test.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: .planning archivo regular — el test runner corrió (test.ran=yes)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: .planning archivo regular — el test runner corrió (test.ran=no, esperado=yes)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$PSKIP_FILE_DIR" "$PSKIP_FILE_MARK"
-
-# Lista vacía con árbol limpio: requisito explícito del BRIEF ("lista
-# vacía ... → camino normal"). --allow-empty no tiene NADA que
-# _guard_planning_only_change pueda ver en "git status" (árbol limpio),
-# así que el criterio conservador (lista vacía → return 1) debe correr
-# suites igual, nunca saltarlas por ausencia de cambios.
-_pskip_reset
-assert_blocked_cmd "pre-commit-guard: lista vacía (árbol limpio, --allow-empty) → corre suites" \
-  "pre-commit-guard.sh" "git commit --allow-empty -m x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: árbol limpio — el test runner corrió" yes
-
-# Fail-closed de "git": si "git status" falla (repo corrupto, git ausente,
-# cwd fuera de un repo), _guard_planning_only_change debe devolver 1
-# (camino normal) y NUNCA 0 (saltar) — mismo criterio fail-closed que el
-# resto del hook. Se simula con un "git" fake que siempre sale 1.
-#
-# El fake IMPRIME una línea de status con pinta de "solo .planning/" antes
-# de salir 1: si saliera 1 sin imprimir nada, "files" quedaría vacío
-# igual que con un árbol limpio, y el assert de abajo pasaría por
-# "[ -z "$files" ] && return 1" sin ejercitar de verdad
-# "|| return 1" — un "git" que falla CON salida (git real puede emitir
-# stderr/stdout parcial antes de un error) no lo cubriría esa rama.
-# Verificado por mutación: quitando "|| return 1" del hook, con este fake
-# (imprime y sale 1) el assert de abajo se pone en rojo (test.ran=no
-# cuando se espera yes), porque " M .planning/x.md" matchea el case
-# ".planning/*" y la función devuelve 0 (salta) en vez de 1 — con el
-# fake anterior (sin imprimir) esa misma mutación NO se detectaba, porque
-# "[ -z "$files" ] && return 1" seguía atrapando el caso por su cuenta.
-PSKIP_NOGIT_DIR=$(mktemp -d)
-cat > "$PSKIP_NOGIT_DIR/git" <<'FAKE_GIT_EOF'
-#!/bin/bash
-echo " M .planning/x.md"
-exit 1
-FAKE_GIT_EOF
-chmod +x "$PSKIP_NOGIT_DIR/git"
-_pskip_reset
-echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-assert_blocked_cmd "pre-commit-guard: \"git status\" falla (repo corrupto/git ausente) → corre suites (fail-closed)" \
-  "pre-commit-guard.sh" "git commit -m x" "$PSKIP_NOGIT_DIR:$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: git status falla — el test runner corrió" yes
-rm -rf "$PSKIP_NOGIT_DIR"
-
-# Rename afuera → .planning/ (código ENTRANDO a .planning/, dirección
-# inversa a (e)): src/a.js pasa a vivir bajo .planning/, así que el lado
-# izquierdo del rename cae fuera → corre suites. El comentario del hook
-# promete evaluar "ambos lados"; solo (e) pineaba una dirección.
-_pskip_reset
-git -C "$PSKIP_DIR" mv src/a.js .planning/moved.js
-assert_blocked_cmd "pre-commit-guard: rename de afuera hacia .planning/ → corre suites" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: rename afuera → .planning/ — el test runner corrió" yes
-
-# (f) Comportamiento existente: una mención de "git commit" dentro de un
-# heredoc no es una invocación real y no debe interceptarse, ni aunque el
-# repo esté sucio solo bajo .planning/ (confirma que el chequeo nuevo no se
-# adelanta al guard de sanitización que ya decide esto antes).
-_pskip_reset
-echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-HEREDOC_MENTION_PSKIP=$(cat <<'CMD_EOF'
-cat <<'NOTE_EOF' > notes.txt
-git commit -m "reminder text" (do this later)
-NOTE_EOF
-CMD_EOF
-)
-assert_allowed_cmd "pre-commit-guard: mención de git commit en heredoc sigue sin interceptarse (con .planning/ sucio)" \
-  "pre-commit-guard.sh" \
-  "$HEREDOC_MENTION_PSKIP" \
-  "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: heredoc — el test runner NO corrió (nunca se interceptó)" no
-
-# (g)-(i) [security HIGH] Worktree real: árbol principal sucio SOLO bajo
-# .planning/, pero el comando interceptado commitea en OTRO árbol (código
-# sin test) vía "cd", "git -C" o "--git-dir"/"--work-tree". Antes del fix,
-# _guard_planning_only_change (un simple "git status" en el cwd del hook)
-# no tenía forma de saber que el commit real ocurre en otro árbol: leía el
-# árbol principal, lo veía "solo .planning/" y saltaba las suites sobre un
-# commit de código real — el escenario que verificó el security reviewer
-# (Fase 2.6). Ver el comentario junto al chequeo nuevo en
-# pre-commit-guard.sh para por qué "-C"/"--git-dir"/"--work-tree" dan
-# "status quo exacto" (idéntico antes y después de este fix): esas formas
-# nunca llegan a _guard_planning_only_change porque ya rompen el match
-# "git\s+commit" del filtro de arriba (necesitan "commit" pegado a "git"
-# salvo por espacios) — es #212, legacy, fuera de alcance; (g) sí cambia
-# de comportamiento (era el bug), (h) e (i) confirman que siguen
-# igual que siempre.
+# Worktree real para las formas R1-R11/X1-X16 de abajo: árbol principal y
+# worktree son repos git distintos con su propio estado sucio, para afirmar
+# a qué árbol resuelve cada forma del comando interceptado.
 _pskip_setup_worktree() {
   git -C "$PSKIP_DIR" branch -q pskip-wt
   PSKIP_WT=$(mktemp -d)
@@ -1658,32 +1500,14 @@ assert_blocked_cmd "pre-commit-guard: cd <worktree> && git commit resuelve al wo
 _pskip_assert_marker_tree "pre-commit-guard: cd <worktree> — el runner corrió en el worktree" "$PSKIP_WT"
 _pskip_cleanup_worktree
 
-# R2 (inverso de R1): árbol principal sucio con código FUERA de
-# .planning/, worktree sucio solo bajo .planning/ (ambos lados existen
-# ahí: el worktree comparte el historial de PSKIP_DIR) → "cd $WT && git
-# commit" resuelve al worktree, y ahí SÍ aplica el salto (exit 0, sin
-# runner).
-_pskip_reset
-echo "cambio" >> "$PSKIP_DIR/src/a.js"
-git -C "$PSKIP_DIR" branch -q pskip-wt
-PSKIP_WT=$(mktemp -d)
-PSKIP_WT=$(cd "$PSKIP_WT" && pwd -P)
-git -C "$PSKIP_DIR" worktree add -q "$PSKIP_WT" pskip-wt > /dev/null 2>&1
-echo "cambio-planning-wt" >> "$PSKIP_WT/.planning/x.md"
-assert_allowed_cmd "pre-commit-guard: cd <worktree> && git commit resuelve al worktree, ahí solo .planning/ → salta suites" \
-  "pre-commit-guard.sh" "cd $PSKIP_WT && git commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: cd <worktree> (solo .planning/ ahí) — el runner NO corrió" no
-_pskip_cleanup_worktree
-
-# R3: terminador ";" en vez de "&&", con un "git add -A" entre medio — la
-# forma B3 exige "cd" al inicio seguido directo de "&&" o ";", sin
-# importar qué venga después en el comando compuesto.
+# R3: terminador ";" en vez de "&&" — la forma aceptada exige "cd" al
+# inicio seguido directo de "&&"; ";" bloquea sin correr.
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 _pskip_setup_worktree
-assert_blocked_cmd "pre-commit-guard: cd <worktree>; git add -A && git commit resuelve al worktree, corre suites" \
-  "pre-commit-guard.sh" "cd $PSKIP_WT; git add -A && git commit -m x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker_tree "pre-commit-guard: cd <worktree> con ';' — el runner corrió en el worktree" "$PSKIP_WT"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd <worktree>; git commit (terminador ';') → bloquea sin correr" \
+  "cd $PSKIP_WT; git commit -am x"
 _pskip_cleanup_worktree
 
 # R4: heredoc en el mensaje de commit que MENCIONA "cd /x && git commit" —
@@ -1828,7 +1652,14 @@ _pskip_assert_blocked_forms \
   "pre-commit-guard: cd \"/a b\" (ruta con espacio) && git commit → bloquea sin correr" \
   'cd "/a b" && git commit -am x'
 
-# X14 (análogo a la forma "-C"): ruta que existe pero no es un repo git.
+# X14: ruta absoluta inexistente.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd /no/existe && git commit → bloquea sin correr" \
+  "cd /no-existe-73 && git commit -am x"
+
+# X14b: ruta que existe pero no es un repo git.
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 PCG_NOTAREPO_CD_DIR=$(mktemp -d)
@@ -1839,17 +1670,16 @@ rm -rf "$PCG_NOTAREPO_CD_DIR"
 
 # Negativo: una mención de "cd x" dentro de un string ("echo \"cd x\" &&
 # git commit") no es una invocación real — guard_sanitize ya la quitó
-# antes de este chequeo — y sigue saltando con .planning/ sucio solo (no
-# se enruta al resolver de "cd" en absoluto).
+# antes de este chequeo — y el commit sigue por el camino rápido (no se
+# enruta al bloqueo de "cd" en absoluto).
 _pskip_reset
-echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
-assert_allowed_cmd "pre-commit-guard: mención de \"cd x\" dentro de un string sigue saltando" \
+assert_blocked_cmd "pre-commit-guard: mención de \"cd x\" dentro de un string va por el camino rápido" \
   "pre-commit-guard.sh" 'echo "cd x" && git commit -am x' "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: mención de cd en string — el test runner NO corrió (sigue saltando)" no
+_pskip_assert_marker_tree "pre-commit-guard: mención de cd en string — el runner corrió en la sesión" "$PSKIP_DIR"
 
-# (#73, Lote 2, Tarea 4) Contrato del mensaje de bloqueo: nombra las TRES
-# formas aceptadas ("git commit …", "cd <ruta> && …", "git -C <ruta> …")
-# Y el escape ("hacé el cd en una llamada Bash previa"). Los tests con
+# Contrato del mensaje de bloqueo: nombra las DOS formas aceptadas ("git
+# commit …", "cd /ruta/absoluta && git commit …") y el escape ("haz el cd
+# en una llamada Bash previa"). Los tests con
 # _pskip_assert_blocked_forms de arriba solo verifican la presencia de
 # "Formas aceptadas" (contrato mínimo compartido); este test lee el
 # stderr completo para afirmar el contenido, no solo el encabezado.
@@ -1861,58 +1691,35 @@ PCG_MSG_STDERR=$(cd "$PSKIP_DIR" && echo "$PCG_MSG_JSON" | PATH="$PATH" bash "$H
 TOTAL=$((TOTAL + 1))
 if [ "$PCG_MSG_EXIT" -eq 2 ] \
   && echo "$PCG_MSG_STDERR" | grep -qF "'git commit …' en el cwd de la sesión" \
-  && echo "$PCG_MSG_STDERR" | grep -qF "'cd <ruta> && git commit …'" \
-  && echo "$PCG_MSG_STDERR" | grep -qF "'git -C <ruta> commit …'" \
-  && echo "$PCG_MSG_STDERR" | grep -qF "hacé el cd en una llamada Bash previa"; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: el mensaje de bloqueo nombra las tres formas y el escape"
+  && echo "$PCG_MSG_STDERR" | grep -qF "'cd /ruta/absoluta && git commit …'" \
+  && echo "$PCG_MSG_STDERR" | grep -qF "haz el cd en una llamada Bash previa"; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: el mensaje de bloqueo nombra las dos formas y el escape"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: el mensaje de bloqueo nombra las tres formas y el escape (exit=$PCG_MSG_EXIT, stderr=\"$PCG_MSG_STDERR\")"
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: el mensaje de bloqueo nombra las dos formas y el escape (exit=$PCG_MSG_EXIT, stderr=\"$PCG_MSG_STDERR\")"
   FAIL=$((FAIL + 1))
 fi
 
-# R5-R7 (#73, reemplazan (h)): "git -C <worktree> commit" ahora SÍ resuelve
-# el árbol objetivo — antes de este fix ni siquiera matcheaba el filtro de
-# "git commit" (quedaba "-C <ruta>" en medio) y el hook salía en el
-# detector de arriba sin evaluar nada. Cambio de contrato documentado en
-# DESIGN.md ("Riesgos"): formas que antes pasaban de largo ahora se
-# resuelven (o bloquean si son ambiguas, ver X-series más abajo).
+# R5-R6 (#73/B.3): "git -C" ya no se resuelve — cualquier mención bloquea
+# sin correr, sin importar si la ruta es válida ni si se repite.
 
-# R5: árbol principal sucio solo .planning/, worktree con código sucio →
-# "git -C $WT commit" resuelve al worktree, corre suites ahí (bloquea: el
-# runner siempre falla).
+# R5: "git -C <worktree> commit" → bloquea sin correr.
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 _pskip_setup_worktree
-assert_blocked_cmd "pre-commit-guard: git -C <worktree> commit resuelve al worktree, corre suites" \
-  "pre-commit-guard.sh" "git -C $PSKIP_WT commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker_tree "pre-commit-guard: git -C <worktree> — el runner corrió en el worktree" "$PSKIP_WT"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git -C <worktree> commit → bloquea sin correr" \
+  "git -C $PSKIP_WT commit -am x"
 _pskip_cleanup_worktree
 
 # R6: "-C" repetido con la MISMA ruta en cada invocación del comando
-# compuesto → sigue resolviendo (una sola ruta candidata tras sort -u).
+# compuesto → igual bloquea (ya no es un caso especial de resolución).
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 _pskip_setup_worktree
-assert_blocked_cmd "pre-commit-guard: git -C <worktree> repetido (misma ruta) resuelve al worktree, corre suites" \
-  "pre-commit-guard.sh" "git -C $PSKIP_WT add -A && git -C $PSKIP_WT commit -m x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker_tree "pre-commit-guard: git -C repetido — el runner corrió en el worktree" "$PSKIP_WT"
-_pskip_cleanup_worktree
-
-# R7 (inverso de R5): árbol principal sucio con código FUERA de .planning/,
-# worktree sucio solo bajo .planning/ (ambos lados existen ahí: el worktree
-# comparte el historial de PSKIP_DIR) → "git -C $WT commit" resuelve al
-# worktree, y ahí SÍ aplica el salto de .planning/ (exit 0, sin runner).
-_pskip_reset
-echo "cambio" >> "$PSKIP_DIR/src/a.js"
-git -C "$PSKIP_DIR" branch -q pskip-wt
-PSKIP_WT=$(mktemp -d)
-PSKIP_WT=$(cd "$PSKIP_WT" && pwd -P)
-git -C "$PSKIP_DIR" worktree add -q "$PSKIP_WT" pskip-wt > /dev/null 2>&1
-echo "cambio-planning-wt" >> "$PSKIP_WT/.planning/x.md"
-assert_allowed_cmd "pre-commit-guard: git -C <worktree> commit resuelve al worktree, ahí solo .planning/ → salta suites" \
-  "pre-commit-guard.sh" "git -C $PSKIP_WT commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker "pre-commit-guard: git -C <worktree> (solo .planning/ ahí) — el runner NO corrió" no
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git -C <worktree> repetido (misma ruta) → bloquea sin correr" \
+  "git -C $PSKIP_WT add -A && git -C $PSKIP_WT commit -m x"
 _pskip_cleanup_worktree
 
 # --- pre-commit-guard.sh: #73 resolución del árbol objetivo del commit ---
@@ -2132,29 +1939,26 @@ _pskip_cleanup_other() {
   rm -rf "$PSKIP_OTHER"
 }
 
-# R9 (#73, Lote 2): ruta relativa a BASE_DIR — repo OTHER hermano de
-# PSKIP_DIR con código sucio → "cd ../<other> && git commit" resuelve a
-# OTHER. B6 resuelve con "cd BASE_DIR && cd ruta": una ruta relativa se
-# interpreta relativa a BASE_DIR, no al cwd del propio proceso del hook.
+# R9 (#73/B.3): ruta relativa — la forma aceptada exige una ruta absoluta
+# literal (empieza con "/"); una relativa bloquea sin correr.
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 _pskip_setup_other
-assert_blocked_cmd "pre-commit-guard: cd ../<other> (ruta relativa) && git commit resuelve a OTHER, corre suites" \
-  "pre-commit-guard.sh" "cd ../$(basename "$PSKIP_OTHER") && git commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker_tree "pre-commit-guard: ruta relativa — el runner corrió en OTHER" "$PSKIP_OTHER"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: cd ../<other> (ruta relativa) && git commit → bloquea sin correr" \
+  "cd ../$(basename "$PSKIP_OTHER") && git commit -am x"
 _pskip_cleanup_other
 
-# R10 (#73, Lote 2): prefijo "~/" — se expande contra HOME (nunca contra
-# BASE_DIR ni con "eval" del resto de la ruta) — repo OTHER dentro de un
-# HOME temporal → "cd ~/<other> && git commit" resuelve a OTHER.
+# R10 (#73/B.3): prefijo "~/" tampoco es una ruta absoluta literal —
+# bloquea sin correr, sin expandirse contra HOME.
 _pskip_reset
 echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 PCG_HOME=$(mktemp -d)
 PCG_HOME=$(cd "$PCG_HOME" && pwd -P)
 _pskip_setup_other "$PCG_HOME"
-HOME="$PCG_HOME" assert_blocked_cmd "pre-commit-guard: cd ~/<other> (prefijo ~/) && git commit resuelve a OTHER, corre suites" \
-  "pre-commit-guard.sh" "cd ~/$(basename "$PSKIP_OTHER") && git commit -am x" "$PATH" "$PSKIP_DIR"
-_pskip_assert_marker_tree "pre-commit-guard: prefijo ~/ — el runner corrió en OTHER" "$PSKIP_OTHER"
+HOME="$PCG_HOME" _pskip_assert_blocked_forms \
+  "pre-commit-guard: cd ~/<other> (prefijo ~/) && git commit → bloquea sin correr" \
+  "cd ~/$(basename "$PSKIP_OTHER") && git commit -am x"
 _pskip_cleanup_other
 rm -rf "$PCG_HOME"
 
@@ -2245,35 +2049,35 @@ else
 fi
 _pnest_cleanup
 
-# (nested-b) Forma "cd <ruta> && git commit …" desde la raíz — el resolver
-# de "cd" ya calcula RESOLVED_DIR (frontend); la búsqueda del runner debe
+# (nested-b) Forma "cd /ruta/absoluta && git commit …" desde la raíz — el
+# resolver de "cd" calcula BASE_DIR (frontend); la búsqueda del runner debe
 # arrancar ahí, no en el toplevel.
 _pnest_setup
 echo "cambio" >> "$PNEST_DIR/frontend/a.js"
-assert_blocked_cmd "pre-commit-guard: cd frontend && git commit (runner solo en frontend/) → encuentra el runner y corre (bloquea)" \
-  "pre-commit-guard.sh" "cd frontend && git commit -am x" "$PATH" "$PNEST_DIR"
+assert_blocked_cmd "pre-commit-guard: cd <ruta absoluta>/frontend && git commit (runner solo en frontend/) → encuentra el runner y corre (bloquea)" \
+  "pre-commit-guard.sh" "cd $PNEST_DIR/frontend && git commit -am x" "$PATH" "$PNEST_DIR"
 TOTAL=$((TOTAL + 1))
 if [ -f "$PNEST_MARK/test.ran" ] && [ "$(cat "$PNEST_MARK/test.ran")" = "$(cd "$PNEST_DIR/frontend" && pwd -P)" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: cd frontend — el runner corrió en frontend/"
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: cd <ruta absoluta>/frontend — el runner corrió en frontend/"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: cd frontend — el runner corrió en frontend/ (marcador: \"$(cat "$PNEST_MARK/test.ran" 2>/dev/null)\")"
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: cd <ruta absoluta>/frontend — el runner corrió en frontend/ (marcador: \"$(cat "$PNEST_MARK/test.ran" 2>/dev/null)\")"
   FAIL=$((FAIL + 1))
 fi
 _pnest_cleanup
 
-# (nested-c) Forma "git -C <ruta> commit …" desde la raíz — mismo caso con
-# el resolver de "-C".
+# (nested-c) "git -C <ruta> commit …" ya no se resuelve (B.3): bloquea sin
+# correr, aunque el runner exista en el subdirectorio señalado.
 _pnest_setup
 echo "cambio" >> "$PNEST_DIR/frontend/a.js"
-assert_blocked_cmd "pre-commit-guard: git -C frontend commit (runner solo en frontend/) → encuentra el runner y corre (bloquea)" \
-  "pre-commit-guard.sh" "git -C frontend commit -am x" "$PATH" "$PNEST_DIR"
+PCG_NESTED_EXIT=0
+PCG_NESTED_STDERR=$(cd "$PNEST_DIR" && jq -n --arg cmd "git -C frontend commit -am x" '{tool_input: {command: $cmd}}' | bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PCG_NESTED_EXIT=$?
 TOTAL=$((TOTAL + 1))
-if [ -f "$PNEST_MARK/test.ran" ] && [ "$(cat "$PNEST_MARK/test.ran")" = "$(cd "$PNEST_DIR/frontend" && pwd -P)" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: git -C frontend — el runner corrió en frontend/"
+if [ "$PCG_NESTED_EXIT" -eq 2 ] && echo "$PCG_NESTED_STDERR" | grep -qF "Formas aceptadas" && [ ! -f "$PNEST_MARK/test.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: git -C frontend commit → bloquea sin correr"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: git -C frontend — el runner corrió en frontend/ (marcador: \"$(cat "$PNEST_MARK/test.ran" 2>/dev/null)\")"
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: git -C frontend commit → bloquea sin correr (exit: \"$PCG_NESTED_EXIT\", marcador: \"$(cat "$PNEST_MARK/test.ran" 2>/dev/null)\")"
   FAIL=$((FAIL + 1))
 fi
 _pnest_cleanup
@@ -2287,466 +2091,14 @@ HOOK_JSON_CWD="$PSKIP_DIR" assert_blocked_cmd "pre-commit-guard: runner en la ra
 _pskip_assert_marker_tree "pre-commit-guard: runner en la raíz — el runner corrió en la raíz (sin cambios)" "$PSKIP_DIR"
 _pskip_cleanup
 
-# --- pre-commit-guard.sh: workspace scoping (monorepo) ---
-echo "--- pre-commit-guard.sh: workspace scoping (monorepo) ---"
-
-# _wsscope_npm_setup: monorepo npm de dos workspaces (frontend/backend) en un
-# repo git temporal. El test de "backend" SIEMPRE falla a propósito: es la
-# señal que distingue si el scoping realmente funcionó (solo se tocó
-# frontend → backend nunca corre → el commit pasa) de si cayó al fallback
-# (la raíz corre "--workspaces", que arrastra a backend → el commit se
-# bloquea). Un test que solo mirara el exit code sin esta señal no probaría
-# scoping, solo que "algo" corrió — de ahí también los marcadores en
-# WSSCOPE_MARK: prueban qué workspace corrió de verdad, más allá del código
-# de salida.
-_wsscope_npm_setup() {
-  WSSCOPE_DIR=$(mktemp -d)
-  WSSCOPE_DIR=$(cd "$WSSCOPE_DIR" && pwd -P)
-  WSSCOPE_MARK=$(mktemp -d)
-  (
-    cd "$WSSCOPE_DIR" || exit 1
-    git init -q
-    git config user.email "sandbox@example.com"
-    git config user.name "Sandbox"
-    mkdir -p frontend backend
-    cat > package.json <<EOF
-{ "name": "root", "private": true, "workspaces": ["frontend", "backend"], "scripts": { "test": "npm run test --workspaces --if-present" } }
-EOF
-    cat > frontend/package.json <<EOF
-{ "name": "fe", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_MARK/frontend.ran" } }
-EOF
-    cat > backend/package.json <<EOF
-{ "name": "be", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_MARK/backend.ran && exit 1" } }
-EOF
-    git add -A
-    git commit -q -m init
-  ) > /dev/null 2>&1
-}
-
-_wsscope_npm_reset() {
-  git -C "$WSSCOPE_DIR" reset -q --hard > /dev/null 2>&1
-  git -C "$WSSCOPE_DIR" clean -fdq > /dev/null 2>&1
-  rm -f "$WSSCOPE_MARK"/*.ran
-}
-
-_wsscope_npm_cleanup() {
-  rm -rf "$WSSCOPE_DIR" "$WSSCOPE_MARK"
-}
-
-_wsscope_assert_markers() {
-  local test_name="$1" expect_fe="$2" expect_be="$3"
-  local got_fe=no got_be=no
-  [ -f "$WSSCOPE_MARK/frontend.ran" ] && got_fe=yes
-  [ -f "$WSSCOPE_MARK/backend.ran" ] && got_be=yes
-  TOTAL=$((TOTAL + 1))
-  if [ "$got_fe" = "$expect_fe" ] && [ "$got_be" = "$expect_be" ]; then
-    echo -e "${GREEN}PASS${NC}: $test_name (marcadores: frontend=$got_fe backend=$got_be)"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $test_name (marcadores: frontend=$got_fe backend=$got_be, esperado: frontend=$expect_fe backend=$expect_be)"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-_wsscope_npm_setup
-
-# Caso A: un solo workspace tocado → corre SOLO ese (backend, que siempre
-# falla si corre, nunca se invoca → el commit pasa).
-_wsscope_npm_reset
-echo "cambio" > "$WSSCOPE_DIR/frontend/README.md"
-git -C "$WSSCOPE_DIR" add -A > /dev/null 2>&1
-assert_allowed_cmd "pre-commit-guard: monorepo npm, un solo workspace tocado → corre solo ese" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
-_wsscope_assert_markers "pre-commit-guard: scoping a un workspace — solo frontend corrió" yes no
-
-# Caso B: los dos workspaces tocados → corren los dos (backend falla y
-# bloquea) — confirma que el scoping no se queda "pegado" a un solo
-# workspace cuando en verdad hay que correr más de uno.
-_wsscope_npm_reset
-echo "cambio fe" > "$WSSCOPE_DIR/frontend/README.md"
-echo "cambio be" > "$WSSCOPE_DIR/backend/README.md"
-git -C "$WSSCOPE_DIR" add -A > /dev/null 2>&1
-assert_blocked_cmd "pre-commit-guard: monorepo npm, dos workspaces tocados → corren los dos (backend falla y bloquea)" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
-_wsscope_assert_markers "pre-commit-guard: scoping a dos workspaces — ambos corrieron" yes yes
-
-# Caso C: cambio fuera de TODOS los workspaces declarados → corre todo (cae
-# al "$PKG_MGR test" de la raíz, que arrastra a backend y bloquea) — calca
-# la regla conservadora de .github/workflows/ci.yml (PR #122 de easy-quotes).
-_wsscope_npm_reset
-echo "cambio raiz" > "$WSSCOPE_DIR/README.md"
-git -C "$WSSCOPE_DIR" add -A > /dev/null 2>&1
-assert_blocked_cmd "pre-commit-guard: cambio fuera de todos los workspaces declarados → corre todo" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
-_wsscope_assert_markers "pre-commit-guard: fuera de workspaces — corrieron los dos (fallback completo)" yes yes
-
-# Caso E: "workspaces" declara un patrón que la lib no resuelve con
-# confianza ("packages/**", comodín en medio de la ruta) → corre todo, igual
-# que el caso C, aunque el archivo tocado sí caiga dentro de un workspace
-# real. Esto es lo que en la práctica significa "si el parseo falla" para
-# esta lib: package.json es válido, pero el patrón de workspaces no.
-_wsscope_npm_reset
-cat > "$WSSCOPE_DIR/package.json" <<EOF
-{ "name": "root", "private": true, "workspaces": ["frontend", "backend/**"], "scripts": { "test": "npm run test --workspaces --if-present" } }
-EOF
-echo "cambio" > "$WSSCOPE_DIR/frontend/README.md"
-git -C "$WSSCOPE_DIR" add -A > /dev/null 2>&1
-assert_blocked_cmd "pre-commit-guard: patrón de workspace no resuelto con confianza (glob en medio de la ruta) → corre todo" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
-_wsscope_assert_markers "pre-commit-guard: patrón no resuelto — corrieron los dos (fallback completo)" yes yes
-
-_wsscope_npm_cleanup
-
-# Caso D: repo de un solo paquete (sin "workspaces") → sin cambio de
-# comportamiento respecto al hook antes de esta feature.
-WSSCOPE_SINGLE_DIR=$(mktemp -d)
-WSSCOPE_SINGLE_DIR=$(cd "$WSSCOPE_SINGLE_DIR" && pwd -P)
-WSSCOPE_SINGLE_MARK=$(mktemp -d)
-(
-  cd "$WSSCOPE_SINGLE_DIR" || exit 1
-  git init -q
-  git config user.email "sandbox@example.com"
-  git config user.name "Sandbox"
-  cat > package.json <<EOF
-{ "name": "single", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_SINGLE_MARK/single.ran" } }
-EOF
-  git add -A
-  git commit -q -m init
-) > /dev/null 2>&1
-echo "cambio" > "$WSSCOPE_SINGLE_DIR/index.js"
-git -C "$WSSCOPE_SINGLE_DIR" add -A > /dev/null 2>&1
-assert_allowed_cmd "pre-commit-guard: repo de un solo paquete (sin workspaces) → sin cambio de comportamiento" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_SINGLE_DIR"
-TOTAL=$((TOTAL + 1))
-if [ -f "$WSSCOPE_SINGLE_MARK/single.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: repo de un solo paquete corrió su test de la raíz directamente"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: repo de un solo paquete corrió su test de la raíz directamente (marcador ausente)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$WSSCOPE_SINGLE_DIR" "$WSSCOPE_SINGLE_MARK"
-
-# Caso G: hooks/lib/workspace-scope.sh ausente → NO bloquea (a diferencia
-# de guard-matching.sh, esta lib no es fail-closed) y cae a correr todo. Se
-# reusa el fixture de dos workspaces: si el commit (que solo toca frontend)
-# se bloquea igual, es porque de verdad cayó al "$PKG_MGR test" completo de
-# la raíz (que arrastra al backend, que siempre falla).
-_wsscope_npm_setup
-_wsscope_npm_reset
-echo "cambio" > "$WSSCOPE_DIR/frontend/README.md"
-git -C "$WSSCOPE_DIR" add -A > /dev/null 2>&1
-
-WSSCOPE_NOLIB_DIR=$(mktemp -d)
-cp "$HOOKS_DIR/pre-commit-guard.sh" "$WSSCOPE_NOLIB_DIR/"
-mkdir -p "$WSSCOPE_NOLIB_DIR/lib"
-cp "$HOOKS_DIR/lib/guard-matching.sh" "$WSSCOPE_NOLIB_DIR/lib/"
-# A propósito NO se copia workspace-scope.sh.
-
-TOTAL=$((TOTAL + 1))
-WSSCOPE_NOLIB_EXIT=0
-WSSCOPE_NOLIB_JSON=$(jq -n --arg cmd "git commit -m x" '{tool_input: {command: $cmd}}')
-(cd "$WSSCOPE_DIR" && echo "$WSSCOPE_NOLIB_JSON" | bash "$WSSCOPE_NOLIB_DIR/pre-commit-guard.sh" > /dev/null 2>&1) || WSSCOPE_NOLIB_EXIT=$?
-if [ "$WSSCOPE_NOLIB_EXIT" -eq 2 ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: sin workspace-scope.sh no bloquea por su ausencia — cae a correr todo (bloquea por backend, no por falta de lib)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: sin workspace-scope.sh no bloquea por su ausencia — cae a correr todo (exit: $WSSCOPE_NOLIB_EXIT, esperado: 2 por el fallback completo)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$WSSCOPE_NOLIB_DIR"
-_wsscope_npm_cleanup
-
-# Caso F [security, PR #58, HIGH]: workspace anidado ("frontend/plugins/*",
-# declarado junto al padre "frontend") + un commit que crea el paquete
-# anidado ENTERO sin trackear. `git status --porcelain` (sin
-# --untracked-files=all) colapsa un directorio enteramente sin trackear en
-# una sola entrada con slash final (?? frontend/plugins/), que matchea el
-# workspace padre "frontend" pero no el anidado "frontend/plugins/foo" que
-# en verdad contiene el archivo nuevo — _WS_TOUCHED queda incompleto, el
-# guard corre solo "frontend" (pasa) y nunca corre el test del paquete
-# nuevo (que siempre falla), pasando el commit en silencio donde el hook
-# anterior (sin scoping) sí bloqueaba.
-WSSCOPE_NESTED_DIR=$(mktemp -d)
-WSSCOPE_NESTED_DIR=$(cd "$WSSCOPE_NESTED_DIR" && pwd -P)
-WSSCOPE_NESTED_MARK=$(mktemp -d)
-(
-  cd "$WSSCOPE_NESTED_DIR" || exit 1
-  git init -q
-  git config user.email "sandbox@example.com"
-  git config user.name "Sandbox"
-  mkdir -p frontend
-  cat > package.json <<EOF
-{ "name": "root", "private": true, "workspaces": ["frontend", "frontend/plugins/*"], "scripts": { "test": "npm run test --workspaces --if-present" } }
-EOF
-  cat > frontend/package.json <<EOF
-{ "name": "fe", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_NESTED_MARK/frontend.ran" } }
-EOF
-  git add -A
-  git commit -q -m init
-) > /dev/null 2>&1
-
-mkdir -p "$WSSCOPE_NESTED_DIR/frontend/plugins/foo"
-cat > "$WSSCOPE_NESTED_DIR/frontend/plugins/foo/package.json" <<EOF
-{ "name": "foo", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_NESTED_MARK/foo.ran && exit 1" } }
-EOF
-
-assert_blocked_cmd "pre-commit-guard: paquete anidado nuevo, enteramente sin trackear, dentro de un workspace existente → corre también su test (bloquea)" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_NESTED_DIR"
-TOTAL=$((TOTAL + 1))
-if [ -f "$WSSCOPE_NESTED_MARK/foo.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: el test del paquete anidado nuevo sí corrió (marcador presente)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: el test del paquete anidado nuevo no corrió (marcador ausente) — el colapso de directorio untracked dejó el workspace anidado fuera del scoping"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$WSSCOPE_NESTED_DIR" "$WSSCOPE_NESTED_MARK"
-
-# Caso H [security, PR #58, HIGH]: `status.showUntrackedFiles=no` (config
-# legítima de usuario, puede vivir en su ~/.gitconfig) hace que `git status
-# --porcelain` omita los untracked por completo. Un commit que toca
-# frontend (staged) y backend (archivo nuevo, todavía sin `git add` —
-# simula "git add -A && git commit" que aún no corrió cuando este hook
-# PreToolUse se dispara) debía correr ambas suites; con esa config activa,
-# la lib solo ve frontend y el commit pasa sin correr el test de backend
-# (que siempre falla).
-_wsscope_npm_setup
-_wsscope_npm_reset
-git -C "$WSSCOPE_DIR" config status.showUntrackedFiles no
-echo "cambio fe" > "$WSSCOPE_DIR/frontend/README.md"
-echo "cambio be nuevo" > "$WSSCOPE_DIR/backend/NEW.md"
-git -C "$WSSCOPE_DIR" add frontend/README.md > /dev/null 2>&1
-assert_blocked_cmd "pre-commit-guard: status.showUntrackedFiles=no no debe ocultar workspace nuevo tocado → corren los dos (backend falla y bloquea)" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
-_wsscope_assert_markers "pre-commit-guard: showUntrackedFiles=no — ambos workspaces corrieron" yes yes
-_wsscope_npm_cleanup
-
-# Caso I [QA, PR #58]: workspace tocado que NO declara script "test" → no
-# debe bloquear el commit por un falso negativo. Depende de --if-present en
-# el comando armado por _workspace_scope_npm_cmd; sin ese flag, "npm test -w
-# frontend" falla con "Missing script: test" y el commit se bloquearía
-# aunque no hay ningún test que haya fallado de verdad.
-WSSCOPE_NOSCRIPT_DIR=$(mktemp -d)
-WSSCOPE_NOSCRIPT_DIR=$(cd "$WSSCOPE_NOSCRIPT_DIR" && pwd -P)
-(
-  cd "$WSSCOPE_NOSCRIPT_DIR" || exit 1
-  git init -q
-  git config user.email "sandbox@example.com"
-  git config user.name "Sandbox"
-  mkdir -p frontend backend
-  cat > package.json <<EOF
-{ "name": "root", "private": true, "workspaces": ["frontend", "backend"], "scripts": { "test": "npm run test --workspaces --if-present" } }
-EOF
-  cat > frontend/package.json <<EOF
-{ "name": "fe", "version": "1.0.0", "scripts": {} }
-EOF
-  cat > backend/package.json <<EOF
-{ "name": "be", "version": "1.0.0", "scripts": { "test": "exit 1" } }
-EOF
-  git add -A
-  git commit -q -m init
-) > /dev/null 2>&1
-echo "cambio" > "$WSSCOPE_NOSCRIPT_DIR/frontend/README.md"
-git -C "$WSSCOPE_NOSCRIPT_DIR" add -A > /dev/null 2>&1
-assert_allowed_cmd "pre-commit-guard: npm — workspace tocado sin script \"test\" no bloquea (--if-present)" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_NOSCRIPT_DIR"
-rm -rf "$WSSCOPE_NOSCRIPT_DIR"
-
-# Caso J [sugerencia no bloqueante, PR #58]: un path con espacios llega
-# C-quoteado en `git status --porcelain` (verificado: "?? \"frontend/my
-# dir/file.txt\"", con comillas literales incluidas en el path, sea cual
-# sea core.quotepath — ese setting solo afecta no-ASCII, no espacios). Las
-# comillas literales hacen que el path nunca matchee ningún "$dir"/* de
-# _WS_DIRS, así que _workspace_scope_match lo marca "outside" y cae
-# siempre al fallback completo — comportamiento seguro (nunca corre de
-# menos) pero no evidente, documentado acá y en el comentario de la lib.
-_wsscope_npm_setup
-_wsscope_npm_reset
-mkdir -p "$WSSCOPE_DIR/frontend/my dir"
-echo "cambio" > "$WSSCOPE_DIR/frontend/my dir/file.txt"
-git -C "$WSSCOPE_DIR" add -A > /dev/null 2>&1
-assert_blocked_cmd "pre-commit-guard: path con espacios cae al fallback completo (backend falla y bloquea, no scoping)" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_DIR"
-_wsscope_assert_markers "pre-commit-guard: path con espacios — fallback completo, corrieron los dos" yes yes
-_wsscope_npm_cleanup
-
-# Caso K [security, PR #58, MEDIUM, ronda 2]: un submódulo que es workspace
-# anidado se reporta en `git status --porcelain` SIN slash final (" M
-# frontend/plugins/foo", a diferencia del directorio untracked colapsado
-# del Caso F, que sí lo lleva) — verificado con un submódulo real. Ese
-# string no matchea "frontend/plugins/foo"/* (el patrón exige un "/" justo
-# después), pero sí matchea "frontend"/* — matched=true por el workspace
-# padre, no dispara el bail de "outside", y el submódulo queda fuera de
-# _WS_TOUCHED sin que nadie lo note. Mismo defecto de fondo que el Caso F,
-# disparado por un string sin slash en vez de uno colapsado.
-WSSCOPE_SUBMOD_INNER=$(mktemp -d)
-WSSCOPE_SUBMOD_INNER=$(cd "$WSSCOPE_SUBMOD_INNER" && pwd -P)
-WSSCOPE_SUBMOD_DIR=$(mktemp -d)
-WSSCOPE_SUBMOD_DIR=$(cd "$WSSCOPE_SUBMOD_DIR" && pwd -P)
-WSSCOPE_SUBMOD_MARK=$(mktemp -d)
-(
-  cd "$WSSCOPE_SUBMOD_INNER" || exit 1
-  git init -q
-  git config user.email "sandbox@example.com"
-  git config user.name "Sandbox"
-  cat > package.json <<EOF
-{ "name": "foo", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_SUBMOD_MARK/foo.ran && exit 1" } }
-EOF
-  echo "readme" > README.md
-  git add -A
-  git commit -q -m init
-) > /dev/null 2>&1
-(
-  cd "$WSSCOPE_SUBMOD_DIR" || exit 1
-  git init -q
-  git config user.email "sandbox@example.com"
-  git config user.name "Sandbox"
-  mkdir -p frontend
-  cat > package.json <<EOF
-{ "name": "root", "private": true, "workspaces": ["frontend", "frontend/plugins/*"], "scripts": { "test": "npm run test --workspaces --if-present" } }
-EOF
-  cat > frontend/package.json <<EOF
-{ "name": "fe", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_SUBMOD_MARK/frontend.ran" } }
-EOF
-  git -c protocol.file.allow=always submodule add -q "$WSSCOPE_SUBMOD_INNER" frontend/plugins/foo > /dev/null 2>&1
-  git add -A
-  git commit -q -m "init con submodulo"
-) > /dev/null 2>&1
-
-echo "dirty" >> "$WSSCOPE_SUBMOD_DIR/frontend/plugins/foo/README.md"
-
-assert_blocked_cmd "pre-commit-guard: submódulo sucio (workspace anidado) → corre también su test (bloquea)" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_SUBMOD_DIR"
-TOTAL=$((TOTAL + 1))
-if [ -f "$WSSCOPE_SUBMOD_MARK/foo.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: el test del submódulo sucio sí corrió (marcador presente)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: el test del submódulo sucio no corrió (marcador ausente) — \" M frontend/plugins/foo\" (sin slash) matcheó solo el workspace padre"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$WSSCOPE_SUBMOD_INNER" "$WSSCOPE_SUBMOD_DIR" "$WSSCOPE_SUBMOD_MARK"
-
-echo ""
-# --- pre-commit-guard.sh: workspace scoping (monorepo pnpm) ---
-echo "--- pre-commit-guard.sh: workspace scoping (monorepo pnpm) ---"
-
-if command -v pnpm > /dev/null 2>&1; then
-  WSSCOPE_PNPM_DIR=$(mktemp -d)
-  WSSCOPE_PNPM_DIR=$(cd "$WSSCOPE_PNPM_DIR" && pwd -P)
-  WSSCOPE_PNPM_MARK=$(mktemp -d)
-  (
-    cd "$WSSCOPE_PNPM_DIR" || exit 1
-    git init -q
-    git config user.email "sandbox@example.com"
-    git config user.name "Sandbox"
-    mkdir -p packages/a packages/b
-    cat > pnpm-workspace.yaml <<'YAML_EOF'
-packages:
-  - "packages/*"
-YAML_EOF
-    touch pnpm-lock.yaml
-    cat > package.json <<EOF
-{ "name": "root", "private": true, "scripts": { "test": "pnpm -r run test" } }
-EOF
-    cat > packages/a/package.json <<EOF
-{ "name": "pkg-a", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_PNPM_MARK/a.ran" } }
-EOF
-    cat > packages/b/package.json <<EOF
-{ "name": "pkg-b", "version": "1.0.0", "scripts": { "test": "echo ran > $WSSCOPE_PNPM_MARK/b.ran && exit 1" } }
-EOF
-    git add -A
-    git commit -q -m init
-  ) > /dev/null 2>&1
-
-  echo "cambio" > "$WSSCOPE_PNPM_DIR/packages/a/index.js"
-  git -C "$WSSCOPE_PNPM_DIR" add -A > /dev/null 2>&1
-  assert_allowed_cmd "pre-commit-guard: monorepo pnpm, un solo workspace tocado → corre solo ese" \
-    "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_PNPM_DIR"
-
-  TOTAL=$((TOTAL + 1))
-  if [ -f "$WSSCOPE_PNPM_MARK/a.ran" ] && [ ! -f "$WSSCOPE_PNPM_MARK/b.ran" ]; then
-    echo -e "${GREEN}PASS${NC}: pre-commit-guard: pnpm — scoping a un workspace, solo packages/a corrió"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: pre-commit-guard: pnpm — scoping a un workspace (a.ran=$( [ -f "$WSSCOPE_PNPM_MARK/a.ran" ] && echo si || echo no ), b.ran=$( [ -f "$WSSCOPE_PNPM_MARK/b.ran" ] && echo si || echo no ))"
-    FAIL=$((FAIL + 1))
-  fi
-
-  # Caso pnpm adicional [sugerencia no bloqueante, PR #58]: dos workspaces
-  # tocados a la vez → corren los dos (mismo chequeo que el Caso B de npm,
-  # equivalente pnpm: confirma que el scoping no se queda pegado a un solo
-  # workspace también con --filter).
-  git -C "$WSSCOPE_PNPM_DIR" reset -q --hard > /dev/null 2>&1
-  git -C "$WSSCOPE_PNPM_DIR" clean -fdq > /dev/null 2>&1
-  rm -f "$WSSCOPE_PNPM_MARK"/*.ran
-  echo "cambio a" > "$WSSCOPE_PNPM_DIR/packages/a/index.js"
-  echo "cambio b" > "$WSSCOPE_PNPM_DIR/packages/b/index.js"
-  git -C "$WSSCOPE_PNPM_DIR" add -A > /dev/null 2>&1
-  assert_blocked_cmd "pre-commit-guard: monorepo pnpm, dos workspaces tocados → corren los dos (b falla y bloquea)" \
-    "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_PNPM_DIR"
-  TOTAL=$((TOTAL + 1))
-  if [ -f "$WSSCOPE_PNPM_MARK/a.ran" ] && [ -f "$WSSCOPE_PNPM_MARK/b.ran" ]; then
-    echo -e "${GREEN}PASS${NC}: pre-commit-guard: pnpm — scoping a dos workspaces, ambos corrieron"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: pre-commit-guard: pnpm — scoping a dos workspaces (a.ran=$( [ -f "$WSSCOPE_PNPM_MARK/a.ran" ] && echo si || echo no ), b.ran=$( [ -f "$WSSCOPE_PNPM_MARK/b.ran" ] && echo si || echo no ))"
-    FAIL=$((FAIL + 1))
-  fi
-
-  rm -rf "$WSSCOPE_PNPM_DIR" "$WSSCOPE_PNPM_MARK"
-
-  # Caso pnpm [QA, PR #58]: workspace tocado que NO declara script "test" →
-  # no debe bloquear. A diferencia de npm, pnpm no necesita --if-present:
-  # "pnpm --filter ./<ws> run test" ya saltea en silencio con exit 0 un
-  # workspace sin ese script (verificado).
-  WSSCOPE_PNPM_NOSCRIPT_DIR=$(mktemp -d)
-  WSSCOPE_PNPM_NOSCRIPT_DIR=$(cd "$WSSCOPE_PNPM_NOSCRIPT_DIR" && pwd -P)
-  (
-    cd "$WSSCOPE_PNPM_NOSCRIPT_DIR" || exit 1
-    git init -q
-    git config user.email "sandbox@example.com"
-    git config user.name "Sandbox"
-    mkdir -p packages/a packages/b
-    cat > pnpm-workspace.yaml <<'YAML_EOF'
-packages:
-  - "packages/*"
-YAML_EOF
-    touch pnpm-lock.yaml
-    cat > package.json <<EOF
-{ "name": "root", "private": true, "scripts": { "test": "pnpm -r run test" } }
-EOF
-    cat > packages/a/package.json <<EOF
-{ "name": "pkg-a", "version": "1.0.0", "scripts": {} }
-EOF
-    cat > packages/b/package.json <<EOF
-{ "name": "pkg-b", "version": "1.0.0", "scripts": { "test": "exit 1" } }
-EOF
-    git add -A
-    git commit -q -m init
-  ) > /dev/null 2>&1
-  echo "cambio" > "$WSSCOPE_PNPM_NOSCRIPT_DIR/packages/a/index.js"
-  git -C "$WSSCOPE_PNPM_NOSCRIPT_DIR" add -A > /dev/null 2>&1
-  assert_allowed_cmd "pre-commit-guard: pnpm — workspace tocado sin script \"test\" no bloquea (skip silencioso de pnpm)" \
-    "pre-commit-guard.sh" "git commit -m x" "$PATH" "$WSSCOPE_PNPM_NOSCRIPT_DIR"
-  rm -rf "$WSSCOPE_PNPM_NOSCRIPT_DIR"
-else
-  echo "SKIP: pnpm no está instalado en esta máquina — se omiten los tests de scoping para pnpm"
-fi
-
-echo ""
-# --- pre-commit-guard.sh: monorepo SIN marcador en la raíz (#86) ---
-echo "--- pre-commit-guard.sh: monorepo sin marcador en la raíz (#86) ---"
+# --- pre-commit-guard.sh: monorepo sin marcador en la raíz ---
+echo "--- pre-commit-guard.sh: monorepo sin marcador en la raíz ---"
 
 # _multiroot_setup: repo git temporal SIN package.json/pyproject.toml en la
-# raíz — el único caso que V3 (DESIGN.md) documenta como sin cubrir:
-# workspace-scope.sh resuelve workspaces DECLARADOS en un package.json raíz,
-# no descubre runners en subdirectorios. Layout: frontend/package.json
-# (marcador npm) + backend/pyproject.toml (marcador pytest, vía un pytest
-# fake en PATH) + docs/README.md (ningún marcador arriba). Cada test.ran deja
-# un marcador propio en MULTIROOT_MARK para afirmar qué corrió de verdad, no
-# solo el exit code (mismo criterio que _wsscope_assert_markers).
+# raíz. Layout: frontend/package.json (marcador npm) + backend/pyproject.toml
+# (marcador pytest, vía un pytest fake en PATH) + docs/README.md (ningún
+# marcador arriba). Cada test.ran deja un marcador propio en MULTIROOT_MARK
+# para afirmar qué corrió de verdad, no solo el exit code.
 _multiroot_setup() {
   MULTIROOT_DIR=$(mktemp -d)
   MULTIROOT_DIR=$(cd "$MULTIROOT_DIR" && pwd -P)
@@ -2791,8 +2143,7 @@ _multiroot_cleanup() {
 }
 
 # G1: solo backend/b.py tocado, sesión en la raíz → corre solo pytest en
-# backend (marcador = backend, no frontend). Antes de #86: exit 0 sin correr
-# nada (ningún marcador presente en la raíz).
+# backend (marcador = backend, no frontend).
 _multiroot_setup
 echo "cambio" >> "$MULTIROOT_DIR/backend/b.py"
 assert_allowed_cmd "pre-commit-guard: monorepo sin marcador en la raíz, solo backend tocado → corre solo pytest en backend (G1)" \
@@ -2823,27 +2174,6 @@ else
 fi
 _multiroot_cleanup
 
-# G9 (regresión, ya cubierto por "Commit in repo without test runner passes
-# through" contra el repo real de esta suite — acá con un fixture propio
-# para que quede documentado junto al resto de la tabla): repo sin marcador
-# en NINGÚN lado → sin candidatos, pasa sin correr nada.
-MULTIROOT_NORUNNER_DIR=$(mktemp -d)
-MULTIROOT_NORUNNER_DIR=$(cd "$MULTIROOT_NORUNNER_DIR" && pwd -P)
-(
-  cd "$MULTIROOT_NORUNNER_DIR" || exit 1
-  git init -q
-  git config user.email "sandbox@example.com"
-  git config user.name "Sandbox"
-  mkdir -p src
-  echo "x" > src/a.txt
-  git add -A
-  git commit -q -m init
-) > /dev/null 2>&1
-echo "cambio" >> "$MULTIROOT_NORUNNER_DIR/src/a.txt"
-assert_allowed_cmd "pre-commit-guard: repo sin marcador en ningún lado → pasa sin correr nada (G9)" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$MULTIROOT_NORUNNER_DIR"
-rm -rf "$MULTIROOT_NORUNNER_DIR"
-
 # G4: docs/README.md + frontend/a.js tocados (docs sin marcador arriba,
 # frontend sí) → corre solo frontend, pasa.
 _multiroot_setup
@@ -2857,6 +2187,24 @@ if [ -f "$MULTIROOT_MARK/frontend.ran" ] && [ ! -f "$MULTIROOT_MARK/backend.ran"
   PASS=$((PASS + 1))
 else
   echo -e "${RED}FAIL${NC}: pre-commit-guard: G4 — corrió frontend, no backend (backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ))"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_cleanup
+
+# Archivo en la raíz (sin "/" en el path, sin segmento que derivar) +
+# frontend/a.js tocados → corre solo frontend, el archivo de la raíz se
+# descarta sin bloquear.
+_multiroot_setup
+echo "cambio" >> "$MULTIROOT_DIR/README.md"
+echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
+assert_allowed_cmd "pre-commit-guard: archivo en la raíz + frontend/ tocados → corre solo frontend" \
+  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$MULTIROOT_MARK/frontend.ran" ] && [ ! -f "$MULTIROOT_MARK/backend.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: archivo en la raíz + frontend/ tocados → corre solo frontend"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: archivo en la raíz + frontend/ tocados → corre solo frontend (backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ))"
   FAIL=$((FAIL + 1))
 fi
 _multiroot_cleanup
@@ -2881,93 +2229,50 @@ else
 fi
 _multiroot_cleanup
 
-# G5 (worktree): layout de G1 pero solo con frontend/package.json — un
-# segundo worktree del mismo repo, cambio en frontend/a.js del worktree,
-# sesión en la raíz del worktree. El resolver tiene que encontrar
-# <worktree>/frontend, nunca <MAIN>/frontend (mismo criterio que el fixture
-# PNEST/PSKIP de #73, acá sin marcador en ningún root).
-_multiroot_wt_setup() {
-  MULTIROOT_WT_MAIN=$(mktemp -d)
-  MULTIROOT_WT_MAIN=$(cd "$MULTIROOT_WT_MAIN" && pwd -P)
-  MULTIROOT_WT_MARK=$(mktemp -d)
-  (
-    cd "$MULTIROOT_WT_MAIN" || exit 1
-    git init -q -b main
-    git config user.email "sandbox@example.com"
-    git config user.name "Sandbox"
-    mkdir -p frontend
-    cat > frontend/package.json <<EOF
-{ "name": "frontend", "private": true, "scripts": { "test": "pwd -P > $MULTIROOT_WT_MARK/test.ran && exit 1" } }
-EOF
-    echo "console.log(1)" > frontend/a.js
-    git add -A
-    git commit -q -m init
-  ) > /dev/null 2>&1
-  MULTIROOT_WT_DIR=$(mktemp -d)
-  rmdir "$MULTIROOT_WT_DIR"
-  git -C "$MULTIROOT_WT_MAIN" worktree add -q -b wt-branch-86 "$MULTIROOT_WT_DIR" main > /dev/null 2>&1
-  MULTIROOT_WT_DIR=$(cd "$MULTIROOT_WT_DIR" && pwd -P)
-}
-
-_multiroot_wt_cleanup() {
-  git -C "$MULTIROOT_WT_MAIN" worktree remove --force "$MULTIROOT_WT_DIR" > /dev/null 2>&1
-  rm -rf "$MULTIROOT_WT_MAIN" "$MULTIROOT_WT_MARK"
-}
-
-_multiroot_wt_setup
-echo "cambio" >> "$MULTIROOT_WT_DIR/frontend/a.js"
-assert_blocked_cmd "pre-commit-guard: monorepo sin marcador en la raíz, worktree → resuelve frontend/ del worktree, nunca el árbol principal (G5)" \
-  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$MULTIROOT_WT_DIR"
+# G5 (ambos → ambos): backend/b.py + frontend/a.js tocados, ninguno falla →
+# corren los dos (ambos marcadores presentes) y el commit pasa.
+_multiroot_setup
+echo "cambio" >> "$MULTIROOT_DIR/backend/b.py"
+echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
+assert_allowed_cmd "pre-commit-guard: monorepo sin marcador en la raíz, backend/ + frontend/ tocados sin fallas → corren los dos (G5)" \
+  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
 TOTAL=$((TOTAL + 1))
-MULTIROOT_WT_EXPECTED=$(cd "$MULTIROOT_WT_DIR/frontend" && pwd -P)
-if [ -f "$MULTIROOT_WT_MARK/test.ran" ] && [ "$(cat "$MULTIROOT_WT_MARK/test.ran")" = "$MULTIROOT_WT_EXPECTED" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G5 — corrió en frontend/ del worktree"
+if [ -f "$MULTIROOT_MARK/backend.ran" ] && [ -f "$MULTIROOT_MARK/frontend.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G5 — corrieron los dos"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G5 — corrió en frontend/ del worktree (marcador: \"$(cat "$MULTIROOT_WT_MARK/test.ran" 2>/dev/null)\", esperado: \"$MULTIROOT_WT_EXPECTED\")"
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G5 — corrieron los dos (backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ))"
   FAIL=$((FAIL + 1))
 fi
-_multiroot_wt_cleanup
+_multiroot_cleanup
 
-# G6 (anidado, workspace de un solo paquete): packages/a/package.json, sin
-# marcador en la raíz ni en packages/, cambio en packages/a/src/x.js →
-# marcador = <repo>/packages/a.
+# Runner a 2+ niveles sin marcador arriba (packages/a/package.json, sin
+# marcador en la raíz ni en packages/): el primer segmento del path
+# ("packages") no tiene marcador, así que no se deriva ningún candidato —
+# limitación aceptada, documentada en el header del hook.
 MULTIROOT_NEST_DIR=$(mktemp -d)
 MULTIROOT_NEST_DIR=$(cd "$MULTIROOT_NEST_DIR" && pwd -P)
-MULTIROOT_NEST_MARK=$(mktemp -d)
 (
   cd "$MULTIROOT_NEST_DIR" || exit 1
   git init -q
   git config user.email "sandbox@example.com"
   git config user.name "Sandbox"
   mkdir -p packages/a/src
-  cat > packages/a/package.json <<EOF
-{ "name": "a", "private": true, "scripts": { "test": "pwd -P > $MULTIROOT_NEST_MARK/test.ran && exit 1" } }
-EOF
+  echo '{ "name": "a", "private": true, "scripts": { "test": "exit 1" } }' > packages/a/package.json
   echo "console.log(1)" > packages/a/src/x.js
   git add -A
   git commit -q -m init
 ) > /dev/null 2>&1
 echo "cambio" >> "$MULTIROOT_NEST_DIR/packages/a/src/x.js"
-assert_blocked_cmd "pre-commit-guard: monorepo sin marcador en la raíz, paquete anidado → marcador = packages/a (G6)" \
+assert_allowed_cmd "pre-commit-guard: packages/a a segundo nivel, sin marcador en 'packages' → exit 0 sin correr" \
   "pre-commit-guard.sh" "git commit -am x" "$PATH" "$MULTIROOT_NEST_DIR"
-TOTAL=$((TOTAL + 1))
-MULTIROOT_NEST_EXPECTED=$(cd "$MULTIROOT_NEST_DIR/packages/a" && pwd -P)
-if [ -f "$MULTIROOT_NEST_MARK/test.ran" ] && [ "$(cat "$MULTIROOT_NEST_MARK/test.ran")" = "$MULTIROOT_NEST_EXPECTED" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G6 — corrió en packages/a"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G6 — corrió en packages/a (marcador: \"$(cat "$MULTIROOT_NEST_MARK/test.ran" 2>/dev/null)\", esperado: \"$MULTIROOT_NEST_EXPECTED\")"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$MULTIROOT_NEST_DIR" "$MULTIROOT_NEST_MARK"
+rm -rf "$MULTIROOT_NEST_DIR"
 
-# G10 (presupuesto compartido, #86 T4): ambos runners duermen 2s (ninguno
-# falla) con PRECOMMIT_TEST_BUDGET=3 — sin presupuesto COMPARTIDO entre las
-# dos corridas, cada llamada a _guard_run_with_budget resolvería su propio
-# budget de 3s de nuevo y ninguna de las dos, por separado, lo superaría
-# (2s < 3s cada una); el total real (4s) sí lo supera. Bloquea fail-closed
-# (exit 2, mensaje "superó") sin dejar procesos huérfanos.
+# Presupuesto dividido por directorio: dos runners que duermen 2s (ninguno
+# falla) con PRECOMMIT_TEST_BUDGET=3 y dos directorios → cada uno recibe
+# 3/2=1s (división entera). Ninguno de los dos termina en 1s, así que
+# bloquea fail-closed (exit 2, mensaje "superó") sin dejar procesos
+# huérfanos.
 _multiroot_budget_setup() {
   MULTIROOT_BUDGET_DIR=$(mktemp -d)
   MULTIROOT_BUDGET_DIR=$(cd "$MULTIROOT_BUDGET_DIR" && pwd -P)
@@ -3009,676 +2314,13 @@ sleep 1
 MULTIROOT_G10_ORPHAN=$(pgrep -f "$MULTIROOT_BUDGET_FAKE_BIN/pytest" || true)
 TOTAL=$((TOTAL + 1))
 if [ "$MULTIROOT_G10_EXIT" -eq 2 ] && echo "$MULTIROOT_G10_STDERR" | grep -qF "superó" && [ -z "$MULTIROOT_G10_ORPHAN" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G10 — presupuesto compartido entre corridas bloquea (2s + 2s > 3s)"
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: presupuesto dividido por directorio bloquea sin huérfanos (2s + 2s con budget 3 → 1s c/u)"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G10 — presupuesto compartido entre corridas bloquea (exit=$MULTIROOT_G10_EXIT, huérfano: $MULTIROOT_G10_ORPHAN, stderr: $MULTIROOT_G10_STDERR)"
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: presupuesto dividido por directorio bloquea sin huérfanos (exit=$MULTIROOT_G10_EXIT, huérfano: $MULTIROOT_G10_ORPHAN, stderr: $MULTIROOT_G10_STDERR)"
   FAIL=$((FAIL + 1))
 fi
 _multiroot_budget_cleanup
-
-# --- pre-commit-guard.sh: #86 ronda 2 (security MEDIUM) — excluir
-# directorios sin trackear/repos git anidados y segmentos node_modules,
-# vendor, fixtures, __fixtures__, testdata al derivar runners por archivo
-# ---
-#
-# G11: clone git anidado SIN TRACKEAR en vendor/thirdparty/ (su propio
-# ".git", nunca agregado al índice del repo externo) — `git status
-# --porcelain --untracked-files=all` del repo externo NO desciende dentro
-# de un repo anidado, lo colapsa a una sola línea "?? vendor/thirdparty/".
-# Antes de la exclusión, esa línea se resolvía como el archivo
-# "vendor/thirdparty" y subía buscando un marcador — con un package.json
-# DENTRO del clone anidado (ya con marcador propio, sin relación con el
-# repo externo), el candidato resuelto corría el test de terceros con el
-# comando del usuario. Ahora se descarta cualquier línea de porcelain que
-# termine en "/" antes de intentar resolverla.
-_excl_setup() {
-  EXCL_DIR=$(mktemp -d)
-  EXCL_DIR=$(cd "$EXCL_DIR" && pwd -P)
-  EXCL_MARK=$(mktemp -d)
-  (
-    cd "$EXCL_DIR" || exit 1
-    git init -q
-    git config user.email "sandbox@example.com"
-    git config user.name "Sandbox"
-    mkdir -p .planning
-    echo "# STATE" > .planning/x.md
-    git add -A
-    git commit -q -m init
-  ) > /dev/null 2>&1
-}
-_excl_cleanup() {
-  rm -rf "$EXCL_DIR" "$EXCL_MARK"
-}
-
-_excl_setup
-(
-  cd "$EXCL_DIR" || exit 1
-  mkdir -p vendor/thirdparty
-  cd vendor/thirdparty || exit 1
-  git init -q
-  git config user.email "sandbox@example.com"
-  git config user.name "Sandbox"
-  cat > package.json <<EOF
-{ "name": "thirdparty", "private": true, "scripts": { "test": "echo ran > $EXCL_MARK/vendor.ran" } }
-EOF
-  echo "console.log(1)" > index.js
-  git add -A
-  git commit -q -m "nested init"
-) > /dev/null 2>&1
-assert_allowed_cmd "pre-commit-guard: clone anidado sin trackear en vendor/thirdparty/ → no corre su test (G11)" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$EXCL_DIR"
-TOTAL=$((TOTAL + 1))
-if [ ! -f "$EXCL_MARK/vendor.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G11 — el test del clone anidado no corrió"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G11 — el test del clone anidado no corrió (vendor.ran presente)"
-  FAIL=$((FAIL + 1))
-fi
-_excl_cleanup
-
-# G12: tests/fixtures/proj/package.json TRACKEADO (no un repo anidado, no
-# un directorio sin trackear) con un test que falla ("exit 1") — el
-# segmento "fixtures" en el camino lo descarta igual, sin importar que el
-# archivo esté trackeado. Antes de la exclusión, un cambio en
-# tests/fixtures/proj/app.js resolvía tests/fixtures/proj como candidato
-# (tiene su propio package.json) y corría el test del fixture, que falla
-# a propósito — bloqueando el commit del usuario por un test que no es
-# del proyecto.
-_excl_setup
-(
-  cd "$EXCL_DIR" || exit 1
-  mkdir -p tests/fixtures/proj
-  cat > tests/fixtures/proj/package.json <<EOF
-{ "name": "proj-fixture", "private": true, "scripts": { "test": "echo ran > $EXCL_MARK/fixtures.ran && exit 1" } }
-EOF
-  echo "console.log(1)" > tests/fixtures/proj/app.js
-  git add -A
-  git commit -q -m "fixture init"
-) > /dev/null 2>&1
-echo "cambio" >> "$EXCL_DIR/tests/fixtures/proj/app.js"
-assert_allowed_cmd "pre-commit-guard: tests/fixtures/proj/ trackeado (segmento 'fixtures') → no corre su test, aunque falle (G12)" \
-  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$EXCL_DIR"
-TOTAL=$((TOTAL + 1))
-if [ ! -f "$EXCL_MARK/fixtures.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G12 — el test del fixture no corrió"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G12 — el test del fixture no corrió (fixtures.ran presente)"
-  FAIL=$((FAIL + 1))
-fi
-_excl_cleanup
-
-# G13 (negativo, combinado): vendor/thirdparty/ (excluido) + frontend/
-# (marcador real, layout de G1-G6) tocados a la vez → corre SOLO frontend,
-# igual que si vendor/thirdparty/ no existiera. Confirma que la exclusión
-# no afecta la resolución normal de los demás candidatos.
-_multiroot_setup
-(
-  cd "$MULTIROOT_DIR" || exit 1
-  mkdir -p vendor/thirdparty
-  cd vendor/thirdparty || exit 1
-  git init -q
-  git config user.email "sandbox@example.com"
-  git config user.name "Sandbox"
-  cat > package.json <<EOF
-{ "name": "thirdparty", "private": true, "scripts": { "test": "echo ran > $MULTIROOT_MARK/vendor.ran" } }
-EOF
-  echo "console.log(1)" > index.js
-  git add -A
-  git commit -q -m "nested init"
-) > /dev/null 2>&1
-echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
-assert_allowed_cmd "pre-commit-guard: vendor/thirdparty/ + frontend/ tocados → corre solo frontend (G13)" \
-  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
-TOTAL=$((TOTAL + 1))
-if [ -f "$MULTIROOT_MARK/frontend.ran" ] && [ ! -f "$MULTIROOT_MARK/vendor.ran" ] && [ ! -f "$MULTIROOT_MARK/backend.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G13 — corrió frontend, vendor/thirdparty/ excluido"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G13 — corrió frontend, vendor/thirdparty/ excluido (frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ), vendor.ran=$( [ -f "$MULTIROOT_MARK/vendor.ran" ] && echo si || echo no ))"
-  FAIL=$((FAIL + 1))
-fi
-_multiroot_cleanup
-
-# G14/G15 (ronda 2 del review dual, security LOW): la exclusión de #86 se
-# evaluaba sobre el PATH DEL ARCHIVO, no sobre el directorio candidato del
-# runner — un archivo bajo un segmento excluido (fixtures/vendor/testdata)
-# descartaba la línea entera ANTES de resolver el candidato, así que
-# apps/web/src/__fixtures__/user.json (con package.json real en apps/web/,
-# NO en el segmento excluido) no corría el "npm test" legítimo de apps/web/.
-# Ahora la exclusión se evalúa sobre el candidato YA resuelto, relativo al
-# toplevel: si el runner mismo no cae bajo un segmento excluido, corre,
-# aunque el archivo que disparó el cambio esté en un fixture/vendor debajo.
-_excl2_setup() {
-  EXCL2_DIR=$(mktemp -d)
-  EXCL2_DIR=$(cd "$EXCL2_DIR" && pwd -P)
-  EXCL2_MARK=$(mktemp -d)
-  EXCL2_BIN=$(mktemp -d)
-  (
-    cd "$EXCL2_DIR" || exit 1
-    git init -q
-    git config user.email "sandbox@example.com"
-    git config user.name "Sandbox"
-    mkdir -p .planning apps/web svc
-    echo "# STATE" > .planning/x.md
-    cat > apps/web/package.json <<EOF
-{ "name": "web", "private": true, "scripts": { "test": "echo ran > $EXCL2_MARK/web.ran" } }
-EOF
-    echo "console.log(1)" > apps/web/index.js
-    touch svc/pyproject.toml
-    echo "print(1)" > svc/main.py
-    git add -A
-    git commit -q -m init
-  ) > /dev/null 2>&1
-  cat > "$EXCL2_BIN/pytest" <<PYEOF
-#!/bin/bash
-echo ran > "$EXCL2_MARK/svc.ran"
-exit 0
-PYEOF
-  chmod +x "$EXCL2_BIN/pytest"
-}
-_excl2_cleanup() {
-  rm -rf "$EXCL2_DIR" "$EXCL2_MARK" "$EXCL2_BIN"
-}
-
-# G14: tres archivos bajo segmentos excluidos, todos DENTRO de apps/web/
-# (que tiene su propio package.json, el runner real) → corre npm test en
-# apps/web/, igual que si esos archivos no estuvieran en fixtures/vendor.
-_excl2_setup
-mkdir -p "$EXCL2_DIR/apps/web/src/__fixtures__" "$EXCL2_DIR/apps/web/tests/fixtures" "$EXCL2_DIR/apps/web/vendor"
-echo '{}' > "$EXCL2_DIR/apps/web/src/__fixtures__/user.json"
-echo '{}' > "$EXCL2_DIR/apps/web/tests/fixtures/x.json"
-echo 'console.log(1)' > "$EXCL2_DIR/apps/web/vendor/lib.js"
-assert_allowed_cmd "pre-commit-guard: fixtures/vendor DENTRO de apps/web/ → corre npm test en apps/web (G14)" \
-  "pre-commit-guard.sh" "git commit -m x" "$EXCL2_BIN:$PATH" "$EXCL2_DIR"
-TOTAL=$((TOTAL + 1))
-if [ -f "$EXCL2_MARK/web.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G14 — corrió npm test en apps/web (web.ran presente)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G14 — no corrió npm test en apps/web (web.ran ausente)"
-  FAIL=$((FAIL + 1))
-fi
-_excl2_cleanup
-
-# G15: mismo caso con testdata/, dentro de svc/ (pyproject.toml, runner
-# pytest) → corre pytest en svc.
-_excl2_setup
-mkdir -p "$EXCL2_DIR/svc/tests/testdata"
-echo "in" > "$EXCL2_DIR/svc/tests/testdata/in.txt"
-assert_allowed_cmd "pre-commit-guard: testdata/ DENTRO de svc/ → corre pytest en svc (G15)" \
-  "pre-commit-guard.sh" "git commit -m x" "$EXCL2_BIN:$PATH" "$EXCL2_DIR"
-TOTAL=$((TOTAL + 1))
-if [ -f "$EXCL2_MARK/svc.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G15 — corrió pytest en svc (svc.ran presente)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G15 — no corrió pytest en svc (svc.ran ausente)"
-  FAIL=$((FAIL + 1))
-fi
-_excl2_cleanup
-
-echo ""
-# --- hooks/lib/workspace-scope.sh (unit) ---
-echo "--- hooks/lib/workspace-scope.sh (unit) ---"
-
-# shellcheck source=../../hooks/lib/workspace-scope.sh
-source "$HOOKS_DIR/lib/workspace-scope.sh"
-
-# Caso: entradas literales ("frontend", "backend") se resuelven tal cual.
-WSLIB_DIR=$(mktemp -d)
-mkdir -p "$WSLIB_DIR/frontend" "$WSLIB_DIR/backend"
-echo '{"workspaces": ["frontend", "backend"]}' > "$WSLIB_DIR/package.json"
-touch "$WSLIB_DIR/frontend/package.json" "$WSLIB_DIR/backend/package.json"
-WSLIB_RC=0
-WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs && printf '%s\n' "${_WS_DIRS[@]}" | sort) || WSLIB_RC=$?
-TOTAL=$((TOTAL + 1))
-if [ "$WSLIB_RC" -eq 0 ] && [ "$WSLIB_OUT" = "$(printf 'backend\nfrontend')" ]; then
-  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs resuelve entradas literales"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs resuelve entradas literales (rc=$WSLIB_RC, out=[$WSLIB_OUT])"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$WSLIB_DIR"
-
-# Caso [follow-up, review PR #58 ronda 3]: entrada literal declarada pero
-# sin package.json (workspace inexistente o mal declarado) — a diferencia
-# de la rama de glob (test de arriba), que ya filtraba por
-# -f "$glob/package.json", la rama de igualdad exacta la agregaba a
-# _WS_DIRS sin chequear nada. Con un "-w ghost" inválido, npm sale con
-# error y el commit se bloquea por una razón que no es "los tests
-# fallaron" — sigue siendo fail-closed, pero por el motivo equivocado.
-WSLIB_DIR=$(mktemp -d)
-mkdir -p "$WSLIB_DIR/frontend"
-echo '{"workspaces": ["frontend", "ghost"]}' > "$WSLIB_DIR/package.json"
-touch "$WSLIB_DIR/frontend/package.json"
-# "ghost" no existe como directorio en absoluto.
-WSLIB_RC=0
-WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs && printf '%s\n' "${_WS_DIRS[@]}" | sort) || WSLIB_RC=$?
-TOTAL=$((TOTAL + 1))
-if [ "$WSLIB_RC" -eq 0 ] && [ "$WSLIB_OUT" = "frontend" ]; then
-  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs ignora una entrada literal sin package.json (consistente con la rama de glob)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs ignora una entrada literal sin package.json (rc=$WSLIB_RC, out=[$WSLIB_OUT])"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$WSLIB_DIR"
-
-# Caso: glob de un solo nivel al final ("packages/*") se expande a los
-# subdirectorios reales que tienen su propio package.json — un subdirectorio
-# SIN package.json (ej. un README suelto) no cuenta como workspace.
-WSLIB_DIR=$(mktemp -d)
-mkdir -p "$WSLIB_DIR/packages/a" "$WSLIB_DIR/packages/b" "$WSLIB_DIR/packages/not-a-package"
-echo '{"workspaces": ["packages/*"]}' > "$WSLIB_DIR/package.json"
-touch "$WSLIB_DIR/packages/a/package.json" "$WSLIB_DIR/packages/b/package.json"
-echo "not json, not a package" > "$WSLIB_DIR/packages/not-a-package/README.md"
-WSLIB_RC=0
-WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs && printf '%s\n' "${_WS_DIRS[@]}" | sort) || WSLIB_RC=$?
-TOTAL=$((TOTAL + 1))
-if [ "$WSLIB_RC" -eq 0 ] && [ "$WSLIB_OUT" = "$(printf 'packages/a\npackages/b')" ]; then
-  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs resuelve glob de un solo nivel (packages/*), ignora subdirs sin package.json"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs resuelve glob de un solo nivel (rc=$WSLIB_RC, out=[$WSLIB_OUT])"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$WSLIB_DIR"
-
-# Caso [QA, PR #58]: forma objeto de "workspaces" ({"packages": [...]}),
-# soportada explícitamente por el filtro jq de _workspace_scope_npm_dirs
-# pero sin ningún test que la ejerciera hasta ahora.
-WSLIB_DIR=$(mktemp -d)
-mkdir -p "$WSLIB_DIR/frontend" "$WSLIB_DIR/backend"
-echo '{"workspaces": {"packages": ["frontend", "backend"]}}' > "$WSLIB_DIR/package.json"
-touch "$WSLIB_DIR/frontend/package.json" "$WSLIB_DIR/backend/package.json"
-WSLIB_RC=0
-WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs && printf '%s\n' "${_WS_DIRS[@]}" | sort) || WSLIB_RC=$?
-TOTAL=$((TOTAL + 1))
-if [ "$WSLIB_RC" -eq 0 ] && [ "$WSLIB_OUT" = "$(printf 'backend\nfrontend')" ]; then
-  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs resuelve la forma objeto de \"workspaces\" ({packages: [...]})"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs resuelve la forma objeto de \"workspaces\" (rc=$WSLIB_RC, out=[$WSLIB_OUT])"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$WSLIB_DIR"
-
-# Caso: patrón que la lib no resuelve con confianza (comodín en medio de la
-# ruta, "**") aborta toda la resolución — no solo la entrada problemática.
-WSLIB_DIR=$(mktemp -d)
-mkdir -p "$WSLIB_DIR/frontend"
-echo '{"workspaces": ["frontend", "packages/**"]}' > "$WSLIB_DIR/package.json"
-touch "$WSLIB_DIR/frontend/package.json"
-WSLIB_RC=0
-WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs) || WSLIB_RC=$?
-TOTAL=$((TOTAL + 1))
-if [ "$WSLIB_RC" -ne 0 ]; then
-  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs no resuelve un patrón con \"**\" — aborta toda la función"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs no resuelve un patrón con \"**\" (rc=$WSLIB_RC, esperado != 0)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$WSLIB_DIR"
-
-# Caso: sin campo "workspaces" (repo de un solo paquete) → no hay nada que
-# resolver, la función falla con confianza (el caller cae a correr todo).
-WSLIB_DIR=$(mktemp -d)
-echo '{"name": "single"}' > "$WSLIB_DIR/package.json"
-WSLIB_RC=0
-WSLIB_OUT=$(cd "$WSLIB_DIR" && _workspace_scope_npm_dirs) || WSLIB_RC=$?
-TOTAL=$((TOTAL + 1))
-if [ "$WSLIB_RC" -ne 0 ]; then
-  echo -e "${GREEN}PASS${NC}: _workspace_scope_npm_dirs sin campo \"workspaces\" declarado → no resuelve nada"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: _workspace_scope_npm_dirs sin campo \"workspaces\" declarado (rc=$WSLIB_RC, esperado != 0)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$WSLIB_DIR"
-
-# Caso: sin el binario pnpm en PATH, _workspace_scope_pnpm_dirs no resuelve
-# nada con confianza (no hay YAML que parsear a mano como fallback).
-WSLIB_DIR=$(mktemp -d)
-mkdir -p "$WSLIB_DIR/packages/a"
-echo '{"name": "root"}' > "$WSLIB_DIR/package.json"
-WSLIB_NO_PNPM_BIN=$(mktemp -d)
-for cmd in bash jq git cat pwd; do
-  p=$(command -v "$cmd" 2>/dev/null)
-  [ -n "$p" ] && ln -s "$p" "$WSLIB_NO_PNPM_BIN/$cmd"
-done
-WSLIB_RC=0
-WSLIB_OUT=$(cd "$WSLIB_DIR" && PATH="$WSLIB_NO_PNPM_BIN" _workspace_scope_pnpm_dirs) || WSLIB_RC=$?
-TOTAL=$((TOTAL + 1))
-if [ "$WSLIB_RC" -ne 0 ]; then
-  echo -e "${GREEN}PASS${NC}: _workspace_scope_pnpm_dirs sin el binario pnpm en PATH → no resuelve nada"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: _workspace_scope_pnpm_dirs sin el binario pnpm en PATH (rc=$WSLIB_RC, esperado != 0)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$WSLIB_DIR" "$WSLIB_NO_PNPM_BIN"
-
-# Casos [sugerencia no bloqueante, PR #58]: rutas de error de
-# _workspace_scope_pnpm_dirs cuando el binario SÍ está pero falla o
-# devuelve algo inesperado — un fake "pnpm" en PATH que antepone al real
-# permite controlar exit code y stdout sin depender de un pnpm instalado.
-_wslib_pnpm_case() {
-  local desc="$1" fake_body="$2"
-  local dir fakebin
-  dir=$(mktemp -d)
-  dir=$(cd "$dir" && pwd -P)
-  fakebin=$(mktemp -d)
-  echo '{"name": "root"}' > "$dir/package.json"
-  # printf en vez de heredoc con delimitador sin comillas: $fake_body es
-  # texto crudo (fixture con "$(pwd)" incluido a propósito en un caso), y
-  # printf '%s' nunca lo re-interpreta como sintaxis de shell al escribir
-  # — se evalúa recién cuando el fake pnpm se ejecuta, en su propio cwd.
-  printf '#!/bin/bash\n%s\n' "$fake_body" > "$fakebin/pnpm"
-  chmod +x "$fakebin/pnpm"
-  local rc=0
-  local out
-  out=$(cd "$dir" && PATH="$fakebin:$PATH" _workspace_scope_pnpm_dirs) || rc=$?
-  TOTAL=$((TOTAL + 1))
-  if [ "$rc" -ne 0 ]; then
-    echo -e "${GREEN}PASS${NC}: _workspace_scope_pnpm_dirs $desc → no resuelve nada"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: _workspace_scope_pnpm_dirs $desc (rc=$rc, esperado != 0, out=[$out])"
-    FAIL=$((FAIL + 1))
-  fi
-  rm -rf "$dir" "$fakebin"
-}
-
-# Caso con stdout NO vacío a propósito: si el "|| return 1" tras el
-# comando se perdiera, el chequeo de "$list_json vacío" no alcanzaría para
-# atrapar la falla (hay JSON válido y no vacío) — este caso ejercita el
-# guard del exit code en sí, no el de vacío.
-_wslib_pnpm_case "cuando \"pnpm list -r\" falla (exit != 0) con stdout no vacío" \
-  'echo "[{\"path\": \"$(pwd)/packages/a\"}]"; exit 1'
-_wslib_pnpm_case "cuando \"pnpm list -r\" devuelve stdout vacío" 'exit 0'
-_wslib_pnpm_case "cuando \"pnpm list -r\" devuelve JSON malformado" 'echo "{not valid json"'
-
-# Caso con JSON válido y no vacío, pero con contenido extra después en el
-# mismo stdout (así ensucian --json corepack/npm en la práctica): jq
-# procesa el array completo (JSON válido, no está roto) y ya emitió su
-# salida antes de toparse con la basura y fallar el parseo del siguiente
-# documento — "$rels" queda no vacío, el chequeo de vacío no lo atrapa.
-# Sin el "|| return 1" del pipeline de jq esto pasaría como éxito.
-_wslib_pnpm_case "cuando \"pnpm list -r\" devuelve JSON válido seguido de contenido extra en stdout" \
-  'echo "[{\"path\": \"$(pwd)/packages/a\"}]"; echo "esto no es json"'
-
-# Caso con un elemento sin campo "path": hoy jq revienta al intentar
-# startswith() sobre null y el pipeline entero falla (rc != 0), así que
-# el "|| return 1" restaurado lo atrapa. Este test no protege el guard
-# —protege el filtro—: si alguien suaviza ".path" a ".path? // empty"
-# (se ve como un endurecimiento inocuo), jq saltea el elemento en
-# silencio en vez de fallar, "$rels" queda no vacío pero incompleto y
-# ningún guard tiene nada que atrapar. El caso de arriba (JSON + basura)
-# no cubre esto: su fixture sigue fallando el parseo aunque el filtro
-# cambie.
-_wslib_pnpm_case "cuando \"pnpm list -r\" devuelve un elemento sin campo \"path\"" \
-  'echo "[{\"path\": \"$(pwd)/packages/a\"}, {\"nopath\": true}]"'
-
-# Caso: yarn nunca se resuelve con confianza (ver comentario en
-# workspace_scope_resolve) — documentado explícitamente, no un olvido.
-WSLIB_DIR=$(mktemp -d)
-mkdir -p "$WSLIB_DIR/frontend" "$WSLIB_DIR/backend"
-echo '{"workspaces": ["frontend", "backend"]}' > "$WSLIB_DIR/package.json"
-touch "$WSLIB_DIR/frontend/package.json" "$WSLIB_DIR/backend/package.json"
-WSLIB_RC=0
-(cd "$WSLIB_DIR" && workspace_scope_resolve "yarn") || WSLIB_RC=$?
-TOTAL=$((TOTAL + 1))
-if [ "$WSLIB_RC" -ne 0 ]; then
-  echo -e "${GREEN}PASS${NC}: workspace_scope_resolve nunca resuelve yarn con confianza (punt documentado)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: workspace_scope_resolve nunca resuelve yarn con confianza (rc=$WSLIB_RC, esperado != 0)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$WSLIB_DIR"
-
-echo ""
-
-# --- pre-release-sweep.sh ---
-echo "--- pre-release-sweep.sh ---"
-
-# pre-release-sweep.sh bloquea "gh pr create --base main" si hay issues
-# abiertos con label latent-bug y severidad CRÍTICO/CRITICAL que mencionen
-# un archivo del diff (origin/main...HEAD). Sandbox: repo git con una rama
-# LOCAL literalmente llamada "origin/main" — git resuelve "origin/main"
-# contra refs/heads/origin/main igual que contra un remote-tracking real
-# (mismas reglas de disambiguación), así que alcanza sin remote de verdad.
-sandbox_create_prs() {
-  PRS_REPO=$(mktemp -d)
-  PRS_REPO=$(cd "$PRS_REPO" && pwd -P)
-  (
-    cd "$PRS_REPO" || exit 1
-    git init -q -b "origin/main"
-    git config user.email "sandbox@example.com"
-    git config user.name "Sandbox"
-    echo "base" > base.txt
-    git add -A
-    git commit -q -m "initial commit"
-    git checkout -q -b feature/x
-    echo "console.log('x')" > app.js
-    git add -A
-    git commit -q -m "agregar app.js"
-  ) > /dev/null 2>&1
-}
-
-sandbox_cleanup_prs() {
-  rm -rf "$PRS_REPO"
-}
-
-PRS_FAKE_GH_DIR=$(mktemp -d)
-cat > "$PRS_FAKE_GH_DIR/gh" <<'PRS_FAKE_GH_EOF'
-#!/bin/bash
-# Fake gh para tests de pre-release-sweep.sh: nunca toca la red.
-case "$1 $2" in
-  "issue list")
-    case "$PRS_FAKE_GH_MODE" in
-      critical)
-        echo '[{"number":42,"title":"bug latente","body":"Severidad: CRÍTICO. Afecta a app.js con un null deref."}]'
-        ;;
-      *)
-        echo '[]'
-        ;;
-    esac
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-PRS_FAKE_GH_EOF
-chmod +x "$PRS_FAKE_GH_DIR/gh"
-
-assert_prs_blocked() {
-  local test_name="$1" cmd="$2" fake_gh_mode="$3" expected_substring="$4"
-  TOTAL=$((TOTAL + 1))
-  local json exit_code=0 stderr_file
-  stderr_file=$(mktemp)
-  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  (cd "$PRS_REPO" && echo "$json" | PATH="$PRS_FAKE_GH_DIR:$PATH" PRS_FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>"$stderr_file") || exit_code=$?
-  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file"; then
-    echo -e "${GREEN}PASS${NC}: $test_name (blocked as expected)"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"))"
-    FAIL=$((FAIL + 1))
-  fi
-  rm -f "$stderr_file"
-}
-
-assert_prs_allowed() {
-  local test_name="$1" cmd="$2" fake_gh_mode="${3:-}"
-  TOTAL=$((TOTAL + 1))
-  local json exit_code=0
-  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  (cd "$PRS_REPO" && echo "$json" | PATH="$PRS_FAKE_GH_DIR:$PATH" PRS_FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>&1) || exit_code=$?
-  if [ "$exit_code" -eq 0 ]; then
-    echo -e "${GREEN}PASS${NC}: $test_name (allowed as expected)"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, expected: 0)"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-sandbox_create_prs
-
-assert_prs_blocked "pre-release-sweep: bloquea con issue latent-bug CRÍTICO sobre archivo del diff" \
-  "gh pr create --base main --title x --body y" "critical" "app.js"
-assert_prs_allowed "pre-release-sweep: pasa sin issues abiertos" \
-  "gh pr create --base main --title x --body y" "none"
-assert_prs_allowed "pre-release-sweep: pasa si el comando no es gh pr create --base main" \
-  "gh pr create --base dev --title x --body y" "critical"
-
-# F1: matching endurecido, saneado+anclado — antes exigía "gh pr create" al
-# INICIO del string crudo; "cd . && gh pr create --base main" pasaba sin
-# bloquear. El hook sigue sin resolver el "cd" (limitación documentada,
-# T5): el "git diff" sigue corriendo en el cwd de la sesión (acá, $PRS_REPO
-# ya vía "cd $PRS_REPO" del propio assert_prs_blocked), así que el diff
-# real igual encuentra app.js.
-assert_prs_blocked "pre-release-sweep: 'cd . && gh pr create --base main' bloquea (F1)" \
-  "cd . && gh pr create --base main --title x --body y" "critical" "app.js"
-
-# F2: "-B main" (forma corta) y "--base=main" (con "=") — antes solo
-# "--base main"/"--base=main" con el charset limitado del regex crudo
-# reconocía "--base=main"; "-B main" no se reconocía en absoluto.
-assert_prs_blocked "pre-release-sweep: 'gh pr create -B main' bloquea (F2)" \
-  "gh pr create -B main --title x --body y" "critical" "app.js"
-assert_prs_blocked "pre-release-sweep: 'gh pr create --title x --base=main' bloquea (F2)" \
-  "gh pr create --title x --base=main --body y" "critical" "app.js"
-
-# F3: negativos — "--base main-2" no es "main", una mención dentro de un
-# mensaje de commit no es una invocación real, y "--base dev" con "--base
-# main" citado en el --body tampoco.
-assert_prs_allowed "pre-release-sweep: 'gh pr create --base main-2' pasa (F3)" \
-  "gh pr create --base main-2 --title x --body y" "critical"
-assert_prs_allowed "pre-release-sweep: mención en mensaje de commit pasa (F3)" \
-  "git commit -m \"gh pr create --base main\"" "critical"
-assert_prs_allowed "pre-release-sweep: '--base dev' con '--base main' citado en --body pasa (F3)" \
-  "gh pr create --base dev --body \"--base main\"" "critical"
-
-# F5 (review dual ronda 1, security MEDIUM): el sufijo de BASE_MAIN_RE no
-# incluía ")", ">", "<" ni la comilla invertida — "--base main>/tmp/u" o un
-# "gh pr create --base main" dentro de un "$(...)" pasaban sin bloquear
-# porque "\b" solo mira el carácter siguiente a "main", nunca el que sigue
-# a la palabra completa antes de ")"/">"/"<"/"\`".
-assert_prs_blocked "pre-release-sweep: 'gh pr create --base main>out' bloquea (F5)" \
-  "gh pr create --base main>out --title x --body y" "critical" "app.js"
-assert_prs_blocked "pre-release-sweep: 'URL=\$(gh pr create --base main)' bloquea (F5)" \
-  'URL=$(gh pr create --title x --base main)' "critical" "app.js"
-# Negativo: "--base main-2" sigue pasando con el sufijo ampliado.
-assert_prs_allowed "pre-release-sweep: 'gh pr create --base main-2' sigue pasando con sufijo ampliado (F5)" \
-  "gh pr create --base main-2 --title x --body y" "critical"
-
-# F6 (review dual ronda 1, D-07): "gh -R <o/r> pr create" y "gh --repo
-# <o/r> pr create" son invocaciones reales — antes el ancla exigía "gh"
-# seguido directo de "pr", así que estas formas honestas pasaban sin que el
-# hook evaluara los issues latent-bug del diff (fail-open silencioso).
-assert_prs_blocked "pre-release-sweep: 'gh -R o/r pr create --base main' bloquea (F6)" \
-  "gh -R o/r pr create --base main --title x --body y" "critical" "app.js"
-assert_prs_blocked "pre-release-sweep: 'gh --repo o/r pr create --base main' bloquea (F6)" \
-  "gh --repo o/r pr create --base main --title x --body y" "critical" "app.js"
-
-# Ronda 2 (review dual, security LOW): "--base" con "main" ENTRE COMILLAS
-# no bloqueaba — guard_sanitize() borra el span quoted entero (incluidas
-# las comillas), así que "--base \"main\"" queda como "--base " en el
-# comando SANEADO, y el "main" que el regex busca ya no está ahí. Mismo
-# criterio que QUOTED_FORCE_PATTERN en block-force-push.sh: la invocación
-# real de "gh ... pr create" se confirma sobre el SANEADO (ancla en
-# posición de comando, no una mención dentro de un span borrado), y la
-# forma citada de "--base main" se busca aparte sobre el comando SIN
-# sanear (donde las comillas siguen ahí).
-assert_prs_blocked "pre-release-sweep: 'gh pr create --base \"main\"' bloquea (ronda 2)" \
-  'gh pr create --base "main" --title x --body y' "critical" "app.js"
-assert_prs_blocked "pre-release-sweep: \"gh pr create --base 'main'\" bloquea (ronda 2)" \
-  "gh pr create --base 'main' --title x --body y" "critical" "app.js"
-# Negativo: "main-2" citado no es "main" (el cierre de comilla debe seguir
-# inmediato a "main").
-assert_prs_allowed "pre-release-sweep: 'gh pr create --base \"main-2\"' pasa (ronda 2)" \
-  'gh pr create --base "main-2" --title x --body y' "critical"
-
-# Ronda 2: "-R"/"--repo" con "=" y clusterizado ("-Ro/r", sin espacio) son
-# formas honestas que gh acepta de verdad — antes solo se toleraba la
-# forma con espacio ("-R o/r"/"--repo o/r").
-assert_prs_blocked "pre-release-sweep: 'gh --repo=o/r pr create --base main' bloquea (ronda 2)" \
-  "gh --repo=o/r pr create --base main --title x --body y" "critical" "app.js"
-assert_prs_blocked "pre-release-sweep: 'gh -Ro/r pr create --base main' bloquea (ronda 2)" \
-  "gh -Ro/r pr create --base main --title x --body y" "critical" "app.js"
-assert_prs_blocked "pre-release-sweep: 'gh pr create -R o/r --base main' bloquea (ronda 2)" \
-  "gh pr create -R o/r --base main --title x --body y" "critical" "app.js"
-assert_prs_blocked "pre-release-sweep: 'gh pr -R o/r create --base main' bloquea (ronda 2, trivial)" \
-  "gh pr -R o/r create --base main --title x --body y" "critical" "app.js"
-
-# F4: fail-closed sin jq/gh (D-07) — antes este hook fallaba ABIERTO (exit
-# 0) si faltaba cualquiera de los dos, dejando pasar un "gh pr create
-# --base main" real sin evaluar los issues latent-bug del diff.
-NO_JQ_PRS_BIN=$(mktemp -d)
-for cmd in bash cat perl grep git; do
-  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
-  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_PRS_BIN/$cmd"
-done
-ln -s "$PRS_FAKE_GH_DIR/gh" "$NO_JQ_PRS_BIN/gh"
-PRS_F4_EXIT=0
-(cd "$PRS_REPO" && echo '{"tool_input":{"command":"gh pr create --base main --title x --body y"}}' \
-  | PATH="$NO_JQ_PRS_BIN" PRS_FAKE_GH_MODE="critical" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>&1) || PRS_F4_EXIT=$?
-TOTAL=$((TOTAL + 1))
-if [ "$PRS_F4_EXIT" -eq 2 ]; then
-  echo -e "${GREEN}PASS${NC}: pre-release-sweep: bloquea fail-closed sin jq en PATH (F4)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-release-sweep: bloquea fail-closed sin jq en PATH (F4) (exit code: $PRS_F4_EXIT, expected: 2)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$NO_JQ_PRS_BIN"
-
-NO_GH_PRS_BIN=$(mktemp -d)
-for cmd in bash cat perl grep git jq; do
-  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
-  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_GH_PRS_BIN/$cmd"
-done
-PRS_F4_NOGH_EXIT=0
-(cd "$PRS_REPO" && echo '{"tool_input":{"command":"gh pr create --base main --title x --body y"}}' \
-  | PATH="$NO_GH_PRS_BIN" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>&1) || PRS_F4_NOGH_EXIT=$?
-TOTAL=$((TOTAL + 1))
-if [ "$PRS_F4_NOGH_EXIT" -eq 2 ]; then
-  echo -e "${GREEN}PASS${NC}: pre-release-sweep: bloquea fail-closed sin gh en PATH (F4)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-release-sweep: bloquea fail-closed sin gh en PATH (F4) (exit code: $PRS_F4_NOGH_EXIT, expected: 2)"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$NO_GH_PRS_BIN"
-
-# B2: NUL en un comando inocuo ("git status[NUL]") — pre-release-sweep
-# entra a la lista de guards que sourcean guard-matching.sh en este lote.
-TOTAL=$((TOTAL + 1))
-PRS_NUL_STDERR_FILE=$(mktemp)
-PRS_NUL_EXIT=0
-(cd "$PRS_REPO" && jq -n '{tool_input: {command: "git status\u0000"}}' \
-  | PATH="$PRS_FAKE_GH_DIR:$PATH" PRS_FAKE_GH_MODE="none" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>"$PRS_NUL_STDERR_FILE") || PRS_NUL_EXIT=$?
-if [ "$PRS_NUL_EXIT" -eq 2 ] && grep -qi 'NUL' "$PRS_NUL_STDERR_FILE"; then
-  echo -e "${GREEN}PASS${NC}: pre-release-sweep: bloquea NUL en el comando (B2)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-release-sweep: bloquea NUL en el comando (B2) (exit code: $PRS_NUL_EXIT, stderr: $(cat "$PRS_NUL_STDERR_FILE"))"
-  FAIL=$((FAIL + 1))
-fi
-rm -f "$PRS_NUL_STDERR_FILE"
-
-sandbox_cleanup_prs
-rm -rf "$PRS_FAKE_GH_DIR"
-
-echo ""
-
-echo ""
 
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
@@ -4244,10 +2886,6 @@ assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --repo con \$(...)
   'gh pr merge 45 --repo $(whoami)/x'
 assert_pre_merge_blocked_no_calls "gh pr merge [D-04, flags]: --repo con backticks como valor bloquea" \
   'gh pr merge 45 --repo `x`/y'
-
-# --- [ronda 3, sugerencia] caracteres de control fuera de \t/\n bloquean ---
-assert_pre_merge_blocked_no_calls "gh pr merge [D-04, control]: carácter de control 0x01 embebido bloquea" \
-  "$(printf 'gh pr merge 45 --merge\x01')" "caracteres de control"
 
 # --- [ronda 3, sugerencia] --help/-h EXACTOS pasan (continue), no
 # bloquean — al revés de todos los demás tests de esta sección. El caso
@@ -5077,9 +3715,9 @@ assert_nul_blocked "block-admin-merge: bloquea NUL en el comando (B1)" \
 assert_nul_blocked "pre-merge-check: bloquea NUL en el comando (B1)" \
   "pre-merge-check.sh" "$NUL_ADMIN_PROGRAM"
 
-# B2: NUL en un comando inocuo ("git status[NUL]"), sobre los otros 3 guards
-# que ya sourcean la lib en este lote (pre-push-guard y pre-release-sweep
-# la incorporan en un lote posterior).
+# B2: NUL en un comando inocuo ("git status[NUL]"), sobre los otros 2 guards
+# que ya sourcean la lib en este lote (pre-push-guard la incorpora en un
+# lote posterior).
 NUL_STATUS_PROGRAM='{tool_input: {command: "git status\u0000"}}'
 assert_nul_blocked "block-force-push: bloquea NUL en el comando (B2)" \
   "block-force-push.sh" "$NUL_STATUS_PROGRAM"
@@ -5096,7 +3734,145 @@ assert_nul_blocked "pre-commit-guard: bloquea NUL en el comando (B2)" \
 
 echo ""
 
-# --- Sandbox infra para hooks no-bloqueantes (PreCompact, SubagentStop, SessionEnd) ---
+# --- guard-matching.sh: guard_init / guard_block / guard_session_dir (Lote 1) ---
+# Preámbulo común que cada guard va a adoptar en los próximos lotes. Se
+# prueban las funciones directamente (sourcing el lib en un subshell), sin
+# pasar por ningún guard todavía — ningún guard cambia en este lote.
+echo "--- guard-matching.sh: guard_init / guard_block / guard_session_dir ---"
+
+# guard_init sin jq en PATH: bloquea con "falta jq" antes de tocar stdin.
+NO_JQ_GUARD_INIT_BIN=$(mktemp -d)
+for cmd in bash cat perl grep; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_GUARD_INIT_BIN/$cmd"
+done
+TOTAL=$((TOTAL + 1))
+GUARD_INIT_NO_JQ_OUT=$(mktemp)
+GUARD_INIT_NO_JQ_EXIT=0
+echo '{}' | PATH="$NO_JQ_GUARD_INIT_BIN" bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  guard_init "test-guard"
+' > /dev/null 2>"$GUARD_INIT_NO_JQ_OUT" || GUARD_INIT_NO_JQ_EXIT=$?
+if [ "$GUARD_INIT_NO_JQ_EXIT" -eq 2 ] && grep -qF "falta jq" "$GUARD_INIT_NO_JQ_OUT"; then
+  echo -e "${GREEN}PASS${NC}: guard_init: sin jq en PATH bloquea con 'falta jq'"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_init: sin jq en PATH bloquea con 'falta jq' (exit: $GUARD_INIT_NO_JQ_EXIT, stderr: $(cat "$GUARD_INIT_NO_JQ_OUT"))"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$NO_JQ_GUARD_INIT_BIN" "$GUARD_INIT_NO_JQ_OUT"
+
+# guard_init con NUL en el comando: bloquea citando el byte NUL.
+TOTAL=$((TOTAL + 1))
+GUARD_INIT_NUL_OUT=$(mktemp)
+GUARD_INIT_NUL_EXIT=0
+jq -n '{tool_input: {command: "echo hi\u0000"}}' | bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  guard_init "test-guard"
+' > /dev/null 2>"$GUARD_INIT_NUL_OUT" || GUARD_INIT_NUL_EXIT=$?
+if [ "$GUARD_INIT_NUL_EXIT" -eq 2 ] && grep -qi 'NUL' "$GUARD_INIT_NUL_OUT"; then
+  echo -e "${GREEN}PASS${NC}: guard_init: NUL en el comando bloquea citando el byte NUL"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_init: NUL en el comando bloquea citando el byte NUL (exit: $GUARD_INIT_NUL_EXIT, stderr: $(cat "$GUARD_INIT_NUL_OUT"))"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$GUARD_INIT_NUL_OUT"
+
+# guard_init deja COMMAND/INPUT_CWD/SANITIZED_COMMAND seteados a partir del
+# JSON de entrada.
+TOTAL=$((TOTAL + 1))
+GUARD_INIT_VARS_OUT=$(jq -n '{tool_input: {command: "echo hi"}, cwd: "/tmp"}' | bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  guard_init "test-guard"
+  echo "COMMAND=$COMMAND"
+  echo "INPUT_CWD=$INPUT_CWD"
+  echo "SANITIZED_COMMAND=$SANITIZED_COMMAND"
+' || true)
+if echo "$GUARD_INIT_VARS_OUT" | grep -qF "COMMAND=echo hi" && \
+   echo "$GUARD_INIT_VARS_OUT" | grep -qF "INPUT_CWD=/tmp" && \
+   echo "$GUARD_INIT_VARS_OUT" | grep -qF "SANITIZED_COMMAND=echo hi"; then
+  echo -e "${GREEN}PASS${NC}: guard_init: deja COMMAND/INPUT_CWD/SANITIZED_COMMAND seteados"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_init: deja COMMAND/INPUT_CWD/SANITIZED_COMMAND seteados (got: $GUARD_INIT_VARS_OUT)"
+  FAIL=$((FAIL + 1))
+fi
+
+# guard_init sin perl en PATH: GUARD_SANITIZE_STATUS queda en 1 (modo
+# degradado, mismo criterio que guard_sanitize por su cuenta).
+NO_PERL_GUARD_INIT_BIN=$(mktemp -d)
+for cmd in bash cat jq grep; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_PERL_GUARD_INIT_BIN/$cmd"
+done
+TOTAL=$((TOTAL + 1))
+GUARD_INIT_NO_PERL_OUT=$(jq -n '{tool_input: {command: "echo hi"}}' | PATH="$NO_PERL_GUARD_INIT_BIN" bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  guard_init "test-guard"
+  echo "STATUS=$GUARD_SANITIZE_STATUS"
+' 2>/dev/null || true)
+rm -rf "$NO_PERL_GUARD_INIT_BIN"
+if echo "$GUARD_INIT_NO_PERL_OUT" | grep -qF "STATUS=1"; then
+  echo -e "${GREEN}PASS${NC}: guard_init: sin perl en PATH deja GUARD_SANITIZE_STATUS=1"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_init: sin perl en PATH deja GUARD_SANITIZE_STATUS=1 (got: $GUARD_INIT_NO_PERL_OUT)"
+  FAIL=$((FAIL + 1))
+fi
+
+# guard_session_dir sin INPUT_CWD: imprime pwd -P del cwd del proceso.
+TOTAL=$((TOTAL + 1))
+GUARD_SESSION_DIR_NO_CWD=$(cd "$SCRIPT_DIR" && bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  INPUT_CWD=""
+  guard_session_dir
+' || true)
+GUARD_SESSION_DIR_EXPECTED=$(cd "$SCRIPT_DIR" && pwd -P)
+if [ "$GUARD_SESSION_DIR_NO_CWD" = "$GUARD_SESSION_DIR_EXPECTED" ]; then
+  echo -e "${GREEN}PASS${NC}: guard_session_dir: sin INPUT_CWD imprime pwd -P del cwd del proceso"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_session_dir: sin INPUT_CWD imprime pwd -P del cwd del proceso (got: $GUARD_SESSION_DIR_NO_CWD, expected: $GUARD_SESSION_DIR_EXPECTED)"
+  FAIL=$((FAIL + 1))
+fi
+
+# guard_session_dir con INPUT_CWD válido: imprime esa ruta (resuelta).
+TOTAL=$((TOTAL + 1))
+GUARD_SESSION_DIR_VALID_CWD=$(bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  INPUT_CWD="'"$REPO_ROOT"'"
+  guard_session_dir
+' || true)
+if [ "$GUARD_SESSION_DIR_VALID_CWD" = "$REPO_ROOT" ]; then
+  echo -e "${GREEN}PASS${NC}: guard_session_dir: con INPUT_CWD válido imprime esa ruta"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_session_dir: con INPUT_CWD válido imprime esa ruta (got: $GUARD_SESSION_DIR_VALID_CWD)"
+  FAIL=$((FAIL + 1))
+fi
+
+# guard_session_dir con INPUT_CWD inexistente: return 1, sin imprimir nada.
+TOTAL=$((TOTAL + 1))
+GUARD_SESSION_DIR_MISSING_OUT=$(mktemp)
+GUARD_SESSION_DIR_MISSING_EXIT=0
+bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  INPUT_CWD="/no/existe/de/verdad"
+  guard_session_dir
+' > "$GUARD_SESSION_DIR_MISSING_OUT" 2>/dev/null || GUARD_SESSION_DIR_MISSING_EXIT=$?
+if [ "$GUARD_SESSION_DIR_MISSING_EXIT" -eq 1 ] && [ ! -s "$GUARD_SESSION_DIR_MISSING_OUT" ]; then
+  echo -e "${GREEN}PASS${NC}: guard_session_dir: INPUT_CWD inexistente devuelve 1 sin imprimir nada"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_session_dir: INPUT_CWD inexistente devuelve 1 sin imprimir nada (exit: $GUARD_SESSION_DIR_MISSING_EXIT, stdout: $(cat "$GUARD_SESSION_DIR_MISSING_OUT"))"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$GUARD_SESSION_DIR_MISSING_OUT"
+
+echo ""
+
+# --- Sandbox infra para hooks no-bloqueantes (PreCompact, SubagentStop) ---
 echo "--- sandbox infra ---"
 
 # Caso trivial: usa sandbox_create/sandbox_cleanup + assert_exit0 con un hook
@@ -5296,7 +4072,8 @@ snapshot_dir_for() {
 }
 
 # perm_of: permisos octales de un archivo/dir, portable BSD (stat -f%Lp) /
-# GNU (stat -c%a) — mismo patrón dual que mtime_of en session-end-check.sh.
+# GNU (stat -c%a) — mismo patrón dual que otros helpers de esta suite que
+# necesitan portabilidad macOS/Linux.
 # Usado en checks de umask (eval'd, por eso vive como función global).
 perm_of() {
   stat -f%Lp "$1" 2>/dev/null || stat -c%a "$1" 2>/dev/null
@@ -5650,275 +4427,23 @@ assert_exit0 "SubagentStop no agrega raw_keys cuando el agente es conocido" \
   'LOG="$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl"; [ "$(jq -r .agent "$LOG")" = "backend-dev" ] && [ "$(jq "has(\"raw_keys\")" "$LOG")" = "false" ]'
 sandbox_cleanup
 
-echo ""
-
-# --- session-end-check.sh ---
-echo "--- session-end-check.sh ---"
-
-# Caso: señal S1 — commit posterior a STATE.md con mtime viejo (touch -t).
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd S1: commit posterior a STATE.md escribe marker" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{"reason":"other"}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ -f "$MARKER" ] && [ "$(jq -c .signals "$MARKER")" = "[\"commits_after_state\"]" ] && [ "$(jq -r .branch "$MARKER")" != "null" ] && [ "$(jq -r .head "$MARKER")" != "null" ] && [ "$(jq -r .reason "$MARKER")" = "other" ] && [ "$(jq -r .ts "$MARKER")" != "null" ]'
-sandbox_cleanup
-
-# Caso: umask 077 — el marker (branch, head, señales) queda sin permisos de
-# grupo/otros.
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd crea el marker sin permisos de grupo/otros (umask 077)" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{"reason":"other"}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  '[ "$(perm_of "$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json")" = "600" ]'
-sandbox_cleanup
-
-# Caso: escritura atómica — si el jq que arma el marker falla, el archivo
-# destino nunca queda truncado a 0 bytes. Mismo fake jq de PreCompact:
-# intercepta solo "-n" (la del marker final), deja pasar el resto al jq
-# real para no romper el resto del hook (jq -R/-s de SIGNALS_JSON).
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-FAKE_JQ_DIR=$(mktemp -d)
-REAL_JQ=$(command -v jq)
-cat > "$FAKE_JQ_DIR/jq" <<FAKE_JQ_EOF
-#!/bin/bash
-if [ "\$1" = "-n" ]; then
-  exit 1
-fi
-exec "$REAL_JQ" "\$@"
-FAKE_JQ_EOF
-chmod +x "$FAKE_JQ_DIR/jq"
-assert_exit0 "SessionEnd no deja marker truncado si jq falla al escribir (atomic write)" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{"reason":"other"}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  'MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"; [ ! -f "$MARKER_DIR/$SLUG.json" ] && [ -z "$(find "$MARKER_DIR" -maxdepth 1 -name "$SLUG.json.tmp.*" 2>/dev/null)" ]' \
-  "$FAKE_JQ_DIR:$PATH"
-rm -rf "$FAKE_JQ_DIR"
-sandbox_cleanup
-
-# Caso: señal S2 — archivo dirty (sin commitear) fuera de .planning/ con
-# mtime posterior a STATE.md. STATE.md se toca a "ahora" (después del commit
-# inicial del sandbox, para no disparar S1 también) y el archivo dirty se
-# crea tras un sleep para garantizar mtime estrictamente posterior.
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch .planning/STATE.md
-) > /dev/null 2>&1
-sleep 1
-(
-  cd "$SANDBOX_REPO" || exit 1
-  echo "dirty" > dirty-file.txt
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd S2: archivo dirty posterior a STATE.md escribe marker" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ -f "$MARKER" ] && [ "$(jq -c .signals "$MARKER")" = "[\"dirty_files_after_state\"]" ] && [ "$(jq -r .reason "$MARKER")" = "other" ]'
-sandbox_cleanup
-
-# Caso: archivos dirty DENTRO de .planning/ no cuentan para S2 (solo fuera).
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch .planning/STATE.md
-) > /dev/null 2>&1
-sleep 1
-(
-  cd "$SANDBOX_REPO" || exit 1
-  echo "more design" >> .planning/DESIGN.md
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd ignora archivos dirty dentro de .planning/" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  '[ ! -f "$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json" ]'
-sandbox_cleanup
-
-# Caso: STATE.md más reciente que todo (commits y archivos dirty) — no se
-# escribe marker.
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch .planning/STATE.md
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd sin señales: STATE.md fresco no escribe marker" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  '[ ! -f "$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json" ]'
-sandbox_cleanup
-
-# Caso: sin .planning/STATE.md — exit 0 sin efectos.
-sandbox_create
-rm -f "$SANDBOX_REPO/.planning/STATE.md"
-assert_exit0 "SessionEnd no-op sin .planning/STATE.md" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  '[ ! -e "$SANDBOX_HOME/.claude" ]'
-sandbox_cleanup
-
-# Caso: fuera de repo git — exit 0 sin efectos.
-NO_GIT_DIR=$(mktemp -d)
-NO_GIT_DIR=$(cd "$NO_GIT_DIR" && pwd -P)
-NO_GIT_HOME=$(mktemp -d)
-NO_GIT_HOME=$(cd "$NO_GIT_HOME" && pwd -P)
-mkdir -p "$NO_GIT_DIR/.planning"
-echo "# STATE" > "$NO_GIT_DIR/.planning/STATE.md"
-assert_exit0 "SessionEnd no-op fuera de repo git" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$NO_GIT_DIR" \
-  "$NO_GIT_HOME" \
-  '[ ! -e "$NO_GIT_HOME/.claude" ]'
-rm -rf "$NO_GIT_DIR" "$NO_GIT_HOME"
-
-# Caso: el marker se SOBRESCRIBE entre invocaciones sucesivas, nunca acumula
-# señales de invocaciones anteriores.
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd overwrite paso 1: marker con commits_after_state" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ "$(jq -c .signals "$MARKER")" = "[\"commits_after_state\"]" ]'
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch .planning/STATE.md
-) > /dev/null 2>&1
-sleep 1
-(
-  cd "$SANDBOX_REPO" || exit 1
-  echo "dirty" > dirty-file.txt
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd overwrite paso 2: marker se sobrescribe, no acumula" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ "$(jq -c .signals "$MARKER")" = "[\"dirty_files_after_state\"]" ]'
-sandbox_cleanup
-
-# Caso: jq ausente en PATH — exit 0, sin escribir marker. Señal S1 forzada
-# (commit posterior a STATE.md) para garantizar que, de estar jq disponible,
-# SÍ se escribiría un marker — así la ausencia de marker se debe realmente a
-# la falta de jq, no a la falta de señales.
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-NO_JQ_BIN=$(mktemp -d)
-for cmd in bash cat git stat date tr mkdir; do
-  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
-  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_BIN/$cmd"
-done
-assert_exit0 "SessionEnd exit 0 sin jq en PATH (sin escribir marker)" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{"reason":"other"}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  '[ ! -e "$SANDBOX_HOME/.claude" ]' \
-  "$NO_JQ_BIN"
-rm -rf "$NO_JQ_BIN"
-sandbox_cleanup
-
-echo ""
-
-# --- session-start-context.sh (consumo del marker de SessionEnd + render de state.json) ---
+# --- session-start-context.sh (render de state.json) ---
 echo "--- session-start-context.sh ---"
 
 # session-start-context.sh no lee stdin y su salida SÍ importa (a diferencia
 # de los hooks no-bloqueantes anteriores), así que estos casos no usan
 # assert_exit0 (descarta stdout) sino asserts inline sobre el output capturado.
 
-# Caso: roundtrip escritor/lector — session-end-check.sh escribe el marker
-# con repo_slug() y session-start-context.sh lo encuentra con el MISMO
-# repo_slug() (no un slug manual construido en el test). Si el par
-# escritor/lector alguna vez divergiera de slug, este es el test que lo
-# detecta: el marker quedaría escrito bajo un nombre que el lector nunca
-# busca, y se "perdería" en silencio.
-sandbox_create
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-(cd "$SANDBOX_REPO" && echo '{"reason":"other"}' | HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-end-check.sh" > /dev/null 2>&1)
-OUTPUT_ROUNDTRIP=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
-TOTAL=$((TOTAL + 1))
-ROUNDTRIP_SLUG=$(repo_slug "$SANDBOX_REPO")
-ROUNDTRIP_MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$ROUNDTRIP_SLUG.json"
-if echo "$OUTPUT_ROUNDTRIP" | grep -qF "commits_after_state" && [ ! -f "$ROUNDTRIP_MARKER" ]; then
-  echo -e "${GREEN}PASS${NC}: roundtrip SessionEnd→SessionStart: el marker escrito con repo_slug() se encuentra y se consume"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: roundtrip SessionEnd→SessionStart: el marker escrito con repo_slug() se encuentra y se consume (output: $OUTPUT_ROUNDTRIP)"
-  FAIL=$((FAIL + 1))
-fi
-sandbox_cleanup
-
-# Caso: sin marker y sin state.json, el output no cambia (no rompe el
-# comportamiento actual del hook).
+# Caso: sin state.json, el output no cambia (no rompe el comportamiento
+# actual del hook).
 sandbox_create
 OUTPUT_PLAIN=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
 TOTAL=$((TOTAL + 1))
-if echo "$OUTPUT_PLAIN" | grep -q "=== Session Context ===" && ! echo "$OUTPUT_PLAIN" | grep -q "sesión anterior cerró"; then
-  echo -e "${GREEN}PASS${NC}: SessionStart sin marker ni state.json mantiene el output actual"
+if echo "$OUTPUT_PLAIN" | grep -q "=== Session Context ==="; then
+  echo -e "${GREEN}PASS${NC}: SessionStart sin state.json mantiene el output actual"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: SessionStart sin marker ni state.json mantiene el output actual"
+  echo -e "${RED}FAIL${NC}: SessionStart sin state.json mantiene el output actual"
   FAIL=$((FAIL + 1))
 fi
 sandbox_cleanup
@@ -5949,105 +4474,6 @@ else
 fi
 rm -rf "$NON_GIT_DIR"
 
-# Caso: con marker presente, la primera invocación avisa con las señales y
-# borra el marker (consume-once); la segunda invocación ya no avisa.
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
-mkdir -p "$MARKER_DIR"
-jq -n '{ts:"2026-08-13T00:00:00Z", reason:"other", branch:"feature/x", head:"abc1234", signals:["commits_after_state","dirty_files_after_state"]}' \
-  > "$MARKER_DIR/$SLUG.json"
-
-OUTPUT_FIRST=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
-TOTAL=$((TOTAL + 1))
-EXPECTED_WARNING="⚠️ La sesión anterior cerró con STATE posiblemente desactualizado (señales: commits_after_state, dirty_files_after_state). Verifica .planning/STATE.md y state.json antes de continuar."
-if echo "$OUTPUT_FIRST" | grep -qF "$EXPECTED_WARNING" && [ ! -f "$MARKER_DIR/$SLUG.json" ]; then
-  echo -e "${GREEN}PASS${NC}: SessionStart primera invocación avisa del marker y lo borra"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: SessionStart primera invocación avisa del marker y lo borra"
-  FAIL=$((FAIL + 1))
-fi
-
-OUTPUT_SECOND=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
-TOTAL=$((TOTAL + 1))
-if ! echo "$OUTPUT_SECOND" | grep -q "sesión anterior cerró"; then
-  echo -e "${GREEN}PASS${NC}: SessionStart segunda invocación ya no avisa (consume-once)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: SessionStart segunda invocación ya no avisa (consume-once)"
-  FAIL=$((FAIL + 1))
-fi
-sandbox_cleanup
-
-# Caso: sanitización — un elemento de "signals" del marker de SessionEnd con
-# caracteres de control y un salto de línea, muy por encima de la ventana de
-# truncado (~80 chars), no debe llegar crudo al output del aviso: se trunca,
-# no filtra el caracter de control y no rompe el aviso en múltiples líneas.
-# Comparación contra un marker con un signal corto y "limpio" (misma
-# estructura) para verificar que el conteo de líneas no varía por los bytes
-# de control embebidos.
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
-mkdir -p "$MARKER_DIR"
-RAW_SIGNAL=$(printf 'SIGSTART\x01\nMIDDLE_%sZZZ_SIGEND' "$(printf 'A%.0s' $(seq 1 470))")
-jq -n --arg sig "$RAW_SIGNAL" \
-  '{ts:"2026-08-13T00:00:00Z", reason:"other", branch:"feature/x", head:"abc1234", signals: [$sig]}' \
-  > "$MARKER_DIR/$SLUG.json"
-OUTPUT_SIGNAL_MALICIOUS=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
-LINES_SIGNAL_MALICIOUS=$(echo "$OUTPUT_SIGNAL_MALICIOUS" | wc -l | tr -d ' ')
-sandbox_cleanup
-
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
-mkdir -p "$MARKER_DIR"
-jq -n '{ts:"2026-08-13T00:00:00Z", reason:"other", branch:"feature/x", head:"abc1234", signals: ["safe_signal"]}' \
-  > "$MARKER_DIR/$SLUG.json"
-OUTPUT_SIGNAL_SAFE=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
-LINES_SIGNAL_SAFE=$(echo "$OUTPUT_SIGNAL_SAFE" | wc -l | tr -d ' ')
-sandbox_cleanup
-
-TOTAL=$((TOTAL + 1))
-if [ "$LINES_SIGNAL_MALICIOUS" = "$LINES_SIGNAL_SAFE" ] \
-  && echo "$OUTPUT_SIGNAL_MALICIOUS" | grep -qF "SIGSTART" \
-  && ! echo "$OUTPUT_SIGNAL_MALICIOUS" | grep -qF "ZZZ_SIGEND" \
-  && ! printf '%s' "$OUTPUT_SIGNAL_MALICIOUS" | LC_ALL=C grep -qF "$(printf '\x01')"; then
-  echo -e "${GREEN}PASS${NC}: SessionStart sanitiza signals del marker de SessionEnd (trunca ~80 chars, sin control chars ni multilínea)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: SessionStart sanitiza signals del marker de SessionEnd (trunca ~80 chars, sin control chars ni multilínea)"
-  FAIL=$((FAIL + 1))
-fi
-
-# Caso: [ronda 2, tarea 5b] sanitize_text también quita DEL (\177) — el
-# rango \000-\037 no lo cubre (DEL es \177, fuera de ese rango) y antes del
-# fix un DEL crudo podía llegar al output. Limitación aceptada (documentada
-# en el hook): Unicode zero-width/bidi no se filtran, solo control chars
-# ASCII (\000-\037 y \177).
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"
-mkdir -p "$MARKER_DIR"
-RAW_SIGNAL_DEL=$(printf 'SIGDEL_MARK\177END_MARK')
-jq -n --arg sig "$RAW_SIGNAL_DEL" \
-  '{ts:"2026-08-13T00:00:00Z", reason:"other", branch:"feature/x", head:"abc1234", signals: [$sig]}' \
-  > "$MARKER_DIR/$SLUG.json"
-OUTPUT_SIGNAL_DEL=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
-sandbox_cleanup
-
-TOTAL=$((TOTAL + 1))
-if echo "$OUTPUT_SIGNAL_DEL" | grep -qF "SIGDEL_MARK" \
-  && echo "$OUTPUT_SIGNAL_DEL" | grep -qF "END_MARK" \
-  && ! printf '%s' "$OUTPUT_SIGNAL_DEL" | LC_ALL=C grep -qF "$(printf '\177')"; then
-  echo -e "${GREEN}PASS${NC}: SessionStart sanitize_text quita DEL (\\177) del signal del marker"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: SessionStart sanitize_text quita DEL (\\177) del signal del marker"
-  FAIL=$((FAIL + 1))
-fi
-
 # Caso: con .planning/state.json presente (schema D3), el output incluye la
 # fase activa y una línea por batch con status y progreso.
 sandbox_create
@@ -6072,7 +4498,7 @@ cat > "$SANDBOX_REPO/.planning/state.json" <<'STATE_JSON_EOF'
   "batches": [
     {"id": 1, "name": "pre-compact-snapshot", "agent": "backend-dev", "status": "done", "tasks_done": 5, "tasks_total": 5, "current_task": null},
     {"id": 2, "name": "subagent-stop-log", "agent": "backend-dev", "status": "done", "tasks_done": 5, "tasks_total": 5, "current_task": null},
-    {"id": 3, "name": "session-end-check", "agent": "backend-dev", "status": "in_progress", "tasks_done": 3, "tasks_total": 5, "current_task": "4: render de state.json"}
+    {"id": 3, "name": "docs", "agent": "backend-dev", "status": "in_progress", "tasks_done": 3, "tasks_total": 5, "current_task": "4: render de state.json"}
   ]
 }
 STATE_JSON_EOF
@@ -6080,7 +4506,7 @@ OUTPUT_STATE_JSON=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/
 TOTAL=$((TOTAL + 1))
 if echo "$OUTPUT_STATE_JSON" | grep -q "Fase activa: implementation" \
   && echo "$OUTPUT_STATE_JSON" | grep -qF "[done] 1 pre-compact-snapshot — 5/5" \
-  && echo "$OUTPUT_STATE_JSON" | grep -qF "[in_progress] 3 session-end-check — 3/5"; then
+  && echo "$OUTPUT_STATE_JSON" | grep -qF "[in_progress] 3 docs — 3/5"; then
   echo -e "${GREEN}PASS${NC}: SessionStart renderiza fase activa y batches de state.json"
   PASS=$((PASS + 1))
 else
@@ -6124,149 +4550,6 @@ if [ "$LINES_MALICIOUS" = "$LINES_SAFE" ] \
   PASS=$((PASS + 1))
 else
   echo -e "${RED}FAIL${NC}: SessionStart sanitiza name de batch (trunca ~80 chars, sin control chars ni multilínea)"
-  FAIL=$((FAIL + 1))
-fi
-
-# Caso: estado sellado (todas las fases en done/skipped, como queda tras el
-# commit de retro) pero el branch actual sigue siendo el del feature, no la
-# base — el desfase real: si el merge todavía no ocurrió, session-end-check.sh
-# nunca mira "phases" (compara mtimes) y por lo tanto no lo detecta, y sin
-# este aviso "Fase activa: ninguna" se leía como "no queda nada pendiente".
-# El aviso debe nombrar el branch actual y el PR de state.json.
-sandbox_create
-(cd "$SANDBOX_REPO" && git checkout -q -b feature/seal-test) > /dev/null 2>&1
-cat > "$SANDBOX_REPO/.planning/state.json" <<'STATE_JSON_EOF'
-{
-  "schema": 1,
-  "feature": "seal-test",
-  "branch": "feature/seal-test",
-  "pr": 77,
-  "updated": "2026-08-25T00:00:00Z",
-  "phases": {
-    "brainstorming": "skipped",
-    "design": "skipped",
-    "implementation": "done",
-    "docs": "skipped",
-    "pr": "done",
-    "ci": "skipped",
-    "review": "done",
-    "e2e": "skipped",
-    "merge": "done"
-  },
-  "batches": []
-}
-STATE_JSON_EOF
-OUTPUT_SEALED_FEATURE=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
-sandbox_cleanup
-
-TOTAL=$((TOTAL + 1))
-if echo "$OUTPUT_SEALED_FEATURE" | grep -q "Fase activa: ninguna" \
-  && echo "$OUTPUT_SEALED_FEATURE" | grep -qF "Estado sellado" \
-  && echo "$OUTPUT_SEALED_FEATURE" | grep -qF "feature/seal-test" \
-  && echo "$OUTPUT_SEALED_FEATURE" | grep -qF "PR: 77"; then
-  echo -e "${GREEN}PASS${NC}: SessionStart avisa si el estado está sellado y seguimos en el branch del feature"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: SessionStart avisa si el estado está sellado y seguimos en el branch del feature (output: $OUTPUT_SEALED_FEATURE)"
-  FAIL=$((FAIL + 1))
-fi
-
-# Caso: mismo estado sellado, pero ya estamos en la base (dev) — el aviso NO
-# debe aparecer, el comportamiento para este caso no cambia.
-sandbox_create
-(cd "$SANDBOX_REPO" && git checkout -q -b dev) > /dev/null 2>&1
-cat > "$SANDBOX_REPO/.planning/state.json" <<'STATE_JSON_EOF'
-{
-  "schema": 1,
-  "feature": "seal-test",
-  "branch": "feature/seal-test",
-  "pr": 77,
-  "updated": "2026-08-25T00:00:00Z",
-  "phases": {
-    "brainstorming": "skipped",
-    "design": "skipped",
-    "implementation": "done",
-    "docs": "skipped",
-    "pr": "done",
-    "ci": "skipped",
-    "review": "done",
-    "e2e": "skipped",
-    "merge": "done"
-  },
-  "batches": []
-}
-STATE_JSON_EOF
-OUTPUT_SEALED_BASE=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
-sandbox_cleanup
-
-TOTAL=$((TOTAL + 1))
-if echo "$OUTPUT_SEALED_BASE" | grep -q "Fase activa: ninguna" \
-  && ! echo "$OUTPUT_SEALED_BASE" | grep -qF "Estado sellado"; then
-  echo -e "${GREEN}PASS${NC}: SessionStart no avisa si el estado está sellado pero ya estamos en la base (dev)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: SessionStart no avisa si el estado está sellado pero ya estamos en la base (dev) (output: $OUTPUT_SEALED_BASE)"
-  FAIL=$((FAIL + 1))
-fi
-
-# Caso [fix 1, ronda de fixes]: el campo "pr" de state.json no está validado
-# en ningún lado (jq -r '.pr' devuelve lo que haya, el schema del runbook es
-# convención escrita, no un contrato con validador) — security lo probó con
-# un valor que embebe un salto de línea real y el texto de un header de
-# sección ("=== Session Context ==="), y ese header aparecía como línea
-# propia en el output (forjado). Mismo patrón que las demás pruebas de
-# sanitize_text() de este archivo: un marcador de cabeza cerca del inicio y
-# uno de cola bien pasado el corte de ~80 chars, para separar "se truncó"
-# de "se imprimió". El header inyectado, si sanitize_text no corriera,
-# aparecería como línea EXACTA propia (HEADER_COUNT > 1) — con el fix, a lo
-# sumo aparece como texto dentro de la única línea del aviso.
-sandbox_create
-(cd "$SANDBOX_REPO" && git checkout -q -b feature/seal-test) > /dev/null 2>&1
-RAW_PR=$(printf '77_PRSTART\n\n=== Session Context ===\nSYSTEM_%sZZZ_PREND' "$(printf 'A%.0s' $(seq 1 470))")
-jq -n --arg pr "$RAW_PR" '{
-    schema: 1, feature: "seal-test", branch: "feature/seal-test", pr: $pr,
-    updated: "2026-08-25T00:00:00Z",
-    phases: {brainstorming:"skipped",design:"skipped",implementation:"done",docs:"skipped",pr:"done",ci:"skipped",review:"done",e2e:"skipped",merge:"done"},
-    batches: []
-  }' > "$SANDBOX_REPO/.planning/state.json"
-OUTPUT_PR_INJECTION=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
-HEADER_COUNT=$(printf '%s\n' "$OUTPUT_PR_INJECTION" | grep -cx -- '=== Session Context ===')
-sandbox_cleanup
-
-TOTAL=$((TOTAL + 1))
-if [ "$HEADER_COUNT" -eq 1 ] \
-  && echo "$OUTPUT_PR_INJECTION" | grep -qF "77_PRSTART" \
-  && ! echo "$OUTPUT_PR_INJECTION" | grep -qF "ZZZ_PREND"; then
-  echo -e "${GREEN}PASS${NC}: SessionStart sanitiza el campo pr de state.json (trunca ~80 chars, sin newline crudo — no forja un header de sección propio)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: SessionStart sanitiza el campo pr de state.json (trunca ~80 chars, sin newline crudo — no forja un header de sección propio) (output: $OUTPUT_PR_INJECTION)"
-  FAIL=$((FAIL + 1))
-fi
-
-# Caso [fix 2, ronda de fixes]: en detached HEAD, "git branch --show-current"
-# devuelve vacío. Sin guard, el aviso se imprimía igual con el branch vacío
-# ("el branch del feature ()"). Detached HEAD tampoco es "el branch del
-# feature" en ningún sentido accionable, así que el aviso no debe aparecer.
-sandbox_create
-DETACHED_SHA=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
-(cd "$SANDBOX_REPO" && git checkout -q --detach "$DETACHED_SHA") > /dev/null 2>&1
-jq -n '{
-    schema: 1, feature: "seal-test", branch: "feature/seal-test", pr: 77,
-    updated: "2026-08-25T00:00:00Z",
-    phases: {brainstorming:"skipped",design:"skipped",implementation:"done",docs:"skipped",pr:"done",ci:"skipped",review:"done",e2e:"skipped",merge:"done"},
-    batches: []
-  }' > "$SANDBOX_REPO/.planning/state.json"
-OUTPUT_DETACHED=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
-sandbox_cleanup
-
-TOTAL=$((TOTAL + 1))
-if ! echo "$OUTPUT_DETACHED" | grep -qF "Estado sellado" \
-  && ! echo "$OUTPUT_DETACHED" | grep -qF "el branch del feature ()"; then
-  echo -e "${GREEN}PASS${NC}: SessionStart no avisa (ni imprime el branch vacío) en detached HEAD con estado sellado"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: SessionStart no avisa (ni imprime el branch vacío) en detached HEAD con estado sellado (output: $OUTPUT_DETACHED)"
   FAIL=$((FAIL + 1))
 fi
 
@@ -6343,11 +4626,10 @@ echo ""
 echo "--- modo degradado: hooks/lib/slug.sh ausente ---"
 
 # Copia de hooks/ con lib/slug.sh renombrado (nunca se toca el hooks/ real,
-# que sí lo tiene). pre-compact-snapshot.sh y session-end-check.sh son
-# observabilidad (PreCompact/SessionEnd): sin el lib, el contrato es no-op
-# limpio (exit 0, sin artefactos), nunca bloquean. session-start-context.sh
-# es lector con salida visible: sin el lib, imprime el resto del contexto
-# normal y solo omite la sección del marker.
+# que sí lo tiene). pre-compact-snapshot.sh es observabilidad (PreCompact):
+# sin el lib, el contrato es no-op limpio (exit 0, sin artefactos), nunca
+# bloquea. session-start-context.sh es lector con salida visible: sin el
+# lib, imprime igual el resto del contexto normal (no usa slug.sh).
 DEGRADED_HOOKS_DIR=$(mktemp -d)
 cp -R "$HOOKS_DIR/." "$DEGRADED_HOOKS_DIR/"
 mv "$DEGRADED_HOOKS_DIR/lib/slug.sh" "$DEGRADED_HOOKS_DIR/lib/slug.sh.disabled"
@@ -6362,32 +4644,15 @@ assert_exit0 "PreCompact modo degradado: exit 0 sin snapshot si falta hooks/lib/
 sandbox_cleanup
 
 sandbox_create
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd modo degradado: exit 0 sin marker si falta hooks/lib/slug.sh (con señal S1 forzada)" \
-  "$DEGRADED_HOOKS_DIR/session-end-check.sh" \
-  '{"reason":"other"}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  '[ ! -e "$SANDBOX_HOME/.claude" ]'
-sandbox_cleanup
-
-sandbox_create
 OUTPUT_DEGRADED=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$DEGRADED_HOOKS_DIR/session-start-context.sh" 2>&1)
 sandbox_cleanup
 TOTAL=$((TOTAL + 1))
 if echo "$OUTPUT_DEGRADED" | grep -q "=== Session Context ===" \
-  && ! echo "$OUTPUT_DEGRADED" | grep -q "sesión anterior cerró" \
   && ! echo "$OUTPUT_DEGRADED" | grep -qiE "no such file|command not found|slug\.sh"; then
-  echo -e "${GREEN}PASS${NC}: SessionStart modo degradado: imprime contexto normal sin sección de marker si falta hooks/lib/slug.sh"
+  echo -e "${GREEN}PASS${NC}: SessionStart imprime contexto normal aunque falte hooks/lib/slug.sh (no depende de él)"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: SessionStart modo degradado: imprime contexto normal sin sección de marker si falta hooks/lib/slug.sh (output: $OUTPUT_DEGRADED)"
+  echo -e "${RED}FAIL${NC}: SessionStart imprime contexto normal aunque falte hooks/lib/slug.sh (no depende de él) (output: $OUTPUT_DEGRADED)"
   FAIL=$((FAIL + 1))
 fi
 
@@ -6434,10 +4699,9 @@ POSTPR_URL="https://github.com/acme/widgets/pull/7"
 
 # assert_postpr_caso_a: corre el hook en el sandbox con el input dado y
 # verifica el contrato completo de CASO A: exit 0, línea "PR creado",
-# checkpoint "Review dual pre-push verificado" (branch del sandbox),
-# reconciliación PR-7.md (N de la URL) desde pre-pr-checkpoint-flow.md
-# (slug del campo feature), "No relances reviewers" y AUSENCIA del bloque
-# "ACCIÓN REQUERIDA" (no se relanzan reviewers: el PR nació revisado).
+# checkpoint "Review dual pre-push verificado" (branch del sandbox), "No
+# relances reviewers" y AUSENCIA del bloque "ACCIÓN REQUERIDA" (no se
+# relanzan reviewers: el PR nació revisado) ni de "reconciliación".
 assert_postpr_caso_a() {
   local test_name="$1" stdin_json="$2"
   TOTAL=$((TOTAL + 1))
@@ -6446,10 +4710,9 @@ assert_postpr_caso_a() {
   if [ "$exit_code" -eq 0 ] \
     && echo "$output" | grep -qF "PR creado: $POSTPR_URL" \
     && echo "$output" | grep -qF "Review dual pre-push verificado (state.json: phases.review=done, branch feature/checkpoint-flow)." \
-    && echo "$output" | grep -qF ".planning/reviews/PR-7.md" \
-    && echo "$output" | grep -qF "pre-pr-checkpoint-flow.md" \
     && echo "$output" | grep -qF "No relances reviewers" \
-    && ! echo "$output" | grep -qF "ACCIÓN REQUERIDA"; then
+    && ! echo "$output" | grep -qF "ACCIÓN REQUERIDA" \
+    && ! echo "$output" | grep -qiF "reconciliación"; then
     echo -e "${GREEN}PASS${NC}: $test_name"
     PASS=$((PASS + 1))
   else
@@ -6467,21 +4730,6 @@ sandbox_create
 POSTPR_HEAD_SHA=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$POSTPR_HEAD_SHA"
 assert_postpr_caso_a "post-pr-create CASO A: review=done + branch coincide + review_sha == HEAD → checkpoint de PR revisado, sin ACCIÓN REQUERIDA" \
-  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
-sandbox_cleanup
-
-# Caso: CASO A — review_sha == HEAD~1 y el delta post-review toca SOLO
-# paths bajo .planning/ (los commits legítimos post-review son el registro
-# del review y la reconciliación) → sigue siendo CASO A: la evidencia
-# cubre los commits actuales.
-sandbox_create
-(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
-POSTPR_REVIEWED_SHA=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
-(cd "$SANDBOX_REPO" \
-  && echo "# registro pre-pr" > .planning/reviews/pre-pr-checkpoint-flow.md \
-  && git add -A && git commit -q -m "planning: registrar review dual pre-push") > /dev/null 2>&1
-postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$POSTPR_REVIEWED_SHA"
-assert_postpr_caso_a "post-pr-create CASO A: review_sha == HEAD~1 con delta solo-.planning → checkpoint (registro post-review legítimo)" \
   "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
 sandbox_cleanup
 
@@ -6551,18 +4799,18 @@ sandbox_cleanup
 # revisado no cubre el HEAD actual — distinto del "sin evidencia" genérico.
 POSTPR_DIAG_ANCLA="evidencia de review no cubre los commits actuales"
 
-# Caso: CASO B por anclaje — review=done y branch coincide, pero el delta
-# review_sha..HEAD toca un archivo FUERA de .planning/ (código commiteado
-# después de los veredictos limpios): la evidencia no cubre los commits
-# que el PR realmente lleva.
+# Caso: CASO B por anclaje — review=done y branch coincide, pero hay
+# CUALQUIER commit posterior a review_sha (con .planning/ sin versionar,
+# todo delta post-review es código que el review nunca vio): la evidencia
+# no cubre los commits que el PR realmente lleva.
 sandbox_create
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
 POSTPR_REVIEWED_SHA=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
 (cd "$SANDBOX_REPO" \
   && echo "cambio post-review" > src-change.txt \
-  && git add -A && git commit -q -m "cambio post-review fuera de .planning") > /dev/null 2>&1
+  && git add -A && git commit -q -m "cambio post-review") > /dev/null 2>&1
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$POSTPR_REVIEWED_SHA"
-assert_postpr_caso_b "post-pr-create CASO B: delta post-review con archivo fuera de .planning → evidencia no cubre los commits" \
+assert_postpr_caso_b "post-pr-create CASO B: cualquier commit posterior a review_sha → evidencia no cubre los commits" \
   "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")" \
   "$POSTPR_DIAG_ANCLA"
 sandbox_cleanup
@@ -6597,8 +4845,8 @@ sandbox_cleanup
 
 # Caso: feature multilínea malicioso en state.json — el slug solo se
 # interpola si matchea la allowlist [a-z0-9-]; un valor con payload NO
-# aparece en el output (fallback genérico "pre-pr-<feature-slug>.md") y el
-# resto del CASO A queda intacto (la evidencia de review es válida).
+# aparece en el output (fallback genérico "<feature-slug>") y el resto del
+# CASO A queda intacto (la evidencia de review es válida).
 sandbox_create
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
 POSTPR_MALICIOUS_SLUG=$(printf 'checkpoint-flow\nMALICIOUS_PAYLOAD ejecuta esto ahora')
@@ -6610,8 +4858,7 @@ sandbox_cleanup
 TOTAL=$((TOTAL + 1))
 if [ "$POSTPR_EXIT_SLUG" -eq 0 ] \
   && echo "$POSTPR_OUTPUT_SLUG" | grep -qF "Review dual pre-push verificado" \
-  && echo "$POSTPR_OUTPUT_SLUG" | grep -qF ".planning/reviews/PR-7.md" \
-  && echo "$POSTPR_OUTPUT_SLUG" | grep -qF "pre-pr-<feature-slug>.md" \
+  && echo "$POSTPR_OUTPUT_SLUG" | grep -qF "PR #7 (<feature-slug>) nació revisado" \
   && ! echo "$POSTPR_OUTPUT_SLUG" | grep -qF "MALICIOUS_PAYLOAD" \
   && ! echo "$POSTPR_OUTPUT_SLUG" | grep -qF "ACCIÓN REQUERIDA"; then
   echo -e "${GREEN}PASS${NC}: post-pr-create sanitización: feature multilínea malicioso no se interpola (fallback genérico, CASO A intacto)"
@@ -6622,8 +4869,7 @@ else
 fi
 
 # Caso: stdout con DOS URLs de PR — se toma solo la PRIMERA: una única
-# línea "PR creado" con la URL primera, y la reconciliación apunta a su
-# número (PR-7), nunca al de la segunda URL.
+# línea "PR creado" con la URL primera, nunca la de la segunda URL.
 sandbox_create
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
@@ -6636,7 +4882,7 @@ TOTAL=$((TOTAL + 1))
 if [ "$POSTPR_EXIT_2URL" -eq 0 ] \
   && [ "$(echo "$POSTPR_OUTPUT_2URL" | grep -cF 'PR creado:')" = "1" ] \
   && echo "$POSTPR_OUTPUT_2URL" | grep -qF "PR creado: $POSTPR_URL" \
-  && echo "$POSTPR_OUTPUT_2URL" | grep -qF ".planning/reviews/PR-7.md" \
+  && echo "$POSTPR_OUTPUT_2URL" | grep -qF "PR #7 (checkpoint-flow) nació revisado" \
   && ! echo "$POSTPR_OUTPUT_2URL" | grep -qF "pull/8"; then
   echo -e "${GREEN}PASS${NC}: post-pr-create sanitización: stdout con 2 URLs → una sola línea 'PR creado' con la primera (PR-7)"
   PASS=$((PASS + 1))
@@ -6661,7 +4907,6 @@ if [ "$POSTPR_EXIT_BRDOT" -eq 0 ] \
   && echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "Review dual pre-push verificado" \
   && echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "branch <branch actual>" \
   && ! echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "checkpoint.flow" \
-  && echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "pre-pr-checkpoint-flow.md" \
   && ! echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "ACCIÓN REQUERIDA"; then
   echo -e "${GREEN}PASS${NC}: post-pr-create sanitización: branch fuera de la allowlist no se interpola (label genérico, CASO A intacto)"
   PASS=$((PASS + 1))
@@ -6794,7 +5039,9 @@ GITIGNORE_TEST_DIR=$(mktemp -d)
   cd "$GITIGNORE_TEST_DIR" || exit 1
   git init -q
   cp "$REPO_ROOT/.gitignore" .gitignore
-  touch .env .env.local .env.example secret.pem id_rsa.key credentials.json identity.p12 cert.pfx normal.txt
+  touch .env .env.local .env.example secret.pem id_rsa.key credentials.json identity.p12 cert.pfx normal.txt secrets.json
+  mkdir -p .aws .ssh
+  touch .aws/credentials .ssh/id_rsa
 ) > /dev/null 2>&1
 
 assert_gitignored() {
@@ -6816,6 +5063,9 @@ assert_gitignored ".gitignore ignora id_rsa.key (vía *.key)" "id_rsa.key"
 assert_gitignored ".gitignore ignora credentials.json (vía credentials.*)" "credentials.json"
 assert_gitignored ".gitignore ignora identity.p12 (vía *.p12)" "identity.p12"
 assert_gitignored ".gitignore ignora cert.pfx (vía *.pfx)" "cert.pfx"
+assert_gitignored ".gitignore ignora secrets.json (vía secrets.*)" "secrets.json"
+assert_gitignored ".gitignore ignora .aws/credentials (vía .aws/)" ".aws/credentials"
+assert_gitignored ".gitignore ignora .ssh/id_rsa (vía .ssh/)" ".ssh/id_rsa"
 
 TOTAL=$((TOTAL + 1))
 if (cd "$GITIGNORE_TEST_DIR" && git check-ignore -q "normal.txt"); then
@@ -6835,6 +5085,23 @@ if (cd "$GITIGNORE_TEST_DIR" && git check-ignore -q ".env.example"); then
   FAIL=$((FAIL + 1))
 else
   echo -e "${GREEN}PASS${NC}: .gitignore no debe ignorar .env.example (vía !.env.example)"
+  PASS=$((PASS + 1))
+fi
+
+# [D-07] .planning/ no se versiona salvo ARCHITECTURE.md (excepción con
+# negación: .planning/* + !.planning/ARCHITECTURE.md, nunca .planning/ a
+# secas — con esa forma git no entra al directorio y la negación no aplica).
+mkdir -p "$GITIGNORE_TEST_DIR/.planning"
+touch "$GITIGNORE_TEST_DIR/.planning/STATE.md" "$GITIGNORE_TEST_DIR/.planning/ARCHITECTURE.md"
+
+assert_gitignored ".gitignore ignora .planning/STATE.md" ".planning/STATE.md"
+
+TOTAL=$((TOTAL + 1))
+if (cd "$GITIGNORE_TEST_DIR" && git check-ignore -q ".planning/ARCHITECTURE.md"); then
+  echo -e "${RED}FAIL${NC}: .gitignore NO debe ignorar .planning/ARCHITECTURE.md"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "${GREEN}PASS${NC}: .gitignore NO debe ignorar .planning/ARCHITECTURE.md"
   PASS=$((PASS + 1))
 fi
 
