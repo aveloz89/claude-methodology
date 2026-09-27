@@ -4996,7 +4996,9 @@ GITIGNORE_TEST_DIR=$(mktemp -d)
   cd "$GITIGNORE_TEST_DIR" || exit 1
   git init -q
   cp "$REPO_ROOT/.gitignore" .gitignore
-  touch .env .env.local .env.example secret.pem id_rsa.key credentials.json identity.p12 cert.pfx normal.txt
+  touch .env .env.local .env.example secret.pem id_rsa.key credentials.json identity.p12 cert.pfx normal.txt secrets.json
+  mkdir -p .aws .ssh
+  touch .aws/credentials .ssh/id_rsa
 ) > /dev/null 2>&1
 
 assert_gitignored() {
@@ -5018,6 +5020,9 @@ assert_gitignored ".gitignore ignora id_rsa.key (vía *.key)" "id_rsa.key"
 assert_gitignored ".gitignore ignora credentials.json (vía credentials.*)" "credentials.json"
 assert_gitignored ".gitignore ignora identity.p12 (vía *.p12)" "identity.p12"
 assert_gitignored ".gitignore ignora cert.pfx (vía *.pfx)" "cert.pfx"
+assert_gitignored ".gitignore ignora secrets.json (vía secrets.*)" "secrets.json"
+assert_gitignored ".gitignore ignora .aws/credentials (vía .aws/)" ".aws/credentials"
+assert_gitignored ".gitignore ignora .ssh/id_rsa (vía .ssh/)" ".ssh/id_rsa"
 
 TOTAL=$((TOTAL + 1))
 if (cd "$GITIGNORE_TEST_DIR" && git check-ignore -q "normal.txt"); then

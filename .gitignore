@@ -17,3 +17,6 @@
 credentials.*
 *.p12
 *.pfx
+secrets.*
+.aws/
+.ssh/
