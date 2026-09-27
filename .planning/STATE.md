@@ -4,27 +4,21 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** audit-best-practices: alinear la metodología con las prácticas oficiales de Anthropic (auditoría en `AUDIT-best-practices-2026-09.md`). Diseño aprobado: multi-PR secuencial (PR 1 fixes técnicos, lotes 1-2; PR 2 skill orchestrator + núcleo, lotes 3-4; PR 3 fusiones, lotes 5-6). PR 1 = #79, mergeado a `dev` (retro en `learnings/PR-79.md`). PR 2 = #80, mergeado. PR 3 = #81: review dual aprobado en 2 rondas, retro en `learnings/PR-81.md`; pendiente de aprobación de merge. Con su merge se cierra la feature.
-- **Medición PR 2** (`claude -p --output-format json`, dos repos temporales, delta contra baseline): `global/CLAUDE.md` pasa de **6.436 → 2.593 tokens** (−60 %) por cada sesión y cada subagente. 21.081 → 8.466 bytes; 190 → 87 líneas.
+- **Feature:** product-reviewer: subagente de producto que cuestiona si una feature vale la pena y deja criterios de aceptación medibles. No bloquea; solo corre en productos con usuarios reales. Brief cerrado; en diseño con el architect.
 - **Última actualización:** 2026-09-26
 
 ## Decisiones
 
 Detalle en `BRIEF.md`.
 
-- [D-01] (usuario) La auditoría va antes que el agente PM.
-- [D-02] (usuario) Incluye partir `CLAUDE.md` y la fusión de agentes.
-- [D-03] (usuario) Rol corto en `CLAUDE.md` + skill `orchestrator` bajo demanda + recordatorio del hook de sesión.
-- [D-04] (usuario) Aprobado el plan de 3 PRs y las fusiones: `build-resolver` → rulebook, `db-specialist` → `backend-dev` + rulebook; `docs` y `ui-ux` se mantienen con disparadores más estrictos.
-- [D-05] (usuario) `effort: high` solo en reviewers sonnet (`qa-*`); devs en default por costo.
-
-**Issue a abrir:** `.claude/settings.json` de este repo duplica los 14 hooks del plugin.
-
-**Pendiente después:** agente de producto/PM (feature aparte).
+- [D-01] (usuario) No sustituye el brainstorming: funciona como filtro de "vale la pena" y de qué esperamos obtener.
+- [D-02] (usuario) No bloquea.
+- [D-03] (usuario) Solo en productos con usuarios reales.
+- [D-04] (usuario) Subagente entre el brief y el architect, activado por una línea en el `CLAUDE.md` del proyecto.
 
 ## Feature anterior
 
-`hook-merge-repo-y-fila-dod` (PR #76): `learnings/PR-76.md` y `BRIEF-hook-merge-repo-y-fila-dod.md`.
+`audit-best-practices` (PRs #79, #80, #81, mergeados): `BRIEF-audit-best-practices.md`, `DESIGN-audit-best-practices.md` y `learnings/PR-79.md` a `PR-81.md`. `global/CLAUDE.md` pasó de 6.436 a 2.593 tokens; quedan 11 agentes.
 
 ## Blockers
 

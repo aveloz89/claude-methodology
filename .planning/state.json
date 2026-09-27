@@ -1,74 +1,20 @@
 {
   "schema": 1,
-  "feature": "audit-best-practices",
-  "branch": "feature/merge-agents",
-  "pr": 81,
-  "review_sha": "0922c37",
+  "feature": "product-reviewer",
+  "branch": "feature/product-reviewer",
+  "pr": null,
+  "review_sha": null,
   "updated": "2026-09-26T00:00:00Z",
   "phases": {
     "brainstorming": "done",
-    "design": "done",
-    "implementation": "done",
-    "docs": "done",
-    "review": "done",
-    "pr": "done",
-    "ci": "skipped",
-    "e2e": "skipped",
+    "design": "in_progress",
+    "implementation": "pending",
+    "docs": "pending",
+    "review": "pending",
+    "pr": "pending",
+    "ci": "pending",
+    "e2e": "pending",
     "merge": "pending"
   },
-  "batches": [
-    {
-      "id": "L5",
-      "name": "build-resolver-a-rulebook",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 3,
-      "tasks_total": 3,
-      "current_task": null,
-      "commits": [
-        "3a28451",
-        "8b523df",
-        "6cda5cf"
-      ],
-      "last_batch": false,
-      "depends_on": []
-    },
-    {
-      "id": "L6",
-      "name": "db-specialist-a-backend-dev",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 4,
-      "tasks_total": 4,
-      "current_task": null,
-      "commits": [
-        "05189ee",
-        "82f1f0c",
-        "6e82186",
-        "5a3fefe",
-        "7027a7b"
-      ],
-      "last_batch": false,
-      "depends_on": [
-        "L5"
-      ]
-    },
-    {
-      "id": "L7",
-      "name": "disparadores-docs-ui-ux",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 2,
-      "tasks_total": 2,
-      "current_task": null,
-      "commits": [
-        "f0de801",
-        "d7aadeb"
-      ],
-      "last_batch": true,
-      "depends_on": [
-        "L6"
-      ]
-    }
-  ]
+  "batches": []
 }
