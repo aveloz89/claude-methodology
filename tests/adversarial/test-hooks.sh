@@ -5002,6 +5002,23 @@ else
   PASS=$((PASS + 1))
 fi
 
+# [D-07] .planning/ no se versiona salvo ARCHITECTURE.md (excepción con
+# negación: .planning/* + !.planning/ARCHITECTURE.md, nunca .planning/ a
+# secas — con esa forma git no entra al directorio y la negación no aplica).
+mkdir -p "$GITIGNORE_TEST_DIR/.planning"
+touch "$GITIGNORE_TEST_DIR/.planning/STATE.md" "$GITIGNORE_TEST_DIR/.planning/ARCHITECTURE.md"
+
+assert_gitignored ".gitignore ignora .planning/STATE.md" ".planning/STATE.md"
+
+TOTAL=$((TOTAL + 1))
+if (cd "$GITIGNORE_TEST_DIR" && git check-ignore -q ".planning/ARCHITECTURE.md"); then
+  echo -e "${RED}FAIL${NC}: .gitignore NO debe ignorar .planning/ARCHITECTURE.md"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "${GREEN}PASS${NC}: .gitignore NO debe ignorar .planning/ARCHITECTURE.md"
+  PASS=$((PASS + 1))
+fi
+
 rm -rf "$GITIGNORE_TEST_DIR"
 
 echo ""

@@ -1,6 +1,13 @@
 *.bak
 .DS_Store
 
+# Estado de la feature activa (D-07): no versionado salvo ARCHITECTURE.md
+# (decisiones recurrentes, conviene conservarlas en git). ".planning/" a
+# secas rompería la negación de abajo: git no entra a un directorio
+# ignorado, así que "!.planning/ARCHITECTURE.md" nunca se evaluaría.
+.planning/*
+!.planning/ARCHITECTURE.md
+
 # Secrets (defensivo, #52)
 .env
 .env.*
