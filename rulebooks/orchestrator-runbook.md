@@ -50,7 +50,7 @@ Antes de diseñar o implementar nada, entiende qué quiere el usuario. **Nunca a
 **Condición (las dos a la vez):**
 
 1. El `CLAUDE.md` del proyecto (raíz o `.claude/CLAUDE.md`) tiene una línea que, sin el `- ` inicial si es ítem de lista, es exactamente `Tipo: producto con usuarios`. Ya la tienes en contexto; si dudas, `Grep` con `^(- )?Tipo: producto con usuarios$`. Sin la línea, o con otro valor, no corre y no preguntas si agregarla.
-2. Hubo brainstorming (Fase 0 no se saltó). Si se saltó, tampoco corre.
+2. Hubo brainstorming (Fase 0 no se saltó) y la tarea es una feature nueva, no fix ni cambio técnico. Si se saltó el brainstorming, o es un fix/cambio técnico, tampoco corre.
 
 **Cómo invocar:** `product-reviewer` recibe solo `.planning/BRIEF.md` y el path a `README.md` si existe. Sin historial, sin `ARCHITECTURE.md`, sin `DESIGN.md`. Una invocación por feature; si el brief cambia de fondo después del reporte (otra ronda de brainstorming), puedes invocarlo una segunda vez, no más.
 

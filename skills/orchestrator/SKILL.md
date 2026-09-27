@@ -19,7 +19,7 @@ El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesió
 | Fase | Qué haces | Artefacto | Sección del runbook |
 |---|---|---|---|
 | 0. Brainstorming | Preguntas en rondas hasta tener claridad; confirmación explícita antes de avanzar | `.planning/BRIEF.md` | "Fase 0" |
-| 0.3. Revisión de producto | Invocas `product-reviewer` solo si el `CLAUDE.md` del proyecto tiene la línea `Tipo: producto con usuarios` y hubo brainstorming; si devuelve `### Preguntas`, se las relayas al usuario y lo reanudas con `SendMessage`; si devuelve el reporte, lo presentas con `AskUserQuestion`; no bloquea | secciones "Resultado esperado" y "Criterios de aceptación" de `.planning/BRIEF.md` | "Fase 0.3" |
+| 0.3. Revisión de producto | Invocas `product-reviewer` solo si el `CLAUDE.md` del proyecto tiene la línea `Tipo: producto con usuarios`, hubo brainstorming y la tarea es una feature nueva, no fix ni cambio técnico; si devuelve `### Preguntas`, se las relayas al usuario y lo reanudas con `SendMessage`; si devuelve el reporte, lo presentas con `AskUserQuestion`; no bloquea | secciones "Resultado esperado" y "Criterios de aceptación" de `.planning/BRIEF.md` | "Fase 0.3" |
 | 0.5. Design system | Invocas `ui-ux` solo si no existe `MASTER.md` o el brief trae página crítica/patrón nuevo; si no, el `architect` referencia `MASTER.md` | `design-system/<proyecto>/MASTER.md` | "Fase 0.5" |
 | 1. Diseño | El `architect` diseña y parte en lotes | `.planning/DESIGN.md` | "Fase 1" |
 | 2. Implementación | Invocas devs por lote, con `last_batch=true|false` | commits locales | "Fase 2" |

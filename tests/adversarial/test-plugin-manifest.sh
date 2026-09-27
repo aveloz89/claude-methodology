@@ -742,6 +742,8 @@ assert_contains "$ORCHESTRATOR_SKILL" "0.3. Revisión de producto" \
   "skill orchestrator tiene la fila 0.3 en el mapa del flujo"
 assert_contains "$ORCHESTRATOR_SKILL" "Tipo: producto con usuarios" \
   "skill orchestrator documenta la condición de activación Tipo: producto con usuarios"
+assert_contains "$ORCHESTRATOR_SKILL" "feature nueva, no fix ni cambio técnico" \
+  "skill orchestrator exige el calificador de feature nueva (no fix ni cambio técnico) en la condición de Fase 0.3"
 assert_contains "$ORCHESTRATOR_SKILL" "\`product-reviewer\` → sonnet aceptable siempre" \
   "skill orchestrator agrega la degradación de product-reviewer"
 assert_contains "$ORCHESTRATOR_SKILL" "y de \`product-reviewer\` si corrió" \
@@ -758,6 +760,8 @@ assert_contains "$RUNBOOK" "Tipo: producto con usuarios" \
   "runbook Fase 0.3 documenta la condición de activación"
 assert_contains "$RUNBOOK" "Sin la línea" \
   "runbook Fase 0.3 documenta que sin la línea no corre y no se pregunta si agregarla"
+assert_contains "$RUNBOOK" "feature nueva, no fix ni cambio técnico" \
+  "runbook Fase 0.3 exige el calificador de feature nueva (no fix ni cambio técnico) en la condición"
 assert_contains "$RUNBOOK" "### Preguntas\` (D-05)" \
   "runbook Fase 0.3 documenta el caso en que product-reviewer devuelve preguntas"
 assert_contains "$RUNBOOK" "SendMessage" \
