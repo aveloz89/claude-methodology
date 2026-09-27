@@ -255,6 +255,22 @@ if echo "$SANITIZED_COMMAND" | grep -qE "(^|\s|;|&&|\|)(GIT_DIR|GIT_WORK_TREE)="
   _guard_block_tree "GIT_DIR/GIT_WORK_TREE como prefijo de entorno en el comando no se resuelven"
 fi
 
+# Más de un "-C" pegado a la MISMA invocación de "git" antes del "commit"
+# real (#73 ronda 1, informativo/security): "git -C O -C R commit" — git de
+# verdad interpreta "-C" repetido de forma acumulativa (cada uno relativo
+# al anterior), pero _guard_resolve_dash_c extrae "git\s+-C\s+[^[:space:]]+"
+# una sola vez por cada "git" del comando, así que solo veía el PRIMER "-C"
+# de esta invocación y trataba esa ruta como si fuera la única candidata —
+# si esa primera ruta resultaba ser un repo real sin runner, el hook salía
+# en 0 sin haber corrido nada sobre "R", el árbol al que el commit iba de
+# verdad. No choca con la forma ya soportada de repetir "-C" en INVOCACIONES
+# SEPARADAS de "git" con la MISMA ruta (test "misma ruta" más abajo en este
+# archivo): ahí cada "git" lleva un solo "-C", así que "{2,}" no matchea.
+MULTI_DASH_C_RE="${GUARD_ANCHOR}git(\s+-C\s+\S+){2,}\s+commit(\s|\$|[;&|)])"
+if echo "$SANITIZED_COMMAND" | grep -qE "$MULTI_DASH_C_RE"; then
+  _guard_block_tree "más de un '-C' en la misma invocación de 'git'"
+fi
+
 # Etapa B (resto): sin "-C" ni "cd"/"pushd" en el texto → camino rápido
 # sobre BASE_DIR (toplevel real o BASE_DIR tal cual). Con "-C" → se
 # resuelve con _guard_resolve_dash_c; con "cd"/"pushd" (y ninguna mención

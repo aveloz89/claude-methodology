@@ -1605,6 +1605,51 @@ _pskip_assert_blocked_forms \
 rm -rf "$PCG_OTHER_DIR"
 _pskip_cleanup_worktree
 
+# X15c (#73 ronda 1, informativo): dos "-C" pegados a la MISMA invocación de
+# "git" antes del "commit" real ("git -C O -C R commit") — a diferencia de
+# R6 (arriba, dos invocaciones SEPARADAS de "git -C" con la MISMA ruta, que
+# sí resuelve), acá la extracción "git\s+-C\s+[^[:space:]]+" solo capturaba
+# el PRIMER "-C" de la invocación (el segundo no está pegado a un "git"
+# propio) — git de verdad interpreta "-C" repetido de forma acumulativa
+# (cada "-C" es relativo al anterior), algo que este guard no reproduce.
+#
+# Para que el bug sea observable por su efecto real (no solo por bloquear
+# "por casualidad" con rutas inexistentes): O es un repo real SIN runner y
+# SIN cambios sucios (candidato inofensivo), R es un repo real CON runner
+# que siempre falla y con un archivo sucio fuera de .planning/. Antes de
+# este fix, la extracción se quedaba solo con "O" (primera "-C"), lo
+# resolvía como único árbol (repo válido, existe), no encontraba runner ahí
+# y el hook salía en 0 — un commit real a R pasaba sin correr sus tests.
+PCG_MULTIC_O=$(mktemp -d)
+(cd "$PCG_MULTIC_O" && git init -q && git config user.email sandbox@example.com && git config user.name Sandbox) > /dev/null 2>&1
+
+PCG_MULTIC_R=$(mktemp -d)
+FAKE_PYTEST_MULTIC_DIR=$(mktemp -d)
+cat > "$FAKE_PYTEST_MULTIC_DIR/pytest" <<'FAKE_PYTEST_MULTIC_EOF'
+#!/bin/bash
+exit 1
+FAKE_PYTEST_MULTIC_EOF
+chmod +x "$FAKE_PYTEST_MULTIC_DIR/pytest"
+(
+  cd "$PCG_MULTIC_R" || exit 1
+  git init -q
+  git config user.email sandbox@example.com
+  git config user.name Sandbox
+  mkdir -p .planning
+  echo "# STATE" > .planning/x.md
+  touch pyproject.toml
+  git add -A
+  git commit -q -m init
+) > /dev/null 2>&1
+echo "cambio" > "$PCG_MULTIC_R/dirty.txt"
+
+assert_blocked_cmd "pre-commit-guard: git -C O -C R commit (dos '-C' en la misma invocación, O inofensivo, R real) → bloquea sin correr" \
+  "pre-commit-guard.sh" \
+  "git -C $PCG_MULTIC_O -C $PCG_MULTIC_R commit -am x" \
+  "$FAKE_PYTEST_MULTIC_DIR:$PATH"
+
+rm -rf "$PCG_MULTIC_O" "$PCG_MULTIC_R" "$FAKE_PYTEST_MULTIC_DIR"
+
 # _pskip_setup_other / _pskip_cleanup_other (#73, Lote 2): segundo repo
 # git temporal, hermano de $PSKIP_DIR por defecto (ambos directamente bajo
 # el mismo $TMPDIR vía "mktemp -d"), o dentro de un directorio padre
