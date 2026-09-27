@@ -2624,12 +2624,11 @@ assert_allowed_cmd "pre-commit-guard: packages/a a segundo nivel, sin marcador e
   "pre-commit-guard.sh" "git commit -am x" "$PATH" "$MULTIROOT_NEST_DIR"
 rm -rf "$MULTIROOT_NEST_DIR"
 
-# G10 (presupuesto compartido, #86 T4): ambos runners duermen 2s (ninguno
-# falla) con PRECOMMIT_TEST_BUDGET=3 — sin presupuesto COMPARTIDO entre las
-# dos corridas, cada llamada a _guard_run_with_budget resolvería su propio
-# budget de 3s de nuevo y ninguna de las dos, por separado, lo superaría
-# (2s < 3s cada una); el total real (4s) sí lo supera. Bloquea fail-closed
-# (exit 2, mensaje "superó") sin dejar procesos huérfanos.
+# Presupuesto dividido por directorio: dos runners que duermen 2s (ninguno
+# falla) con PRECOMMIT_TEST_BUDGET=3 y dos directorios → cada uno recibe
+# 3/2=1s (división entera). Ninguno de los dos termina en 1s, así que
+# bloquea fail-closed (exit 2, mensaje "superó") sin dejar procesos
+# huérfanos.
 _multiroot_budget_setup() {
   MULTIROOT_BUDGET_DIR=$(mktemp -d)
   MULTIROOT_BUDGET_DIR=$(cd "$MULTIROOT_BUDGET_DIR" && pwd -P)
@@ -2671,10 +2670,10 @@ sleep 1
 MULTIROOT_G10_ORPHAN=$(pgrep -f "$MULTIROOT_BUDGET_FAKE_BIN/pytest" || true)
 TOTAL=$((TOTAL + 1))
 if [ "$MULTIROOT_G10_EXIT" -eq 2 ] && echo "$MULTIROOT_G10_STDERR" | grep -qF "superó" && [ -z "$MULTIROOT_G10_ORPHAN" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G10 — presupuesto compartido entre corridas bloquea (2s + 2s > 3s)"
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: presupuesto dividido por directorio bloquea sin huérfanos (2s + 2s con budget 3 → 1s c/u)"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G10 — presupuesto compartido entre corridas bloquea (exit=$MULTIROOT_G10_EXIT, huérfano: $MULTIROOT_G10_ORPHAN, stderr: $MULTIROOT_G10_STDERR)"
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: presupuesto dividido por directorio bloquea sin huérfanos (exit=$MULTIROOT_G10_EXIT, huérfano: $MULTIROOT_G10_ORPHAN, stderr: $MULTIROOT_G10_STDERR)"
   FAIL=$((FAIL + 1))
 fi
 _multiroot_budget_cleanup

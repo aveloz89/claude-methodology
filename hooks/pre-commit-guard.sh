@@ -278,20 +278,13 @@ _guard_resolve_test_budget() {
   return 0
 }
 
-# GUARD_BUDGET_LEFT (#86, T4): presupuesto COMPARTIDO entre corridas. Sin
-# esto, un monorepo con dos runners que corren cada uno por debajo del
-# budget individual (2s + 2s con PRECOMMIT_TEST_BUDGET=3) pasaba sin bloquear
-# aunque el TOTAL (4s) superara el presupuesto — cada llamada resolvía su
-# propio budget desde cero. Se resuelve una sola vez (la primera llamada de
-# este hook, para cualquier directorio) y cada llamada posterior recibe lo
-# que quedó, restando el tiempo real que tardó la corrida anterior
-# ($SECONDS, ya medido más abajo con el mismo criterio del comentario de la
-# ronda 2).
+# _guard_run_with_budget <budget> <cmd...>: cada directorio de GUARD_RUN_DIRS
+# recibe una porción fija del presupuesto total (ver su cómputo más abajo,
+# antes del loop) — sin estado compartido entre corridas, así que el orden
+# en que se ejecutan no cambia cuánto tolera cada una.
 _guard_run_with_budget() {
-  if [ -z "${GUARD_BUDGET_LEFT+x}" ]; then
-    GUARD_BUDGET_LEFT=$(_guard_resolve_test_budget)
-  fi
-  local budget="$GUARD_BUDGET_LEFT"
+  local budget="$1"
+  shift
   local outfile pgid_file
   outfile=$(mktemp)
   pgid_file=$(mktemp)
@@ -336,22 +329,19 @@ _guard_run_with_budget() {
   local rc=$?
   cat "$outfile"
   rm -f "$outfile" "$pgid_file"
-  GUARD_BUDGET_LEFT=$((GUARD_BUDGET_LEFT - SECONDS))
-  [ "$GUARD_BUDGET_LEFT" -lt 0 ] && GUARD_BUDGET_LEFT=0
   return "$rc"
 }
 
 # _guard_run_suite_in (#86, extraído de lo que antes era código inline que
 # solo corría una vez, sobre RUNNER_DIR): detecta y corre el runner de UN
-# directorio. Devuelve 0 si no hay nada que correr o si corrió y pasó, 1 si
+# directorio con el budget que le tocó (ver su cómputo antes del loop más
+# abajo). Devuelve 0 si no hay nada que correr o si corrió y pasó, 1 si
 # corrió y falló — nunca hace "exit" (salvo el watchdog de
 # _guard_run_with_budget, que sí corta el hook entero por diseño): con más
 # de un directorio (#86) el resto tiene que correr igual antes de decidir,
-# mismo criterio de "correr de más, nunca de menos" que el resto del hook, y
-# necesario para que el budget compartido (ver _guard_run_with_budget) cuente
-# el tiempo real de TODAS las corridas, no solo la primera.
+# mismo criterio de "correr de más, nunca de menos" que el resto del hook.
 _guard_run_suite_in() {
-  local dir="$1"
+  local dir="$1" budget="$2"
   local prev_pwd
   prev_pwd=$(pwd)
   cd "$dir" || return 1
@@ -393,10 +383,10 @@ _guard_run_suite_in() {
 
         if [ "$scoped" = true ]; then
           echo "Running tests before commit ($pkg_mgr, workspace(s): $WORKSPACE_SCOPE_LABEL) [$dir]..." >&2
-          _guard_run_with_budget "${WORKSPACE_SCOPE_CMD[@]}"
+          _guard_run_with_budget "$budget" "${WORKSPACE_SCOPE_CMD[@]}"
         else
           echo "Running tests before commit ($pkg_mgr) [$dir]..." >&2
-          _guard_run_with_budget "$pkg_mgr" test
+          _guard_run_with_budget "$budget" "$pkg_mgr" test
         fi
         rc=$?
         [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
@@ -406,7 +396,7 @@ _guard_run_suite_in() {
     # Python project
     if command -v pytest > /dev/null 2>&1; then
       echo "Running pytest before commit [$dir]..." >&2
-      _guard_run_with_budget pytest
+      _guard_run_with_budget "$budget" pytest
       rc=$?
       [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
     fi
@@ -416,15 +406,21 @@ _guard_run_suite_in() {
   return "$rc"
 }
 
+# Presupuesto por directorio: el total resuelto se divide en partes iguales
+# entre los directorios a correr (división entera, mínimo 1) para que la
+# SUMA de todas las corridas nunca supere PRECOMMIT_TEST_BUDGET sin
+# necesidad de estado compartido entre llamadas.
+PRECOMMIT_DIR_BUDGET=$(( $(_guard_resolve_test_budget) / ${#GUARD_RUN_DIRS[@]} ))
+[ "$PRECOMMIT_DIR_BUDGET" -lt 1 ] && PRECOMMIT_DIR_BUDGET=1
+
 # Corre cada directorio resuelto arriba (GUARD_RUN_DIRS): uno solo en el
 # camino de siempre (marcador encontrado entre SESSION_DIR y TARGET_DIR), o
 # varios derivados por archivo tocado cuando no había marcador (#86, T2).
 # Cualquier fallo bloquea nombrando el/los directorio(s) — se corren TODOS
-# antes de decidir, no se corta en el primer fallo (necesario para el budget
-# compartido de T4).
+# antes de decidir, no se corta en el primer fallo.
 GUARD_FAILED_DIRS=()
 for _guard_dir in "${GUARD_RUN_DIRS[@]}"; do
-  _guard_run_suite_in "$_guard_dir" || GUARD_FAILED_DIRS+=("$_guard_dir")
+  _guard_run_suite_in "$_guard_dir" "$PRECOMMIT_DIR_BUDGET" || GUARD_FAILED_DIRS+=("$_guard_dir")
 done
 
 if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ]; then
