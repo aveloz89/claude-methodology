@@ -38,11 +38,17 @@
       "id": "G2",
       "name": "force-push-hard-reset-admin-merge",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
+      "status": "done",
+      "tasks_done": 5,
       "tasks_total": 5,
       "current_task": null,
-      "commits": [],
+      "commits": [
+        "ed445a6",
+        "c73bfd1",
+        "4200461",
+        "973bf08",
+        "1d0e3bc"
+      ],
       "last_batch": false,
       "depends_on": [
         "G1"
