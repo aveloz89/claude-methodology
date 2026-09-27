@@ -468,15 +468,19 @@ assert_no_voseo() {
   # ambas palabras ya lo consumió el match de "Vos". Se recorre la lista
   # palabra por palabra en llamadas de grep independientes para que cada
   # búsqueda arranque limpia sobre el archivo completo.
+  # Las formas en -í de verbos -er/-ir (corregí, elegí, construí, reproducí)
+  # no se listan: coinciden con el pretérito de 1ª persona singular válido en
+  # cualquier dialecto ("ya corregí el archivo"), no son exclusivas de voseo,
+  # y listarlas da falso positivo con prosa normal.
   local voseo_forms=(
     vos sos tenés podés hacé hacés querés sabés decís usás notás cargala
     leelo retomá fijate mirá esperá esperás decilo cortalo aplicá lanzás
     coordinás entendés escalás escalá cargá obtené arreglás preferís
     necesitás trabajás reportá evaluás invocás invocá abrí reinvocalo
-    consolidás corregí corré corrés leé asigná diagnosticá eliminá
+    consolidás corré corrés leé asigná diagnosticá eliminá
     verificá exportá cambiás actualizá creás limpiá controlás ejecutás
-    lográs revertís agregá borrá construí bloqueá
-    validá devolvé elegí etiquetá reconciliá enunciá remití reproducí
+    lográs revertís agregá borrá bloqueá
+    validá devolvé etiquetá reconciliá enunciá remití
     listá marcalo reportalo mencionalo anotalo seguí
   )
   local delim='[^[:alpha:]]'
