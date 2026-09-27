@@ -307,7 +307,7 @@ Escribes este contenido en `.planning/DESIGN.md`:
 - Si un slice de un dev excede 5 tareas, pártelo en múltiples lotes secuenciales del mismo dev
 - **Lo crítico/riesgoso va en el primer lote**, no al final
 - Documentar dependencias entre lotes (secuencial o paralelizable)
-- **Orden cuando hay db-specialist:** si la feature involucra trabajo de DB que califica como complejo (backfill, cambio de tipo con datos, particionamiento, optimización de queries, constraints sobre datos existentes, migraciones >1M filas — ver criterios completos en `~/.claude/rulebooks/orchestrator-runbook.md`, sección "Criterios completos: db-specialist vs backend-dev"), el lote del `db-specialist` va **primero**. `backend-dev` consume el schema resultante; sin schema disponible, su lote queda bloqueado. Excepción: si los lotes son genuinamente disjuntos (db-specialist toca tabla X, backend-dev no la toca), pueden paralelizar.
+- **Marca `db-complejo` cuando aplica:** si la feature involucra trabajo de DB que califica como complejo (backfill, cambio de tipo con datos, particionamiento, optimización de queries, constraints sobre datos existentes, migraciones >1M filas — ver criterios completos en `~/.claude/rulebooks/orchestrator-runbook.md`, sección "Cuándo un lote es DB complejo"), marca ese lote como `db-complejo` en el plan y ponlo **primero**. Sigue siendo un lote de `backend-dev`; los lotes siguientes (del mismo `backend-dev` o de `frontend-dev`) consumen el schema resultante, sin schema disponible quedan bloqueados. Excepción: si los lotes son genuinamente disjuntos (el lote `db-complejo` toca tabla X, el otro lote no la toca), pueden paralelizar.
 
 **Estrategia de PR:**
 
