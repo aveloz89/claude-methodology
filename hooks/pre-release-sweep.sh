@@ -55,6 +55,13 @@ if ! echo "$SANITIZED_COMMAND" | grep -qE "$BASE_MAIN_RE"; then
   exit 0
 fi
 
+# Limitación aceptada (D-07, F1, no se arregla): "cd <ruta> && gh pr create
+# --base main" detecta el "gh pr create" real (match anclado, arriba) pero
+# el "cd" no se resuelve — "git diff" de abajo sigue corriendo en el cwd DE
+# LA SESIÓN, nunca en la ruta del "cd" del comando. Si la sesión ya está
+# parada en el repo del PR (el caso normal), el diff es el correcto pese a
+# todo; un "cd" a un repo DISTINTO evalúa el diff equivocado en vez de
+# bloquear por no poder resolverlo — documentado, no un hueco no advertido.
 # Detectar archivos cambiados vs main
 CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null)
 if [ -z "$CHANGED_FILES" ]; then
