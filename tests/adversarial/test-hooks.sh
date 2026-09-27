@@ -3176,6 +3176,28 @@ assert_prs_allowed "pre-release-sweep: mención en mensaje de commit pasa (F3)" 
 assert_prs_allowed "pre-release-sweep: '--base dev' con '--base main' citado en --body pasa (F3)" \
   "gh pr create --base dev --body \"--base main\"" "critical"
 
+# F5 (review dual ronda 1, security MEDIUM): el sufijo de BASE_MAIN_RE no
+# incluía ")", ">", "<" ni la comilla invertida — "--base main>/tmp/u" o un
+# "gh pr create --base main" dentro de un "$(...)" pasaban sin bloquear
+# porque "\b" solo mira el carácter siguiente a "main", nunca el que sigue
+# a la palabra completa antes de ")"/">"/"<"/"\`".
+assert_prs_blocked "pre-release-sweep: 'gh pr create --base main>out' bloquea (F5)" \
+  "gh pr create --base main>out --title x --body y" "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: 'URL=\$(gh pr create --base main)' bloquea (F5)" \
+  'URL=$(gh pr create --title x --base main)' "critical" "app.js"
+# Negativo: "--base main-2" sigue pasando con el sufijo ampliado.
+assert_prs_allowed "pre-release-sweep: 'gh pr create --base main-2' sigue pasando con sufijo ampliado (F5)" \
+  "gh pr create --base main-2 --title x --body y" "critical"
+
+# F6 (review dual ronda 1, D-07): "gh -R <o/r> pr create" y "gh --repo
+# <o/r> pr create" son invocaciones reales — antes el ancla exigía "gh"
+# seguido directo de "pr", así que estas formas honestas pasaban sin que el
+# hook evaluara los issues latent-bug del diff (fail-open silencioso).
+assert_prs_blocked "pre-release-sweep: 'gh -R o/r pr create --base main' bloquea (F6)" \
+  "gh -R o/r pr create --base main --title x --body y" "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: 'gh --repo o/r pr create --base main' bloquea (F6)" \
+  "gh --repo o/r pr create --base main --title x --body y" "critical" "app.js"
+
 # F4: fail-closed sin jq/gh (D-07) — antes este hook fallaba ABIERTO (exit
 # 0) si faltaba cualquiera de los dos, dejando pasar un "gh pr create
 # --base main" real sin evaluar los issues latent-bug del diff.

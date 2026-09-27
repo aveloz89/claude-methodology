@@ -49,8 +49,18 @@ SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 # sin bloquear (F1). Acepta "--base main", "--base=main" y "-B main" (F2);
 # el sufijo exige espacio/fin de string/separador de comando después de
 # "main" para que "--base main-2" no matchee por un "\b" que solo mira el
-# carácter siguiente (F3).
-BASE_MAIN_RE="${GUARD_ANCHOR}gh\s+pr\s+create\b.*(--base[ =]main|-B\s+main)(\s|\$|[;&|])"
+# carácter siguiente (F3). Tolera "-R <owner/repo>"/"--repo <owner/repo>"
+# entre "gh" y "pr" (F6, D-07): son formas honestas que gh acepta de
+# verdad, y antes de F6 el ancla exigía "gh" seguido directo de "pr" — así
+# que un "gh -R o/r pr create --base main" real pasaba sin que el hook
+# evaluara los issues latent-bug del diff.
+#
+# Sufijo ampliado (review dual ronda 1, security MEDIUM, F5): el charset
+# original (espacio/fin de string/";"/"&"/"|") no incluía ")", ">", "<" ni
+# la comilla invertida — "--base main>/tmp/u" o "URL=$(gh pr create --base
+# main)" pasaban sin bloquear porque "\b" solo mira el carácter siguiente a
+# "main", nunca el separador real que sigue a la palabra completa.
+BASE_MAIN_RE="${GUARD_ANCHOR}gh\s+(-R\s+\S+\s+|--repo\s+\S+\s+)?pr\s+create\b.*(--base[ =]main|-B\s+main)(\s|\$|[;&|)><\`])"
 if ! echo "$SANITIZED_COMMAND" | grep -qE "$BASE_MAIN_RE"; then
   exit 0
 fi
