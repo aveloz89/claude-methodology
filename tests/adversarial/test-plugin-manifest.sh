@@ -452,6 +452,84 @@ assert_contains "$ORCHESTRATOR_SKILL" "solo si no existe \`MASTER.md\`" \
   "skill orchestrator fila 0.5 invoca ui-ux solo si no existe MASTER.md o hay página crítica/patrón nuevo"
 
 echo ""
+echo "--- rulebooks/db-migrations.md: normalización pragmática, desviación de índice, guardas de producción y secrets ---"
+
+DB_MIGRATIONS="$REPO_ROOT/rulebooks/db-migrations.md"
+
+assert_contains "$DB_MIGRATIONS" "3NF por defecto" \
+  "Principios de migración incluye normalización pragmática (3NF por defecto)"
+assert_contains "$DB_MIGRATIONS" "índice compuesto o parcial" \
+  "Principios de migración incluye la desviación de índice compuesto o parcial documentada en ARCHITECTURE.md"
+assert_contains "$DB_MIGRATIONS" "corras la migración contra producción desde el lote" \
+  "Principios de migración menciona la guarda de no correr migraciones contra producción desde el lote"
+assert_contains "$DB_MIGRATIONS" "secrets ni credenciales en migraciones ni seeds" \
+  "Principios de migración incluye la guarda de no poner secrets ni credenciales en migraciones ni seeds"
+
+echo ""
+echo "--- rulebooks/dev-common.md: guardas de dependencias y checks visibles en todo lote ---"
+
+DEV_COMMON="$REPO_ROOT/rulebooks/dev-common.md"
+
+assert_contains "$DEV_COMMON" "dependencia nueva, major o downgrade" \
+  "dev-common.md tiene la línea de guardas de dependencias visible en todo lote"
+assert_contains "$DEV_COMMON" "no silenciar checks" \
+  "dev-common.md tiene la línea de no silenciar checks (ignore/disable/strict: false)"
+assert_contains "$DEV_COMMON" "rulebooks/build-errors.md" \
+  "dev-common.md apunta a build-errors.md para el detalle de las guardas"
+
+echo ""
+echo "--- rulebooks/db-migrations.md: referencia circular corregida ---"
+
+assert_not_contains "$DB_MIGRATIONS" "Migraciones de DB: simple vs complejo" \
+  "db-migrations.md ya no referencia la sección renombrada de backend-dev.md (circular)"
+assert_contains "$DB_MIGRATIONS" "Cuándo un lote es DB complejo" \
+  "db-migrations.md apunta a la sección del runbook \"Cuándo un lote es DB complejo\""
+
+echo ""
+echo "--- Fase 2.5: hooks/permisos/auth/seguridad siempre invocan docs ---"
+
+assert_contains "$RUNBOOK" "hooks, permisos, auth o controles de seguridad" \
+  "runbook Fase 2.5 exige invocar docs siempre que el diff toque hooks/permisos/auth/seguridad"
+assert_contains "$ORCHESTRATOR_SKILL" "hooks, permisos, auth o controles de seguridad" \
+  "skill orchestrator fila 2.5 exige invocar docs siempre que el diff toque hooks/permisos/auth/seguridad"
+
+echo ""
+echo "--- Fase 0.5: término alineado con agents/frontend-dev.md (lee MASTER.md y aplica sus constraints) ---"
+
+assert_contains "$RUNBOOK" "lee \`MASTER.md\` y aplica sus constraints" \
+  "runbook Fase 0.5 usa el mismo término que agents/frontend-dev.md (constraints, no checklist)"
+assert_not_contains "$RUNBOOK" "aplica su checklist directamente" \
+  "runbook Fase 0.5 ya no usa el término checklist, ausente en agents/frontend-dev.md"
+
+echo ""
+echo "--- Voseo: sos e imperativos voseantes con tilde final ---"
+
+assert_no_voseo_extended() {
+  local file="$1"
+  local pattern='\b([A-Za-zÁÉÍÓÚñ]*(ás|és|ís)|Cargá|cargala|obtené|leelo|retomá|[Vv]os|sos|[A-Za-zÁÉÍÓÚñ]+[áéí])\b'
+  TOTAL=$((TOTAL + 1))
+  local hits
+  # LC_ALL=en_US.UTF-8: en locale C, grep trata los acentos como no-word y
+  # \b marca borde en cualquier lado de una vocal acentuada (ej: matchea
+  # "metodologí" dentro de "metodología"). Con locale UTF-8 los acentos
+  # cuentan como caracteres de palabra y \b funciona como se espera.
+  hits=$(LC_ALL=en_US.UTF-8 grep -noiE "$pattern" "$file" \
+    | LC_ALL=en_US.UTF-8 grep -viE ':(está|estás|después|acá|inglés|más|así|aquí|también|esté|sí|ahí|qué|aplicará)$' || true)
+  if [ -z "$hits" ]; then
+    echo -e "${GREEN}PASS${NC}: $file usa tuteo (sin voseo, incluye sos e imperativos con tilde)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $file tiene formas voseantes: $(echo "$hits" | tr '\n' ' ')"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_no_voseo_extended "$REPO_ROOT/rulebooks/build-errors.md"
+assert_no_voseo_extended "$REPO_ROOT/rulebooks/db-migrations.md"
+assert_no_voseo_extended "$REPO_ROOT/global/CLAUDE.md"
+assert_no_voseo_extended "$ORCHESTRATOR_SKILL"
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then

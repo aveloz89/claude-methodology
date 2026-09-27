@@ -4,7 +4,7 @@ Conocimiento para el lote de DB cuando el trabajo califica como **complejo**. Lo
 
 ## Cuándo un lote es db-complejo
 
-El `architect` marca un lote como `db-complejo` en el plan cuando el trabajo de DB incluye alguno de estos puntos. El resto lo trata como cualquier lote de `backend-dev` (ver "Migraciones de DB: simple vs complejo" en `agents/backend-dev.md`):
+El `architect` marca un lote como `db-complejo` en el plan cuando el trabajo de DB incluye alguno de estos puntos. El resto lo trata como cualquier lote de `backend-dev` (ver "Cuándo un lote es DB complejo" en `rulebooks/orchestrator-runbook.md`):
 
 - Migraciones con backfill de datos (script de transformación)
 - Cambio de tipo de columna con datos existentes (`varchar → text`, `int → bigint`, JSON → columnas tipadas)
@@ -35,6 +35,10 @@ El lote que consume tu schema importa ambos: el de validación para sus endpoint
 4. Índices con propósito: uno por cada query frecuente conocida o anticipada por el diseño. Nada de índices "por si acaso": ocupan espacio y ralentizan los writes.
 5. Data integrity a nivel DB: FK con `ON DELETE` explícito (CASCADE/RESTRICT/SET NULL según el caso), `NOT NULL` cuando aplique, `UNIQUE` para invariantes de negocio, `CHECK` para reglas que la app no debe violar.
 6. No tocas `docker-compose.yml`: documenta los requisitos del servicio de DB en `DESIGN.md` (versión de engine, extensiones, env vars, healthcheck, volumes); el lote de infraestructura los aplica.
+7. Normalización pragmática: 3NF por defecto, desnormaliza solo con justificación de performance documentada en `ARCHITECTURE.md` (ver "Actualizar `.planning/ARCHITECTURE.md`" abajo).
+8. Desviación de índice: si el `architect` propuso un índice simple pero la query real necesita un índice compuesto o parcial, ajústalo y documenta la razón en `ARCHITECTURE.md`.
+9. Nunca corras la migración contra producción desde el lote: el lote termina en la DB de test/CI; aplicarla en producción es responsabilidad del pipeline de deploy del proyecto, no tuya.
+10. Nunca pongas secrets ni credenciales en migraciones ni seeds: usa env vars o el mecanismo de secrets del proyecto — un valor hardcodeado queda en el historial de git para siempre.
 
 ## Expand-contract (zero-downtime)
 
