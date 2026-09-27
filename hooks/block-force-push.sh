@@ -39,19 +39,6 @@ guard_init "block-force-push"
 # entrar al charset: grep procesa línea por línea por defecto, así que
 # ninguna de las dos partes del patrón puede cruzar uno sin ayuda extra.
 
-# Ronda 3 (regresión fail-open, security): el charset de arriba usaba
-# "[^&|;]*" para no cruzar un separador de comando real (&&, ;, |) — pero
-# ese mismo charset excluye el "&" de una redirección honesta (2>&1,
-# >&2, &>log), así que un push --force real seguido de esa redirección
-# ANTES de la flag ("git push origin x 2>&1 --force") no matcheaba y
-# pasaba SIN EVALUAR. Fix: el charset intercalado ahora también acepta,
-# repetidas veces, "<dígitos opcionales>>&" (2>&1, >&1) o "&>" (&>log) —
-# ninguna de las dos formas es un separador real de comando (&&, ;, |,
-# & de background), así que seguir aceptándolas no reabre el hueco que
-# cerró la ronda 2 (ver comentario de esa ronda, abajo del patrón). Mismo
-# trato para un ";" escapado (\;), literal para el shell y no un
-# separador real — ej. "git push -o a\;b --force origin x".
-
 # guard_force_with_lease_allowed: 0 (permitido) solo si el branch actual
 # (de guard_session_dir) NO es main/master/dev y ningún token del segmento
 # "push ... " (hasta el primer &&/;/|) es exactamente main/master/dev ni un
@@ -69,7 +56,7 @@ guard_force_with_lease_allowed() {
   ! echo "$push_segment" | grep -qE '(^|[[:space:]:])(main|master|dev)([[:space:]:]|$)'
 }
 
-FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b([^&|;]|[0-9]*>&|&>|\\\\;)*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
+FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
 
 # --force-with-lease no puede reescribir un ref que otro ya movió (falla si
 # el remoto no coincide con lo que el cliente esperaba) — a diferencia de
@@ -85,45 +72,6 @@ if echo "$SANITIZED_COMMAND" | grep -qE "$FORCE_PATTERN"; then
     echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2
     exit 2
   fi
-fi
-
-# Regresión (auditoría best-practices): guard_sanitize() borra el contenido
-# de CUALQUIER span quoted por diseño (#47) — pero un flag real que el
-# shell recibe igual con o sin comillas (ej. `git push origin "--force"`)
-# es una invocación real, no texto literal, y el saneo lo deja
-# indistinguible de una mención dentro de un mensaje de commit.
-#
-# Ronda 2 (revisión pre-push, security LOW): la versión anterior compensaba
-# grepeando el patrón COMPLETO (git push + flag SIN comillas) sobre el
-# comando sin sanear, con el mismo GUARD_ANCHOR de siempre — pero
-# GUARD_ANCHOR no sabe de comillas, así que cualquier separador real (";",
-# salto de línea) que aparezca DENTRO de un span quoted/heredoc lo ancla
-# igual. Reproducido en vivo: un heredoc que solo mencionaba "git push
-# --force" en su cuerpo (para escribir este mismo registro) quedaba
-# bloqueado, igual que un mensaje de commit con ";" antes de la mención o
-# un `gh pr create --body "..."` citándola.
-#
-# Fix: separar "hay una invocación real de git push" (ya resuelto arriba,
-# sobre el comando SANEADO — guard_sanitize() borra spans quoted y cuerpos
-# de heredoc enteros, así que una mención ahí dentro desaparece del texto
-# saneado por completo, sin dejar ningún "git push" para anclar) de "esa
-# invocación trae la flag entre comillas" (que solo puede verse en el
-# comando SIN sanear, porque el saneo es justo lo que la borra). Bloquear
-# solo si AMBAS condiciones se cumplen: el comando saneado tiene un "git
-# push" anclado en posición de comando (invocación real, no texto dentro de
-# un span borrado), y el comando sin sanear contiene la flag envuelta en
-# comillas en algún punto. Limitación aceptada, igual que el resto de
-# guard_sanitize(): heurística de texto, no un parser de shell real — una
-# coincidencia de `"--force"` citada tal cual dentro de un mensaje, junto a
-# un push real sin force en el mismo comando compuesto, bloquearía por esta
-# vía.
-PUSH_ANCHORED_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b"
-QUOTED_FORCE_PATTERN="[\"'](-f|--force(-with-lease(=[^\"']*)?)?)[\"']"
-
-if echo "$SANITIZED_COMMAND" | grep -qE "$PUSH_ANCHORED_PATTERN" \
-  && echo "$COMMAND" | grep -qE "$QUOTED_FORCE_PATTERN"; then
-  echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2
-  exit 2
 fi
 
 exit 0

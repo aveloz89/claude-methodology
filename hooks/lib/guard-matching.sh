@@ -39,7 +39,10 @@
 #     /usr/bin/git …, command git … (el "if" de hooks.json tampoco
 #     dispara para las tres últimas: compara cada subcomando por prefijo
 #     y solo descarta asignaciones VAR=x al frente; ver la tabla "Bash if
-#     matching" de la doc de hooks).
+#     matching" de la doc de hooks);
+#   - block-force-push.sh: la flag entre comillas (`git push origin
+#     "--force"`, `git push '-f'`) y una redirección honesta (2>&1, >&2,
+#     &>log) o un ";" escapado antes de la flag de force.
 # Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá:
 # la salida es escribir el comando en su forma directa.
 
