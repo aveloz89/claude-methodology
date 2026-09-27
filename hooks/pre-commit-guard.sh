@@ -1,82 +1,50 @@
 #!/bin/bash
-# Pre-commit guard: Detecta si Claude va a hacer git commit
-# y verifica que los tests pasen primero.
+# Pre-commit guard: detecta si Claude va a hacer git commit y corre los
+# tests del árbol correspondiente antes de dejarlo pasar.
 # Recibe JSON en stdin con tool_input del comando Bash.
 #
 # hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
 # latencia, no reemplaza la validación de abajo, que sigue mirando el
-# comando completo.
+# comando completo. El match se sanea (spans quoted/heredoc) y se ancla a
+# posición de comando en vez de al string completo — mismo helper que usa
+# pre-merge-check.sh. Ver hooks/lib/guard-matching.sh.
 #
-# Matching endurecido (#47): el match se sanea (spans quoted/heredoc) y se
-# ancla a posición de comando en vez de al string completo — mismo helper
-# que usa pre-merge-check.sh. Ver hooks/lib/guard-matching.sh.
+# Formas aceptadas para resolver el ÁRBOL OBJETIVO del commit — lo que no
+# calza bloquea con el mensaje de "Formas aceptadas" (TREE_FORM_HELP más
+# abajo), nunca se adivina ni se corre "por si acaso":
+#   1. Sin redirección: el cwd de la sesión (guard_session_dir — ".cwd" del
+#      input, o el cwd del proceso si el harness no lo manda).
+#   2. "cd /ruta/absoluta && git commit …": "cd" al INICIO del comando, una
+#      sola vez, ruta absoluta literal (sin comillas/variables/espacios/
+#      "~/"), seguida directo de "&&".
 #
-# Contrato de formas para resolver el ÁRBOL OBJETIVO del commit (#73): un
-# commit interceptado se resuelve solo si calza en una de tres formas — lo
-# que no calza, bloquea con el mensaje de "Formas aceptadas" (TREE_FORM_HELP
-# más abajo), nunca se adivina ni se corre "por si acaso":
-#   1. Sin redirección: el cwd de la sesión (".cwd" del input, o el cwd
-#      del proceso si el harness no lo manda — ver punto (a) abajo).
-#   2. "cd <ruta> && git commit …" / "cd <ruta>; …": "cd" al INICIO del
-#      comando, una sola vez, ruta literal (sin comillas/variables/
-#      espacios/"-"), seguida directo de "&&" o ";" (nunca newline). El
-#      único caso de expansión permitido es el prefijo "~/" contra $HOME.
-#   3. "git -C <ruta> commit …": la misma ruta en cada "git" del comando.
-# Ver .planning/DESIGN-pre-commit-target-tree.md "Contrato 1" para el detalle regla por regla
-# (B1-B6) y la tabla de tests (R1-R11, X1-X16) que fija cada forma.
-#
-# Verificaciones empíricas (hechas, no deducidas — Claude Code 2.1.283,
-# macOS, `claude -p` en modo de permisos default, tres corridas):
-#   a. El JSON de un PreToolUse/Bash trae ".cwd", y refleja el "cd"
-#      persistido de una llamada Bash ANTERIOR (no el "cd" hecho dentro
-#      del mismo comando interceptado). Implicación: los subagentes tienen
-#      el cwd reseteado entre llamadas — su forma habitual de commit es
-#      "cd <ruta absoluta> && git commit …" en una sola llamada (forma 2),
-#      no una llamada previa de "cd". Un "cd" fuera de los directorios de
-#      trabajo del proyecto la herramienta Bash lo rechaza en modo default
-#      (no llega a ejecutarse; ".cwd" no cambia).
-#   b. El proceso del hook corre con el MISMO cwd que ".cwd" del input —
-#      por eso ".cwd" es la fuente de verdad de BASE_DIR, no un dato que
-#      haya que reconciliar contra `pwd` del propio proceso.
-#   c. `"if": "Bash(git *)"` de hooks.json dispara igual con "cd X && git
-#      …", "git -C X …" y prefijo de entorno en el texto — el filtro de
-#      hooks.json es una optimización de latencia, nunca reemplaza la
-#      validación de este archivo.
-#
-# Contrato de #86 (monorepo sin marcador de runner en la raíz — ni
-# package.json, ni pyproject.toml/setup.py/pytest.ini): ver
-# .planning/DESIGN.md "G. pre-commit-guard — #86" para la decisión completa
-# y la tabla de tests (G1-G11). Resumen de las cinco reglas:
-#   1. Si HAY marcador entre SESSION_DIR y TARGET_DIR (contrato de #73 más
-#      arriba), nada cambia: mismo camino de siempre, incluido
-#      workspace-scope.sh.
-#   2. Si NO hay marcador en ese camino, se deriva un runner por cada
-#      archivo con cambios locales, subiendo desde su directorio hasta
-#      TARGET_DIR — nunca al revés (no se adivina "todo el repo").
-#   3. Un archivo sin marcador en su camino se descarta, nunca bloquea: "no
-#      bloquear cuando no se encuentra ninguno" es la decisión de #86, no un
-#      hueco — bloquear rompería cualquier repo sin runner, incluido este
-#      mismo (sin package.json ni pyproject.toml en ningún lado).
-#   4. Con más de un directorio derivado, corren TODOS (nunca se corta en el
-#      primer fallo) y cualquier fallo bloquea nombrando el/los directorios.
-#   5. El presupuesto de tiempo (PRECOMMIT_TEST_BUDGET) se COMPARTE entre
-#      todas las corridas de una misma invocación del hook, no se resetea
-#      por directorio — ver GUARD_BUDGET_LEFT más abajo.
-#   Salvedad conocida (igual que hooks/lib/workspace-scope.sh, ver su
-#   comentario ~241-245): un path con espacios u otros caracteres especiales
-#   llega C-quoteado en `git status --porcelain` y no matchea ningún
-#   directorio real — esa suite en particular no corre, nunca peor que el
-#   comportamiento sin #86 (ningún archivo corría nada).
+# Contrato del monorepo sin marcador de runner en la raíz (ni package.json,
+# ni pyproject.toml/setup.py/pytest.ini):
+#   1. Si HAY marcador entre SESSION_DIR y TARGET_DIR, mismo camino de
+#      siempre (incluido el scoping de workspaces npm/pnpm).
+#   2. Si NO hay marcador, se deriva un runner por cada archivo con
+#      cambios locales, subiendo desde su directorio hasta TARGET_DIR —
+#      nunca al revés (no se adivina "todo el repo"); un archivo sin
+#      marcador en su camino se descarta, nunca bloquea.
+#   3. Con más de un directorio derivado corren TODOS (nunca se corta en
+#      el primer fallo) y cualquier fallo bloquea nombrando los
+#      directorios.
+#   4. El presupuesto de tiempo (PRECOMMIT_TEST_BUDGET) se comparte entre
+#      todas las corridas de una misma invocación, no se resetea por
+#      directorio.
 #
 # Fuera de alcance (documentado, no parcheado — no confundir con un hueco
 # no advertido):
 #   - Evasión deliberada (wrappers "bash -c", funciones "git()", "\g\it"):
-#     mismo modelo de amenaza que hooks/lib/guard-matching.sh:19-22. Estos
-#     guards protegen errores honestos del flujo del orchestrator/dev, no
-#     un adversario con control del comando.
+#     mismo modelo de amenaza que hooks/lib/guard-matching.sh. Estos guards
+#     protegen errores honestos del flujo del orchestrator/dev, no un
+#     adversario con control del comando.
 #   - Huecos del saneo COMPARTIDO (comillas desbalanceadas, heredoc con
 #     delimitador a medias) que borran el comando real antes de que este
-#     hook lo vea: #77, no de este archivo.
+#     hook lo vea.
+#   - Un path con caracteres especiales llega C-quoteado en `git status
+#     --porcelain` y no matchea ningún directorio real — esa suite en
+#     particular no corre, nunca bloquea por eso.
 #
 # Preámbulo común (guard_init, hooks/lib/guard-matching.sh): fail-closed sin
 # jq, lee INPUT/COMMAND/INPUT_CWD, bloquea ante un byte NUL y deja
@@ -87,41 +55,34 @@ LIB="${0%/*}/lib/guard-matching.sh"
 source "$LIB"
 guard_init "pre-commit-guard"
 
-# Solo interceptar comandos git commit. GIT_COMMIT_RE (#73) amplía el match
-# original ("git\s+commit" a secas) para que también detecte invocaciones
-# con opciones de árbol entre "git" y "commit" ("git -C <ruta> commit",
-# "git --git-dir=... commit") y con prefijo de entorno ("GIT_DIR=... git
-# commit") — antes de esto, esas formas no llegaban ni a este punto y el
-# hook salía sin evaluar nada (ver DESIGN-pre-commit-target-tree.md "Contrato 1, Etapa A"). Un
-# "git log | grep commit" o "git log --grep commit" siguen sin matchear:
-# solo tokens con forma de opción de árbol ("-C", "--git-dir", "--work-tree")
-# o un commit real cuentan, no cualquier texto entre "git" y "commit". El
-# "\S*" (no "\S+") tras cada opción es deliberado: una ruta entre comillas
-# la colapsa guard_sanitize (deja la opción sin valor pegado), y el detector
-# tiene que seguir disparando para que la Etapa B (abajo) BLOQUEE esa forma
-# en vez de dejarla salir por este "exit 0" sin evaluar nada.
+# Solo interceptar comandos git commit. GIT_COMMIT_RE detecta tanto la
+# forma pelada ("git\s+commit") como invocaciones con opciones de árbol
+# entre "git" y "commit" ("git -C <ruta> commit", "git --git-dir=... commit")
+# y con prefijo de entorno ("GIT_DIR=... git commit"), para que el resolver
+# de abajo las bloquee en vez de dejarlas pasar sin evaluar. Un "git log |
+# grep commit" o "git log --grep commit" siguen sin matchear: solo tokens
+# con forma de opción de árbol o un commit real cuentan, no cualquier texto
+# entre "git" y "commit". El "\S*" (no "\S+") tras cada opción es
+# deliberado: una ruta entre comillas la colapsa guard_sanitize (deja la
+# opción sin valor pegado), y el detector tiene que seguir disparando para
+# que el resolver BLOQUEE esa forma en vez de dejarla salir por este
+# "exit 0" sin evaluar nada.
 #
-# Terminador de comando pegado (#73 ronda 1, security MEDIUM): "commit"
-# puede venir seguido directo de ";", "&", "|" o ")" sin espacio de por
-# medio ("git commit;", "git commit&&git push", "(git commit)") — antes
-# solo "\s" o fin de string cerraban el match, y esas formas se colaban sin
-# interceptar. El charset no agrega "-" ni letras, así que "commit-tree" y
-# "commit-graph" siguen sin matchear (ninguno de sus caracteres siguientes
-# cae en "\s|\$|[;&|)]").
+# "commit" puede venir seguido directo de ";", "&", "|" o ")" sin espacio
+# de por medio ("git commit;", "git commit&&git push", "(git commit)") —
+# el charset no agrega "-" ni letras, así que "commit-tree" y
+# "commit-graph" siguen sin matchear.
 GIT_COMMIT_RE="${GUARD_ANCHOR}((GIT_DIR|GIT_WORK_TREE)=\S*\s+)*git\s+${GUARD_GIT_OPTS}commit(\s|\$|[;&|)])"
 if ! echo "$SANITIZED_COMMAND" | grep -qE "$GIT_COMMIT_RE"; then
   exit 0
 fi
 
-# Resolución del árbol objetivo del commit (#73): este guard evaluaba
-# siempre el cwd del PROCESO del hook, sin importar a qué árbol redirige el
-# comando interceptado ("cd <ruta> && git commit", "git -C <ruta> commit").
-# Ver .planning/DESIGN-pre-commit-target-tree.md "Contrato 1" para el detalle completo del
-# resolver; este bloque resuelve el caso sin redirección en el texto del
-# comando (BASE_DIR = ".cwd" del input, o el cwd del proceso si el harness
-# no lo manda — comportamiento actual) y su toplevel real, para que un
-# commit lanzado desde un subdirectorio del repo (en vez de la raíz) siga
-# encontrando el test runner en vez de pasar sin tests.
+# Resolución del árbol objetivo del commit: sin esto, el hook evaluaría
+# siempre el cwd del PROCESO, sin importar a qué árbol redirige el comando
+# interceptado. El caso sin redirección resuelve BASE_DIR = ".cwd" del
+# input (o el cwd del proceso si el harness no lo manda) y su toplevel
+# real, para que un commit lanzado desde un subdirectorio del repo (en vez
+# de la raíz) siga encontrando el test runner en vez de pasar sin tests.
 TREE_FORM_HELP="Formas aceptadas: 'git commit …' en el cwd de la sesión, o 'cd /ruta/absoluta && git commit …' (cd al inicio, una sola vez, ruta absoluta literal). Alternativa: hacé el cd en una llamada Bash previa."
 
 _guard_block_tree() {
@@ -193,8 +154,8 @@ fi
 
 cd "$TARGET_DIR" || _guard_block_tree "no se pudo entrar al árbol resuelto ($TARGET_DIR)"
 
-# _guard_find_runner_dir (#73 ronda 1, security HIGH): busca el test runner
-# empezando en SESSION_DIR y subiendo directorio por directorio hasta
+# _guard_find_runner_dir: busca el test runner empezando en SESSION_DIR
+# y subiendo directorio por directorio hasta
 # TARGET_DIR (el toplevel) inclusive, quedándose con la PRIMERA coincidencia
 # (la más cercana a la sesión). "$1" (dir) siempre parte siendo descendiente
 # de "$2" (top) o igual — lo garantiza cómo se calculó SESSION_DIR/TARGET_DIR
