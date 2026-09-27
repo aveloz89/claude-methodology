@@ -784,6 +784,18 @@ assert_contains "$RUNBOOK" "Criterios de aceptación del brief: cubiertos" \
   "runbook (Formato de reporte de review) tiene la línea opcional de criterios de aceptación"
 
 echo ""
+echo "--- skills/new-project/SKILL.md: pregunta y escribe Tipo: producto con usuarios ---"
+
+NEW_PROJECT_SKILL="$REPO_ROOT/skills/new-project/SKILL.md"
+
+assert_contains "$NEW_PROJECT_SKILL" "Tipo: producto con usuarios" \
+  "skills/new-project/SKILL.md escribe la línea Tipo: producto con usuarios (activa product-reviewer)"
+assert_contains "$NEW_PROJECT_SKILL" "herramienta interna" \
+  "skills/new-project/SKILL.md pregunta por el tipo de proyecto (opción herramienta interna)"
+assert_contains "$NEW_PROJECT_SKILL" "librería o tooling" \
+  "skills/new-project/SKILL.md pregunta por el tipo de proyecto (opción librería o tooling)"
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then

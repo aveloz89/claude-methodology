@@ -52,7 +52,12 @@ git checkout -b dev
 
 ### 3. Generar CLAUDE.md
 
+Antes de generar el archivo, pregunta con `AskUserQuestion` "¿Qué tipo de proyecto es?" con tres opciones: `producto con usuarios` (recomendada si el stack tiene frontend: "activa la revisión de producto en cada feature nueva"), `herramienta interna` ("sin revisión de producto"), `librería o tooling` ("sin revisión de producto").
+
+Escribe la línea `Tipo: <valor elegido>` como primera línea después del encabezado del `CLAUDE.md` generado, tal cual, sin negritas — por ejemplo `Tipo: producto con usuarios`.
+
 Crea un CLAUDE.md con:
+- Tipo de proyecto (`Tipo: producto con usuarios` activa `product-reviewer`; los otros valores no)
 - Nombre del proyecto y stack
 - Estructura de directorios
 - Comandos: dev, test, lint, build
