@@ -4,7 +4,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** cerrar issues abiertos, un PR cada uno: #78 → #71 → #73 → #77 (ver `BRIEF.md`). #78 cerrado (PR #83), #71 cerrado (PR #85). #73 cerrado (PR #87). En curso: PR único con #77 (errores honestos) + #86 + defectos nuevos D-07 (`fix/guards-honest-errors`). Diseño cerrado: lotes G1-G5 y G6 de reserva para fixes del review. En G1.
+- **Feature:** cerrar issues abiertos, un PR cada uno: #78 → #71 → #73 → #77 (ver `BRIEF.md`). #78 cerrado (PR #83), #71 cerrado (PR #85). #73 cerrado (PR #87). PR #88 (#77 + #86 + D-07): review aprobado, retro en `learnings/PR-88.md`; pendiente de merge. Con su merge no quedan issues abiertos.
 - **Última actualización:** 2026-09-26
 
 ## Decisiones

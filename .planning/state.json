@@ -2,7 +2,7 @@
   "schema": 1,
   "feature": "guards-honest-errors",
   "branch": "fix/guards-honest-errors",
-  "pr": null,
+  "pr": 88,
   "review_sha": "31ce30b",
   "updated": "2026-09-27T00:10:00Z",
   "phases": {
@@ -11,9 +11,9 @@
     "implementation": "done",
     "docs": "skipped",
     "review": "done",
-    "pr": "pending",
-    "ci": "pending",
-    "e2e": "pending",
+    "pr": "done",
+    "ci": "skipped",
+    "e2e": "skipped",
     "merge": "pending"
   },
   "batches": [
