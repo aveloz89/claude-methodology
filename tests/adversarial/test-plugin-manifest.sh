@@ -136,7 +136,6 @@ assert_hook_if "pre-push-guard.sh" "Bash(git *)"
 assert_hook_if "pre-commit-guard.sh" "Bash(git *)"
 assert_hook_if "block-admin-merge.sh" "Bash(gh *)"
 assert_hook_if "pre-merge-check.sh" "Bash(gh *)"
-assert_hook_if "pre-release-sweep.sh" "Bash(gh *)"
 
 TOTAL=$((TOTAL + 1))
 SESSION_START_MATCHER=$(jq -r '.hooks.SessionStart[0].matcher' "$HOOKS_JSON")

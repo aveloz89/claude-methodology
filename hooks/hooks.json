@@ -36,12 +36,6 @@
           },
           {
             "type": "command",
-            "if": "Bash(gh *)",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-release-sweep.sh\"",
-            "timeout": 30
-          },
-          {
-            "type": "command",
             "if": "Bash(git *)",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-guard.sh\"",
             "timeout": 600
