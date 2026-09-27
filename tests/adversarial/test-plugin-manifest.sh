@@ -724,6 +724,28 @@ assert_contains "$ORCHESTRATOR_SKILL" "Presentar el reporte de \`product-reviewe
   "skill orchestrator §9 remite al runbook para la Fase 0.3"
 
 echo ""
+echo "--- Fase 0.3: rulebooks/orchestrator-runbook.md tiene el ciclo de preguntas (D-05) ---"
+
+assert_contains "$RUNBOOK" "### Fase 0.3: Revisión de producto" \
+  "runbook tiene la sección Fase 0.3"
+assert_contains "$RUNBOOK" "Tipo: producto con usuarios" \
+  "runbook Fase 0.3 documenta la condición de activación"
+assert_contains "$RUNBOOK" "Sin la línea" \
+  "runbook Fase 0.3 documenta que sin la línea no corre y no se pregunta si agregarla"
+assert_contains "$RUNBOOK" "### Preguntas\` (D-05)" \
+  "runbook Fase 0.3 documenta el caso en que product-reviewer devuelve preguntas"
+assert_contains "$RUNBOOK" "SendMessage" \
+  "runbook Fase 0.3 reanuda al mismo agente con SendMessage en vez de reinvocar de cero"
+assert_contains "$RUNBOOK" "Solo hay una ronda de preguntas" \
+  "runbook Fase 0.3 documenta que solo hay una ronda de preguntas"
+assert_contains "$RUNBOOK" "Incorporar todo" \
+  "runbook Fase 0.3 tiene la opción Incorporar todo"
+assert_contains "$RUNBOOK" "Elegir qué incorporar" \
+  "runbook Fase 0.3 tiene la opción Elegir qué incorporar"
+assert_contains "$RUNBOOK" "Seguir sin cambios" \
+  "runbook Fase 0.3 tiene la opción Seguir sin cambios"
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then
