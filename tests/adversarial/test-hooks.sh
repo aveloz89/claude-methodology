@@ -177,6 +177,11 @@ assert_allowed() {
 # comandos con comillas embebidas (regression tests de #47: una mención
 # quoted del comando vigilado no debe romper el JSON de entrada ni,
 # por construcción incorrecta, esconder un falso positivo/negativo real).
+#
+# HOOK_JSON_CWD (#73): si está seteada (variable de entorno, no parámetro,
+# para no romper la firma de todos los call sites existentes), agrega el
+# campo "cwd" al JSON de entrada — simula el .cwd que manda el harness real.
+# Sin ella, el JSON queda exactamente como antes (comportamiento actual).
 assert_blocked_cmd() {
   local test_name="$1"
   local hook="$2"
@@ -186,7 +191,11 @@ assert_blocked_cmd() {
   TOTAL=$((TOTAL + 1))
 
   local json exit_code=0
-  json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  if [ -n "${HOOK_JSON_CWD:-}" ]; then
+    json=$(jq -n --arg cmd "$command" --arg cwd "$HOOK_JSON_CWD" '{tool_input: {command: $cmd}, cwd: $cwd}')
+  else
+    json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  fi
   (cd "$run_cwd" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/$hook" > /dev/null 2>&1) || exit_code=$?
 
   if [ "$exit_code" -eq 2 ]; then
@@ -207,7 +216,11 @@ assert_allowed_cmd() {
   TOTAL=$((TOTAL + 1))
 
   local json exit_code=0
-  json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  if [ -n "${HOOK_JSON_CWD:-}" ]; then
+    json=$(jq -n --arg cmd "$command" --arg cwd "$HOOK_JSON_CWD" '{tool_input: {command: $cmd}, cwd: $cwd}')
+  else
+    json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  fi
   (cd "$run_cwd" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/$hook" > /dev/null 2>&1) || exit_code=$?
 
   if [ "$exit_code" -eq 0 ]; then
@@ -780,6 +793,13 @@ echo "--- pre-commit-guard.sh: salto para commits de solo .planning/ ---"
 # (exit 1) y deja un marcador si corrió — misma técnica que
 # _wsscope_npm_setup más arriba, para distinguir "no corrió" (marcador
 # ausente) de "corrió y (falla, como siempre)".
+#
+# El marcador guarda "pwd -P" (#73), no un simple "ran": npm ejecuta el
+# script "test" con cwd = el directorio del package.json que lo declara, así
+# que el contenido del marcador es evidencia directa de EN QUÉ ÁRBOL corrió
+# el runner — necesario para distinguir "corrió en el árbol correcto" de
+# "corrió en el árbol equivocado" (_pskip_assert_marker_tree), algo que un
+# marcador de solo presencia no puede afirmar.
 _pskip_setup() {
   PSKIP_DIR=$(mktemp -d)
   PSKIP_DIR=$(cd "$PSKIP_DIR" && pwd -P)
@@ -791,7 +811,7 @@ _pskip_setup() {
     git config user.name "Sandbox"
     mkdir -p .planning src
     cat > package.json <<EOF
-{ "name": "root", "private": true, "scripts": { "test": "echo ran > $PSKIP_MARK/test.ran && exit 1" } }
+{ "name": "root", "private": true, "scripts": { "test": "pwd -P > $PSKIP_MARK/test.ran && exit 1" } }
 EOF
     echo "# STATE" > .planning/x.md
     echo "# A" > .planning/a.md
@@ -821,6 +841,30 @@ _pskip_assert_marker() {
     PASS=$((PASS + 1))
   else
     echo -e "${RED}FAIL${NC}: $test_name (test.ran=$got, esperado=$expect)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# _pskip_assert_marker_tree (#73): a diferencia de _pskip_assert_marker
+# (solo presencia), afirma que el runner corrió Y que corrió en el árbol
+# esperado — comparando el contenido del marcador (pwd -P) contra la ruta
+# esperada, también resuelta con pwd -P (symlinks de macOS, ej.
+# /var -> /private/var). Sin esto, un hook que resuelve el árbol OBJETIVO
+# mal pero por casualidad corre en algún árbol con test runner pasaría en
+# verde igual — es la señal que distingue el fix real.
+_pskip_assert_marker_tree() {
+  local test_name="$1" expected_tree="$2"
+  local expected_resolved got=ausente
+  TOTAL=$((TOTAL + 1))
+  expected_resolved=$(cd "$expected_tree" 2>/dev/null && pwd -P)
+  if [ -f "$PSKIP_MARK/test.ran" ]; then
+    got=$(cat "$PSKIP_MARK/test.ran")
+  fi
+  if [ -n "$expected_resolved" ] && [ "$got" = "$expected_resolved" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (árbol=$got)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (árbol=$got, esperado=$expected_resolved)"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -1158,6 +1202,66 @@ echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 assert_blocked_cmd "pre-commit-guard: mención de \"--work-tree\" en el mismo comando que un commit local → no toma el salto, corre suites" \
   "pre-commit-guard.sh" "git --git-dir=/nonexistent/.git --work-tree=/nonexistent status; git commit -am x" "$PATH" "$PSKIP_DIR"
 _pskip_assert_marker "pre-commit-guard: mención de --work-tree junto a un commit local — el test runner corrió" yes
+
+# --- pre-commit-guard.sh: #73 resolución del árbol objetivo del commit ---
+# Ver .planning/DESIGN.md "Contrato 1". _pskip_assert_blocked_forms: variante
+# de _pskip_assert_marker para los casos que deben bloquear SIN correr
+# suites (a diferencia de (a)-(j) arriba, que bloquean corriendo el runner
+# fake que siempre falla) — afirma exit 2, marcador ausente y el mensaje de
+# "Formas aceptadas" en stderr (contrato del mensaje de bloqueo).
+_pskip_assert_blocked_forms() {
+  local test_name="$1" hook_command="$2" run_path="${3:-$PATH}" run_cwd="${4:-$PSKIP_DIR}"
+  local json exit_code=0 stderr_out
+  if [ -n "${HOOK_JSON_CWD:-}" ]; then
+    json=$(jq -n --arg cmd "$hook_command" --arg cwd "$HOOK_JSON_CWD" '{tool_input: {command: $cmd}, cwd: $cwd}')
+  else
+    json=$(jq -n --arg cmd "$hook_command" '{tool_input: {command: $cmd}}')
+  fi
+  stderr_out=$(cd "$run_cwd" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || exit_code=$?
+  TOTAL=$((TOTAL + 1))
+  if [ "$exit_code" -eq 2 ] && echo "$stderr_out" | grep -qF "Formas aceptadas" && [ ! -f "$PSKIP_MARK/test.ran" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name"
+    PASS=$((PASS + 1))
+  else
+    local marker_state=ausente
+    [ -f "$PSKIP_MARK/test.ran" ] && marker_state=presente
+    echo -e "${RED}FAIL${NC}: $test_name (exit=$exit_code, marcador=$marker_state, stderr=\"$stderr_out\")"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# R8: ".cwd" del input reemplaza al cwd del proceso como BASE_DIR — el
+# proceso corre en el árbol principal (sucio solo .planning/), pero el JSON
+# trae "cwd": $PSKIP_WT (worktree con código sucio); sin redirección en el
+# TEXTO del comando, el árbol objetivo es el que indica ".cwd", no el cwd
+# real del proceso.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+HOOK_JSON_CWD="$PSKIP_WT" assert_blocked_cmd "pre-commit-guard: .cwd del input (worktree con código sucio) reemplaza el cwd del proceso" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker_tree "pre-commit-guard: .cwd del input — el runner corrió en el worktree" "$PSKIP_WT"
+_pskip_cleanup_worktree
+
+# X16: ".cwd" del input inválido (no es un directorio) bloquea sin correr
+# nada — nunca cae al cwd del proceso en silencio.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+HOOK_JSON_CWD="/nonexistent-$$" _pskip_assert_blocked_forms \
+  "pre-commit-guard: .cwd del input inválido (no es directorio) bloquea sin correr" \
+  "git commit -am x"
+
+# R11: proceso corriendo en un SUBDIRECTORIO del repo (no la raíz) — el
+# camino rápido (sin redirección en el comando) resuelve el toplevel del
+# árbol antes de decidir el salto de .planning/, así que un cambio sucio en
+# src/ (fuera de la raíz observada) sigue disparando las suites. Antes de
+# este fix, un "[ -f package.json ]" evaluado en el subdirectorio no
+# encontraba el runner y el commit pasaba sin tests.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/src/a.js"
+assert_blocked_cmd "pre-commit-guard: proceso en subdirectorio del repo → resuelve el toplevel, corre suites" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$PSKIP_DIR/src"
+_pskip_assert_marker_tree "pre-commit-guard: subdirectorio — el runner corrió en el toplevel" "$PSKIP_DIR"
 
 _pskip_cleanup
 

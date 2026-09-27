@@ -22,6 +22,7 @@ fi
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 
 # Resolución del path del lib sin depender de un binario externo (dirname):
 # "${0%/*}" es el idioma de shell para dirname cuando $0 trae al menos un
@@ -44,6 +45,45 @@ SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 if ! echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+commit"; then
   exit 0
 fi
+
+# Resolución del árbol objetivo del commit (#73): este guard evaluaba
+# siempre el cwd del PROCESO del hook, sin importar a qué árbol redirige el
+# comando interceptado ("cd <ruta> && git commit", "git -C <ruta> commit").
+# Ver .planning/DESIGN.md "Contrato 1" para el detalle completo del
+# resolver; este bloque resuelve el caso sin redirección en el texto del
+# comando (BASE_DIR = ".cwd" del input, o el cwd del proceso si el harness
+# no lo manda — comportamiento actual) y su toplevel real, para que un
+# commit lanzado desde un subdirectorio del repo (en vez de la raíz) siga
+# encontrando el test runner en vez de pasar sin tests.
+TREE_FORM_HELP="Formas aceptadas: 'git commit …' en el cwd de la sesión; 'cd <ruta> && git commit …' (cd al inicio, una sola vez, ruta literal sin comillas/variables/espacios); 'git -C <ruta> commit …' (la misma ruta en cada git del comando). Alternativa: hacé el cd en una llamada Bash previa — el hook sigue el cwd de la sesión. No se resuelven --git-dir/--work-tree, GIT_DIR/GIT_WORK_TREE, pushd, subshells ni rutas con expansión."
+
+_guard_block_tree() {
+  echo "BLOCKED: pre-commit-guard no puede resolver en qué árbol va el commit: $1. ${TREE_FORM_HELP}" >&2
+  exit 2
+}
+
+if [ -n "$INPUT_CWD" ]; then
+  if [ ! -d "$INPUT_CWD" ]; then
+    _guard_block_tree "el cwd del input no es un directorio ($INPUT_CWD)"
+  fi
+  BASE_DIR=$(cd "$INPUT_CWD" && pwd -P)
+else
+  BASE_DIR=$(pwd -P)
+fi
+
+# Camino rápido (sin redirección de árbol en el texto del comando, único
+# caso que este lote resuelve — "cd"/"git -C"/"--git-dir"/"GIT_DIR=" quedan
+# para lotes siguientes): el árbol objetivo es el toplevel de BASE_DIR si
+# BASE_DIR cae dentro de un repo git; si no (repo corrupto, cwd fuera de un
+# repo, "git" ausente), BASE_DIR tal cual — nunca falla abierto ni bloquea
+# por esto, es el mismo criterio conservador del resto del hook.
+if TARGET_TOPLEVEL=$(git -C "$BASE_DIR" rev-parse --show-toplevel 2>/dev/null); then
+  TARGET_DIR="$TARGET_TOPLEVEL"
+else
+  TARGET_DIR="$BASE_DIR"
+fi
+
+cd "$TARGET_DIR" || _guard_block_tree "no se pudo entrar al árbol resuelto ($TARGET_DIR)"
 
 # Salto para commits que solo tocan .planning/ (regla de 3 en easy-quotes:
 # #212, #247, #253 — ver .planning/BRIEF.md de la feature que agregó esto).
