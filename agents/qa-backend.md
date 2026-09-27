@@ -270,9 +270,9 @@ El `qa-frontend` valida solo el Dockerfile del frontend, no el compose — eso e
 
 ## Pruebas que escriben archivos
 
-Toda prueba que escriba archivos corre en un `git worktree add --detach <dir>` o en un directorio temporal creado al inicio de la revisión, con rutas absolutas; nunca con redirecciones (`>`, `tee`, `git show ... >`, `cp`) sobre el árbol del repo, aunque la intención sea temporal. Por qué: un `cd` que falla deja la redirección apuntando al árbol real y pisa el trabajo del dev sin que nadie lo note (pasó en el review del PR #82).
+Ningún comando que escriba —redirecciones (`>`, `tee`), `cp`, `mv`, `sed -i`, `git checkout --`/`git restore`, `git apply`, y cualquier otro— corre sobre el árbol del repo real; siempre en un `git worktree add --detach <dir>` con `<dir>` fuera del repo (scratchpad o `mktemp -d`), eliminado con `git worktree remove` al terminar. Nunca `git stash`: es compartido entre worktrees y toca el estado del dev. Por qué: un `cd` que falla deja la redirección apuntando al árbol real y pisa el trabajo del dev sin que nadie lo note (pasó en el review del PR #82).
 
-No lances `claude` con permisos saltados (`--dangerously-skip-permissions`, `--permission-mode bypassPermissions`). Si una verificación end-to-end lo requiere, declárala en NO CUBIERTO y propón cómo la haría el usuario. Por qué: un reviewer es de solo lectura; saltar permisos le da a un proceso hijo todo lo que al reviewer se le negó.
+Invariante: un proceso hijo no puede tener más permisos que el reviewer. No lances `claude` ni otro agente CLI con permisos ampliados —`--dangerously-skip-permissions`, `--permission-mode bypassPermissions`/`acceptEdits`, `--allowedTools` con escritura o Bash—. Si una verificación end-to-end lo requiere, declárala en NO CUBIERTO y propón cómo la haría el usuario.
 
 ## Flujo de trabajo
 
