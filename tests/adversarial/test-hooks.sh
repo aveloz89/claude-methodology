@@ -521,6 +521,26 @@ assert_bam_blocked "block-admin-merge: bloquea fail-closed sin jq en PATH (#50)"
   "$NO_JQ_BAM_BIN"
 rm -rf "$NO_JQ_BAM_BIN"
 
+# (g) [#77 §2, A3/A3b] Heredoc con espacio tras "<<" y delimitador sin
+# comillas: antes, guard_sanitize no reconocía la apertura (exige "<<-?"
+# pegado al delimitador), el cuerpo no se borraba, y la mención entre
+# backticks de markdown quedaba en posición de comando (GUARD_ANCHOR trata
+# el backtick como separador real) — el guard bloqueaba una mención, no una
+# invocación real.
+A3_COMMAND=$(cat <<'CMD_EOF'
+cat > r.md << EOF
+- el dev corrio `gh pr merge 5 --admin`
+EOF
+CMD_EOF
+)
+assert_bam_continue "block-admin-merge: heredoc con espacio y delimitador sin comillas no bloquea por mención entre backticks (A3)" \
+  "$A3_COMMAND"
+
+# A3b: la misma mención, pero entre comillas dobles (sin heredoc) — guard_
+# sanitize ya la borra hoy (negativo existente, se fija como regresión).
+assert_bam_continue "block-admin-merge: mención entre comillas dobles de --admin no bloquea (A3b, negativo existente)" \
+  'echo "el dev corrio gh pr merge 5 --admin"'
+
 echo ""
 
 # --- pre-commit-guard.sh ---
@@ -959,6 +979,24 @@ echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 assert_allowed_cmd "pre-commit-guard: mención de \"cd /tmp && git commit\" dentro del mensaje va por el camino rápido (no se enruta al resolver de cd)" \
   "pre-commit-guard.sh" 'git commit -m "cd /tmp && git commit"' "$PATH" "$PSKIP_DIR"
 _pskip_assert_marker "pre-commit-guard: mención de \"cd /tmp && git commit\" en el mensaje — el test runner NO corrió" no
+
+# (a4) [#77 §2, A2] El comando interceptado NO es un git commit — es un
+# heredoc con espacio tras "<<" que ESCRIBE un archivo cuyo cuerpo menciona
+# "git commit" entre backticks de markdown. Antes del fix de guard_sanitize
+# (espacio tras "<<"), el heredoc no se reconocía, el cuerpo no se borraba,
+# y el backtick antes de "git commit" quedaba en posición de comando
+# (GUARD_ANCHOR) — el guard corría el runner como si fuera un commit real.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+A2_COMMAND=$(cat <<'CMD_EOF'
+cat > r.md << 'EOF'
+- `git commit -m "x"` fallo
+EOF
+CMD_EOF
+)
+assert_allowed_cmd "pre-commit-guard: heredoc con espacio tras << y mención de git commit en el cuerpo no dispara el runner (A2)" \
+  "pre-commit-guard.sh" "$A2_COMMAND" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: A2 — el test runner NO corrió" no
 
 # (b) .planning/x.md + src/a.js → corre (bloquea: el runner siempre falla).
 _pskip_reset
@@ -3296,6 +3334,22 @@ assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: gh pr view 5 | gre
   "gh pr view 5 | grep merge"
 assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: gh pr create --body-file corriente no se trata como merge" \
   "gh pr create --body-file x.md"
+
+# --- [#77 §2, A1/A4] guard_sanitize: heredoc con espacio tras "<<" y
+# delimitador con guion. Antes, guard_sanitize exigía "<<-?['\"]?(\w+)" sin
+# espacio y sin guion: ninguna de las dos formas se reconocía como heredoc,
+# el cuerpo no se borraba, y una mención de merge dentro de ese cuerpo podía
+# quedar en posición de comando (después de un backtick de markdown, que
+# GUARD_ANCHOR trata como separador real) y bloquear como si fuera una
+# invocación real.
+HEREDOC_SPACE_MENTION_COMMAND=$(cat <<'CMD_EOF'
+cat > r.md << 'EOF'
+- corri `gh pr merge 5`
+EOF
+CMD_EOF
+)
+assert_pre_merge_continue_no_calls "pre-merge-check: heredoc con espacio tras << (delimitador quoted) no bloquea por mención en el cuerpo (A1)" \
+  "$HEREDOC_SPACE_MENTION_COMMAND"
 
 rm -rf "$FAKE_GH_D04_DIR"
 
