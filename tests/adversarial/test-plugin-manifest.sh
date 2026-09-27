@@ -374,7 +374,7 @@ else
   PASS=$((PASS + 1))
 fi
 
-for agent in architect ui-ux db-specialist backend-dev frontend-dev docs security-reviewer qa-frontend qa-backend e2e-runner build-resolver; do
+for agent in architect ui-ux db-specialist backend-dev frontend-dev docs security-reviewer qa-frontend qa-backend e2e-runner; do
   TOTAL=$((TOTAL + 1))
   if echo "$ORCH_ALLOWED_TOOLS" | grep -qF "Agent(methodology:$agent)"; then
     echo -e "${GREEN}PASS${NC}: allowed-tools declara Agent(methodology:$agent)"
@@ -384,6 +384,18 @@ for agent in architect ui-ux db-specialist backend-dev frontend-dev docs securit
     FAIL=$((FAIL + 1))
   fi
 done
+
+# build-resolver se fusionó en rulebooks/build-errors.md (PR 3, lote 5): ya
+# no es un agente, así que su ausencia de allowed-tools es la condición
+# correcta (antes de la fusión este check exigía lo contrario).
+TOTAL=$((TOTAL + 1))
+if echo "$ORCH_ALLOWED_TOOLS" | grep -qF "Agent(methodology:build-resolver)"; then
+  echo -e "${RED}FAIL${NC}: allowed-tools todavía declara Agent(methodology:build-resolver) (fusionado en rulebooks/build-errors.md)"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "${GREEN}PASS${NC}: allowed-tools no declara Agent(methodology:build-resolver)"
+  PASS=$((PASS + 1))
+fi
 
 echo ""
 echo "--- skills/orchestrator/SKILL.md §1: puntero al núcleo, sin redefinir el rol ---"

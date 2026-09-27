@@ -4,9 +4,9 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 
 ## Qué incluye
 
-El **orchestrator** no es un subagente: es el Claude de la sesión principal. Las invariantes viven en `global/CLAUDE.md` (instalado como `~/.claude/CLAUDE.md`); el manual operativo — fases 0 a 5, equipo de subagentes, lotes — vive en la skill `orchestrator`. Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 13 agentes:
+El **orchestrator** no es un subagente: es el Claude de la sesión principal. Las invariantes viven en `global/CLAUDE.md` (instalado como `~/.claude/CLAUDE.md`); el manual operativo — fases 0 a 5, equipo de subagentes, lotes — vive en la skill `orchestrator`. Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 12 agentes:
 
-### Agentes (13)
+### Agentes (12)
 | Agente | Modelo | Rol |
 |--------|--------|-----|
 | **architect** | fable | Diseña soluciones, define contratos/schemas, descompone en tareas atómicas |
@@ -18,7 +18,6 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal. La
 | **qa-frontend** | sonnet | UX, accesibilidad, componentes, estado UI, tests frontend, coverage ≥ 80% |
 | **qa-backend** | sonnet | Contratos de API, lógica de negocio, datos, tests backend, coverage ≥ 80% |
 | **e2e-runner** | sonnet | Tests E2E con Playwright. Bloqueante en pre-release a `main` |
-| **build-resolver** | sonnet | Diagnostica y resuelve errores de build, compilación y dependencias |
 | **refactor** | sonnet | Refactoriza sin cambiar comportamiento. Consume issues de deuda técnica |
 | **latent-bugs-sweep** | sonnet | Escanea el repo buscando bugs latentes (read-only). Crea issues |
 | **docs** | sonnet | Genera/actualiza documentación a partir del diff, antes del push |
@@ -132,7 +131,6 @@ claude-methodology/
 ├── agents/
 │   ├── architect.md
 │   ├── backend-dev.md
-│   ├── build-resolver.md
 │   ├── db-specialist.md
 │   ├── docs.md
 │   ├── e2e-runner.md
@@ -179,6 +177,7 @@ claude-methodology/
 │   └── typescript.md
 ├── rulebooks/
 │   ├── agent-budget.md
+│   ├── build-errors.md
 │   ├── dev-common.md
 │   ├── governance-playbook.md
 │   ├── orchestrator-runbook.md

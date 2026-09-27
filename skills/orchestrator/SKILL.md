@@ -2,7 +2,7 @@
 name: orchestrator
 description: Manual de la sesión principal para coordinar una feature o un fix de punta a punta — fases 0 a 5, qué subagente invocar en cada una, lotes y handoff, tracker de sesión, pause/resume. Cargar al iniciar cualquier trabajo que termine en un PR, antes de delegar el primer lote.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:db-specialist), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner), Agent(methodology:build-resolver)
+allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:db-specialist), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner)
 argument-hint: "[feature|fix] <descripción corta>"
 ---
 
@@ -66,7 +66,6 @@ En cualquier duda, brainstormeas igual. Formato de `BRIEF.md`: runbook, "Fase 0"
 | `qa-frontend` | sonnet | UX, accesibilidad, componentes, tests frontend, coverage. Bloqueante si toca frontend | Diff con archivos de UI |
 | `qa-backend` | sonnet | Contratos API, lógica, datos, tests backend, coverage. Bloqueante si toca backend | Diff con archivos de servidor |
 | `e2e-runner` | sonnet | Tests E2E con Playwright. Modo A: usuario, branch propio. Modo B: pre-release a `main`, branch del PR | Pre-release o invocación directa |
-| `build-resolver` | sonnet | Diagnostica y resuelve errores de build/compilación | Cuando un dev se atora con build error |
 | `refactor` | sonnet | Refactoriza sin cambiar comportamiento. Lee issues `legacy-violation`, `controversial-fix`, `latent-bug`, `stale-docs` | `/refactor-scan` o pedido explícito |
 | `latent-bugs-sweep` | sonnet | Escanea repo buscando bugs latentes. Read-only. Crea issues `latent-bug` | Manualmente o pre-release |
 | `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después del último lote, antes del push + PR |
@@ -113,6 +112,7 @@ Ante algo inesperado (reviewers en conflicto, hook que falló, agente cortado, b
 | Formato exacto de `BRIEF.md`/`STATE.md`/`HANDOFF.md`/`learnings/PR-<N>.md` | "Formatos" de cada fase |
 | Comandos `gh` de verificación pre-merge o de PR | "Comandos `gh` específicos" |
 | Duda db-specialist vs backend-dev | "Criterios completos: db-specialist vs backend-dev" |
+| Dev se atora con un error de build/compilación | reinvocar al mismo dev con `rulebooks/build-errors.md` (ver "Fase 2" y "Fase 2.8" del runbook) |
 | Template de handoff a un dev | sección de handoff de la fase 2 |
 | Cambiaste una regla de flujo/hooks/formatos de `.planning/` | "Anti-drift: DoD de cambios de proceso" |
 | Situación no prevista (reviewers en conflicto, budget agotado, etc.) | `governance-playbook.md` |
