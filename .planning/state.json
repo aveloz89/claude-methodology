@@ -7,8 +7,8 @@
   "updated": "2026-09-26T00:00:00Z",
   "phases": {
     "brainstorming": "skipped",
-    "design": "in_progress",
-    "implementation": "pending",
+    "design": "done",
+    "implementation": "in_progress",
     "docs": "pending",
     "review": "pending",
     "pr": "pending",
@@ -16,5 +16,46 @@
     "e2e": "pending",
     "merge": "pending"
   },
-  "batches": []
+  "batches": [
+    {
+      "id": "T1",
+      "name": "base-cwd-git-C-gitdir",
+      "agent": "backend-dev",
+      "status": "in_progress",
+      "tasks_done": 0,
+      "tasks_total": 5,
+      "current_task": null,
+      "commits": [],
+      "last_batch": false,
+      "depends_on": []
+    },
+    {
+      "id": "T2",
+      "name": "forma-cd-y-bloqueos",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 4,
+      "current_task": null,
+      "commits": [],
+      "last_batch": false,
+      "depends_on": [
+        "T1"
+      ]
+    },
+    {
+      "id": "T3",
+      "name": "pre-merge-cwd",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 3,
+      "current_task": null,
+      "commits": [],
+      "last_batch": true,
+      "depends_on": [
+        "T2"
+      ]
+    }
+  ]
 }
