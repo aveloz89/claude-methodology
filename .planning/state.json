@@ -8,7 +8,7 @@
   "phases": {
     "brainstorming": "done",
     "design": "done",
-    "implementation": "in_progress",
+    "implementation": "done",
     "docs": "pending",
     "review": "pending",
     "pr": "pending",
@@ -33,11 +33,11 @@
       "id": "L6",
       "name": "db-specialist-a-backend-dev",
       "agent": "backend-dev",
-      "status": "pending",
-      "tasks_done": 0,
+      "status": "done",
+      "tasks_done": 4,
       "tasks_total": 4,
       "current_task": null,
-      "commits": [],
+      "commits": ["05189ee", "82f1f0c", "6e82186", "5a3fefe", "7027a7b"],
       "last_batch": true,
       "depends_on": [
         "L5"
