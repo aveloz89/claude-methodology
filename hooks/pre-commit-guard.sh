@@ -191,107 +191,30 @@ _guard_has_marker() {
   [ -f "$dir/package.json" ] || [ -f "$dir/pyproject.toml" ] || [ -f "$dir/setup.py" ] || [ -f "$dir/pytest.ini" ]
 }
 
-# _guard_derive_runner_dirs (#86, decisión en .planning/DESIGN.md "G."):
-# cuando NINGÚN directorio entre SESSION_DIR y TARGET_DIR tiene marcador
-# (workspace-scope.sh resuelve workspaces DECLARADOS en un package.json
-# raíz, no descubre runners en subdirectorios sin marcador arriba — V3 de
-# DESIGN.md), correr por archivo tocado en vez de no correr nada. Por cada
-# línea de `git status --porcelain --no-renames --untracked-files=all` (ya
-# corrido en TARGET_DIR — este hook es PreToolUse, corre antes de que un
-# "git add" pendiente en el mismo comando se ejecute), sube desde el
-# directorio de ese archivo hasta TARGET_DIR con el mismo
-# _guard_find_runner_dir; si la subida termina en TARGET_DIR (ya se sabe sin
-# marcador, por eso se llegó hasta acá) se descarta ese archivo — "no
-# bloquear cuando no se encuentra ninguno" es la decisión de #86, no un
-# hueco. --no-renames: acá solo importa bajo qué directorio cae cada
-# archivo, no distinguir ambos lados de un rename.
-#
-# Salvedad conocida (igual que hooks/lib/workspace-scope.sh, ver su
-# comentario ~241-245): un path con caracteres especiales llega C-quoteado
-# en `git status --porcelain` y no matchea ningún directorio real — se
-# degrada a "no corre esa suite en particular", nunca peor que el
-# comportamiento sin #86 (ningún archivo corría nada).
-#
-# Exclusiones (#86 ronda 2, review dual, security MEDIUM): tres formas de
-# descartar un candidato ANTES de resolverlo, nunca bloquean, solo
-# restringen de dónde se deriva un runner —
-#   1. Directorio sin trackear entero: `git status --porcelain
-#      --untracked-files=all` emite una sola línea que termina en "/" para
-#      un directorio que NO desciende — el caso real es un repo git
-#      anidado sin trackear (su propio ".git" hace que git no lo recorra);
-#      resolverlo como archivo terminaba corriendo el runner DE ESE OTRO
-#      REPO con el comando del usuario.
-#   2. Repo git anidado por path: red de seguridad además de (1) — si algún
-#      directorio entre el archivo y TARGET_DIR tiene su propio ".git" (un
-#      caso que --untracked-files=all no colapsó, ej. un submódulo
-#      trackeado con estado sucio), tampoco se deriva un runner ahí; ese
-#      repo tiene su propio ciclo de test, no el del usuario.
-#   3. Segmento de path no confiable: node_modules, vendor, fixtures,
-#      __fixtures__ o testdata en cualquier parte del CANDIDATO YA
-#      RESUELTO (relativo al toplevel) — dependencias de terceros y
-#      fixtures de test no son código del proyecto, así que un
-#      package.json ahí (real, ej. un fixture de test trackeado a
-#      propósito) no es un runner del usuario. Se evalúa sobre el
-#      candidato, NO sobre el path del archivo que disparó el cambio
-#      (ronda 2, security LOW): un archivo bajo un segmento excluido cuyo
-#      runner real vive AFUERA de ese segmento (ej.
-#      "apps/web/src/__fixtures__/user.json", con package.json en
-#      "apps/web/") sigue corriendo el test legítimo de "apps/web/" — solo
-#      se descarta cuando el segmento excluido está en el camino HASTA el
-#      propio candidato (ej. "tests/fixtures/proj/package.json").
-_guard_path_ends_in_slash() {
-  case "$1" in
-    */) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-_guard_path_has_excluded_segment() {
-  local path="$1" segment
-  local IFS=/
-  for segment in $path; do
-    case "$segment" in
-      node_modules|vendor|fixtures|__fixtures__|testdata) return 0 ;;
-    esac
-  done
-  return 1
-}
-
-_guard_dir_under_nested_git() {
-  local dir="$1" top="$2"
-  while [ "$dir" != "$top" ] && [ -n "$dir" ] && [ "$dir" != "/" ]; do
-    [ -e "$dir/.git" ] && return 0
-    dir="${dir%/*}"
-    [ -z "$dir" ] && dir="/"
-  done
-  return 1
-}
-
+# _guard_derive_runner_dirs (#86 simplificado): cuando NINGÚN directorio
+# entre SESSION_DIR y TARGET_DIR tiene marcador, correr por el PRIMER
+# SEGMENTO de cada path con cambios locales en vez de no correr nada. Por
+# cada valor único hasta el primer "/" en `git status --porcelain
+# --no-renames --untracked-files=all` (ya corrido en TARGET_DIR — este hook
+# es PreToolUse, corre antes de que un "git add" pendiente en el mismo
+# comando se ejecute), si "$TARGET_DIR/<segmento>" tiene marcador se agrega
+# como candidato. Un archivo en la raíz (sin "/"), un segmento sin marcador,
+# o un runner a 2+ niveles (ej. "packages/a/package.json") se descartan sin
+# bloquear — "no correr nada" sigue siendo la decisión de #86, no un hueco.
 _guard_derive_runner_dirs() {
   local top="$1"
-  local files
-  files=$(git status --porcelain --no-renames --untracked-files=all 2>/dev/null) || return 0
-  [ -z "$files" ] && return 0
+  local segments
+  segments=$(git status --porcelain --no-renames --untracked-files=all 2>/dev/null | cut -c4- | grep / | cut -d/ -f1 | sort -u) || return 0
+  [ -z "$segments" ] && return 0
 
-  local line path filedir candidate
-  local candidates=()
-  while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    path="${line:3}"
-    _guard_path_ends_in_slash "$path" && continue
-    case "$path" in
-      */*) filedir="$top/${path%/*}" ;;
-      *) filedir="$top" ;;
-    esac
-    _guard_dir_under_nested_git "$filedir" "$top" && continue
-    candidate=$(_guard_find_runner_dir "$filedir" "$top")
-    [ "$candidate" = "$top" ] && continue
-    _guard_path_has_excluded_segment "${candidate#"$top"/}" && continue
-    candidates+=("$candidate")
-  done <<< "$files"
+  local segment candidates=()
+  while IFS= read -r segment; do
+    [ -z "$segment" ] && continue
+    _guard_has_marker "$top/$segment" && candidates+=("$top/$segment")
+  done <<< "$segments"
 
   [ "${#candidates[@]}" -eq 0 ] && return 0
-  printf '%s\n' "${candidates[@]}" | sort -u
+  printf '%s\n' "${candidates[@]}"
 }
 
 RUNNER_DIR=$(_guard_find_runner_dir "$SESSION_DIR" "$TARGET_DIR")

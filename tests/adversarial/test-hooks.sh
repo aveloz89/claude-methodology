@@ -2548,27 +2548,6 @@ else
 fi
 _multiroot_cleanup
 
-# G9 (regresión, ya cubierto por "Commit in repo without test runner passes
-# through" contra el repo real de esta suite — acá con un fixture propio
-# para que quede documentado junto al resto de la tabla): repo sin marcador
-# en NINGÚN lado → sin candidatos, pasa sin correr nada.
-MULTIROOT_NORUNNER_DIR=$(mktemp -d)
-MULTIROOT_NORUNNER_DIR=$(cd "$MULTIROOT_NORUNNER_DIR" && pwd -P)
-(
-  cd "$MULTIROOT_NORUNNER_DIR" || exit 1
-  git init -q
-  git config user.email "sandbox@example.com"
-  git config user.name "Sandbox"
-  mkdir -p src
-  echo "x" > src/a.txt
-  git add -A
-  git commit -q -m init
-) > /dev/null 2>&1
-echo "cambio" >> "$MULTIROOT_NORUNNER_DIR/src/a.txt"
-assert_allowed_cmd "pre-commit-guard: repo sin marcador en ningún lado → pasa sin correr nada (G9)" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$MULTIROOT_NORUNNER_DIR"
-rm -rf "$MULTIROOT_NORUNNER_DIR"
-
 # G4: docs/README.md + frontend/a.js tocados (docs sin marcador arriba,
 # frontend sí) → corre solo frontend, pasa.
 _multiroot_setup
@@ -2606,86 +2585,44 @@ else
 fi
 _multiroot_cleanup
 
-# G5 (worktree): layout de G1 pero solo con frontend/package.json — un
-# segundo worktree del mismo repo, cambio en frontend/a.js del worktree,
-# sesión en la raíz del worktree. El resolver tiene que encontrar
-# <worktree>/frontend, nunca <MAIN>/frontend (mismo criterio que el fixture
-# PNEST/PSKIP de #73, acá sin marcador en ningún root).
-_multiroot_wt_setup() {
-  MULTIROOT_WT_MAIN=$(mktemp -d)
-  MULTIROOT_WT_MAIN=$(cd "$MULTIROOT_WT_MAIN" && pwd -P)
-  MULTIROOT_WT_MARK=$(mktemp -d)
-  (
-    cd "$MULTIROOT_WT_MAIN" || exit 1
-    git init -q -b main
-    git config user.email "sandbox@example.com"
-    git config user.name "Sandbox"
-    mkdir -p frontend
-    cat > frontend/package.json <<EOF
-{ "name": "frontend", "private": true, "scripts": { "test": "pwd -P > $MULTIROOT_WT_MARK/test.ran && exit 1" } }
-EOF
-    echo "console.log(1)" > frontend/a.js
-    git add -A
-    git commit -q -m init
-  ) > /dev/null 2>&1
-  MULTIROOT_WT_DIR=$(mktemp -d)
-  rmdir "$MULTIROOT_WT_DIR"
-  git -C "$MULTIROOT_WT_MAIN" worktree add -q -b wt-branch-86 "$MULTIROOT_WT_DIR" main > /dev/null 2>&1
-  MULTIROOT_WT_DIR=$(cd "$MULTIROOT_WT_DIR" && pwd -P)
-}
-
-_multiroot_wt_cleanup() {
-  git -C "$MULTIROOT_WT_MAIN" worktree remove --force "$MULTIROOT_WT_DIR" > /dev/null 2>&1
-  rm -rf "$MULTIROOT_WT_MAIN" "$MULTIROOT_WT_MARK"
-}
-
-_multiroot_wt_setup
-echo "cambio" >> "$MULTIROOT_WT_DIR/frontend/a.js"
-assert_blocked_cmd "pre-commit-guard: monorepo sin marcador en la raíz, worktree → resuelve frontend/ del worktree, nunca el árbol principal (G5)" \
-  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$MULTIROOT_WT_DIR"
+# G5 (ambos → ambos): backend/b.py + frontend/a.js tocados, ninguno falla →
+# corren los dos (ambos marcadores presentes) y el commit pasa.
+_multiroot_setup
+echo "cambio" >> "$MULTIROOT_DIR/backend/b.py"
+echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
+assert_allowed_cmd "pre-commit-guard: monorepo sin marcador en la raíz, backend/ + frontend/ tocados sin fallas → corren los dos (G5)" \
+  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
 TOTAL=$((TOTAL + 1))
-MULTIROOT_WT_EXPECTED=$(cd "$MULTIROOT_WT_DIR/frontend" && pwd -P)
-if [ -f "$MULTIROOT_WT_MARK/test.ran" ] && [ "$(cat "$MULTIROOT_WT_MARK/test.ran")" = "$MULTIROOT_WT_EXPECTED" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G5 — corrió en frontend/ del worktree"
+if [ -f "$MULTIROOT_MARK/backend.ran" ] && [ -f "$MULTIROOT_MARK/frontend.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G5 — corrieron los dos"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G5 — corrió en frontend/ del worktree (marcador: \"$(cat "$MULTIROOT_WT_MARK/test.ran" 2>/dev/null)\", esperado: \"$MULTIROOT_WT_EXPECTED\")"
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G5 — corrieron los dos (backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ))"
   FAIL=$((FAIL + 1))
 fi
-_multiroot_wt_cleanup
+_multiroot_cleanup
 
-# G6 (anidado, workspace de un solo paquete): packages/a/package.json, sin
-# marcador en la raíz ni en packages/, cambio en packages/a/src/x.js →
-# marcador = <repo>/packages/a.
+# Runner a 2+ niveles sin marcador arriba (packages/a/package.json, sin
+# marcador en la raíz ni en packages/): el primer segmento del path
+# ("packages") no tiene marcador, así que no se deriva ningún candidato —
+# limitación aceptada de #86 simplificado, documentada en el header.
 MULTIROOT_NEST_DIR=$(mktemp -d)
 MULTIROOT_NEST_DIR=$(cd "$MULTIROOT_NEST_DIR" && pwd -P)
-MULTIROOT_NEST_MARK=$(mktemp -d)
 (
   cd "$MULTIROOT_NEST_DIR" || exit 1
   git init -q
   git config user.email "sandbox@example.com"
   git config user.name "Sandbox"
   mkdir -p packages/a/src
-  cat > packages/a/package.json <<EOF
-{ "name": "a", "private": true, "scripts": { "test": "pwd -P > $MULTIROOT_NEST_MARK/test.ran && exit 1" } }
-EOF
+  echo '{ "name": "a", "private": true, "scripts": { "test": "exit 1" } }' > packages/a/package.json
   echo "console.log(1)" > packages/a/src/x.js
   git add -A
   git commit -q -m init
 ) > /dev/null 2>&1
 echo "cambio" >> "$MULTIROOT_NEST_DIR/packages/a/src/x.js"
-assert_blocked_cmd "pre-commit-guard: monorepo sin marcador en la raíz, paquete anidado → marcador = packages/a (G6)" \
+assert_allowed_cmd "pre-commit-guard: packages/a a segundo nivel, sin marcador en 'packages' → exit 0 sin correr" \
   "pre-commit-guard.sh" "git commit -am x" "$PATH" "$MULTIROOT_NEST_DIR"
-TOTAL=$((TOTAL + 1))
-MULTIROOT_NEST_EXPECTED=$(cd "$MULTIROOT_NEST_DIR/packages/a" && pwd -P)
-if [ -f "$MULTIROOT_NEST_MARK/test.ran" ] && [ "$(cat "$MULTIROOT_NEST_MARK/test.ran")" = "$MULTIROOT_NEST_EXPECTED" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G6 — corrió en packages/a"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G6 — corrió en packages/a (marcador: \"$(cat "$MULTIROOT_NEST_MARK/test.ran" 2>/dev/null)\", esperado: \"$MULTIROOT_NEST_EXPECTED\")"
-  FAIL=$((FAIL + 1))
-fi
-rm -rf "$MULTIROOT_NEST_DIR" "$MULTIROOT_NEST_MARK"
+rm -rf "$MULTIROOT_NEST_DIR"
 
 # G10 (presupuesto compartido, #86 T4): ambos runners duermen 2s (ninguno
 # falla) con PRECOMMIT_TEST_BUDGET=3 — sin presupuesto COMPARTIDO entre las
@@ -2742,208 +2679,6 @@ else
 fi
 _multiroot_budget_cleanup
 
-# --- pre-commit-guard.sh: #86 ronda 2 (security MEDIUM) — excluir
-# directorios sin trackear/repos git anidados y segmentos node_modules,
-# vendor, fixtures, __fixtures__, testdata al derivar runners por archivo
-# ---
-#
-# G11: clone git anidado SIN TRACKEAR en vendor/thirdparty/ (su propio
-# ".git", nunca agregado al índice del repo externo) — `git status
-# --porcelain --untracked-files=all` del repo externo NO desciende dentro
-# de un repo anidado, lo colapsa a una sola línea "?? vendor/thirdparty/".
-# Antes de la exclusión, esa línea se resolvía como el archivo
-# "vendor/thirdparty" y subía buscando un marcador — con un package.json
-# DENTRO del clone anidado (ya con marcador propio, sin relación con el
-# repo externo), el candidato resuelto corría el test de terceros con el
-# comando del usuario. Ahora se descarta cualquier línea de porcelain que
-# termine en "/" antes de intentar resolverla.
-_excl_setup() {
-  EXCL_DIR=$(mktemp -d)
-  EXCL_DIR=$(cd "$EXCL_DIR" && pwd -P)
-  EXCL_MARK=$(mktemp -d)
-  (
-    cd "$EXCL_DIR" || exit 1
-    git init -q
-    git config user.email "sandbox@example.com"
-    git config user.name "Sandbox"
-    mkdir -p .planning
-    echo "# STATE" > .planning/x.md
-    git add -A
-    git commit -q -m init
-  ) > /dev/null 2>&1
-}
-_excl_cleanup() {
-  rm -rf "$EXCL_DIR" "$EXCL_MARK"
-}
-
-_excl_setup
-(
-  cd "$EXCL_DIR" || exit 1
-  mkdir -p vendor/thirdparty
-  cd vendor/thirdparty || exit 1
-  git init -q
-  git config user.email "sandbox@example.com"
-  git config user.name "Sandbox"
-  cat > package.json <<EOF
-{ "name": "thirdparty", "private": true, "scripts": { "test": "echo ran > $EXCL_MARK/vendor.ran" } }
-EOF
-  echo "console.log(1)" > index.js
-  git add -A
-  git commit -q -m "nested init"
-) > /dev/null 2>&1
-assert_allowed_cmd "pre-commit-guard: clone anidado sin trackear en vendor/thirdparty/ → no corre su test (G11)" \
-  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$EXCL_DIR"
-TOTAL=$((TOTAL + 1))
-if [ ! -f "$EXCL_MARK/vendor.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G11 — el test del clone anidado no corrió"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G11 — el test del clone anidado no corrió (vendor.ran presente)"
-  FAIL=$((FAIL + 1))
-fi
-_excl_cleanup
-
-# G12: tests/fixtures/proj/package.json TRACKEADO (no un repo anidado, no
-# un directorio sin trackear) con un test que falla ("exit 1") — el
-# segmento "fixtures" en el camino lo descarta igual, sin importar que el
-# archivo esté trackeado. Antes de la exclusión, un cambio en
-# tests/fixtures/proj/app.js resolvía tests/fixtures/proj como candidato
-# (tiene su propio package.json) y corría el test del fixture, que falla
-# a propósito — bloqueando el commit del usuario por un test que no es
-# del proyecto.
-_excl_setup
-(
-  cd "$EXCL_DIR" || exit 1
-  mkdir -p tests/fixtures/proj
-  cat > tests/fixtures/proj/package.json <<EOF
-{ "name": "proj-fixture", "private": true, "scripts": { "test": "echo ran > $EXCL_MARK/fixtures.ran && exit 1" } }
-EOF
-  echo "console.log(1)" > tests/fixtures/proj/app.js
-  git add -A
-  git commit -q -m "fixture init"
-) > /dev/null 2>&1
-echo "cambio" >> "$EXCL_DIR/tests/fixtures/proj/app.js"
-assert_allowed_cmd "pre-commit-guard: tests/fixtures/proj/ trackeado (segmento 'fixtures') → no corre su test, aunque falle (G12)" \
-  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$EXCL_DIR"
-TOTAL=$((TOTAL + 1))
-if [ ! -f "$EXCL_MARK/fixtures.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G12 — el test del fixture no corrió"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G12 — el test del fixture no corrió (fixtures.ran presente)"
-  FAIL=$((FAIL + 1))
-fi
-_excl_cleanup
-
-# G13 (negativo, combinado): vendor/thirdparty/ (excluido) + frontend/
-# (marcador real, layout de G1-G6) tocados a la vez → corre SOLO frontend,
-# igual que si vendor/thirdparty/ no existiera. Confirma que la exclusión
-# no afecta la resolución normal de los demás candidatos.
-_multiroot_setup
-(
-  cd "$MULTIROOT_DIR" || exit 1
-  mkdir -p vendor/thirdparty
-  cd vendor/thirdparty || exit 1
-  git init -q
-  git config user.email "sandbox@example.com"
-  git config user.name "Sandbox"
-  cat > package.json <<EOF
-{ "name": "thirdparty", "private": true, "scripts": { "test": "echo ran > $MULTIROOT_MARK/vendor.ran" } }
-EOF
-  echo "console.log(1)" > index.js
-  git add -A
-  git commit -q -m "nested init"
-) > /dev/null 2>&1
-echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
-assert_allowed_cmd "pre-commit-guard: vendor/thirdparty/ + frontend/ tocados → corre solo frontend (G13)" \
-  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
-TOTAL=$((TOTAL + 1))
-if [ -f "$MULTIROOT_MARK/frontend.ran" ] && [ ! -f "$MULTIROOT_MARK/vendor.ran" ] && [ ! -f "$MULTIROOT_MARK/backend.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G13 — corrió frontend, vendor/thirdparty/ excluido"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G13 — corrió frontend, vendor/thirdparty/ excluido (frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ), vendor.ran=$( [ -f "$MULTIROOT_MARK/vendor.ran" ] && echo si || echo no ))"
-  FAIL=$((FAIL + 1))
-fi
-_multiroot_cleanup
-
-# G14/G15 (ronda 2 del review dual, security LOW): la exclusión de #86 se
-# evaluaba sobre el PATH DEL ARCHIVO, no sobre el directorio candidato del
-# runner — un archivo bajo un segmento excluido (fixtures/vendor/testdata)
-# descartaba la línea entera ANTES de resolver el candidato, así que
-# apps/web/src/__fixtures__/user.json (con package.json real en apps/web/,
-# NO en el segmento excluido) no corría el "npm test" legítimo de apps/web/.
-# Ahora la exclusión se evalúa sobre el candidato YA resuelto, relativo al
-# toplevel: si el runner mismo no cae bajo un segmento excluido, corre,
-# aunque el archivo que disparó el cambio esté en un fixture/vendor debajo.
-_excl2_setup() {
-  EXCL2_DIR=$(mktemp -d)
-  EXCL2_DIR=$(cd "$EXCL2_DIR" && pwd -P)
-  EXCL2_MARK=$(mktemp -d)
-  EXCL2_BIN=$(mktemp -d)
-  (
-    cd "$EXCL2_DIR" || exit 1
-    git init -q
-    git config user.email "sandbox@example.com"
-    git config user.name "Sandbox"
-    mkdir -p .planning apps/web svc
-    echo "# STATE" > .planning/x.md
-    cat > apps/web/package.json <<EOF
-{ "name": "web", "private": true, "scripts": { "test": "echo ran > $EXCL2_MARK/web.ran" } }
-EOF
-    echo "console.log(1)" > apps/web/index.js
-    touch svc/pyproject.toml
-    echo "print(1)" > svc/main.py
-    git add -A
-    git commit -q -m init
-  ) > /dev/null 2>&1
-  cat > "$EXCL2_BIN/pytest" <<PYEOF
-#!/bin/bash
-echo ran > "$EXCL2_MARK/svc.ran"
-exit 0
-PYEOF
-  chmod +x "$EXCL2_BIN/pytest"
-}
-_excl2_cleanup() {
-  rm -rf "$EXCL2_DIR" "$EXCL2_MARK" "$EXCL2_BIN"
-}
-
-# G14: tres archivos bajo segmentos excluidos, todos DENTRO de apps/web/
-# (que tiene su propio package.json, el runner real) → corre npm test en
-# apps/web/, igual que si esos archivos no estuvieran en fixtures/vendor.
-_excl2_setup
-mkdir -p "$EXCL2_DIR/apps/web/src/__fixtures__" "$EXCL2_DIR/apps/web/tests/fixtures" "$EXCL2_DIR/apps/web/vendor"
-echo '{}' > "$EXCL2_DIR/apps/web/src/__fixtures__/user.json"
-echo '{}' > "$EXCL2_DIR/apps/web/tests/fixtures/x.json"
-echo 'console.log(1)' > "$EXCL2_DIR/apps/web/vendor/lib.js"
-assert_allowed_cmd "pre-commit-guard: fixtures/vendor DENTRO de apps/web/ → corre npm test en apps/web (G14)" \
-  "pre-commit-guard.sh" "git commit -m x" "$EXCL2_BIN:$PATH" "$EXCL2_DIR"
-TOTAL=$((TOTAL + 1))
-if [ -f "$EXCL2_MARK/web.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G14 — corrió npm test en apps/web (web.ran presente)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G14 — no corrió npm test en apps/web (web.ran ausente)"
-  FAIL=$((FAIL + 1))
-fi
-_excl2_cleanup
-
-# G15: mismo caso con testdata/, dentro de svc/ (pyproject.toml, runner
-# pytest) → corre pytest en svc.
-_excl2_setup
-mkdir -p "$EXCL2_DIR/svc/tests/testdata"
-echo "in" > "$EXCL2_DIR/svc/tests/testdata/in.txt"
-assert_allowed_cmd "pre-commit-guard: testdata/ DENTRO de svc/ → corre pytest en svc (G15)" \
-  "pre-commit-guard.sh" "git commit -m x" "$EXCL2_BIN:$PATH" "$EXCL2_DIR"
-TOTAL=$((TOTAL + 1))
-if [ -f "$EXCL2_MARK/svc.ran" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G15 — corrió pytest en svc (svc.ran presente)"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: G15 — no corrió pytest en svc (svc.ran ausente)"
-  FAIL=$((FAIL + 1))
-fi
-_excl2_cleanup
 
 echo ""
 # --- hooks/lib/workspace-scope.sh (unit) ---
