@@ -17,3 +17,7 @@ Se salta: son bug fixes con causa raíz descrita en cada issue.
 
 ### #71
 - Decisión D-04: aclarar y cerrar. El registro del review lo escribe solo el orchestrator: consolida los reportes de reviewers que corren en paralelo, porque `security-reviewer`, `qa-backend` y `qa-frontend` tienen `Write`/`Edit` prohibidos. Se agrega una línea al runbook (Fase 2.6, paso 4) y a los 3 prompts: el reviewer devuelve su reporte y no escribe el registro.
+
+### #73
+- Alcance: `pre-commit-guard.sh` debe validar el árbol al que va el commit (`cd <ruta> && git commit`, `git -C <ruta> commit`, `--work-tree`/`--git-dir`, worktrees), no el cwd de la sesión. Si no puede resolverlo con seguridad, bloquea con un mensaje claro. Incluye la detección de repo de `pre-merge-check.sh` sin `--repo` (comentario del issue y #77 §4), que usa el cwd del hook.
+- Coordinación: #77 viene después y toca el mismo saneo (`hooks/lib/guard-matching.sh`); este PR no reescribe el saneo compartido.

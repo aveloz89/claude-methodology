@@ -4,7 +4,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** cerrar issues abiertos, un PR cada uno: #78 → #71 → #73 → #77 (ver `BRIEF.md`). #78 cerrado (PR #83). En curso: #71 (`fix/review-registry-single-writer`).
+- **Feature:** cerrar issues abiertos, un PR cada uno: #78 → #71 → #73 → #77 (ver `BRIEF.md`). #78 cerrado (PR #83), #71 cerrado (PR #85). En curso: #73 (`fix/pre-commit-target-tree`), en diseño.
 - **Última actualización:** 2026-09-26
 
 ## Decisiones
