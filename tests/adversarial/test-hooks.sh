@@ -3985,6 +3985,61 @@ assert_guard_sanitize_bounded "guard_sanitize [size]: payload combinado ~600KB (
 
 echo ""
 
+# --- guard_command_has_nul (#77 §3) ---
+# El JSON de entrada trae un NUL en el comando como el escape "\u0000" (sin
+# byte NUL real: bash lo descarta al leer stdin en INPUT=$(cat), así que
+# para cuando existe COMMAND como variable ya no puede contenerlo). Cada
+# uno de los 5 guards que hoy sourcean guard-matching.sh detecta el NUL
+# sobre el JSON crudo, antes de construir COMMAND, y bloquea explicando —
+# antes, ese NUL se perdía en silencio y el resto del comando (después del
+# NUL) decidía el veredicto sin que quien lo escribió lo supiera.
+echo "--- guard-matching.sh: guard_command_has_nul (#77 §3) ---"
+
+assert_nul_blocked() {
+  local test_name="$1" hook="$2" jq_program="$3"
+  TOTAL=$((TOTAL + 1))
+  local exit_code=0 stderr_file
+  stderr_file=$(mktemp)
+  jq -n "$jq_program" | bash "$HOOKS_DIR/$hook" > /dev/null 2>"$stderr_file" || exit_code=$?
+  if [ "$exit_code" -eq 2 ] && grep -qi 'NUL' "$stderr_file"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked with NUL-specific reason)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"))"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$stderr_file"
+}
+
+# B1: NUL en medio de "gh pr merge --help[NUL] 5 --admin". block-admin-merge
+# ya bloqueaba por el "--admin" visible; pre-merge-check hoy pasa el
+# comando como si fuera "gh pr merge --help" exacto (0 consultas) porque
+# el resto, después del NUL que bash descarta, queda invisible.
+NUL_ADMIN_PROGRAM='{tool_input: {command: "gh pr merge --help\u0000 5 --admin"}}'
+assert_nul_blocked "block-admin-merge: bloquea NUL en el comando (B1)" \
+  "block-admin-merge.sh" "$NUL_ADMIN_PROGRAM"
+assert_nul_blocked "pre-merge-check: bloquea NUL en el comando (B1)" \
+  "pre-merge-check.sh" "$NUL_ADMIN_PROGRAM"
+
+# B2: NUL en un comando inocuo ("git status[NUL]"), sobre los otros 3 guards
+# que ya sourcean la lib en este lote (pre-push-guard y pre-release-sweep
+# la incorporan en un lote posterior).
+NUL_STATUS_PROGRAM='{tool_input: {command: "git status\u0000"}}'
+assert_nul_blocked "block-force-push: bloquea NUL en el comando (B2)" \
+  "block-force-push.sh" "$NUL_STATUS_PROGRAM"
+assert_nul_blocked "block-hard-reset: bloquea NUL en el comando (B2)" \
+  "block-hard-reset.sh" "$NUL_STATUS_PROGRAM"
+assert_nul_blocked "pre-commit-guard: bloquea NUL en el comando (B2)" \
+  "pre-commit-guard.sh" "$NUL_STATUS_PROGRAM"
+
+# B3: los mismos comandos, sin NUL, siguen pasando (negativos existentes —
+# "git status" ya pasa hoy en los tres, "gh pr merge --help" exacto ya pasa
+# en pre-merge-check, D-04). No se agregan asserts nuevos: la suite
+# completa ya los cubre (ver "assert_allowed_cmd ... git status" y
+# "assert_pre_merge_continue_no_calls ... --help" arriba).
+
+echo ""
+
 # --- Sandbox infra para hooks no-bloqueantes (PreCompact, SubagentStop, SessionEnd) ---
 echo "--- sandbox infra ---"
 

@@ -206,6 +206,16 @@ fi
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
 
+# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
+# para por qué se detecta sobre $INPUT y no sobre $COMMAND. Se chequea antes
+# de cualquier otro gate de este archivo — con un NUL, ni el gate permisivo
+# de abajo ni la gramática única pueden confiar en que $COMMAND refleja el
+# comando completo que se ejecutaría.
+if guard_command_has_nul "$INPUT"; then
+  echo "BLOCKED: pre-merge-check: el comando trae un byte NUL" >&2
+  exit 2
+fi
+
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 SANITIZE_STATUS=$?
 
@@ -322,12 +332,9 @@ esac
 # arriba. Defensa en profundidad, no el cierre de un bypass demostrado —
 # cada token de la gramática de abajo ya pasa por una allowlist de
 # charset que un carácter de control no calza, así que en la práctica ya
-# termina bloqueando por otra razón (verificado). El caso que sí importa
-# es un NUL: bash lo descarta al leer stdin en INPUT=$(cat), así que para
-# cuando $COMMAND existe como variable ya no puede contenerlo — pero eso
-# significa que el texto que este guard valida puede no ser exactamente
-# el que jq extrajo de .tool_input.command, la clase de discrepancia que
-# este archivo trata como no confiable en cualquier otro punto.
+# termina bloqueando por otra razón (verificado). El caso de un NUL ya se
+# bloqueó explícitamente más arriba, justo después de sourcear la lib (#77
+# §3, guard_command_has_nul) — antes de este punto, nunca sobre $COMMAND.
 CONTROL_CHARS_RE=$'[\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0C\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F]'
 if printf '%s' "$COMMAND" | LC_ALL=C grep -q "$CONTROL_CHARS_RE"; then
   block "Blocked: el comando trae caracteres de control no imprimibles (fuera de tab). ${MERGE_FORM_HELP}"

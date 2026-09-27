@@ -37,6 +37,13 @@ source "$LIB"
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
+# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
+# para por qué se detecta sobre $INPUT y no sobre $COMMAND.
+if guard_command_has_nul "$INPUT"; then
+  echo "BLOCKED: block-force-push: el comando trae un byte NUL" >&2
+  exit 2
+fi
+
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
 FORCE_PATTERN="${GUARD_ANCHOR}git\s+push\s+.*(-f|--force)\b"

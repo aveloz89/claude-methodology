@@ -81,6 +81,13 @@ fi
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
 
+# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
+# para por qué se detecta sobre $INPUT y no sobre $COMMAND.
+if guard_command_has_nul "$INPUT"; then
+  echo "BLOCKED: pre-commit-guard: el comando trae un byte NUL" >&2
+  exit 2
+fi
+
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
 # Solo interceptar comandos git commit. GIT_COMMIT_RE (#73) amplía el match

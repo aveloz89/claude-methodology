@@ -40,6 +40,13 @@ fi
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
 
+# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
+# para por qué se detecta sobre $INPUT y no sobre $COMMAND.
+if guard_command_has_nul "$INPUT"; then
+  echo "BLOCKED: block-admin-merge: el comando trae un byte NUL" >&2
+  exit 2
+fi
+
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
 if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}gh\s+pr\s+merge\b.*--admin"; then

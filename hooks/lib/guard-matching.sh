@@ -124,3 +124,20 @@ guard_sanitize() {
     return 1
   fi
 }
+
+# guard_command_has_nul: recibe por $1 el JSON crudo leído de stdin (el
+# mismo $INPUT que cada guard ya guardó antes de extraer .tool_input.command
+# con jq) y devuelve 0 si ese campo contiene un byte NUL, 1 en caso
+# contrario. El NUL nunca llega como byte real a este punto — jq lo expone
+# como el escape "\u0000" dentro del string JSON, porque INPUT=$(cat) ya lo
+# descartó de la variable bash (los strings de bash no pueden contener un
+# NUL) sin descartar el resto del comando a los dos lados. Esa es la razón
+# por la que hace falta detectarlo ACÁ, sobre $INPUT, y no más abajo sobre
+# $COMMAND: para cuando $COMMAND existe como variable, el guard ya perdió
+# la señal de que el comando original traía un NUL, y el texto que queda
+# (con el NUL simplemente borrado, no el comando cortado ahí) decide el
+# veredicto sin que quien lo escribió sepa que una parte de su comando es
+# invisible para el guard.
+guard_command_has_nul() {
+  echo "$1" | jq -e '.tool_input.command // "" | contains("\u0000")' > /dev/null 2>&1
+}
