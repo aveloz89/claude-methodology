@@ -746,6 +746,18 @@ assert_contains "$RUNBOOK" "Seguir sin cambios" \
   "runbook Fase 0.3 tiene la opción Seguir sin cambios"
 
 echo ""
+echo "--- Fase 0.3: formatos de BRIEF.md, context isolation y reporte de review ---"
+
+assert_contains "$RUNBOOK" "### Resultado esperado (si pasó por product-reviewer)" \
+  "runbook formato BRIEF.md tiene la sección Resultado esperado"
+assert_contains "$RUNBOOK" "### Criterios de aceptación (si pasó por product-reviewer)" \
+  "runbook formato BRIEF.md tiene la sección Criterios de aceptación"
+assert_contains "$RUNBOOK" "\`product-reviewer\` recibe:" \
+  "runbook (Context isolation) documenta qué recibe product-reviewer"
+assert_contains "$RUNBOOK" "Criterios de aceptación del brief: cubiertos" \
+  "runbook (Formato de reporte de review) tiene la línea opcional de criterios de aceptación"
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then

@@ -318,6 +318,7 @@ Es el único punto del flujo donde el contenido de un push post-review no lo mir
 Cada subagente recibe un paquete de contexto, **no el historial completo**:
 
 - `architect` recibe: `BRIEF.md` completo + tarea ("diseña la solución para esto").
+- `product-reviewer` recibe: `BRIEF.md` completo + path a `README.md` si existe. Nada más. Si lo reanudas tras una ronda de preguntas (D-05), le pasas solo las respuestas nuevas vía `SendMessage`, no el paquete completo de nuevo.
 - `backend-dev` / `frontend-dev` reciben: sección de `DESIGN.md` correspondiente al lote + lista de tareas TDD del lote + `rules/<lenguaje>.md` aplicable.
 - `security-reviewer` / `qa-*` reciben: **la fuente del diff, que la parametriza el orchestrator** — diff local (`git diff <base>...HEAD`) en Fase 2.6 (default del flujo, no existe PR todavía); diff del PR (`gh pr diff <N>`) solo en re-reviews post-PR y PRs fuera del flujo — + `DESIGN.md` + `BRIEF.md` (necesitan saber qué se quería para juzgar si el código lo cumple).
 - En un lote `db-complejo`, `backend-dev` recibe además: `DESIGN.md` (sección de datos) + schema actual + `rulebooks/db-migrations.md`.
@@ -435,6 +436,14 @@ Al recibir el plan de lotes del architect, crea:
 
 ### Descartado explícitamente
 - [cosas que se mencionaron y se decidió NO hacer]
+
+### Resultado esperado (si pasó por product-reviewer)
+- **Para el usuario:** [una frase]
+- **Señal de éxito:** [métrica o evento observable, dónde se mide, plazo]
+
+### Criterios de aceptación (si pasó por product-reviewer)
+1. [criterio verificable con sí/no] — origen: brief §<sección> | product-reviewer
+[Si no pasó por product-reviewer, omitir ambas secciones]
 
 ### Design System (si aplica)
 [Output del agente ui-ux: estilo, paleta, tipografía, anti-patterns, page specs]
@@ -735,9 +744,11 @@ El mismo formato sirve para las dos rondas: **pre-PR** (Fase 2.6 — no hay PR t
 
 ### QA Frontend
 [Hallazgos del qa-frontend — UX, componentes, tests. Omitir si no se lanzó]
+[Criterios de aceptación del brief: cubiertos N de M (lista los no cubiertos). Solo si BRIEF.md los trae; no bloquea por sí solo.]
 
 ### QA Backend
 [Hallazgos del qa-backend — contratos, datos, tests, migraciones. Omitir si no se lanzó]
+[Criterios de aceptación del brief: cubiertos N de M (lista los no cubiertos). Solo si BRIEF.md los trae; no bloquea por sí solo.]
 
 ### Veredicto
 **[APROBADO / CAMBIOS REQUERIDOS]**
