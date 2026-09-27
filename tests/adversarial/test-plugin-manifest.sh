@@ -589,6 +589,57 @@ if [ -f "$PRODUCT_REVIEWER" ]; then
 fi
 
 echo ""
+echo "--- Sandbox: assert_agent_read_only detecta un agente que no es read-only ---"
+
+SANDBOX_AGENT_BAD=$(mktemp)
+cat > "$SANDBOX_AGENT_BAD" <<'EOF'
+---
+name: sandbox-agent-bad
+description: agente de prueba sin restricciones
+model: opus
+tools: Read, Write
+---
+EOF
+
+SANDBOX_FAIL_BEFORE=$FAIL
+assert_agent_read_only "$SANDBOX_AGENT_BAD" > /dev/null
+TOTAL=$((TOTAL + 1))
+if [ "$FAIL" -gt "$SANDBOX_FAIL_BEFORE" ]; then
+  echo -e "${GREEN}PASS${NC}: assert_agent_read_only detecta el sandbox con tools:Write y sin disallowedTools"
+  PASS=$((PASS + 1))
+  # Los fallos del sandbox no son fallos reales del repo: se descuentan.
+  FAIL=$SANDBOX_FAIL_BEFORE
+else
+  echo -e "${RED}FAIL${NC}: assert_agent_read_only no detectó el sandbox inseguro"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$SANDBOX_AGENT_BAD"
+
+SANDBOX_AGENT_GOOD=$(mktemp)
+cat > "$SANDBOX_AGENT_GOOD" <<'EOF'
+---
+name: sandbox-agent-good
+description: agente de prueba read-only
+model: opus
+tools: Read, Grep, Glob
+disallowedTools: Write, Edit, Bash, Agent
+---
+EOF
+
+SANDBOX_FAIL_BEFORE2=$FAIL
+SANDBOX_PASS_BEFORE2=$PASS
+assert_agent_read_only "$SANDBOX_AGENT_GOOD" > /dev/null
+TOTAL=$((TOTAL + 1))
+if [ "$FAIL" -eq "$SANDBOX_FAIL_BEFORE2" ] && [ "$PASS" -eq "$((SANDBOX_PASS_BEFORE2 + 3))" ]; then
+  echo -e "${GREEN}PASS${NC}: assert_agent_read_only no reporta falsos positivos sobre un agente read-only correcto"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: assert_agent_read_only reportó fallos sobre un agente read-only correcto"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$SANDBOX_AGENT_GOOD"
+
+echo ""
 echo "--- Fase 2.5: saltar docs cuando el diff no toca superficie pública ---"
 
 assert_contains "$RUNBOOK" "salta \`docs\`" \
