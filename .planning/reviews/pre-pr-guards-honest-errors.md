@@ -30,3 +30,17 @@ Fixes en `18db356`, `2650c29`, `f1fdb96` y `74acb99` (lote 6).
 - **[LOW]** El orden `-C` antes de `-c` no matchea (`git -C /x -c a=b push --force` pasa), y tampoco `-P`. → una sola alternancia repetida.
 - **[LOW, preexistentes]** `--base "main"`/`'main'`, `gh --repo=o/r`, `gh -Ro/r` y `gh pr -R o/r create` no bloquean. `git push origin x && echo -f` se bloquea de forma falsa, porque el `.*` cruza el `&&`.
 - **Decisión del orchestrator:** entran todos por D-07 en un lote 7. Es la última ronda de alcance: la ronda 3 solo verifica.
+
+Fixes en `4029566`, `a112cc2`, `2acfe7f` y `3542686` (lote 7).
+
+## Ronda 3 (solo security, verificación): delta `b26bc9a...3542686`
+
+### security-reviewer (opus): BLOQUEANTE → resuelto
+- Los LOW de la ronda 2 quedaron resueltos: exclusión sobre el candidato del runner, `GUARD_GIT_OPTS` en cualquier orden más `-P`, formas de `pre-release-sweep` y el falso bloqueo con `&& echo -f`.
+- Las 7 líneas dev=2/head=0 son 4 comandos (`git pushx`, `--base main,`, `--base main-release`, `&& echo -f`). Todas son correctas.
+- **[BLOQUEANTE, regresión fail-open]** `block-force-push.sh:77`: `[^&|;]*` cortaba en el `&` de las redirecciones, así que `git push origin x 2>&1 --force`, `>&2 --force` y `&>log --force` bloqueaban en `dev` y pasaban en HEAD. → fix `31ce30b`: `([^&|;]|[0-9]*>&|&>|\;)*`, con tests (incluye `\;`).
+- **Verificación del fix por el orchestrator,** con el corpus de security (135 casos + 6 de la regresión) contra `origin/dev` y HEAD `31ce30b`: las 5 formas con redirección vuelven a bloquear (dev=2/head=2); `&& echo -f` sigue sin bloquear; los únicos dev=2/head=0 son los 4 comandos ya validados. No se abre otra ronda: el fix es la remediación probada por security.
+
+## Cierre
+
+**Veredicto final:** APROBADO. HEAD `31ce30b`. Suites: `test-hooks` 548/548, `test-plugin-manifest` 193/193, `test-frontmatter` 107/107; `validate --strict` pasa.
