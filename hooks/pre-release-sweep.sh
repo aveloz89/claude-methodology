@@ -19,11 +19,28 @@ if ! command -v jq >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1; then
   exit 0
 fi
 
+LIB="${0%/*}/lib/guard-matching.sh"
+if [ ! -r "$LIB" ]; then
+  echo "BLOCKED: pre-release-sweep no operativo: falta hooks/lib/guard-matching.sh" >&2
+  exit 2
+fi
+# shellcheck source=lib/guard-matching.sh
+source "$LIB"
+
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-# Solo interceptar `gh pr create --base main` (acepta `--base main` y `--base=main`)
-if ! echo "$COMMAND" | grep -qE '^\s*gh\s+pr\s+create\b.*--base[ =]main\b'; then
+SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
+
+# Matching endurecido (D-07, #77, F): el match se sanea (spans quoted/
+# heredoc) y se ancla a posición de comando en vez de exigir "gh pr create"
+# al INICIO del string crudo — "cd . && gh pr create --base main" pasaba
+# sin bloquear (F1). Acepta "--base main", "--base=main" y "-B main" (F2);
+# el sufijo exige espacio/fin de string/separador de comando después de
+# "main" para que "--base main-2" no matchee por un "\b" que solo mira el
+# carácter siguiente (F3).
+BASE_MAIN_RE="${GUARD_ANCHOR}gh\s+pr\s+create\b.*(--base[ =]main|-B\s+main)(\s|\$|[;&|])"
+if ! echo "$SANITIZED_COMMAND" | grep -qE "$BASE_MAIN_RE"; then
   exit 0
 fi
 

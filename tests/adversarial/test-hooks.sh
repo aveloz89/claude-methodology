@@ -2867,6 +2867,33 @@ assert_prs_allowed "pre-release-sweep: pasa sin issues abiertos" \
 assert_prs_allowed "pre-release-sweep: pasa si el comando no es gh pr create --base main" \
   "gh pr create --base dev --title x --body y" "critical"
 
+# F1: matching endurecido, saneado+anclado — antes exigía "gh pr create" al
+# INICIO del string crudo; "cd . && gh pr create --base main" pasaba sin
+# bloquear. El hook sigue sin resolver el "cd" (limitación documentada,
+# T5): el "git diff" sigue corriendo en el cwd de la sesión (acá, $PRS_REPO
+# ya vía "cd $PRS_REPO" del propio assert_prs_blocked), así que el diff
+# real igual encuentra app.js.
+assert_prs_blocked "pre-release-sweep: 'cd . && gh pr create --base main' bloquea (F1)" \
+  "cd . && gh pr create --base main --title x --body y" "critical" "app.js"
+
+# F2: "-B main" (forma corta) y "--base=main" (con "=") — antes solo
+# "--base main"/"--base=main" con el charset limitado del regex crudo
+# reconocía "--base=main"; "-B main" no se reconocía en absoluto.
+assert_prs_blocked "pre-release-sweep: 'gh pr create -B main' bloquea (F2)" \
+  "gh pr create -B main --title x --body y" "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: 'gh pr create --title x --base=main' bloquea (F2)" \
+  "gh pr create --title x --base=main --body y" "critical" "app.js"
+
+# F3: negativos — "--base main-2" no es "main", una mención dentro de un
+# mensaje de commit no es una invocación real, y "--base dev" con "--base
+# main" citado en el --body tampoco.
+assert_prs_allowed "pre-release-sweep: 'gh pr create --base main-2' pasa (F3)" \
+  "gh pr create --base main-2 --title x --body y" "critical"
+assert_prs_allowed "pre-release-sweep: mención en mensaje de commit pasa (F3)" \
+  "git commit -m \"gh pr create --base main\"" "critical"
+assert_prs_allowed "pre-release-sweep: '--base dev' con '--base main' citado en --body pasa (F3)" \
+  "gh pr create --base dev --body \"--base main\"" "critical"
+
 sandbox_cleanup_prs
 rm -rf "$PRS_FAKE_GH_DIR"
 
