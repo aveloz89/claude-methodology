@@ -337,18 +337,18 @@ assert_contains "$RUNBOOK" "skills/orchestrator/SKILL.md" \
 README="$REPO_ROOT/README.md"
 assert_contains "$README" "skill \`orchestrator\`" \
   "README menciona la skill orchestrator como definición del rol"
-assert_contains "$README" "### Skills (5)" \
-  "README cuenta 5 skills"
+assert_contains "$README" "### Skills (4)" \
+  "README cuenta 4 skills"
 assert_contains "$README" "orchestrator/" \
   "README (árbol) lista skills/orchestrator/"
 
 MARKETPLACE_DESC=$(jq -r '.plugins[0].description' "$MARKETPLACE_JSON")
 TOTAL=$((TOTAL + 1))
-if echo "$MARKETPLACE_DESC" | grep -q "5 skills"; then
-  echo -e "${GREEN}PASS${NC}: marketplace.json describe 5 skills"
+if echo "$MARKETPLACE_DESC" | grep -q "4 skills"; then
+  echo -e "${GREEN}PASS${NC}: marketplace.json describe 4 skills"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: marketplace.json no describe 5 skills (actual: \"$MARKETPLACE_DESC\")"
+  echo -e "${RED}FAIL${NC}: marketplace.json no describe 4 skills (actual: \"$MARKETPLACE_DESC\")"
   FAIL=$((FAIL + 1))
 fi
 
