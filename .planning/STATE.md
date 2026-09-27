@@ -4,7 +4,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** reviewer-sandbox-rule: regla en `qa-backend`, `qa-frontend` y `security-reviewer` para que toda prueba que escriba sobre el repo corra en un worktree desechable fuera del repo, y para que no lancen `claude` ni otro agente CLI con permisos ampliados. Origen: patrón potencial de `learnings/PR-82.md`.
+- **Feature:** reviewer-sandbox-rule (PR #84 abierto, review dual aprobado, retro en `learnings/PR-84.md`; pendiente de aprobación de merge): regla en `qa-backend`, `qa-frontend` y `security-reviewer` para que toda prueba que escriba sobre el repo corra en un worktree desechable fuera del repo, y para que no lancen `claude` ni otro agente CLI con permisos ampliados. Origen: patrón potencial de `learnings/PR-82.md`.
 - **Última actualización:** 2026-09-26
 
 ## Decisiones
