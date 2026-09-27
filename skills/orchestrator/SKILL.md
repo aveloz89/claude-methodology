@@ -2,7 +2,7 @@
 name: orchestrator
 description: Manual de la sesión principal para coordinar una feature o un fix de punta a punta — fases 0 a 5, qué subagente invocar en cada una, lotes y handoff, tracker de sesión, pause/resume. Cargar al iniciar cualquier trabajo que termine en un PR, antes de delegar el primer lote.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner)
+allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:product-reviewer), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner)
 argument-hint: "[feature|fix] <descripción corta>"
 ---
 
