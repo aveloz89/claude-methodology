@@ -968,7 +968,7 @@ echo "--- CA-4: sin referencias colgantes a piezas eliminadas de la metodología
 # README.md, global/CLAUDE.md, tests/, .claude/ — excluye .planning/ (no
 # versionado) y este mismo script (los términos viven acá como patrones
 # de grep, no como menciones normativas).
-DANGLING_SCOPE=("$REPO_ROOT/agents" "$REPO_ROOT/rulebooks" "$REPO_ROOT/skills" "$HOOKS_DIR" "$REPO_ROOT/README.md" "$REPO_ROOT/global/CLAUDE.md" "$REPO_ROOT/tests" "$REPO_ROOT/.claude")
+DANGLING_SCOPE=("$REPO_ROOT/agents" "$REPO_ROOT/rulebooks" "$REPO_ROOT/skills" "$REPO_ROOT/rules" "$HOOKS_DIR" "$REPO_ROOT/README.md" "$REPO_ROOT/global/CLAUDE.md" "$REPO_ROOT/tests" "$REPO_ROOT/.claude")
 DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule")
 
 for term in "${DANGLING_TERMS[@]}"; do
