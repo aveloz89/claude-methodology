@@ -4,9 +4,9 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 
 ## Qué incluye
 
-El **orchestrator** no es un subagente: es el Claude de la sesión principal. Las invariantes viven en `global/CLAUDE.md` (instalado como `~/.claude/CLAUDE.md`); el manual operativo — fases 0 a 5, equipo de subagentes, lotes — vive en la skill `orchestrator`. Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 12 agentes:
+El **orchestrator** no es un subagente: es el Claude de la sesión principal. Las invariantes viven en `global/CLAUDE.md` (instalado como `~/.claude/CLAUDE.md`); el manual operativo — fases 0 a 5, equipo de subagentes, lotes — vive en la skill `orchestrator`. Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 11 agentes:
 
-### Agentes (12)
+### Agentes (11)
 | Agente | Modelo | Rol |
 |--------|--------|-----|
 | **product-reviewer** | opus | Cuestiona si la feature vale la pena y deja resultado esperado y criterios de aceptación medibles (read-only, no bloquea). Solo en proyectos con `Tipo: producto con usuarios` |
