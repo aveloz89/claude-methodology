@@ -4,9 +4,9 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 
 ## Qué incluye
 
-El **orchestrator** no es un subagente: es el Claude de la sesión principal. Las invariantes viven en `global/CLAUDE.md` (instalado como `~/.claude/CLAUDE.md`); el manual operativo — fases 0 a 5, equipo de subagentes, lotes — vive en la skill `orchestrator`. Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 12 agentes:
+El **orchestrator** no es un subagente: es el Claude de la sesión principal. Las invariantes viven en `global/CLAUDE.md` (instalado como `~/.claude/CLAUDE.md`); el manual operativo — fases 0 a 5, equipo de subagentes, lotes — vive en la skill `orchestrator`. Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 10 agentes:
 
-### Agentes (12)
+### Agentes (10)
 | Agente | Modelo | Rol |
 |--------|--------|-----|
 | **product-reviewer** | opus | Cuestiona si la feature vale la pena y deja resultado esperado y criterios de aceptación medibles (read-only, no bloquea). Solo en proyectos con `Tipo: producto con usuarios` |
@@ -212,8 +212,6 @@ claude-methodology/
 ```
 
 ## Stack-agnóstico
-
-Si el `CLAUDE.md` del proyecto tiene la línea `Tipo: producto con usuarios`, el orchestrator invoca `product-reviewer` después del brainstorming de cada feature nueva. Sin la línea no corre; `/new-project` la escribe al preguntar el tipo de proyecto. En un proyecto ya existente, actívalo agregando esa línea a mano en el `CLAUDE.md` del proyecto.
 
 Los agentes detectan el stack del proyecto leyendo CLAUDE.md. Funcionan con:
 - **Node.js** (pnpm/yarn/npm) + TypeScript/JavaScript

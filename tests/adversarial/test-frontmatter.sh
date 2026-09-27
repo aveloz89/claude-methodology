@@ -8,8 +8,8 @@
 #   (c) name == nombre del archivo (sin .md).
 #   (d) allowed-tools de skills: toda entrada Agent(x) tiene forma
 #       Agent(methodology:<agente>) con <agente> existente en agents/.
-#   (e) disable-model-invocation: true obligatorio en new-project y
-#       refactor-scan, ausente en pr-workflow y review-pr.
+#   (e) disable-model-invocation: true obligatorio en new-project,
+#       ausente en pr-workflow y review-pr.
 #   (f) toda referencia methodology:<x> en agents/ rulebooks/ skills/
 #       README.md .claude/CLAUDE.md apunta a un agente que existe.
 #   (g) toda mención `<agente>` (sin prefijo methodology:) de la lista
@@ -53,7 +53,7 @@ ALLOWED_MODEL="sonnet opus haiku fable inherit"
 # queda mencionado en prosa como `<agente>` en otro directorio del
 # contrato, esta lista sigue conociendo el nombre y el check (g) más abajo
 # lo reporta como mención colgante en vez de dejar de verificarlo.
-HISTORICAL_AGENTS="architect backend-dev build-resolver db-specialist docs e2e-runner frontend-dev latent-bugs-sweep product-reviewer qa-backend qa-frontend refactor security-reviewer ui-ux"
+HISTORICAL_AGENTS="architect backend-dev build-resolver code-sweep db-specialist docs e2e-runner frontend-dev product-reviewer qa-backend qa-frontend security-reviewer ui-ux"
 
 pass() { echo -e "${GREEN}PASS${NC}: $1"; PASS=$((PASS + 1)); }
 fail() { echo -e "${RED}FAIL${NC}: $1"; FAIL=$((FAIL + 1)); }
@@ -263,7 +263,7 @@ for skill_file in "$SKILLS_DIR"/*/SKILL.md; do
 
   disable_value=$(frontmatter_value "$skill_file" "disable-model-invocation")
   case "$skill_name" in
-    new-project|refactor-scan)
+    new-project)
       check "$([ "$disable_value" = "true" ] && echo 0 || echo 1)" \
         "$skill_name: disable-model-invocation=true"
       ;;
