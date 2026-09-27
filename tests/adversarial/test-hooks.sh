@@ -2908,6 +2908,131 @@ else
 fi
 _multiroot_budget_cleanup
 
+# --- pre-commit-guard.sh: #86 ronda 2 (security MEDIUM) — excluir
+# directorios sin trackear/repos git anidados y segmentos node_modules,
+# vendor, fixtures, __fixtures__, testdata al derivar runners por archivo
+# ---
+#
+# G11: clone git anidado SIN TRACKEAR en vendor/thirdparty/ (su propio
+# ".git", nunca agregado al índice del repo externo) — `git status
+# --porcelain --untracked-files=all` del repo externo NO desciende dentro
+# de un repo anidado, lo colapsa a una sola línea "?? vendor/thirdparty/".
+# Antes de la exclusión, esa línea se resolvía como el archivo
+# "vendor/thirdparty" y subía buscando un marcador — con un package.json
+# DENTRO del clone anidado (ya con marcador propio, sin relación con el
+# repo externo), el candidato resuelto corría el test de terceros con el
+# comando del usuario. Ahora se descarta cualquier línea de porcelain que
+# termine en "/" antes de intentar resolverla.
+_excl_setup() {
+  EXCL_DIR=$(mktemp -d)
+  EXCL_DIR=$(cd "$EXCL_DIR" && pwd -P)
+  EXCL_MARK=$(mktemp -d)
+  (
+    cd "$EXCL_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p .planning
+    echo "# STATE" > .planning/x.md
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+}
+_excl_cleanup() {
+  rm -rf "$EXCL_DIR" "$EXCL_MARK"
+}
+
+_excl_setup
+(
+  cd "$EXCL_DIR" || exit 1
+  mkdir -p vendor/thirdparty
+  cd vendor/thirdparty || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  cat > package.json <<EOF
+{ "name": "thirdparty", "private": true, "scripts": { "test": "echo ran > $EXCL_MARK/vendor.ran" } }
+EOF
+  echo "console.log(1)" > index.js
+  git add -A
+  git commit -q -m "nested init"
+) > /dev/null 2>&1
+assert_allowed_cmd "pre-commit-guard: clone anidado sin trackear en vendor/thirdparty/ → no corre su test (G11)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$EXCL_DIR"
+TOTAL=$((TOTAL + 1))
+if [ ! -f "$EXCL_MARK/vendor.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G11 — el test del clone anidado no corrió"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G11 — el test del clone anidado no corrió (vendor.ran presente)"
+  FAIL=$((FAIL + 1))
+fi
+_excl_cleanup
+
+# G12: tests/fixtures/proj/package.json TRACKEADO (no un repo anidado, no
+# un directorio sin trackear) con un test que falla ("exit 1") — el
+# segmento "fixtures" en el camino lo descarta igual, sin importar que el
+# archivo esté trackeado. Antes de la exclusión, un cambio en
+# tests/fixtures/proj/app.js resolvía tests/fixtures/proj como candidato
+# (tiene su propio package.json) y corría el test del fixture, que falla
+# a propósito — bloqueando el commit del usuario por un test que no es
+# del proyecto.
+_excl_setup
+(
+  cd "$EXCL_DIR" || exit 1
+  mkdir -p tests/fixtures/proj
+  cat > tests/fixtures/proj/package.json <<EOF
+{ "name": "proj-fixture", "private": true, "scripts": { "test": "echo ran > $EXCL_MARK/fixtures.ran && exit 1" } }
+EOF
+  echo "console.log(1)" > tests/fixtures/proj/app.js
+  git add -A
+  git commit -q -m "fixture init"
+) > /dev/null 2>&1
+echo "cambio" >> "$EXCL_DIR/tests/fixtures/proj/app.js"
+assert_allowed_cmd "pre-commit-guard: tests/fixtures/proj/ trackeado (segmento 'fixtures') → no corre su test, aunque falle (G12)" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$EXCL_DIR"
+TOTAL=$((TOTAL + 1))
+if [ ! -f "$EXCL_MARK/fixtures.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G12 — el test del fixture no corrió"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G12 — el test del fixture no corrió (fixtures.ran presente)"
+  FAIL=$((FAIL + 1))
+fi
+_excl_cleanup
+
+# G13 (negativo, combinado): vendor/thirdparty/ (excluido) + frontend/
+# (marcador real, layout de G1-G6) tocados a la vez → corre SOLO frontend,
+# igual que si vendor/thirdparty/ no existiera. Confirma que la exclusión
+# no afecta la resolución normal de los demás candidatos.
+_multiroot_setup
+(
+  cd "$MULTIROOT_DIR" || exit 1
+  mkdir -p vendor/thirdparty
+  cd vendor/thirdparty || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  cat > package.json <<EOF
+{ "name": "thirdparty", "private": true, "scripts": { "test": "echo ran > $MULTIROOT_MARK/vendor.ran" } }
+EOF
+  echo "console.log(1)" > index.js
+  git add -A
+  git commit -q -m "nested init"
+) > /dev/null 2>&1
+echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
+assert_allowed_cmd "pre-commit-guard: vendor/thirdparty/ + frontend/ tocados → corre solo frontend (G13)" \
+  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$MULTIROOT_MARK/frontend.ran" ] && [ ! -f "$MULTIROOT_MARK/vendor.ran" ] && [ ! -f "$MULTIROOT_MARK/backend.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G13 — corrió frontend, vendor/thirdparty/ excluido"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G13 — corrió frontend, vendor/thirdparty/ excluido (frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ), vendor.ran=$( [ -f "$MULTIROOT_MARK/vendor.ran" ] && echo si || echo no ))"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_cleanup
+
 echo ""
 # --- hooks/lib/workspace-scope.sh (unit) ---
 echo "--- hooks/lib/workspace-scope.sh (unit) ---"

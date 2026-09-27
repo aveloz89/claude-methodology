@@ -484,6 +484,54 @@ _guard_has_marker() {
 # en `git status --porcelain` y no matchea ningún directorio real — se
 # degrada a "no corre esa suite en particular", nunca peor que el
 # comportamiento sin #86 (ningún archivo corría nada).
+#
+# Exclusiones (#86 ronda 2, review dual, security MEDIUM): tres formas de
+# descartar un candidato ANTES de resolverlo, nunca bloquean, solo
+# restringen de dónde se deriva un runner —
+#   1. Directorio sin trackear entero: `git status --porcelain
+#      --untracked-files=all` emite una sola línea que termina en "/" para
+#      un directorio que NO desciende — el caso real es un repo git
+#      anidado sin trackear (su propio ".git" hace que git no lo recorra);
+#      resolverlo como archivo terminaba corriendo el runner DE ESE OTRO
+#      REPO con el comando del usuario.
+#   2. Repo git anidado por path: red de seguridad además de (1) — si algún
+#      directorio entre el archivo y TARGET_DIR tiene su propio ".git" (un
+#      caso que --untracked-files=all no colapsó, ej. un submódulo
+#      trackeado con estado sucio), tampoco se deriva un runner ahí; ese
+#      repo tiene su propio ciclo de test, no el del usuario.
+#   3. Segmento de path no confiable: node_modules, vendor, fixtures,
+#      __fixtures__ o testdata en cualquier parte del path — dependencias
+#      de terceros y fixtures de test no son código del proyecto, así que
+#      un package.json ahí (real, ej. un fixture de test trackeado a
+#      propósito) no es un runner del usuario.
+_guard_path_ends_in_slash() {
+  case "$1" in
+    */) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+_guard_path_has_excluded_segment() {
+  local path="$1" segment
+  local IFS=/
+  for segment in $path; do
+    case "$segment" in
+      node_modules|vendor|fixtures|__fixtures__|testdata) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+_guard_dir_under_nested_git() {
+  local dir="$1" top="$2"
+  while [ "$dir" != "$top" ] && [ -n "$dir" ] && [ "$dir" != "/" ]; do
+    [ -e "$dir/.git" ] && return 0
+    dir="${dir%/*}"
+    [ -z "$dir" ] && dir="/"
+  done
+  return 1
+}
+
 _guard_derive_runner_dirs() {
   local top="$1"
   local files
@@ -495,10 +543,13 @@ _guard_derive_runner_dirs() {
   while IFS= read -r line; do
     [ -z "$line" ] && continue
     path="${line:3}"
+    _guard_path_ends_in_slash "$path" && continue
+    _guard_path_has_excluded_segment "$path" && continue
     case "$path" in
       */*) filedir="$top/${path%/*}" ;;
       *) filedir="$top" ;;
     esac
+    _guard_dir_under_nested_git "$filedir" "$top" && continue
     candidate=$(_guard_find_runner_dir "$filedir" "$top")
     [ "$candidate" = "$top" ] && continue
     candidates+=("$candidate")
