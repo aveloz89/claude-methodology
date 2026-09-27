@@ -426,8 +426,78 @@ _guard_find_runner_dir() {
   done
 }
 
+# _guard_has_marker: mismo charset de marcadores que _guard_find_runner_dir,
+# extraído para poder distinguir "encontró un marcador de verdad" de "no
+# encontró ninguno y devolvió top por default" — _guard_find_runner_dir
+# devuelve el MISMO valor (top) en los dos casos cuando no hay marcador en
+# el camino, así que no hay otra forma de distinguirlos sin repetir el
+# chequeo sobre el resultado.
+_guard_has_marker() {
+  local dir="$1"
+  [ -f "$dir/package.json" ] || [ -f "$dir/pyproject.toml" ] || [ -f "$dir/setup.py" ] || [ -f "$dir/pytest.ini" ]
+}
+
+# _guard_derive_runner_dirs (#86, decisión en .planning/DESIGN.md "G."):
+# cuando NINGÚN directorio entre SESSION_DIR y TARGET_DIR tiene marcador
+# (workspace-scope.sh resuelve workspaces DECLARADOS en un package.json
+# raíz, no descubre runners en subdirectorios sin marcador arriba — V3 de
+# DESIGN.md), correr por archivo tocado en vez de no correr nada. Por cada
+# línea de `git status --porcelain --no-renames --untracked-files=all` (ya
+# corrido en TARGET_DIR — mismo criterio de timing que
+# _guard_planning_only_change: este hook es PreToolUse, corre antes de que
+# un "git add" pendiente en el mismo comando se ejecute), sube desde el
+# directorio de ese archivo hasta TARGET_DIR con el mismo
+# _guard_find_runner_dir; si la subida termina en TARGET_DIR (ya se sabe sin
+# marcador, por eso se llegó hasta acá) se descarta ese archivo — "no
+# bloquear cuando no se encuentra ninguno" es la decisión de #86, no un
+# hueco. --no-renames (a diferencia de _guard_planning_only_change, que sí
+# necesita distinguir un rename): acá solo importa bajo qué directorio cae
+# cada archivo.
+#
+# Salvedad conocida (igual que hooks/lib/workspace-scope.sh, ver su
+# comentario ~241-245): un path con caracteres especiales llega C-quoteado
+# en `git status --porcelain` y no matchea ningún directorio real — se
+# degrada a "no corre esa suite en particular", nunca peor que el
+# comportamiento sin #86 (ningún archivo corría nada).
+_guard_derive_runner_dirs() {
+  local top="$1"
+  local files
+  files=$(git status --porcelain --no-renames --untracked-files=all 2>/dev/null) || return 0
+  [ -z "$files" ] && return 0
+
+  local line path filedir candidate
+  local candidates=()
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    path="${line:3}"
+    case "$path" in
+      */*) filedir="$top/${path%/*}" ;;
+      *) filedir="$top" ;;
+    esac
+    candidate=$(_guard_find_runner_dir "$filedir" "$top")
+    [ "$candidate" = "$top" ] && continue
+    candidates+=("$candidate")
+  done <<< "$files"
+
+  [ "${#candidates[@]}" -eq 0 ] && return 0
+  printf '%s\n' "${candidates[@]}" | sort -u
+}
+
 RUNNER_DIR=$(_guard_find_runner_dir "$SESSION_DIR" "$TARGET_DIR")
-cd "$RUNNER_DIR" || _guard_block_tree "no se pudo entrar al directorio del runner ($RUNNER_DIR)"
+
+GUARD_RUN_DIRS=()
+if _guard_has_marker "$RUNNER_DIR"; then
+  GUARD_RUN_DIRS=("$RUNNER_DIR")
+else
+  while IFS= read -r _guard_dir; do
+    [ -z "$_guard_dir" ] && continue
+    GUARD_RUN_DIRS+=("$_guard_dir")
+  done < <(_guard_derive_runner_dirs "$TARGET_DIR")
+fi
+
+if [ "${#GUARD_RUN_DIRS[@]}" -eq 0 ]; then
+  exit 0
+fi
 
 # Watchdog fail-closed por tiempo (auditoría best-practices): sin esto, una
 # suite colgada supera el timeout del harness (hooks.json), que DESCARTA la
@@ -524,64 +594,95 @@ _guard_run_with_budget() {
   return "$rc"
 }
 
-# Detectar el test runner del proyecto
-if [ -f "package.json" ]; then
-  # Node.js project — detectar package manager
-  if [ -f "pnpm-lock.yaml" ]; then
-    PKG_MGR="pnpm"
-  elif [ -f "yarn.lock" ]; then
-    PKG_MGR="yarn"
-  else
-    PKG_MGR="npm"
-  fi
+# _guard_run_suite_in (#86, extraído de lo que antes era código inline que
+# solo corría una vez, sobre RUNNER_DIR): detecta y corre el runner de UN
+# directorio. Devuelve 0 si no hay nada que correr o si corrió y pasó, 1 si
+# corrió y falló — nunca hace "exit" (salvo el watchdog de
+# _guard_run_with_budget, que sí corta el hook entero por diseño): con más
+# de un directorio (#86) el resto tiene que correr igual antes de decidir,
+# mismo criterio de "correr de más, nunca de menos" que el resto del hook, y
+# necesario para que el budget compartido (ver _guard_run_with_budget) cuente
+# el tiempo real de TODAS las corridas, no solo la primera.
+_guard_run_suite_in() {
+  local dir="$1"
+  local prev_pwd
+  prev_pwd=$(pwd)
+  cd "$dir" || return 1
 
-  if jq -e '.scripts.test' package.json > /dev/null 2>&1; then
-    TEST_CMD=$(jq -r '.scripts.test' package.json)
-    if [ "$TEST_CMD" != "null" ] && [ "$TEST_CMD" != "" ] && [ "$TEST_CMD" != "echo \"Error: no test specified\" && exit 1" ]; then
-      # Scoping por workspace en monorepos: correr "$PKG_MGR test" en la
-      # raíz de un monorepo dispara TODAS las suites en cada commit, aunque
-      # el commit toque un solo workspace. hooks/lib/workspace-scope.sh
-      # resuelve, con criterio conservador, si el commit se puede acotar a
-      # los workspaces realmente tocados.
-      #
-      # A diferencia de guard-matching.sh más arriba, esta lib NO es
-      # fail-closed: si no existe, no es legible, o no logra resolver un
-      # subconjunto con confianza, simplemente no se activa el scoping y se
-      # sigue el camino de siempre ($PKG_MGR test) — nunca bloquea el
-      # commit por su ausencia.
-      SCOPED=false
-      WS_LIB="${0%/*}/lib/workspace-scope.sh"
-      if [ -r "$WS_LIB" ]; then
-        # shellcheck source=lib/workspace-scope.sh
-        source "$WS_LIB"
-        workspace_scope_resolve "$PKG_MGR" && SCOPED=true
-      fi
+  local rc=0
+  if [ -f "package.json" ]; then
+    # Node.js project — detectar package manager
+    local pkg_mgr
+    if [ -f "pnpm-lock.yaml" ]; then
+      pkg_mgr="pnpm"
+    elif [ -f "yarn.lock" ]; then
+      pkg_mgr="yarn"
+    else
+      pkg_mgr="npm"
+    fi
 
-      if [ "$SCOPED" = true ]; then
-        echo "Running tests before commit ($PKG_MGR, workspace(s): $WORKSPACE_SCOPE_LABEL)..." >&2
-        _guard_run_with_budget "${WORKSPACE_SCOPE_CMD[@]}"
-      else
-        echo "Running tests before commit ($PKG_MGR)..." >&2
-        _guard_run_with_budget "$PKG_MGR" test
+    if jq -e '.scripts.test' package.json > /dev/null 2>&1; then
+      local test_cmd
+      test_cmd=$(jq -r '.scripts.test' package.json)
+      if [ "$test_cmd" != "null" ] && [ "$test_cmd" != "" ] && [ "$test_cmd" != "echo \"Error: no test specified\" && exit 1" ]; then
+        # Scoping por workspace en monorepos: correr "$pkg_mgr test" en la
+        # raíz de un monorepo dispara TODAS las suites en cada commit, aunque
+        # el commit toque un solo workspace. hooks/lib/workspace-scope.sh
+        # resuelve, con criterio conservador, si el commit se puede acotar a
+        # los workspaces realmente tocados.
+        #
+        # A diferencia de guard-matching.sh más arriba, esta lib NO es
+        # fail-closed: si no existe, no es legible, o no logra resolver un
+        # subconjunto con confianza, simplemente no se activa el scoping y se
+        # sigue el camino de siempre ($pkg_mgr test) — nunca bloquea el
+        # commit por su ausencia.
+        local scoped=false
+        local ws_lib="${0%/*}/lib/workspace-scope.sh"
+        if [ -r "$ws_lib" ]; then
+          # shellcheck source=lib/workspace-scope.sh
+          source "$ws_lib"
+          workspace_scope_resolve "$pkg_mgr" && scoped=true
+        fi
+
+        if [ "$scoped" = true ]; then
+          echo "Running tests before commit ($pkg_mgr, workspace(s): $WORKSPACE_SCOPE_LABEL) [$dir]..." >&2
+          _guard_run_with_budget "${WORKSPACE_SCOPE_CMD[@]}"
+        else
+          echo "Running tests before commit ($pkg_mgr) [$dir]..." >&2
+          _guard_run_with_budget "$pkg_mgr" test
+        fi
+        rc=$?
+        [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
       fi
-      if [ $? -ne 0 ]; then
-        echo "BLOCKED: Tests failed. Fix tests before committing." >&2
-        exit 2
-      fi
-      echo "Tests passed." >&2
+    fi
+  elif [ -f "pytest.ini" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
+    # Python project
+    if command -v pytest > /dev/null 2>&1; then
+      echo "Running pytest before commit [$dir]..." >&2
+      _guard_run_with_budget pytest
+      rc=$?
+      [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
     fi
   fi
-elif [ -f "pytest.ini" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
-  # Python project
-  if command -v pytest > /dev/null 2>&1; then
-    echo "Running pytest before commit..." >&2
-    _guard_run_with_budget pytest
-    if [ $? -ne 0 ]; then
-      echo "BLOCKED: Tests failed. Fix tests before committing." >&2
-      exit 2
-    fi
-    echo "Tests passed." >&2
-  fi
+
+  cd "$prev_pwd" || true
+  return "$rc"
+}
+
+# Corre cada directorio resuelto arriba (GUARD_RUN_DIRS): uno solo en el
+# camino de siempre (marcador encontrado entre SESSION_DIR y TARGET_DIR), o
+# varios derivados por archivo tocado cuando no había marcador (#86, T2).
+# Cualquier fallo bloquea nombrando el/los directorio(s) — se corren TODOS
+# antes de decidir, no se corta en el primer fallo (necesario para el budget
+# compartido de T4).
+GUARD_FAILED_DIRS=()
+for _guard_dir in "${GUARD_RUN_DIRS[@]}"; do
+  _guard_run_suite_in "$_guard_dir" || GUARD_FAILED_DIRS+=("$_guard_dir")
+done
+
+if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ]; then
+  echo "BLOCKED: Tests failed in: ${GUARD_FAILED_DIRS[*]}. Fix tests before committing." >&2
+  exit 2
 fi
 
 exit 0

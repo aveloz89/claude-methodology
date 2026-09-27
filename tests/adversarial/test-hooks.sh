@@ -2550,6 +2550,115 @@ else
 fi
 
 echo ""
+# --- pre-commit-guard.sh: monorepo SIN marcador en la raíz (#86) ---
+echo "--- pre-commit-guard.sh: monorepo sin marcador en la raíz (#86) ---"
+
+# _multiroot_setup: repo git temporal SIN package.json/pyproject.toml en la
+# raíz — el único caso que V3 (DESIGN.md) documenta como sin cubrir:
+# workspace-scope.sh resuelve workspaces DECLARADOS en un package.json raíz,
+# no descubre runners en subdirectorios. Layout: frontend/package.json
+# (marcador npm) + backend/pyproject.toml (marcador pytest, vía un pytest
+# fake en PATH) + docs/README.md (ningún marcador arriba). Cada test.ran deja
+# un marcador propio en MULTIROOT_MARK para afirmar qué corrió de verdad, no
+# solo el exit code (mismo criterio que _wsscope_assert_markers).
+_multiroot_setup() {
+  MULTIROOT_DIR=$(mktemp -d)
+  MULTIROOT_DIR=$(cd "$MULTIROOT_DIR" && pwd -P)
+  MULTIROOT_MARK=$(mktemp -d)
+  MULTIROOT_FAKE_BIN=$(mktemp -d)
+  (
+    cd "$MULTIROOT_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p .planning frontend backend docs
+    echo "# STATE" > .planning/x.md
+    echo "# README" > docs/README.md
+    cat > frontend/package.json <<EOF
+{ "name": "frontend", "private": true, "scripts": { "test": "echo ran > $MULTIROOT_MARK/frontend.ran" } }
+EOF
+    echo "console.log(1)" > frontend/a.js
+    touch backend/pyproject.toml
+    echo "print(1)" > backend/b.py
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+  cat > "$MULTIROOT_FAKE_BIN/pytest" <<PYEOF
+#!/bin/bash
+echo ran > "$MULTIROOT_MARK/backend.ran"
+exit 0
+PYEOF
+  chmod +x "$MULTIROOT_FAKE_BIN/pytest"
+}
+
+# _multiroot_make_frontend_fail: reescribe frontend/package.json para que su
+# script "test" siga dejando el marcador (así se distingue "no corrió" de
+# "corrió y falló") pero salga en 1 — usado por G2.
+_multiroot_make_frontend_fail() {
+  cat > "$MULTIROOT_DIR/frontend/package.json" <<EOF
+{ "name": "frontend", "private": true, "scripts": { "test": "echo ran > $MULTIROOT_MARK/frontend.ran && exit 1" } }
+EOF
+}
+
+_multiroot_cleanup() {
+  rm -rf "$MULTIROOT_DIR" "$MULTIROOT_MARK" "$MULTIROOT_FAKE_BIN"
+}
+
+# G1: solo backend/b.py tocado, sesión en la raíz → corre solo pytest en
+# backend (marcador = backend, no frontend). Antes de #86: exit 0 sin correr
+# nada (ningún marcador presente en la raíz).
+_multiroot_setup
+echo "cambio" >> "$MULTIROOT_DIR/backend/b.py"
+assert_allowed_cmd "pre-commit-guard: monorepo sin marcador en la raíz, solo backend tocado → corre solo pytest en backend (G1)" \
+  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$MULTIROOT_MARK/backend.ran" ] && [ ! -f "$MULTIROOT_MARK/frontend.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G1 — corrió backend, no frontend"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G1 — corrió backend, no frontend (backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ))"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_cleanup
+
+# G3: solo docs/README.md tocado (fuera de frontend/ y backend/, sin
+# marcador arriba de él) → ningún runner corre, el commit pasa.
+_multiroot_setup
+echo "cambio" >> "$MULTIROOT_DIR/docs/README.md"
+assert_allowed_cmd "pre-commit-guard: monorepo sin marcador en la raíz, solo docs/ tocado → no corre nada (G3)" \
+  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
+TOTAL=$((TOTAL + 1))
+if [ ! -f "$MULTIROOT_MARK/backend.ran" ] && [ ! -f "$MULTIROOT_MARK/frontend.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G3 — ningún runner corrió"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G3 — ningún runner corrió (backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ))"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_cleanup
+
+# G9 (regresión, ya cubierto por "Commit in repo without test runner passes
+# through" contra el repo real de esta suite — acá con un fixture propio
+# para que quede documentado junto al resto de la tabla): repo sin marcador
+# en NINGÚN lado → sin candidatos, pasa sin correr nada.
+MULTIROOT_NORUNNER_DIR=$(mktemp -d)
+MULTIROOT_NORUNNER_DIR=$(cd "$MULTIROOT_NORUNNER_DIR" && pwd -P)
+(
+  cd "$MULTIROOT_NORUNNER_DIR" || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  mkdir -p src
+  echo "x" > src/a.txt
+  git add -A
+  git commit -q -m init
+) > /dev/null 2>&1
+echo "cambio" >> "$MULTIROOT_NORUNNER_DIR/src/a.txt"
+assert_allowed_cmd "pre-commit-guard: repo sin marcador en ningún lado → pasa sin correr nada (G9)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$MULTIROOT_NORUNNER_DIR"
+rm -rf "$MULTIROOT_NORUNNER_DIR"
+
+echo ""
 # --- hooks/lib/workspace-scope.sh (unit) ---
 echo "--- hooks/lib/workspace-scope.sh (unit) ---"
 
