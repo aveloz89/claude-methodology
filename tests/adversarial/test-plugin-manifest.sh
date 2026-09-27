@@ -879,9 +879,8 @@ echo "--- agents/qa-backend.md, qa-frontend.md, security-reviewer.md: regla de s
 # extract_section <file> <heading>: extrae el texto desde la línea que
 # empieza con "$heading" (encabezado propio, p. ej. "## Pruebas que escriben
 # archivos") hasta la línea anterior al siguiente "## " (o EOF). Usa awk en
-# vez de sed/grep porque necesita el rango completo de líneas, no un solo
-# match — el mismo patrón que usa reviewer_sandbox_files() en pre-push-guard
-# no aplica acá porque esto es Markdown, no hooks.json.
+# vez de sed/grep porque necesita devolver el rango completo de líneas, no
+# un solo match.
 extract_section() {
   local file="$1" heading="$2"
   awk -v h="$heading" '
@@ -889,6 +888,23 @@ extract_section() {
     found && /^## / { exit }
     found { print }
   ' "$file"
+}
+
+# assert_section_contains <section> <pattern> <label>: como assert_contains
+# pero sobre un string ya extraído en vez de un archivo — así el patrón
+# buscado tiene que estar dentro de la sección nueva, no en cualquier parte
+# del archivo (p. ej. "NO CUBIERTO" ya existía en qa-backend.md y
+# qa-frontend.md antes de este bloque, fuera de esta sección).
+assert_section_contains() {
+  local section="$1" pattern="$2" label="$3"
+  TOTAL=$((TOTAL + 1))
+  if printf '%s' "$section" | grep -q -- "$pattern"; then
+    echo -e "${GREEN}PASS${NC}: $label"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $label (no se encontró \"$pattern\" en la sección)"
+    FAIL=$((FAIL + 1))
+  fi
 }
 
 QA_BACKEND="$REPO_ROOT/agents/qa-backend.md"
@@ -901,33 +917,6 @@ SECTION_QA_FRONTEND=$(extract_section "$QA_FRONTEND" "$SANDBOX_HEADING")
 SECTION_SECURITY_REVIEWER=$(extract_section "$SECURITY_REVIEWER" "$SANDBOX_HEADING")
 
 TOTAL=$((TOTAL + 1))
-if [ -n "$SECTION_QA_BACKEND" ]; then
-  echo -e "${GREEN}PASS${NC}: agents/qa-backend.md tiene la sección \"$SANDBOX_HEADING\""
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: agents/qa-backend.md no tiene la sección \"$SANDBOX_HEADING\""
-  FAIL=$((FAIL + 1))
-fi
-
-TOTAL=$((TOTAL + 1))
-if [ -n "$SECTION_QA_FRONTEND" ]; then
-  echo -e "${GREEN}PASS${NC}: agents/qa-frontend.md tiene la sección \"$SANDBOX_HEADING\""
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: agents/qa-frontend.md no tiene la sección \"$SANDBOX_HEADING\""
-  FAIL=$((FAIL + 1))
-fi
-
-TOTAL=$((TOTAL + 1))
-if [ -n "$SECTION_SECURITY_REVIEWER" ]; then
-  echo -e "${GREEN}PASS${NC}: agents/security-reviewer.md tiene la sección \"$SANDBOX_HEADING\""
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: agents/security-reviewer.md no tiene la sección \"$SANDBOX_HEADING\""
-  FAIL=$((FAIL + 1))
-fi
-
-TOTAL=$((TOTAL + 1))
 if [ "$SECTION_QA_BACKEND" = "$SECTION_QA_FRONTEND" ] && [ "$SECTION_QA_FRONTEND" = "$SECTION_SECURITY_REVIEWER" ] && [ -n "$SECTION_QA_BACKEND" ]; then
   echo -e "${GREEN}PASS${NC}: la sección \"$SANDBOX_HEADING\" es idéntica en los 3 agentes"
   PASS=$((PASS + 1))
@@ -936,22 +925,31 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-assert_contains "$QA_BACKEND" "git worktree add --detach" \
-  "agents/qa-backend.md exige worktree --detach o directorio temporal para pruebas que escriben archivos"
-assert_contains "$QA_FRONTEND" "git worktree add --detach" \
-  "agents/qa-frontend.md exige worktree --detach o directorio temporal para pruebas que escriben archivos"
-assert_contains "$SECURITY_REVIEWER" "git worktree add --detach" \
-  "agents/security-reviewer.md exige worktree --detach o directorio temporal para pruebas que escriben archivos"
+SECTION_LABELS=("agents/qa-backend.md" "agents/qa-frontend.md" "agents/security-reviewer.md")
+SECTION_VALUES=("$SECTION_QA_BACKEND" "$SECTION_QA_FRONTEND" "$SECTION_SECURITY_REVIEWER")
 
-for f in "$QA_BACKEND" "$QA_FRONTEND" "$SECURITY_REVIEWER"; do
-  label="agents/$(basename "$f")"
-  assert_contains "$f" "nunca con redirecciones" \
+for i in 0 1 2; do
+  label="${SECTION_LABELS[$i]}"
+  section="${SECTION_VALUES[$i]}"
+
+  TOTAL=$((TOTAL + 1))
+  if [ -n "$section" ]; then
+    echo -e "${GREEN}PASS${NC}: $label tiene la sección \"$SANDBOX_HEADING\""
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $label no tiene la sección \"$SANDBOX_HEADING\""
+    FAIL=$((FAIL + 1))
+  fi
+
+  assert_section_contains "$section" "git worktree add --detach" \
+    "$label exige worktree --detach o directorio temporal para pruebas que escriben archivos"
+  assert_section_contains "$section" "nunca con redirecciones" \
     "$label prohíbe redirecciones (>, tee, git show ... >, cp) sobre el árbol del repo"
-  assert_contains "$f" "dangerously-skip-permissions" \
+  assert_section_contains "$section" "dangerously-skip-permissions" \
     "$label prohíbe --dangerously-skip-permissions"
-  assert_contains "$f" "bypassPermissions" \
+  assert_section_contains "$section" "bypassPermissions" \
     "$label prohíbe --permission-mode bypassPermissions"
-  assert_contains "$f" "NO CUBIERTO" \
+  assert_section_contains "$section" "NO CUBIERTO" \
     "$label exige declarar en NO CUBIERTO lo que requeriría permisos saltados"
 done
 
