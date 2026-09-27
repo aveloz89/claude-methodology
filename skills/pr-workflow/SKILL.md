@@ -2,7 +2,7 @@
 name: pr-workflow
 description: Proceso de review, creación y merge de pull requests — review dual local pre-push, presupuesto de CI, verificación E2E pre-release, branch protection y verificación pre-merge. Invocar al llegar a Fase 2.6 (review dual local, antes del push + PR) o al revisar/mergear un PR existente.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner), Agent(methodology:build-resolver)
+allowed-tools: Read, Grep, Glob, Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner)
 argument-hint: "[número de PR, si es sobre uno existente]"
 ---
 
@@ -121,7 +121,7 @@ Las rondas pre-PR (Fase 2.6) **no pushean nada**: los fixes quedan commiteados y
 
 ### 5.3 Reproducir localmente antes de re-push en ciclos de fix de CI
 
-Cuando CI falla, el dev (o `build-resolver`) debe **reproducir el check fallido localmente y verlo pasar** antes de pushear el fix. Un run fallido cuesta los mismos minutos que uno verde; CI verifica, no descubre.
+Cuando CI falla, el dev debe **reproducir el check fallido localmente y verlo pasar** antes de pushear el fix (si es un error de build, con `rulebooks/build-errors.md`). Un run fallido cuesta los mismos minutos que uno verde; CI verifica, no descubre.
 
 **Alcance de la excepción de push directo:** el dev solo pushea directo dentro del ciclo de fix de CI (Fase 2.8). En rondas de review post-PR nunca — ahí siempre consolida el orchestrator (regla 5.2) — y en las pre-PR (Fase 2.6) no pushea nadie. La otra excepción de push del dev es el fallback de budget agotado (ver `rulebooks/agent-budget.md`).
 

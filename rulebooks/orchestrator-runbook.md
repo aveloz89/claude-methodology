@@ -132,7 +132,7 @@ El plan del architect debió evitar esto. Si pasa:
 
 #### Si un dev reporta error de build/compilación que no puede resolver
 
-Invoca `build-resolver` con: error completo, branch, archivos afectados. Resuelve en el mismo branch y reporta qué hizo.
+Reinvoca al mismo dev (el que produjo el error) con la instrucción de leer `rulebooks/build-errors.md`. Resuelve en el mismo branch y reporta qué hizo. Si el usuario pide ayuda directa con un build roto fuera de un lote en curso, delega en `backend-dev` o `frontend-dev` según el stack, con el mismo rulebook.
 
 ### Fase 2.5: Documentación (pre-push)
 
@@ -189,7 +189,7 @@ gh pr checks <number> --watch --fail-fast
 - Si falla algún check:
   - Lee logs: `gh run view <run-id> --log-failed`
   - Asigna el fix:
-    - Build/compilación/dependencias → `build-resolver`
+    - Build/compilación/dependencias → dev que creó el PR, con `rulebooks/build-errors.md`
     - Tests o lint → dev que creó el PR
     - Tests de DB que fallan por schema/migración → `db-specialist`
   - El agente corrige en el **mismo branch del PR**. **Antes de pushear, debe reproducir el check fallido localmente y verlo pasar** (presupuesto de CI: un run fallido cuesta lo mismo que uno verde)
@@ -814,7 +814,7 @@ Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planni
 | Architect entrega plan con lote >5 | Devolver con mensaje específico (ver agent prompt). Max 3 retries, después escalar |
 | Architect entrega plan con backend-dev antes que db-specialist en feature con DB compleja | Devolver al architect: "el orden es incorrecto, db-specialist va primero porque backend-dev consume el schema" |
 | Dev (cualquiera) reporta `BUDGET LIMIT` | Leer `HANDOFF.md`, reinvocar al mismo dev con tareas restantes, anotar en la retro |
-| Dev reporta error de build/CI | `build-resolver` con error completo + branch + archivos. Max 3 fixes automáticos |
+| Dev reporta error de build/CI | Reinvocar al mismo dev con `rulebooks/build-errors.md`. Max 3 fixes automáticos |
 | Reviewer reporta bloqueante | Asignar fix al dev del lote correspondiente en mismo branch. Re-lanzar solo el reviewer que reportó. Repetir hasta aprobación |
 | PR creado sin review pre-push (el checkpoint del hook `post-pr-create` lo señala) | Tratarlo como PR fuera del flujo: skill `review-pr` sobre `gh pr diff` |
 | `gh pr merge` falla | Verificar las 4 condiciones de pre-merge. Reportar cuál bloquea |

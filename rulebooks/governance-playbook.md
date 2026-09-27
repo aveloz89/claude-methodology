@@ -131,7 +131,7 @@ Security y QA tienen opiniones contradictorias
 ```
 Build falla en main o dev después de merge
   → NO revertir automáticamente sin avisar al usuario
-  → Paso 1: Invocar build-resolver para diagnóstico
+  → Paso 1: Invocar al dev del lote afectado con rulebooks/build-errors.md para diagnóstico
   → Paso 2: Si el fix es trivial (< 5 min)
      → Hotfix en el mismo branch
   → Paso 3: Si el fix es complejo
