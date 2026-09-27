@@ -695,6 +695,21 @@ assert_blocked_cmd "block-force-push: git stash push antes de un git push --forc
 assert_blocked_cmd "block-force-push: cd a un directorio con 'push' en el nombre antes de un git push --force-with-lease a main bloquea" \
   "block-force-push.sh" "cd /Users/x/push-service && git push --force-with-lease origin main" "$PATH" "$SANDBOX_REPO"
 
+# guard_force_with_lease_allowed (ronda 2 review, security LOW): el segmento
+# usado para buscar "main"/"dev" se toma de SANITIZED_COMMAND, que ya vació
+# los spans quoted antes de llegar acá — "origin 'main'" queda como
+# "origin " y el token "main" desaparece, así que el check no lo ve y la
+# excepción de --force-with-lease se cuela hacia una rama protegida. Mismas
+# 4 formas (comillas simples/dobles, con y sin refspec) deben bloquear.
+assert_blocked_cmd "block-force-push: --force-with-lease a 'main' entre comillas simples bloquea" \
+  "block-force-push.sh" "git push --force-with-lease origin 'main'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: --force-with-lease a \"HEAD:main\" entre comillas dobles bloquea" \
+  "block-force-push.sh" 'git push --force-with-lease origin "HEAD:main"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: --force-with-lease a 'dev' entre comillas simples bloquea" \
+  "block-force-push.sh" "git push --force-with-lease origin 'dev'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: --force-with-lease a \"HEAD:refs/heads/dev\" entre comillas dobles bloquea" \
+  "block-force-push.sh" 'git push --force-with-lease origin "HEAD:refs/heads/dev"' "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 NO_GIT_BFP_DIR=$(mktemp -d)

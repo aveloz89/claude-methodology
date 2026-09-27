@@ -47,12 +47,24 @@ guard_init "block-force-push"
 # segmento evaluado — coló un push a rama protegida (review ronda 1,
 # security MEDIUM).
 guard_force_with_lease_allowed() {
-  local dir branch push_segment
+  local dir branch push_segment raw_push_segment
   dir=$(guard_session_dir) || return 1
   branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2> /dev/null) || return 1
   case "$branch" in
     main | master | dev) return 1 ;;
   esac
+  # El saneo (guard_sanitize) vacía los spans quoted antes de que
+  # SANITIZED_COMMAND llegue acá: "origin 'main'" queda como "origin " y el
+  # token "main" desaparece del segmento, así que el check de abajo (que
+  # busca "main"/"dev" como palabra suelta) no lo ve y la excepción de
+  # --force-with-lease se cuela. El segmento sobre $COMMAND crudo (sin
+  # sanear) SÍ conserva las comillas: si aparecen dentro del segmento del
+  # push real, no hay forma barata de saber qué token queda adentro sin
+  # parsear el shell de verdad — la excepción no aplica y bloquea
+  # fail-closed, en vez de confiar en un match que puede estar mirando un
+  # segmento vaciado por el saneo.
+  raw_push_segment=$(echo "$COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*" | head -1)
+  echo "$raw_push_segment" | grep -q "['\"]" && return 1
   push_segment=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*" | head -1)
   # --all y --mirror empujan TODOS los refs remotos (o los espejan) sin
   # importar qué otro ref aparezca en el resto del comando: la excepción de
