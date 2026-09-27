@@ -4,22 +4,17 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** product-reviewer: subagente de producto que cuestiona si una feature vale la pena y deja criterios de aceptación medibles. No bloquea; solo corre en productos con usuarios reales. PR #82 abierto: review dual aprobado, retro en `learnings/PR-82.md`; pendiente de aprobación de merge.
+- **Feature:** reviewer-sandbox-rule: regla en `qa-backend`, `qa-frontend` y `security-reviewer` para que toda prueba que escriba archivos corra en un worktree desechable o directorio temporal, y para que no lancen `claude` con permisos saltados. Origen: patrón potencial de `learnings/PR-82.md`.
 - **Última actualización:** 2026-09-26
 
 ## Decisiones
 
-Detalle en `BRIEF.md`.
-
-- [D-01] (usuario) No sustituye el brainstorming: funciona como filtro de "vale la pena" y de qué esperamos obtener.
-- [D-02] (usuario) No bloquea.
-- [D-03] (usuario) Solo en productos con usuarios reales.
-- [D-04] (usuario) Subagente entre el brief y el architect, activado por una línea en el `CLAUDE.md` del proyecto.
-- [D-05] (usuario) Siempre preguntar antes que suponer: el agente devuelve preguntas, el orchestrator las relaya y lo reanuda.
+- [D-01] Brainstorming y architect saltados: el pedido del usuario define texto, ubicación y test; no cambia contratos públicos ni agrega dependencias. Un solo lote.
+- [D-02] El test exige que el bloque de la regla sea idéntico en los tres prompts, no solo que exista (patrón de `learnings/PR-82.md`: una condición en N documentos se busca en los N y se compara).
 
 ## Feature anterior
 
-`audit-best-practices` (PRs #79, #80, #81, mergeados): `BRIEF-audit-best-practices.md`, `DESIGN-audit-best-practices.md` y `learnings/PR-79.md` a `PR-81.md`. `global/CLAUDE.md` pasó de 6.436 a 2.593 tokens; quedan 11 agentes.
+`product-reviewer` (PR #82, mergeado): `BRIEF-product-reviewer.md`, `DESIGN-product-reviewer.md` y `learnings/PR-82.md`.
 
 ## Blockers
 
