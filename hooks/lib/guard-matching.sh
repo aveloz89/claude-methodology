@@ -1,7 +1,7 @@
 #!/bin/bash
 # Helper compartido por los guards que interceptan comandos Bash
-# (pre-merge-check.sh, block-admin-merge.sh, pre-commit-guard.sh) — ver
-# issue #47. Antes de matchear el comando vigilado de cada guard, se sanean
+# (pre-merge-check.sh, block-admin-merge.sh, pre-commit-guard.sh). Antes de
+# matchear el comando vigilado de cada guard, se sanean
 # los spans quoted ('...'/"...") y los cuerpos de heredoc: son contenido
 # literal (ej. un mensaje de commit) que puede mencionar la frase vigilada
 # sin ser una invocación real. El match además se ancla a posición de
@@ -70,9 +70,9 @@ GUARD_GIT_TREE_OPTS='((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?\s+)*'
 # concatenados (GUARD_GIT_TREE_OPTS + una versión anterior de esto, "global
 # opts"): la concatenación solo reconocía UN orden fijo entre ambos grupos
 # — "git -C /x -c a=b push --force" (árbol después de "-c") no matcheaba
-# ninguno de los dos fragmentos, y el force push real pasaba SIN EVALUAR
-# (ronda 2 del review dual, security LOW). git acepta estas opciones en
-# cualquier orden antes del subcomando; el regex ahora también.
+# ninguno de los dos fragmentos, y el force push real pasaba SIN EVALUAR.
+# git acepta estas opciones en cualquier orden antes del subcomando; el
+# regex ahora también.
 # shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh y pre-push-guard.sh
 GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
 
@@ -102,8 +102,7 @@ GUARD_GH_PR_MERGE_RE='gh\s+(\S+\s+){0,2}pr\s+(\S+\s+){0,2}merge'
 # antes de este helper, que nunca dependió de perl). Es la dirección
 # segura para un guard que solo bloquea: sin perl hay más falsos positivos
 # posibles (texto quoted que menciona la frase vigilada), pero nunca un
-# falso negativo silencioso por dependencia ausente — evita reintroducir
-# en estos dos guards el mismo fail-open de #50. Se anuncia por stderr
+# falso negativo silencioso por dependencia ausente. Se anuncia por stderr
 # para que el modo degradado sea visible en vez de un fallback silencioso.
 guard_sanitize() {
   if command -v perl > /dev/null 2>&1; then
