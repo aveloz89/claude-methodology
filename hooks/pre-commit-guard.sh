@@ -70,7 +70,12 @@ guard_init "pre-commit-guard"
 # igual que hoy: los detecta, más abajo, el check dedicado de las líneas
 # 97-99, que corre sobre el mismo SANITIZED_COMMAND una vez que este regex
 # ya interceptó el comando.
-GIT_COMMIT_RE="${GUARD_ANCHOR}([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*git\s+${GUARD_GIT_OPTS}commit(\s|\$|[;&|)])"
+# "env" opcional antepuesto a las asignaciones (ronda 2 review, security
+# LOW): "env HUSKY=0 git commit" o "env -i HUSKY=0 git commit" no
+# matcheaban porque el regex solo toleraba "NOMBRE=valor" pegado
+# directamente a "git" — el binario "env" (con o sin flags cortas, ej.
+# "-i") de por medio dejaba pasar el commit real sin correr tests.
+GIT_COMMIT_RE="${GUARD_ANCHOR}(env(\s+-\S+)*\s+)?([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*git\s+${GUARD_GIT_OPTS}commit(\s|\$|[;&|)])"
 if ! echo "$SANITIZED_COMMAND" | grep -qE "$GIT_COMMIT_RE"; then
   exit 0
 fi

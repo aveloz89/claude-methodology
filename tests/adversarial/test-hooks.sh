@@ -1072,6 +1072,34 @@ assert_blocked_cmd "pre-commit-guard: GIT_AUTHOR_NAME=bot git commit -m x se int
   "$FAKE_PYTEST_TERM_DIR:$PATH" \
   "$PCG_TERM_DIR"
 
+# GIT_COMMIT_RE (ronda 2 review, security LOW): "env" antepuesto a la
+# asignación de entorno ("env HUSKY=0 git commit") no matcheaba
+# GIT_COMMIT_RE porque el regex solo toleraba asignaciones "NOMBRE=valor"
+# pegadas a "git", no el binario "env" (con o sin flags cortas como "-i")
+# de por medio — el commit real pasaba sin correr tests. Mismo fixture
+# (pytest fake que siempre falla) para que la intercepción sea observable
+# por el efecto (bloquea).
+assert_blocked_cmd "pre-commit-guard: env HUSKY=0 git commit se intercepta" \
+  "pre-commit-guard.sh" \
+  "env HUSKY=0 git commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_blocked_cmd "pre-commit-guard: env -i HUSKY=0 git commit se intercepta" \
+  "pre-commit-guard.sh" \
+  "env -i HUSKY=0 git commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+# Negativo: la mención de "env HUSKY=0 git commit" dentro de un string
+# double-quoted (argumento literal de "echo") no es una invocación real —
+# el saneo compartido ya la vacía antes de que este regex la vea.
+assert_allowed_cmd "pre-commit-guard: echo \"env HUSKY=0 git commit\" no se intercepta" \
+  "pre-commit-guard.sh" \
+  'echo "env HUSKY=0 git commit"' \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
 rm -rf "$PCG_TERM_DIR" "$FAKE_PYTEST_TERM_DIR"
 
 # --- pre-commit-guard.sh: watchdog fail-closed por tiempo (PRECOMMIT_TEST_BUDGET) ---
