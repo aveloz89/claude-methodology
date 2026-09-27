@@ -5096,6 +5096,144 @@ assert_nul_blocked "pre-commit-guard: bloquea NUL en el comando (B2)" \
 
 echo ""
 
+# --- guard-matching.sh: guard_init / guard_block / guard_session_dir (Lote 1) ---
+# Preámbulo común que cada guard va a adoptar en los próximos lotes. Se
+# prueban las funciones directamente (sourcing el lib en un subshell), sin
+# pasar por ningún guard todavía — ningún guard cambia en este lote.
+echo "--- guard-matching.sh: guard_init / guard_block / guard_session_dir ---"
+
+# guard_init sin jq en PATH: bloquea con "falta jq" antes de tocar stdin.
+NO_JQ_GUARD_INIT_BIN=$(mktemp -d)
+for cmd in bash cat perl grep; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_GUARD_INIT_BIN/$cmd"
+done
+TOTAL=$((TOTAL + 1))
+GUARD_INIT_NO_JQ_OUT=$(mktemp)
+GUARD_INIT_NO_JQ_EXIT=0
+echo '{}' | PATH="$NO_JQ_GUARD_INIT_BIN" bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  guard_init "test-guard"
+' > /dev/null 2>"$GUARD_INIT_NO_JQ_OUT" || GUARD_INIT_NO_JQ_EXIT=$?
+if [ "$GUARD_INIT_NO_JQ_EXIT" -eq 2 ] && grep -qF "falta jq" "$GUARD_INIT_NO_JQ_OUT"; then
+  echo -e "${GREEN}PASS${NC}: guard_init: sin jq en PATH bloquea con 'falta jq'"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_init: sin jq en PATH bloquea con 'falta jq' (exit: $GUARD_INIT_NO_JQ_EXIT, stderr: $(cat "$GUARD_INIT_NO_JQ_OUT"))"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$NO_JQ_GUARD_INIT_BIN" "$GUARD_INIT_NO_JQ_OUT"
+
+# guard_init con NUL en el comando: bloquea citando el byte NUL.
+TOTAL=$((TOTAL + 1))
+GUARD_INIT_NUL_OUT=$(mktemp)
+GUARD_INIT_NUL_EXIT=0
+jq -n '{tool_input: {command: "echo hi\u0000"}}' | bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  guard_init "test-guard"
+' > /dev/null 2>"$GUARD_INIT_NUL_OUT" || GUARD_INIT_NUL_EXIT=$?
+if [ "$GUARD_INIT_NUL_EXIT" -eq 2 ] && grep -qi 'NUL' "$GUARD_INIT_NUL_OUT"; then
+  echo -e "${GREEN}PASS${NC}: guard_init: NUL en el comando bloquea citando el byte NUL"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_init: NUL en el comando bloquea citando el byte NUL (exit: $GUARD_INIT_NUL_EXIT, stderr: $(cat "$GUARD_INIT_NUL_OUT"))"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$GUARD_INIT_NUL_OUT"
+
+# guard_init deja COMMAND/INPUT_CWD/SANITIZED_COMMAND seteados a partir del
+# JSON de entrada.
+TOTAL=$((TOTAL + 1))
+GUARD_INIT_VARS_OUT=$(jq -n '{tool_input: {command: "echo hi"}, cwd: "/tmp"}' | bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  guard_init "test-guard"
+  echo "COMMAND=$COMMAND"
+  echo "INPUT_CWD=$INPUT_CWD"
+  echo "SANITIZED_COMMAND=$SANITIZED_COMMAND"
+' || true)
+if echo "$GUARD_INIT_VARS_OUT" | grep -qF "COMMAND=echo hi" && \
+   echo "$GUARD_INIT_VARS_OUT" | grep -qF "INPUT_CWD=/tmp" && \
+   echo "$GUARD_INIT_VARS_OUT" | grep -qF "SANITIZED_COMMAND=echo hi"; then
+  echo -e "${GREEN}PASS${NC}: guard_init: deja COMMAND/INPUT_CWD/SANITIZED_COMMAND seteados"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_init: deja COMMAND/INPUT_CWD/SANITIZED_COMMAND seteados (got: $GUARD_INIT_VARS_OUT)"
+  FAIL=$((FAIL + 1))
+fi
+
+# guard_init sin perl en PATH: GUARD_SANITIZE_STATUS queda en 1 (modo
+# degradado, mismo criterio que guard_sanitize por su cuenta).
+NO_PERL_GUARD_INIT_BIN=$(mktemp -d)
+for cmd in bash cat jq grep; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_PERL_GUARD_INIT_BIN/$cmd"
+done
+TOTAL=$((TOTAL + 1))
+GUARD_INIT_NO_PERL_OUT=$(jq -n '{tool_input: {command: "echo hi"}}' | PATH="$NO_PERL_GUARD_INIT_BIN" bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  guard_init "test-guard"
+  echo "STATUS=$GUARD_SANITIZE_STATUS"
+' 2>/dev/null || true)
+rm -rf "$NO_PERL_GUARD_INIT_BIN"
+if echo "$GUARD_INIT_NO_PERL_OUT" | grep -qF "STATUS=1"; then
+  echo -e "${GREEN}PASS${NC}: guard_init: sin perl en PATH deja GUARD_SANITIZE_STATUS=1"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_init: sin perl en PATH deja GUARD_SANITIZE_STATUS=1 (got: $GUARD_INIT_NO_PERL_OUT)"
+  FAIL=$((FAIL + 1))
+fi
+
+# guard_session_dir sin INPUT_CWD: imprime pwd -P del cwd del proceso.
+TOTAL=$((TOTAL + 1))
+GUARD_SESSION_DIR_NO_CWD=$(cd "$SCRIPT_DIR" && bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  INPUT_CWD=""
+  guard_session_dir
+' || true)
+GUARD_SESSION_DIR_EXPECTED=$(cd "$SCRIPT_DIR" && pwd -P)
+if [ "$GUARD_SESSION_DIR_NO_CWD" = "$GUARD_SESSION_DIR_EXPECTED" ]; then
+  echo -e "${GREEN}PASS${NC}: guard_session_dir: sin INPUT_CWD imprime pwd -P del cwd del proceso"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_session_dir: sin INPUT_CWD imprime pwd -P del cwd del proceso (got: $GUARD_SESSION_DIR_NO_CWD, expected: $GUARD_SESSION_DIR_EXPECTED)"
+  FAIL=$((FAIL + 1))
+fi
+
+# guard_session_dir con INPUT_CWD válido: imprime esa ruta (resuelta).
+TOTAL=$((TOTAL + 1))
+GUARD_SESSION_DIR_VALID_CWD=$(bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  INPUT_CWD="'"$REPO_ROOT"'"
+  guard_session_dir
+' || true)
+if [ "$GUARD_SESSION_DIR_VALID_CWD" = "$REPO_ROOT" ]; then
+  echo -e "${GREEN}PASS${NC}: guard_session_dir: con INPUT_CWD válido imprime esa ruta"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_session_dir: con INPUT_CWD válido imprime esa ruta (got: $GUARD_SESSION_DIR_VALID_CWD)"
+  FAIL=$((FAIL + 1))
+fi
+
+# guard_session_dir con INPUT_CWD inexistente: return 1, sin imprimir nada.
+TOTAL=$((TOTAL + 1))
+GUARD_SESSION_DIR_MISSING_OUT=$(mktemp)
+GUARD_SESSION_DIR_MISSING_EXIT=0
+bash -c '
+  source "'"$HOOKS_DIR"'/lib/guard-matching.sh"
+  INPUT_CWD="/no/existe/de/verdad"
+  guard_session_dir
+' > "$GUARD_SESSION_DIR_MISSING_OUT" 2>/dev/null || GUARD_SESSION_DIR_MISSING_EXIT=$?
+if [ "$GUARD_SESSION_DIR_MISSING_EXIT" -eq 1 ] && [ ! -s "$GUARD_SESSION_DIR_MISSING_OUT" ]; then
+  echo -e "${GREEN}PASS${NC}: guard_session_dir: INPUT_CWD inexistente devuelve 1 sin imprimir nada"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guard_session_dir: INPUT_CWD inexistente devuelve 1 sin imprimir nada (exit: $GUARD_SESSION_DIR_MISSING_EXIT, stdout: $(cat "$GUARD_SESSION_DIR_MISSING_OUT"))"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$GUARD_SESSION_DIR_MISSING_OUT"
+
+echo ""
+
 # --- Sandbox infra para hooks no-bloqueantes (PreCompact, SubagentStop, SessionEnd) ---
 echo "--- sandbox infra ---"
 

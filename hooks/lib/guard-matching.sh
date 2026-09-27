@@ -199,3 +199,39 @@ guard_sanitize() {
 guard_command_has_nul() {
   echo "$1" | jq -e '.tool_input.command // "" | contains("\u0000")' > /dev/null 2>&1
 }
+
+# guard_block <motivo>: escribe "BLOCKED: <GUARD_NAME>: <motivo>" en stderr y
+# sale con 2. Requiere GUARD_NAME seteado por guard_init.
+guard_block() {
+  echo "BLOCKED: ${GUARD_NAME}: $1" >&2
+  exit 2
+}
+
+# guard_init <nombre-del-guard>: preámbulo común de los guards PreToolUse.
+# Se llama DESPUÉS de sourcear esta lib (el caller ya verificó que la lib
+# existe; sin lib no hay guard_init que llamar — ese check queda en el
+# guard). Deja definidas GUARD_NAME, INPUT, COMMAND, INPUT_CWD,
+# SANITIZED_COMMAND, GUARD_SANITIZE_STATUS. Nunca imprime en stdout.
+guard_init() {
+  GUARD_NAME="$1"
+  command -v jq > /dev/null 2>&1 || { echo "BLOCKED: ${GUARD_NAME} no operativo: falta jq" >&2; exit 2; }
+  INPUT=$(cat)
+  COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+  INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
+  guard_command_has_nul "$INPUT" && guard_block "el comando trae un byte NUL"
+  SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
+  GUARD_SANITIZE_STATUS=$?
+}
+
+# guard_session_dir: imprime el directorio de la sesión resuelto con
+# pwd -P (INPUT_CWD si vino en el JSON, el cwd del proceso si no). Devuelve
+# 1 sin imprimir nada si INPUT_CWD vino y no es un directorio — el caller
+# decide bloquear (guards de árbol) o seguir.
+guard_session_dir() {
+  if [ -n "$INPUT_CWD" ]; then
+    [ -d "$INPUT_CWD" ] || return 1
+    (cd "$INPUT_CWD" && pwd -P)
+  else
+    pwd -P
+  fi
+}
