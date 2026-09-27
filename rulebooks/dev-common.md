@@ -1,6 +1,6 @@
 # Dev Common
 
-Procedimientos idénticos para todos los agentes que escriben código (`backend-dev`, `frontend-dev`, `refactor`, `e2e-runner`, `docs`). Vivían copiados en cada prompt; ahora viven acá una sola vez.
+Procedimientos idénticos para todos los agentes que escriben código (`backend-dev`, `frontend-dev`, `e2e-runner`, `docs`). Vivían copiados en cada prompt; ahora viven acá una sola vez.
 
 Cada agente los referencia desde su sección "Reglas heredadas" y agrega solo su delta específico, si tiene.
 
@@ -15,7 +15,7 @@ Antes de empezar:
 
 Formato de commit y reglas de gitflow generales: `CLAUDE.md` raíz.
 
-**Excepción — `refactor` y `e2e-runner` en Modo A** (invocación directa del usuario): ahí sí creas tu propio branch, porque no hay orchestrator que lo haya hecho. Ver el prompt de cada agente.
+**Excepción — `e2e-runner` en Modo A** (invocación directa del usuario): ahí sí creas tu propio branch, porque no hay orchestrator que lo haya hecho. Ver el prompt del agente.
 
 ## Push: quién y cuándo
 
@@ -56,7 +56,7 @@ Branch: <nombre>
 
 Procedimiento completo y prevención: `rulebooks/agent-budget.md`.
 
-Algunos agentes agregan información al HANDOFF por su dominio (el `backend-dev` debe registrar el estado exacto de la DB de test en un lote `db-complejo`; el `refactor` no commitea refactors a medio terminar). Eso está en su prompt.
+Algunos agentes agregan información al HANDOFF por su dominio (el `backend-dev` debe registrar el estado exacto de la DB de test en un lote `db-complejo`). Eso está en su prompt.
 
 ## Guardas que aplican a todo lote
 
