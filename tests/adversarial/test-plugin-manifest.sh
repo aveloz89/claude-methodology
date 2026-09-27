@@ -900,6 +900,20 @@ else
 fi
 
 echo ""
+echo "--- registro de review: escritor único documentado (#71) ---"
+
+RUNBOOK="$REPO_ROOT/rulebooks/orchestrator-runbook.md"
+
+TOTAL=$((TOTAL + 1))
+if grep -q "único escritor del registro" "$RUNBOOK"; then
+  echo -e "${GREEN}PASS${NC}: el runbook documenta al orchestrator como único escritor del registro de review"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: el runbook no documenta explícitamente al orchestrator como único escritor del registro de review"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then
