@@ -49,11 +49,11 @@ El checklist de infraestructura que el security-reviewer debe correr (rate limit
 
 ### Verificación E2E real obligatoria en PRs a main (pre-release)
 
-**Decisión del usuario 2026-07-19:** la verificación E2E completa (suite Playwright + flujos en navegador real) es obligatoria y bloqueante **solo en PRs a `main`** (pre-release). En PRs de feature a `dev` NO se corre E2E por default — basta con security + qa + tests unitarios + build. Razón: el ciclo dev es más ágil sin el gate más caro; la suite E2E se actualiza y corre una sola vez por release, contra el acumulado.
+La verificación E2E completa (suite Playwright + flujos en navegador real) es obligatoria y bloqueante **solo en PRs a `main`** (pre-release). En PRs de feature a `dev` NO se corre E2E por default — basta con security + qa + tests unitarios + build. Razón: el ciclo dev es más ágil sin el gate más caro; la suite E2E se actualiza y corre una sola vez por release, contra el acumulado.
 
 Consecuencia aceptada: la suite `e2e/` puede quedar temporalmente desactualizada respecto a `dev` entre releases; ponerla al día es parte del PR a `main` (lote del e2e-runner, bloqueante ahí). El usuario puede seguir invocando E2E puntual en dev cuando lo pida explícitamente.
 
-Para el PR a main, la regla original aplica íntegra:
+Para el PR a main:
 
 Antes de aprobar el merge a main de cambios que tocan UI (componentes, páginas, flujos de usuario), **ejecutar el flujo real en un navegador contra el backend levantado** — no basta con tests unitarios ni con verificación por `curl`.
 
