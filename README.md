@@ -78,7 +78,9 @@ Idea → Brainstorming (orchestrator pregunta: ¿vale la pena?, resultado espera
 - **No push directo a main**
 - **No stubs/TODOs** en código mergeado
 - **Frontend delgado** — cero lógica de negocio
-- **Estado persistente** en `.planning/` — sobrevive cambios de sesión
+- **Estado persistente** en `.planning/` — sobrevive cambios de sesión, no se versiona (salvo `.planning/ARCHITECTURE.md`)
+
+> **Proyectos que ya adoptaron esta metodología con `.planning/` versionado (incluidas retros de PRs anteriores)**: agregá `.planning/*` + `!.planning/ARCHITECTURE.md` al `.gitignore` del proyecto, corré `git rm -r --cached .planning` (re-agregando `ARCHITECTURE.md` si existe) y borrá del working tree los archivos de retro que ya no se generan — la historia queda igual en git.
 
 ## Instalación
 
