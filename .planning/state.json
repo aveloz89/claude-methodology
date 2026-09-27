@@ -22,9 +22,9 @@
       "name": "base-cwd-git-C-gitdir",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 2,
+      "tasks_done": 3,
       "tasks_total": 5,
-      "current_task": "tarea 3: git -C irresoluble bloquea sin correr",
+      "current_task": "tarea 4: --git-dir/--work-tree y GIT_DIR/GIT_WORK_TREE bloquean sin correr",
       "commits": [],
       "last_batch": false,
       "depends_on": []

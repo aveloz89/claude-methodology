@@ -1269,6 +1269,62 @@ _pskip_assert_blocked_forms \
   "pre-commit-guard: mención de \"git -C\" junto a un \"git commit\" local en el mismo comando → bloquea sin correr (mezcla de árboles)" \
   "git -C /nonexistent status; git commit -am x"
 
+# X14: ruta inexistente — "git -C" resuelve una única candidata, pero no
+# existe. Bloquea sin correr (no "no es repo", que sería otro mensaje, pero
+# el contrato solo exige "Formas aceptadas" en stderr).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git -C <ruta inexistente> commit → bloquea sin correr" \
+  "git -C /nonexistent-tree-73 commit -am x"
+
+# X14b: ruta que existe pero no es un repo git.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+PCG_NOTAREPO_DIR=$(mktemp -d)
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git -C <directorio que no es repo> commit → bloquea sin correr" \
+  "git -C $PCG_NOTAREPO_DIR commit -am x"
+rm -rf "$PCG_NOTAREPO_DIR"
+
+# X11 (análogo -C): ruta con "$" sin expandir (literal, tal como llega el
+# comando — nadie lo ejecuta). El candidato extraído es literalmente
+# "$WT_VAR" (con el símbolo incluido): no cumple TREE_PATH_RE y, aunque lo
+# cumpliera, tampoco existe como directorio real — bloquea sin correr por
+# cualquiera de las dos razones, nunca lo trata como una ruta válida.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git -C \$WT_VAR (ruta con \$, literal) commit → bloquea sin correr" \
+  'git -C $WT_VAR commit -am x'
+
+# X12 (análogo -C): ruta entre comillas — guard_sanitize colapsa el span
+# quoted a un espacio, así que el candidato extraído termina siendo la
+# palabra "commit" (el siguiente token no-blanco tras "-C" una vez colapsada
+# la ruta real) en vez de la ruta del worktree. Verificado que ese
+# candidato no resuelve (no existe un directorio "commit" en el árbol
+# principal): bloquea sin correr — nunca debe tratar el artefacto del saneo
+# como si fuera la ruta real ni salir por el camino rápido.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git -C \"<worktree>\" (ruta entre comillas) commit → bloquea sin correr" \
+  "git -C \"$PSKIP_WT\" commit -am x"
+_pskip_cleanup_worktree
+
+# X15b: dos "-C" con rutas DISTINTAS — a qué árbol es ambiguo, bloquea sin
+# correr (sort -u deja más de una candidata).
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+_pskip_setup_worktree
+PCG_OTHER_DIR=$(mktemp -d)
+_pskip_assert_blocked_forms \
+  "pre-commit-guard: git -C <worktree> add -A && git -C <otro> commit (rutas distintas) → bloquea sin correr" \
+  "git -C $PSKIP_WT add -A && git -C $PCG_OTHER_DIR commit -m x"
+rm -rf "$PCG_OTHER_DIR"
+_pskip_cleanup_worktree
+
 # R8: ".cwd" del input reemplaza al cwd del proceso como BASE_DIR — el
 # proceso corre en el árbol principal (sucio solo .planning/), pero el JSON
 # trae "cwd": $PSKIP_WT (worktree con código sucio); sin redirección en el
