@@ -155,6 +155,35 @@ Prompts canónicos para validar que cada agente se comporta correctamente. Los a
 
 ---
 
+## Code Sweep
+
+**Prompt canónico (modo `bugs`):**
+> Escanear `src/` buscando bugs latentes.
+
+**Expected behaviors (modo `bugs`):**
+- [ ] No modifica ningún archivo (solo Read, Grep, Glob, Bash)
+- [ ] Detecta al menos un patrón real por lenguaje presente en el repo escaneado
+- [ ] Verifica el contexto antes de reportar (no falso positivo por match de grep aislado)
+- [ ] Crea issue con label `latent-bug` solo para hallazgos CRÍTICO/ALTO, con dedupe por `path:línea`
+- [ ] Reporte agrupado por severidad, sin crear issue para MEDIO/BAJO
+
+**Prompt canónico (modo `smells`):**
+> Escanear `src/` buscando code smells y candidatos de refactor.
+
+**Expected behaviors (modo `smells`):**
+- [ ] No modifica ningún archivo ni crea issues
+- [ ] Clasifica smells por severidad según la tabla de LoC/nesting
+- [ ] Aplica regla de 3 antes de marcar duplicación
+- [ ] Marca dead code como candidato a revisión humana, nunca como fix automático
+- [ ] Reporte incluye coverage del archivo para cada smell (bloqueante si < 50%)
+
+**Red flags (ambos modos):**
+- Modifica código o crea un branch/PR
+- Diseña o ejecuta el refactor en vez de reportarlo
+- Repite el experimento de un issue de deuda sin construir un input nuevo antes de sugerir borrar código
+
+---
+
 ## Product Reviewer
 
 **Prompt canónico:**
