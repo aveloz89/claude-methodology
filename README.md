@@ -80,7 +80,7 @@ Idea → Brainstorming (orchestrator pregunta: ¿vale la pena?, resultado espera
 - **Frontend delgado** — cero lógica de negocio
 - **Estado persistente** en `.planning/` — sobrevive cambios de sesión, no se versiona (salvo `.planning/ARCHITECTURE.md`)
 
-> **Proyectos que ya adoptaron esta metodología con `.planning/` versionado (incluidas retros de PRs anteriores)**: agrega `.planning/*` + `!.planning/ARCHITECTURE.md` al `.gitignore` del proyecto, corre `git rm -r --cached .planning` (re-agregando `ARCHITECTURE.md` si existe) y borra del working tree los archivos de retro que ya no se generan — la historia queda igual en git.
+> **Proyectos que ya adoptaron esta metodología con `.planning/` versionado (incluidas retros de PRs anteriores)**: agrega `.planning/*` + `!.planning/ARCHITECTURE.md` al `.gitignore` del proyecto, corre `git rm -r --cached .planning` (re-agregando `ARCHITECTURE.md` si existe) y borra del working tree los archivos de retro que ya no se generan — la historia queda igual en git. Antes de mergear este cambio (o de cambiar a la rama base mientras `.planning/` siga versionado ahí), respalda la carpeta fuera del repo, por ejemplo con `cp -R .planning /tmp/planning-backup`, porque el checkout a esa rama la borra del disco; restáurala después con `cp -R /tmp/planning-backup .planning`.
 
 ## Instalación
 
