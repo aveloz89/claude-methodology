@@ -3113,6 +3113,97 @@ rm -rf "$FAKE_GH_DIR"
 
 rm -rf "$FAKE_GH_DIR"
 
+# ============================================================
+# [#73] pre-merge-check.sh: .cwd del input vs cwd del proceso, sin --repo
+# (Contrato 2 de .planning/DESIGN.md). Mismo criterio de "afirma qué
+# CONSULTÓ" que la sección D-04: un bloqueo se confirma con 0 llamadas al
+# gh falso, no solo con el exit code.
+# ============================================================
+echo "--- pre-merge-check.sh: cwd del input (#73) ---"
+
+FAKE_GH_PMC_CWD_DIR=$(mktemp -d)
+FAKE_GH_PMC_CWD_LOG="$FAKE_GH_PMC_CWD_DIR/calls.log"
+cat > "$FAKE_GH_PMC_CWD_DIR/gh" <<FAKE_GH_PMC_CWD_EOF
+#!/bin/bash
+echo "\$*" >> "$FAKE_GH_PMC_CWD_LOG"
+case "\$1 \$2" in
+  "repo view") echo "session/repo" ;;
+  "pr view") echo '{"reviewDecision":null}' ;;
+  "api graphql") echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}' ;;
+  "pr checks") printf 'some-check\tpass\t1s\n' ;;
+  *) exit 1 ;;
+esac
+FAKE_GH_PMC_CWD_EOF
+chmod +x "$FAKE_GH_PMC_CWD_DIR/gh"
+
+assert_pmc_cwd_continue() {
+  local test_name="$1" cmd="$2" cwd="$3" expected_repo="$4"
+  TOTAL=$((TOTAL + 1))
+  : > "$FAKE_GH_PMC_CWD_LOG"
+  local json exit_code=0
+  json=$(jq -n --arg cmd "$cmd" --arg cwd "$cwd" '{tool_input: {command: $cmd}, cwd: $cwd}')
+  echo "$json" | PATH="$FAKE_GH_PMC_CWD_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 0 ] && grep -qF -- "--repo $expected_repo" "$FAKE_GH_PMC_CWD_LOG"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue, repo consultado: $expected_repo)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, log: $(cat "$FAKE_GH_PMC_CWD_LOG" | tr '\n' ' '))"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pmc_cwd_continue_no_cwd_field() {
+  local test_name="$1" cmd="$2" expected_repo="$3"
+  TOTAL=$((TOTAL + 1))
+  : > "$FAKE_GH_PMC_CWD_LOG"
+  local json exit_code=0
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  echo "$json" | PATH="$FAKE_GH_PMC_CWD_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>&1 || exit_code=$?
+  if [ "$exit_code" -eq 0 ] && grep -qF -- "--repo $expected_repo" "$FAKE_GH_PMC_CWD_LOG"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (continue, repo consultado: $expected_repo)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, log: $(cat "$FAKE_GH_PMC_CWD_LOG" | tr '\n' ' '))"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_pmc_cwd_blocked_no_calls() {
+  local test_name="$1" cmd="$2" cwd="$3" expected_substring="$4"
+  TOTAL=$((TOTAL + 1))
+  : > "$FAKE_GH_PMC_CWD_LOG"
+  local json exit_code=0 calls stderr_file
+  stderr_file=$(mktemp)
+  json=$(jq -n --arg cmd "$cmd" --arg cwd "$cwd" '{tool_input: {command: $cmd}, cwd: $cwd}')
+  echo "$json" | PATH="$FAKE_GH_PMC_CWD_DIR:$PATH" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>"$stderr_file" || exit_code=$?
+  calls=$(wc -l < "$FAKE_GH_PMC_CWD_LOG" | tr -d ' ')
+  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file" && [ "$calls" = "0" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked, 0 consultas a gh)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"), consultas: $calls)"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$stderr_file"
+}
+
+PMC_PROC_CWD=$(pwd -P)
+PMC_OTHER_DIR=$(mktemp -d)
+
+# M1: .cwd == cwd del proceso -> continúa, consulta el repo de la sesión.
+assert_pmc_cwd_continue "[#73][M1] .cwd = cwd del proceso -> continúa, consulta el repo de la sesión" \
+  "gh pr merge 45" "$PMC_PROC_CWD" "session/repo"
+
+# M2: .cwd distinto (directorio existente), sin --repo -> bloquea sin consultar.
+assert_pmc_cwd_blocked_no_calls "[#73][M2] .cwd distinto del cwd del proceso, sin --repo -> bloquea sin consultar" \
+  "gh pr merge 45" "$PMC_OTHER_DIR" "--repo"
+
+# M3: .cwd inexistente, sin --repo -> bloquea sin consultar.
+assert_pmc_cwd_blocked_no_calls "[#73][M3] .cwd inexistente, sin --repo -> bloquea sin consultar" \
+  "gh pr merge 45" "/nonexistent-pmc-cwd-$$" "--repo"
+
+rm -rf "$FAKE_GH_PMC_CWD_DIR" "$PMC_OTHER_DIR"
+
 echo ""
 
 # --- guard-matching.sh: fail-closed sin lib (ronda 2, tarea 2) ---

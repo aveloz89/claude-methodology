@@ -409,6 +409,16 @@ if [ -z "$EXPLICIT_REPO" ] && { [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-
   block "Blocked: el entorno del proceso de este hook tiene GIT_DIR o GIT_WORK_TREE seteado — sin --repo explícito, gh repo view podría resolver un árbol distinto al de la sesión. Usa --repo explícito (con --repo, el guard nunca corre gh repo view y esta variable deja de importar). ${MERGE_FORM_HELP}"
 fi
 
+# [#73] .cwd del input vs cwd del proceso del hook: ver punto 7 del header.
+INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
+if [ -n "$INPUT_CWD" ]; then
+  PROC_CWD=$(pwd -P)
+  IN_CWD=$(cd "$INPUT_CWD" 2>/dev/null && pwd -P)
+  if [ -z "$IN_CWD" ] || [ "$IN_CWD" != "$PROC_CWD" ]; then
+    block "Blocked: el cwd del comando (${INPUT_CWD}) no coincide con el directorio donde corre este hook (${PROC_CWD}); sin --repo explícito el guard no sabe qué repo verificar. Usa --repo owner/repo. ${MERGE_FORM_HELP}"
+  fi
+fi
+
 if [ -n "$EXPLICIT_REPO" ]; then
   REPO="$EXPLICIT_REPO"
 else
