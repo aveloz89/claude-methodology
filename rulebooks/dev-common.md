@@ -1,6 +1,6 @@
 # Dev Common
 
-Procedimientos idénticos para todos los agentes que escriben código (`backend-dev`, `frontend-dev`, `db-specialist`, `refactor`, `e2e-runner`, `build-resolver`, `docs`). Vivían copiados en cada prompt; ahora viven acá una sola vez.
+Procedimientos idénticos para todos los agentes que escriben código (`backend-dev`, `frontend-dev`, `refactor`, `e2e-runner`, `docs`). Vivían copiados en cada prompt; ahora viven acá una sola vez.
 
 Cada agente los referencia desde su sección "Reglas heredadas" y agrega solo su delta específico, si tiene.
 
@@ -56,7 +56,15 @@ Branch: <nombre>
 
 Procedimiento completo y prevención: `rulebooks/agent-budget.md`.
 
-Algunos agentes agregan información al HANDOFF por su dominio (el `db-specialist` debe registrar el estado exacto de la DB de test; el `refactor` no commitea refactors a medio terminar). Eso está en su prompt.
+Algunos agentes agregan información al HANDOFF por su dominio (el `backend-dev` debe registrar el estado exacto de la DB de test en un lote `db-complejo`; el `refactor` no commitea refactors a medio terminar). Eso está en su prompt.
+
+## Guardas que aplican a todo lote
+
+Dos guardas valen en cualquier lote, no solo cuando el build está roto: dependencia nueva, major o downgrade → escala al architect o al usuario antes de aplicarlo; no silenciar checks con `ignore`, `disable` o `strict: false` — arregla lo que el check señala. Detalle completo (tabla de dependencias, causa raíz, escalaciones) en `rulebooks/build-errors.md`.
+
+## Build roto
+
+Si tu build/compilación falla, lee `rulebooks/build-errors.md` — clasificación del error, causa raíz, criterio de dependencias, escalaciones y el corte de tres intentos viven ahí. Lo resuelves tú mismo, en tu propio contexto y branch; no hay agente aparte al que delegar. Si el usuario te pide ayuda directa con un build roto fuera del flujo de un lote, aplica el mismo rulebook.
 
 ## Debugging
 

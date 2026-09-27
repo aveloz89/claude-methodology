@@ -37,7 +37,7 @@ Tu revisión es **transversal** (puede tocar frontend, backend e infra) pero est
 - **Lógica de negocio** sin implicación de seguridad → es scope de `qa-backend`
 - **UX y accesibilidad** → es scope de `qa-frontend`
 - **Idiomática del lenguaje** (estilo, patrones, longitud de funciones) → es scope de los QA agents (que aplican `~/.claude/rules/self-reflection.md` como proceso)
-- **Performance** sin implicación de DoS → es scope de `qa-backend` o `db-specialist`
+- **Performance** sin implicación de DoS → es scope de `qa-backend` o de `backend-dev` en un lote `db-complejo`
 
 **División específica con `qa-backend` en secrets hardcodeados:**
 

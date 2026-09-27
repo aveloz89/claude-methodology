@@ -7,7 +7,7 @@ Detalle operativo del flujo de orchestration. **Lectura bajo demanda**: las inva
 ## Contenido
 
 1. [Detalle de cada fase del flujo](#detalle-de-cada-fase-del-flujo)
-2. [Criterios completos: db-specialist vs backend-dev](#criterios-completos-db-specialist-vs-backend-dev)
+2. [Cuándo un lote es DB complejo](#cuándo-un-lote-es-db-complejo)
 3. [Context isolation: qué recibe cada agente](#context-isolation-qué-recibe-cada-agente)
 4. [Template del prompt de handoff a devs](#template-del-prompt-de-handoff-a-devs)
 5. [Formatos de archivos en `.planning/`](#formatos-de-archivos-en-planning)
@@ -47,7 +47,7 @@ Antes de diseñar o implementar nada, entiende qué quiere el usuario. **Nunca a
 
 ### Fase 0.5: Design system (si hay UI)
 
-Si la tarea involucra trabajo visual, invoca `ui-ux` ANTES del architect.
+Invoca `ui-ux` solo si no existe `design-system/<proyecto>/MASTER.md`, o si el brief introduce una página crítica o un patrón visual nuevo. Si `MASTER.md` ya existe y la UI del brief es chica, no lo invocas: el `architect` referencia `MASTER.md` en el brief y el `frontend-dev` lee `MASTER.md` y aplica sus constraints directamente, sin pasar por `ui-ux`.
 
 **Cómo invocar `ui-ux`:**
 
@@ -73,13 +73,12 @@ Si la tarea involucra trabajo visual, invoca `ui-ux` ANTES del architect.
 ### Fase 1: Diseño
 
 1. Invoca al `architect` pasándole `.planning/BRIEF.md` (no la conversación raw). Si hubo design system, ya está dentro del brief
-2. Si el diseño identifica DB compleja (ver criterios completos abajo), invoca al `db-specialist` para diseñar/validar el esquema antes de cerrar el plan
-3. El architect entrega `.planning/DESIGN.md` con plan de lotes y estrategia de PR. Si hay DB compleja, el plan debe incluir un lote asignado a `db-specialist`
-4. **Validación del plan** (antes de implementar):
+2. El architect entrega `.planning/DESIGN.md` con plan de lotes y estrategia de PR. Si identifica DB compleja (ver criterios completos abajo), marca ese lote de `backend-dev` como `db-complejo` y lo ubica primero
+3. **Validación del plan** (antes de implementar):
    - Cada lote tiene **≤5 tareas**. Si excede, devolver al architect: *"El Lote X tiene N tareas. Excede el cap de 5. Repártelo en lotes más chicos."*
    - **Máximo 3 reintentos de validación.** Si después de 3 intentos el architect no entrega plan válido, escala al usuario con el plan actual y los problemas detectados
    - Estrategia de PR declarada (single-PR o multi-PR con justificación)
-5. Solo cuando el plan es válido, procedes a Fase 2
+4. Solo cuando el plan es válido, procedes a Fase 2
 
 ### Fase 2: Implementación
 
@@ -103,15 +102,15 @@ Todos los lotes corren sobre el mismo branch; un único PR al final.
    - El dev hace commit por tarea y termina sin push ni PR
    - Esperas el reporte del dev antes de pasar al siguiente lote
 2. **El último lote** se invoca con flag **`last_batch=true`**: el dev cierra la implementación con la verificación final completa y termina **sin push ni PR** — después vienen docs (Fase 2.5), review dual local (Fase 2.6) y push + PR (Fase 2.7, los haces tú)
-3. **Orden esperado cuando hay db-specialist**:
-   - `db-specialist` primero (siempre): schema, migraciones, queries, tests de DB
-   - `backend-dev` después (necesita el schema)
+3. **Orden esperado cuando hay un lote `db-complejo`**:
+   - El lote `db-complejo` primero (siempre): schema, migraciones, queries, tests de DB. Lo hace `backend-dev`, con `rulebooks/db-migrations.md`
+   - El resto de `backend-dev` después (necesita el schema)
    - `frontend-dev` al final (necesita los endpoints)
-   - Si back y front son independientes (archivos disjuntos), pueden paralelizar
+   - Si el resto de back y front son independientes (archivos disjuntos), pueden paralelizar
 
-   Esto porque backend-dev necesita el schema disponible para importar tipos. Si el architect entrega un plan que tiene backend-dev antes del db-specialist en una feature con DB compleja, **devuélveselo al architect** — es probable que esté mal particionado.
+   Esto porque los lotes siguientes necesitan el schema disponible para importar tipos. Si el architect entrega un plan que tiene un lote consumidor antes del `db-complejo` en una feature con DB compleja, **devuélveselo al architect** — es probable que esté mal particionado.
 
-   Excepción: si los lotes son genuinamente independientes (db-specialist trabaja en una tabla X que backend-dev no toca, y backend-dev trabaja sobre tablas existentes que no cambian), pueden ir en paralelo.
+   Excepción: si los lotes son genuinamente independientes (el lote `db-complejo` trabaja en una tabla X que el otro lote no toca, y ese otro lote trabaja sobre tablas existentes que no cambian), pueden ir en paralelo.
 
 #### Modo multi-PR (solo si architect lo justificó)
 
@@ -132,11 +131,11 @@ El plan del architect debió evitar esto. Si pasa:
 
 #### Si un dev reporta error de build/compilación que no puede resolver
 
-Invoca `build-resolver` con: error completo, branch, archivos afectados. Resuelve en el mismo branch y reporta qué hizo.
+Reinvoca al mismo dev (el que produjo el error) con la instrucción de leer `rulebooks/build-errors.md`. Resuelve en el mismo branch y reporta qué hizo. Si el usuario pide ayuda directa con un build roto fuera de un lote en curso, delega en `backend-dev` o `frontend-dev` según el stack, con el mismo rulebook.
 
 ### Fase 2.5: Documentación (pre-push)
 
-Cuando el último lote reporta completado, invoca `docs` con: branch, base branch y la instrucción de leer el diff local (`git diff <base>...HEAD`). El `docs` genera/actualiza docs y **commitea al branch SIN pushear** — su commit viaja en el push inicial (presupuesto de CI: evita un run de Actions solo por docs).
+Cuando el último lote reporta completado, corre `git diff --stat <base>...HEAD`. Si el diff solo toca tests, `.planning/` o código interno — sin cambios en README, API, CLI ni config —, salta `docs` y lo registra en el body del PR. Excepción: cambios en hooks, permisos, auth o controles de seguridad siempre invocan `docs`, aunque el resto del diff clasifique como código interno. En cualquier otro caso, invoca `docs` con: branch, base branch y la instrucción de leer el diff local (`git diff <base>...HEAD`). El `docs` genera/actualiza docs y **commitea al branch SIN pushear** — su commit viaja en el push inicial (presupuesto de CI: evita un run de Actions solo por docs).
 
 Si reporta "sin cambios necesarios", avanza directo a Fase 2.6.
 
@@ -149,12 +148,12 @@ El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` r
 3. **Lanza en paralelo** (single message, multiple Agent calls):
    - `security-reviewer` — siempre
    - `qa-frontend` — solo si el diff tiene frontend
-   - `qa-backend` — solo si el diff tiene backend (incluye revisar migraciones y queries del db-specialist)
+   - `qa-backend` — solo si el diff tiene backend (incluye revisar migraciones y queries del lote `db-complejo`)
 
    Paquete de contexto (context isolation): base + branch + instrucción de leer `git diff <base>...HEAD` + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida. **Sin número de PR — no existe todavía.** Si el diff **introduce una regla nueva**, decilo en el paquete: el reviewer tiene que aplicarla al propio diff (ver `agents/qa-backend.md`). Puede identificarla leyendo el diff, pero nombrarla le ahorra ese paso. Si el reviewer corre suites desde un worktree: que exporte su propia base de test (`TEST_DATABASE_URL` o el equivalente del proyecto, ej. `<base>_<reviewer>`) para no pisar la corrida del árbol principal ni bloquear el hook de pre-commit de otro agente.
 4. **Consolida y registra**: reporte con el "Formato de reporte de review" (más abajo), guardado en `.planning/reviews/pre-pr-<feature-slug>.md` con header de trazabilidad (branch, base, SHA de HEAD revisado, fecha, veredicto). Commit al branch: `planning: registrar review dual pre-push`
 5. **Mientras haya un reviewer corriendo, el árbol no se mueve.** Cuando lanzás varios en paralelo —pueden ser tres en un diff full-stack— esperá a que vuelvan **todos** antes de aplicar nada: si aplicás los hallazgos del primero, los demás quedan leyendo un árbol que cambió bajo sus pies. Si uno se cuelga o excede su presupuesto, no esperes indefinido: cortalo y relanzalo después de aplicar, o aplicá solo en archivos que ese reviewer no esté mirando — pero decidilo explícitamente, no por olvido. Ya pasó (ver las retros de los PRs #65 y #66, y la de este mismo PR). Las veces que pasó lo detectó el reviewer y avisó, en vez de reportar un rojo falso — pero eso es disciplina suya, no una red del proceso. Vale igual para un dev trabajando en paralelo: si un lote y un review tocan los mismos archivos, no van juntos.
-6. **Si hay bloqueantes**: fixes por el dev correspondiente en el mismo branch, **sin push** (si el bloqueante es de schema/migración/query optimizada, va al `db-specialist`). Re-lanza **solo** los reviewers que marcaron issues, acotados al delta local (`git diff <sha-ya-revisado>...HEAD`). Append de la re-ronda al registro. Sugerencias baratas: aplicadas antes del push (política en la skill `pr-workflow`, regla 2)
+6. **Si hay bloqueantes**: fixes por el dev correspondiente en el mismo branch, **sin push** (si el bloqueante es de schema/migración/query optimizada, va a `backend-dev` con `rulebooks/db-migrations.md`). Re-lanza **solo** los reviewers que marcaron issues, acotados al delta local (`git diff <sha-ya-revisado>...HEAD`). Append de la re-ronda al registro. Sugerencias baratas: aplicadas antes del push (política en la skill `pr-workflow`, regla 2)
 7. **Veredictos limpios**: actualiza `.planning/state.json` (`phases.review` a `done` y `review_sha` al SHA de HEAD al momento de los veredictos limpios) y avanza a Fase 2.7. Fixes, sugerencias aplicadas y registro viajan en el push inicial: **el PR nace revisado**
 
 ### Fase 2.7: Push + PR
@@ -189,9 +188,9 @@ gh pr checks <number> --watch --fail-fast
 - Si falla algún check:
   - Lee logs: `gh run view <run-id> --log-failed`
   - Asigna el fix:
-    - Build/compilación/dependencias → `build-resolver`
+    - Build/compilación/dependencias → dev que creó el PR, con `rulebooks/build-errors.md`
     - Tests o lint → dev que creó el PR
-    - Tests de DB que fallan por schema/migración → `db-specialist`
+    - Tests de DB que fallan por schema/migración → `backend-dev`, con `rulebooks/db-migrations.md`
   - El agente corrige en el **mismo branch del PR**. **Antes de pushear, debe reproducir el check fallido localmente y verlo pasar** (presupuesto de CI: un run fallido cuesta lo mismo que uno verde)
   - Si el fix cambia código ya revisado en Fase 2.6, anótalo: al quedar CI verde dispara el re-review acotado de la Fase 3
   - Vuelve a monitorear
@@ -262,11 +261,11 @@ Es el único punto del flujo donde el contenido de un push post-review no lo mir
 
 ---
 
-## Criterios completos: db-specialist vs backend-dev
+## Cuándo un lote es DB complejo
 
-`db-specialist` recibe lotes de implementación cuando el trabajo de DB es **complejo**. Para trabajo simple, lo hace `backend-dev`. La línea divisoria:
+`backend-dev` recibe todos los lotes de DB — no hay agente aparte. El `architect` marca un lote como `db-complejo` cuando el trabajo califica; el resto lo trata como cualquier lote de `backend-dev`. La línea divisoria (detalle completo en `rulebooks/db-migrations.md`):
 
-**Va al `db-specialist` (complejo):**
+**Es `db-complejo`:**
 
 - Migraciones que requieren **backfill de datos** (script de transformación)
 - Cambio de tipo de columna con datos existentes (`varchar → text`, `int → bigint`, JSON → columnas tipadas)
@@ -278,7 +277,7 @@ Es el único punto del flujo donde el contenido de un push post-review no lo mir
 - Migraciones que afecten >1M de filas en producción
 - Schema con relaciones complejas, herencia, polimorfismo, requisitos de performance específicos
 
-**Lo hace `backend-dev` (simple):**
+**No es `db-complejo` (lote simple de `backend-dev`):**
 
 - Crear/borrar tabla nueva (sin datos previos a preservar)
 - Agregar columna nullable o con default (sin backfill)
@@ -287,9 +286,9 @@ Es el único punto del flujo donde el contenido de un push post-review no lo mir
 - Agregar/modificar foreign key
 - Cambios en seeds/fixtures de desarrollo
 
-**Regla rápida:** si la migración necesita un script que toque datos, o requiere análisis de performance, va al specialist.
+**Regla rápida:** si la migración necesita un script que toque datos, o requiere análisis de performance, es `db-complejo`.
 
-**Cuando entra db-specialist en una feature**: recibe su propio lote en el plan del architect, trabaja sobre el **mismo branch** que los demás devs, commitea con flag `last_batch=true|false` igual que cualquier dev. Su lote incluye: schema (vía Drizzle/Pydantic/equivalente del proyecto), migraciones, queries optimizadas, tests de DB. Backend-dev consume el schema resultante en sus endpoints.
+**Cuando la feature tiene un lote `db-complejo`**: recibe su propio lote en el plan del architect, va primero, trabaja sobre el **mismo branch** que los demás lotes, commitea con flag `last_batch=true|false` igual que cualquier lote. Incluye: schema (vía Drizzle/Pydantic/equivalente del proyecto), migraciones, queries optimizadas, tests de DB. Los lotes siguientes (de `backend-dev` o `frontend-dev`) consumen el schema resultante en sus endpoints, sin modificarlo.
 
 ---
 
@@ -300,14 +299,14 @@ Cada subagente recibe un paquete de contexto, **no el historial completo**:
 - `architect` recibe: `BRIEF.md` completo + tarea ("diseña la solución para esto").
 - `backend-dev` / `frontend-dev` reciben: sección de `DESIGN.md` correspondiente al lote + lista de tareas TDD del lote + `rules/<lenguaje>.md` aplicable.
 - `security-reviewer` / `qa-*` reciben: **la fuente del diff, que la parametriza el orchestrator** — diff local (`git diff <base>...HEAD`) en Fase 2.6 (default del flujo, no existe PR todavía); diff del PR (`gh pr diff <N>`) solo en re-reviews post-PR y PRs fuera del flujo — + `DESIGN.md` + `BRIEF.md` (necesitan saber qué se quería para juzgar si el código lo cumple).
-- `db-specialist` recibe: `DESIGN.md` (sección de datos) + schema actual.
+- En un lote `db-complejo`, `backend-dev` recibe además: `DESIGN.md` (sección de datos) + schema actual + `rulebooks/db-migrations.md`.
 
 **Quien construye el paquete eres tú**, no el agente que va a recibirlo.
 
 **Por cada invocación de dev**, el handoff debe incluir:
 
 - **Solo las tareas de su lote** (no el plan completo)
-- **Path al schema/contratos** que ya escribió el architect (o el db-specialist si aplica)
+- **Path al schema/contratos** que ya escribió el architect (o un lote `db-complejo` anterior, si aplica)
 - **Sección de DESIGN.md** correspondiente al lote (no DESIGN completo)
 - **Branch en el que trabajar** (sin `git checkout` desde cero)
 - **Flag `last_batch=true|false`** explícito
@@ -325,7 +324,7 @@ Cada subagente recibe un paquete de contexto, **no el historial completo**:
 
 ## Template del prompt de handoff a devs
 
-Aplica para `db-specialist`, `backend-dev`, `frontend-dev`. El formato es el mismo:
+Aplica para `backend-dev`, `frontend-dev`. El formato es el mismo:
 
 ```
 Branch: <feature-branch>
@@ -338,7 +337,7 @@ Tareas a implementar:
 ...
 (máximo 5)
 
-Schemas/contratos a usar (ya escritos por architect o db-specialist):
+Schemas/contratos a usar (ya escritos por architect o por un lote `db-complejo` anterior):
 - <path/al/schema.ts>
 - <path/al/types.ts>
 
@@ -552,7 +551,7 @@ Formato de cada archivo:
 - Errores de build/CI: [cantidad]
 - Self-reflection atrapó: [cosas que detectó antes del review, o "nada"]
 - Lotes ejecutados: [N] / Tareas: [M]
-- Devs involucrados: [db-specialist? backend-dev? frontend-dev?]
+- Devs involucrados: [backend-dev? frontend-dev?] (¿tuvo lote `db-complejo`?)
 
 ### Qué salió bien
 - [...]
@@ -611,7 +610,7 @@ El `README.md` y el `CLAUDE.md` raíz de un proyecto **no** entran acá: son met
 
 Si el diff (local o de PR) tiene archivos de ambas capas → lanzar **ambos QAs en paralelo**.
 
-**Nota sobre DB**: archivos bajo `db/`, `migrations/`, `schema/` los revisa `qa-backend`. No hay un `qa-db` separado — el qa-backend valida que las migraciones del db-specialist sean consistentes con lo que el backend-dev consume.
+**Nota sobre DB**: archivos bajo `db/`, `migrations/`, `schema/` los revisa `qa-backend`. No hay un `qa-db` separado — el qa-backend valida que las migraciones del lote `db-complejo` sean consistentes con lo que el resto de `backend-dev` consume.
 
 ---
 
@@ -812,16 +811,16 @@ Todo PR que cambia el **flujo** (fases del pipeline, hooks, formatos de `.planni
 | Situación | Acción |
 |-----------|--------|
 | Architect entrega plan con lote >5 | Devolver con mensaje específico (ver agent prompt). Max 3 retries, después escalar |
-| Architect entrega plan con backend-dev antes que db-specialist en feature con DB compleja | Devolver al architect: "el orden es incorrecto, db-specialist va primero porque backend-dev consume el schema" |
+| Architect entrega plan con un lote consumidor antes que el lote `db-complejo` | Devolver al architect: "el orden es incorrecto, el lote `db-complejo` va primero porque los lotes siguientes consumen su schema" |
 | Dev (cualquiera) reporta `BUDGET LIMIT` | Leer `HANDOFF.md`, reinvocar al mismo dev con tareas restantes, anotar en la retro |
-| Dev reporta error de build/CI | `build-resolver` con error completo + branch + archivos. Max 3 fixes automáticos |
+| Dev reporta error de build/CI | Reinvocar al mismo dev con `rulebooks/build-errors.md`. Max 3 fixes automáticos |
 | Reviewer reporta bloqueante | Asignar fix al dev del lote correspondiente en mismo branch. Re-lanzar solo el reviewer que reportó. Repetir hasta aprobación |
 | PR creado sin review pre-push (el checkpoint del hook `post-pr-create` lo señala) | Tratarlo como PR fuera del flujo: skill `review-pr` sobre `gh pr diff` |
 | `gh pr merge` falla | Verificar las 4 condiciones de pre-merge. Reportar cuál bloquea |
 | Healthcheck Docker falla antes de E2E pre-release | Escalar al dev del servicio fallando antes de lanzar `e2e-runner` Modo B |
 | Hotfix mergeado pero falló integración a dev | Conflicto manual. Escalar al usuario con detalles del conflicto |
-| Migración del db-specialist falla en CI | Asignar fix al db-specialist (no a backend-dev) — es su scope |
-| Backend-dev intenta crear migración compleja (no simple) | Devolver: "esto califica como complejo según los criterios. Reasignar al db-specialist" |
+| Migración del lote `db-complejo` falla en CI | Asignar fix a `backend-dev` (mismo dev, `rulebooks/db-migrations.md`) |
+| Backend-dev encuentra migración compleja en un lote no marcado `db-complejo` | Devolver al architect: "esto califica como complejo según `rulebooks/db-migrations.md`. Reordenar el plan con un lote `db-complejo` propio" |
 | Estado de `.planning/` corrupto o inconsistente post-compact | Restaurar desde el snapshot más reciente en `~/.claude/methodology/snapshots/<slug>/` (los crea el hook `PreCompact`) |
 
 ---

@@ -374,7 +374,7 @@ else
   PASS=$((PASS + 1))
 fi
 
-for agent in architect ui-ux db-specialist backend-dev frontend-dev docs security-reviewer qa-frontend qa-backend e2e-runner build-resolver; do
+for agent in architect ui-ux backend-dev frontend-dev docs security-reviewer qa-frontend qa-backend e2e-runner; do
   TOTAL=$((TOTAL + 1))
   if echo "$ORCH_ALLOWED_TOOLS" | grep -qF "Agent(methodology:$agent)"; then
     echo -e "${GREEN}PASS${NC}: allowed-tools declara Agent(methodology:$agent)"
@@ -382,6 +382,21 @@ for agent in architect ui-ux db-specialist backend-dev frontend-dev docs securit
   else
     echo -e "${RED}FAIL${NC}: allowed-tools no declara Agent(methodology:$agent)"
     FAIL=$((FAIL + 1))
+  fi
+done
+
+# build-resolver y db-specialist se fusionaron en rulebooks/build-errors.md
+# y rulebooks/db-migrations.md (PR 3, lotes 5 y 6): ya no son agentes, así
+# que su ausencia de allowed-tools es la condición correcta (antes de cada
+# fusión este check exigía lo contrario).
+for merged_agent in build-resolver db-specialist; do
+  TOTAL=$((TOTAL + 1))
+  if echo "$ORCH_ALLOWED_TOOLS" | grep -qF "Agent(methodology:$merged_agent)"; then
+    echo -e "${RED}FAIL${NC}: allowed-tools todavía declara Agent(methodology:$merged_agent) (fusionado en rulebooks/)"
+    FAIL=$((FAIL + 1))
+  else
+    echo -e "${GREEN}PASS${NC}: allowed-tools no declara Agent(methodology:$merged_agent)"
+    PASS=$((PASS + 1))
   fi
 done
 
@@ -398,10 +413,44 @@ echo "--- Tuteo consistente en global/CLAUDE.md y skills/orchestrator/SKILL.md -
 
 assert_no_voseo() {
   local file="$1"
-  local pattern='\b([A-Za-zÁÉÍÓÚñ]*(ás|és|ís)|Cargá|cargala|obtené|leelo|retomá|[Vv]os)\b'
+  # Lista explícita de formas voseantes (recopilada del historial del repo:
+  # commits c036779, 1b07627, 82f1f0c, 5caedaf), en vez de un patrón
+  # genérico por sufijo/tilde. Un patrón genérico necesita una lista blanca
+  # de excepciones ("está", "así", "metodología"...) que crece sin fin; uno
+  # explícito no necesita ninguna.
+  #
+  # Delimitadores literales en vez de \b: \b depende de qué locale trata
+  # los acentos como caracteres de palabra. En locale C, glibc no reconoce
+  # las vocales acentuadas como "word chars" y \b marca borde en cualquier
+  # lado de ellas (falso positivo dentro de "metodología"); en UTF-8 sí las
+  # reconoce y \b funciona bien — pero depender de que el locale correcto
+  # esté generado en la máquina que corre el test (imágenes slim no lo
+  # tienen) es justamente el bug que este comentario reemplaza. Usamos en
+  # cambio "no es letra ASCII, o inicio/fin de línea" como borde: eso no
+  # depende de ninguna configuración de locale.
+  # Un solo patrón grande con delimitadores no-zero-width (ERE no soporta
+  # lookaround) consume el delimitador de cierre de un match y se lo roba
+  # al siguiente: "Vos podés" no detecta "podés" porque el espacio entre
+  # ambas palabras ya lo consumió el match de "Vos". Se recorre la lista
+  # palabra por palabra en llamadas de grep independientes para que cada
+  # búsqueda arranque limpia sobre el archivo completo.
+  local voseo_forms=(
+    vos sos tenés podés hacé hacés querés sabés decís usás notás cargala
+    leelo retomá fijate mirá esperá decilo cortalo aplicá lanzás coordinás
+    entendés escalás escalá cargá obtené arreglás preferís necesitás
+    trabajás reportá
+  )
+  local delim='[^[:alpha:]]'
   TOTAL=$((TOTAL + 1))
-  local hits
-  hits=$(grep -noE "$pattern" "$file" | grep -vE ':(está|estás|Después|después|acá|inglés)$' || true)
+  local hits=""
+  local word pattern word_hits
+  for word in "${voseo_forms[@]}"; do
+    pattern="(^|${delim})(${word})(${delim}|\$)"
+    word_hits=$(grep -noiE "$pattern" "$file" || true)
+    if [ -n "$word_hits" ]; then
+      hits="${hits}${word_hits}"$'\n'
+    fi
+  done
   if [ -z "$hits" ]; then
     echo -e "${GREEN}PASS${NC}: $file usa tuteo (sin formas voseantes)"
     PASS=$((PASS + 1))
@@ -413,6 +462,78 @@ assert_no_voseo() {
 
 assert_no_voseo "$REPO_ROOT/global/CLAUDE.md"
 assert_no_voseo "$ORCHESTRATOR_SKILL"
+assert_no_voseo "$REPO_ROOT/rulebooks/build-errors.md"
+assert_no_voseo "$REPO_ROOT/rulebooks/db-migrations.md"
+
+echo ""
+echo "--- Fase 2.5: saltar docs cuando el diff no toca superficie pública ---"
+
+assert_contains "$RUNBOOK" "salta \`docs\`" \
+  "runbook Fase 2.5 documenta el salto de docs cuando el diff no toca superficie pública"
+assert_contains "$RUNBOOK" "lo registra en el body del PR" \
+  "runbook Fase 2.5 exige registrar el salto de docs en el body del PR"
+assert_contains "$ORCHESTRATOR_SKILL" "salta \`docs\`" \
+  "skill orchestrator fila 2.5 documenta el salto de docs"
+
+echo ""
+echo "--- Fase 0.5: disparadores estrictos para invocar ui-ux ---"
+
+assert_contains "$RUNBOOK" "solo si no existe \`design-system" \
+  "runbook Fase 0.5 invoca ui-ux solo si no existe MASTER.md o hay página crítica/patrón nuevo"
+assert_contains "$RUNBOOK" "el \`frontend-dev\` lee \`MASTER.md\` y aplica sus constraints" \
+  "runbook Fase 0.5 dice que en UI chica el frontend-dev lee MASTER.md y aplica sus constraints"
+assert_contains "$ORCHESTRATOR_SKILL" "solo si no existe \`MASTER.md\`" \
+  "skill orchestrator fila 0.5 invoca ui-ux solo si no existe MASTER.md o hay página crítica/patrón nuevo"
+
+echo ""
+echo "--- rulebooks/db-migrations.md: normalización pragmática, desviación de índice, guardas de producción y secrets ---"
+
+DB_MIGRATIONS="$REPO_ROOT/rulebooks/db-migrations.md"
+
+assert_contains "$DB_MIGRATIONS" "3NF por defecto" \
+  "Principios de migración incluye normalización pragmática (3NF por defecto)"
+assert_contains "$DB_MIGRATIONS" "índice compuesto o parcial" \
+  "Principios de migración incluye la desviación de índice compuesto o parcial documentada en ARCHITECTURE.md"
+assert_contains "$DB_MIGRATIONS" "corras la migración contra producción desde el lote" \
+  "Principios de migración menciona la guarda de no correr migraciones contra producción desde el lote"
+assert_contains "$DB_MIGRATIONS" "secrets ni credenciales en migraciones ni seeds" \
+  "Principios de migración incluye la guarda de no poner secrets ni credenciales en migraciones ni seeds"
+
+echo ""
+echo "--- rulebooks/dev-common.md: guardas de dependencias y checks visibles en todo lote ---"
+
+DEV_COMMON="$REPO_ROOT/rulebooks/dev-common.md"
+
+assert_contains "$DEV_COMMON" "dependencia nueva, major o downgrade" \
+  "dev-common.md tiene la línea de guardas de dependencias visible en todo lote"
+assert_contains "$DEV_COMMON" "no silenciar checks" \
+  "dev-common.md tiene la línea de no silenciar checks (ignore/disable/strict: false)"
+assert_contains "$DEV_COMMON" "rulebooks/build-errors.md" \
+  "dev-common.md apunta a build-errors.md para el detalle de las guardas"
+
+echo ""
+echo "--- rulebooks/db-migrations.md: referencia circular corregida ---"
+
+assert_not_contains "$DB_MIGRATIONS" "Migraciones de DB: simple vs complejo" \
+  "db-migrations.md ya no referencia la sección renombrada de backend-dev.md (circular)"
+assert_contains "$DB_MIGRATIONS" "Cuándo un lote es DB complejo" \
+  "db-migrations.md apunta a la sección del runbook \"Cuándo un lote es DB complejo\""
+
+echo ""
+echo "--- Fase 2.5: hooks/permisos/auth/seguridad siempre invocan docs ---"
+
+assert_contains "$RUNBOOK" "hooks, permisos, auth o controles de seguridad" \
+  "runbook Fase 2.5 exige invocar docs siempre que el diff toque hooks/permisos/auth/seguridad"
+assert_contains "$ORCHESTRATOR_SKILL" "hooks, permisos, auth o controles de seguridad" \
+  "skill orchestrator fila 2.5 exige invocar docs siempre que el diff toque hooks/permisos/auth/seguridad"
+
+echo ""
+echo "--- Fase 0.5: término alineado con agents/frontend-dev.md (lee MASTER.md y aplica sus constraints) ---"
+
+assert_contains "$RUNBOOK" "lee \`MASTER.md\` y aplica sus constraints" \
+  "runbook Fase 0.5 usa el mismo término que agents/frontend-dev.md (constraints, no checklist)"
+assert_not_contains "$RUNBOOK" "aplica su checklist directamente" \
+  "runbook Fase 0.5 ya no usa el término checklist, ausente en agents/frontend-dev.md"
 
 echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"

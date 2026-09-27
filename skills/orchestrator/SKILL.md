@@ -2,7 +2,7 @@
 name: orchestrator
 description: Manual de la sesión principal para coordinar una feature o un fix de punta a punta — fases 0 a 5, qué subagente invocar en cada una, lotes y handoff, tracker de sesión, pause/resume. Cargar al iniciar cualquier trabajo que termine en un PR, antes de delegar el primer lote.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:db-specialist), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner), Agent(methodology:build-resolver)
+allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner)
 argument-hint: "[feature|fix] <descripción corta>"
 ---
 
@@ -19,10 +19,10 @@ El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesió
 | Fase | Qué haces | Artefacto | Sección del runbook |
 |---|---|---|---|
 | 0. Brainstorming | Preguntas en rondas hasta tener claridad; confirmación explícita antes de avanzar | `.planning/BRIEF.md` | "Fase 0" |
-| 0.5. Design system | Si hay UI, invocas `ui-ux` antes del architect | `design-system/<proyecto>/MASTER.md` | "Fase 0.5" |
+| 0.5. Design system | Invocas `ui-ux` solo si no existe `MASTER.md` o el brief trae página crítica/patrón nuevo; si no, el `architect` referencia `MASTER.md` | `design-system/<proyecto>/MASTER.md` | "Fase 0.5" |
 | 1. Diseño | El `architect` diseña y parte en lotes | `.planning/DESIGN.md` | "Fase 1" |
 | 2. Implementación | Invocas devs por lote, con `last_batch=true|false` | commits locales | "Fase 2" |
-| 2.5. Documentación | Invocas `docs` sobre el diff local, sin push | docs actualizados | "Fase 2.5" |
+| 2.5. Documentación | Invocas `docs` sobre el diff local, sin push; salta `docs` si el diff no toca superficie pública (registra el salto en el body del PR); cambios en hooks, permisos, auth o controles de seguridad siempre invocan `docs` | docs actualizados | "Fase 2.5" |
 | 2.6. Review dual local | `security-reviewer` + `qa-*` en paralelo sobre el diff local; fixes sin push hasta veredictos limpios | `.planning/reviews/pre-pr-<slug>.md` | skill `pr-workflow` |
 | 2.7. Push + PR | Push + `gh pr create` + reconciliación del registro (lo haces tú) | PR abierto | "Comandos `gh` específicos" |
 | 2.8. Monitoreo CI | `gh pr checks --watch --fail-fast` | CI verde | "Fase 2.8" |
@@ -35,7 +35,7 @@ El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesió
 - Creas el branch una sola vez (`git checkout dev && git checkout -b feature/<slug>`); los devs trabajan sobre ese branch existente.
 - Modo single-PR por default: todos los lotes en el mismo branch, último lote con `last_batch=true`. Modo multi-PR solo si el `architect` lo justificó — cada grupo con su branch + PR propio.
 - Un push por ronda de review (las de Fase 2.6 no pushean); docs va en el push inicial; retro en el último commit del branch.
-- Cuando hay `db-specialist`: va primero (schema), luego `backend-dev` lo consume, luego `frontend-dev`. Back/front pueden paralelizarse si son archivos disjuntos.
+- Cuando un lote de `backend-dev` es `db-complejo`: va primero (schema), el resto de `backend-dev` lo consume, luego `frontend-dev`. Back/front pueden paralelizarse si son archivos disjuntos.
 - Fixes de review siempre en el mismo PR/branch — nunca un branch nuevo.
 - Re-lanzas solo los reviewers que marcaron issues, no los que aprobaron.
 - Conflicto entre reviewers: security gana en seguridad, QA gana en UX/accesibilidad/contratos; zona gris → escalas al usuario (`governance-playbook.md` §7).
@@ -59,21 +59,19 @@ En cualquier duda, brainstormeas igual. Formato de `BRIEF.md`: runbook, "Fase 0"
 |--------|--------|-----|----------------|
 | `architect` | fable (fallback: opus) | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva |
 | `ui-ux` | opus | Genera design system y valida flujos | Después del brainstorming, ANTES del architect, si hay UI |
-| `db-specialist` | sonnet | Implementa todo lo de DB cuando es complejo | Lotes con trabajo de DB que califica como complejo |
-| `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples | Lotes con trabajo server-side |
+| `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples y complejas (lotes `db-complejo`) | Lotes con trabajo server-side |
 | `frontend-dev` | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) | Lotes con trabajo client-side |
 | `security-reviewer` | opus | Auditoría OWASP, secrets, dependencias (read-only). Bloqueante | Fase 2.6 y re-reviews post-PR |
 | `qa-frontend` | sonnet | UX, accesibilidad, componentes, tests frontend, coverage. Bloqueante si toca frontend | Diff con archivos de UI |
 | `qa-backend` | sonnet | Contratos API, lógica, datos, tests backend, coverage. Bloqueante si toca backend | Diff con archivos de servidor |
 | `e2e-runner` | sonnet | Tests E2E con Playwright. Modo A: usuario, branch propio. Modo B: pre-release a `main`, branch del PR | Pre-release o invocación directa |
-| `build-resolver` | sonnet | Diagnostica y resuelve errores de build/compilación | Cuando un dev se atora con build error |
 | `refactor` | sonnet | Refactoriza sin cambiar comportamiento. Lee issues `legacy-violation`, `controversial-fix`, `latent-bug`, `stale-docs` | `/refactor-scan` o pedido explícito |
 | `latent-bugs-sweep` | sonnet | Escanea repo buscando bugs latentes. Read-only. Crea issues `latent-bug` | Manualmente o pre-release |
 | `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después del último lote, antes del push + PR |
 
 **Degradación de modelo cuando opus está rate-limited:** `security-reviewer` → sonnet solo si el PR no toca auth/crypto/secrets/pagos; `ui-ux` → sonnet aceptable siempre. El `architect` nunca degrada a sonnet: si fable no está disponible, sube a opus (el plan de lotes es la decisión de mayor apalancamiento del flujo).
 
-**db-specialist vs backend-dev:** el specialist hace lo complejo (backfill, cambio de tipo, particionamiento, queries lentas, >1M filas, constraints sobre datos existentes); el backend-dev hace lo simple (tabla nueva sin datos, columna nullable, índice simple, FK). Criterios completos: runbook, "Criterios completos: db-specialist vs backend-dev".
+**Cuándo un lote es `db-complejo`:** backfill, cambio de tipo, particionamiento, queries lentas, >1M filas, constraints sobre datos existentes — lo sigue haciendo `backend-dev`, marcado y ordenado primero en el plan. Lo simple (tabla nueva sin datos, columna nullable, índice simple, FK) es un lote normal. Criterios completos: runbook, "Cuándo un lote es DB complejo".
 
 ## 5. Lotes y handoff
 
@@ -112,7 +110,8 @@ Ante algo inesperado (reviewers en conflicto, hook que falló, agente cortado, b
 |---|---|
 | Formato exacto de `BRIEF.md`/`STATE.md`/`HANDOFF.md`/`learnings/PR-<N>.md` | "Formatos" de cada fase |
 | Comandos `gh` de verificación pre-merge o de PR | "Comandos `gh` específicos" |
-| Duda db-specialist vs backend-dev | "Criterios completos: db-specialist vs backend-dev" |
+| Duda si un lote de DB es complejo | "Cuándo un lote es DB complejo" |
+| Dev se atora con un error de build/compilación | reinvocar al mismo dev con `rulebooks/build-errors.md` (ver "Fase 2" y "Fase 2.8" del runbook) |
 | Template de handoff a un dev | sección de handoff de la fase 2 |
 | Cambiaste una regla de flujo/hooks/formatos de `.planning/` | "Anti-drift: DoD de cambios de proceso" |
 | Situación no prevista (reviewers en conflicto, budget agotado, etc.) | `governance-playbook.md` |

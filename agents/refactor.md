@@ -28,7 +28,7 @@ Te invocan como parte de un flujo más grande (ej: integrando recomendaciones de
 
 - **El orchestrator ya creó el branch** — tú trabajas sobre el branch existente
 - Recibes lotes (≤5 tareas) con flag `last_batch=true|false`
-- Mismo modelo que backend-dev / frontend-dev / db-specialist
+- Mismo modelo que backend-dev / frontend-dev
 
 ## Cuándo cada modo
 
