@@ -631,14 +631,21 @@ tools: Read, Write
 ---
 EOF
 
+SANDBOX_TOTAL_BEFORE=$TOTAL
+SANDBOX_PASS_BEFORE=$PASS
 SANDBOX_FAIL_BEFORE=$FAIL
 assert_agent_read_only "$SANDBOX_AGENT_BAD" > /dev/null
+SANDBOX_DETECTED=$FAIL
+# Los sub-asserts sintéticos del sandbox (TOTAL/PASS/FAIL) no son parte de
+# la suite real: se descartan por completo antes de sumar el único assert
+# real de este bloque, para que Total = Pass + Fail se mantenga.
+TOTAL=$SANDBOX_TOTAL_BEFORE
+PASS=$SANDBOX_PASS_BEFORE
+FAIL=$SANDBOX_FAIL_BEFORE
 TOTAL=$((TOTAL + 1))
-if [ "$FAIL" -gt "$SANDBOX_FAIL_BEFORE" ]; then
+if [ "$SANDBOX_DETECTED" -gt "$SANDBOX_FAIL_BEFORE" ]; then
   echo -e "${GREEN}PASS${NC}: assert_agent_read_only detecta el sandbox con tools:Write y sin disallowedTools"
   PASS=$((PASS + 1))
-  # Los fallos del sandbox no son fallos reales del repo: se descuentan.
-  FAIL=$SANDBOX_FAIL_BEFORE
 else
   echo -e "${RED}FAIL${NC}: assert_agent_read_only no detectó el sandbox inseguro"
   FAIL=$((FAIL + 1))
@@ -668,6 +675,15 @@ else
   FAIL=$((FAIL + 1))
 fi
 rm -f "$SANDBOX_AGENT_GOOD"
+
+TOTAL=$((TOTAL + 1))
+if [ "$TOTAL" -eq "$((PASS + FAIL + 1))" ]; then
+  echo -e "${GREEN}PASS${NC}: los sandboxes de assert_agent_read_only no dejan TOTAL desalineado de PASS+FAIL"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: TOTAL ($TOTAL) != PASS ($PASS) + FAIL ($FAIL) + 1 tras los sandboxes"
+  FAIL=$((FAIL + 1))
+fi
 
 echo ""
 echo "--- Fase 2.5: saltar docs cuando el diff no toca superficie pública ---"
