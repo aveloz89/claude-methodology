@@ -3635,9 +3635,9 @@ assert_nul_blocked "block-admin-merge: bloquea NUL en el comando (B1)" \
 assert_nul_blocked "pre-merge-check: bloquea NUL en el comando (B1)" \
   "pre-merge-check.sh" "$NUL_ADMIN_PROGRAM"
 
-# B2: NUL en un comando inocuo ("git status[NUL]"), sobre los otros 3 guards
-# que ya sourcean la lib en este lote (pre-push-guard y pre-release-sweep
-# la incorporan en un lote posterior).
+# B2: NUL en un comando inocuo ("git status[NUL]"), sobre los otros 2 guards
+# que ya sourcean la lib en este lote (pre-push-guard la incorpora en un
+# lote posterior).
 NUL_STATUS_PROGRAM='{tool_input: {command: "git status\u0000"}}'
 assert_nul_blocked "block-force-push: bloquea NUL en el comando (B2)" \
   "block-force-push.sh" "$NUL_STATUS_PROGRAM"
@@ -3992,7 +3992,8 @@ snapshot_dir_for() {
 }
 
 # perm_of: permisos octales de un archivo/dir, portable BSD (stat -f%Lp) /
-# GNU (stat -c%a) — mismo patrón dual que mtime_of en session-end-check.sh.
+# GNU (stat -c%a) — mismo patrón dual que otros helpers de esta suite que
+# necesitan portabilidad macOS/Linux.
 # Usado en checks de umask (eval'd, por eso vive como función global).
 perm_of() {
   stat -f%Lp "$1" 2>/dev/null || stat -c%a "$1" 2>/dev/null
@@ -4417,7 +4418,7 @@ cat > "$SANDBOX_REPO/.planning/state.json" <<'STATE_JSON_EOF'
   "batches": [
     {"id": 1, "name": "pre-compact-snapshot", "agent": "backend-dev", "status": "done", "tasks_done": 5, "tasks_total": 5, "current_task": null},
     {"id": 2, "name": "subagent-stop-log", "agent": "backend-dev", "status": "done", "tasks_done": 5, "tasks_total": 5, "current_task": null},
-    {"id": 3, "name": "session-end-check", "agent": "backend-dev", "status": "in_progress", "tasks_done": 3, "tasks_total": 5, "current_task": "4: render de state.json"}
+    {"id": 3, "name": "docs", "agent": "backend-dev", "status": "in_progress", "tasks_done": 3, "tasks_total": 5, "current_task": "4: render de state.json"}
   ]
 }
 STATE_JSON_EOF
@@ -4425,7 +4426,7 @@ OUTPUT_STATE_JSON=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/
 TOTAL=$((TOTAL + 1))
 if echo "$OUTPUT_STATE_JSON" | grep -q "Fase activa: implementation" \
   && echo "$OUTPUT_STATE_JSON" | grep -qF "[done] 1 pre-compact-snapshot — 5/5" \
-  && echo "$OUTPUT_STATE_JSON" | grep -qF "[in_progress] 3 session-end-check — 3/5"; then
+  && echo "$OUTPUT_STATE_JSON" | grep -qF "[in_progress] 3 docs — 3/5"; then
   echo -e "${GREEN}PASS${NC}: SessionStart renderiza fase activa y batches de state.json"
   PASS=$((PASS + 1))
 else

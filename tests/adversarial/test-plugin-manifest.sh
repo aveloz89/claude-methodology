@@ -960,6 +960,56 @@ assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" "no escrib.*registro d
   "rulebooks/reviewer-common.md aclara que los reviewers no escriben el registro de review"
 
 echo ""
+echo "--- CA-4: sin referencias colgantes a piezas eliminadas de la metodología ---"
+
+# Términos que ya no deben aparecer en ningún documento normativo ni test:
+# cada uno nombra un agente, hook, skill o rulebook borrado por
+# simplify-methodology. Alcance: agents/, rulebooks/, skills/, hooks/,
+# README.md, global/CLAUDE.md, tests/, .claude/ — excluye .planning/ (no
+# versionado) y este mismo script (los términos viven acá como patrones
+# de grep, no como menciones normativas).
+DANGLING_SCOPE=("$REPO_ROOT/agents" "$REPO_ROOT/rulebooks" "$REPO_ROOT/skills" "$HOOKS_DIR" "$REPO_ROOT/README.md" "$REPO_ROOT/global/CLAUDE.md" "$REPO_ROOT/tests" "$REPO_ROOT/.claude")
+DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule")
+
+for term in "${DANGLING_TERMS[@]}"; do
+  TOTAL=$((TOTAL + 1))
+  HITS=$( (grep -rn -- "$term" "${DANGLING_SCOPE[@]}" 2>/dev/null || true) \
+    | (grep -v -- "$SCRIPT_DIR/test-plugin-manifest.sh:" || true) \
+    | (grep -v -- "\.bak:" || true))
+  # Excepción documentada: test-frontmatter.sh mantiene "product-reviewer" en
+  # HISTORICAL_AGENTS a propósito, para seguir detectando menciones `<agente>`
+  # colgantes si alguien lo nombra de nuevo en prosa (ver comentario ahí).
+  if [ "$term" = "product-reviewer" ]; then
+    HITS=$(echo "$HITS" | (grep -v -- "test-frontmatter.sh:.*HISTORICAL_AGENTS=" || true))
+  fi
+  HITS=$(echo "$HITS" | (grep -v '^$' || true))
+  if [ -z "$HITS" ]; then
+    echo -e "${GREEN}PASS${NC}: sin referencias colgantes a \"$term\""
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: referencia colgante a \"$term\":"
+    echo "$HITS"
+    FAIL=$((FAIL + 1))
+  fi
+done
+
+# El agente "refactor" (viejo) se detecta aparte para no falsear con la
+# palabra genérica "refactor" (refactorizar, refactor colateral, etc.):
+# solo cuenta la forma que lo nombra como agente, entre backticks.
+TOTAL=$((TOTAL + 1))
+REFACTOR_AGENT_HITS=$( (grep -rn -- '`refactor`' "${DANGLING_SCOPE[@]}" 2>/dev/null || true) \
+  | (grep -v -- "$SCRIPT_DIR/test-plugin-manifest.sh:" || true) \
+  | (grep -v -- "\.bak:" || true))
+if [ -z "$REFACTOR_AGENT_HITS" ]; then
+  echo -e "${GREEN}PASS${NC}: sin referencias colgantes al agente \`refactor\` (viejo)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: referencia colgante al agente \`refactor\` (viejo):"
+  echo "$REFACTOR_AGENT_HITS"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then

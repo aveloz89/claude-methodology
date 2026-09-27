@@ -70,6 +70,8 @@ A diferencia de `DESIGN.md` (que vive solo durante una feature), este archivo pe
 
 ### [2026-09-26] Agentes opcionales se activan por una línea declarativa en el `CLAUDE.md` del proyecto
 
+*(Superseded 2026-09-27: `product-reviewer` se quitó — sus preguntas de producto [¿vale la pena?, resultado esperado, criterios de aceptación medibles] pasaron al brainstorming de la sesión principal. Sin ese agente, la mecánica de activación condicional por `Tipo:` deja de tener un consumidor — ver la entrada de esa fecha, punto 5.)*
+
 **Contexto:** `product-reviewer` solo tiene sentido en productos con usuarios reales, no en repos de tooling o metodología. Preguntar en cada brainstorming si corre agrega fricción; inferirlo del código es adivinar.
 
 **Decisión:** un agente o fase opcional que depende del tipo de proyecto se activa por una línea exacta, sin formato, en el `CLAUDE.md` del proyecto (raíz o `.claude/CLAUDE.md`): `Tipo: producto con usuarios`. `/new-project` la pregunta y la escribe; el orchestrator la lee del contexto (o con `Grep`, patrón `^(- )?Tipo: producto con usuarios$`). Sin la línea, la fase no corre y el orchestrator no pregunta.
