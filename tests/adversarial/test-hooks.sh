@@ -2658,6 +2658,43 @@ assert_allowed_cmd "pre-commit-guard: repo sin marcador en ningún lado → pasa
   "pre-commit-guard.sh" "git commit -m x" "$PATH" "$MULTIROOT_NORUNNER_DIR"
 rm -rf "$MULTIROOT_NORUNNER_DIR"
 
+# G4: docs/README.md + frontend/a.js tocados (docs sin marcador arriba,
+# frontend sí) → corre solo frontend, pasa.
+_multiroot_setup
+echo "cambio" >> "$MULTIROOT_DIR/docs/README.md"
+echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
+assert_allowed_cmd "pre-commit-guard: monorepo sin marcador en la raíz, docs/ + frontend/ tocados → corre solo frontend (G4)" \
+  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$MULTIROOT_MARK/frontend.ran" ] && [ ! -f "$MULTIROOT_MARK/backend.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G4 — corrió frontend, no backend"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G4 — corrió frontend, no backend (backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ))"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_cleanup
+
+# G2: backend/b.py + frontend/a.js tocados, frontend con test que falla →
+# corren los dos (ambos marcadores presentes) y bloquea nombrando "frontend"
+# en el stderr.
+_multiroot_setup
+_multiroot_make_frontend_fail
+echo "cambio" >> "$MULTIROOT_DIR/backend/b.py"
+echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
+MULTIROOT_G2_JSON=$(jq -n --arg cmd "git commit -m x" '{tool_input: {command: $cmd}}')
+MULTIROOT_G2_EXIT=0
+MULTIROOT_G2_STDERR=$(cd "$MULTIROOT_DIR" && echo "$MULTIROOT_G2_JSON" | PATH="$MULTIROOT_FAKE_BIN:$PATH" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || MULTIROOT_G2_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$MULTIROOT_G2_EXIT" -eq 2 ] && [ -f "$MULTIROOT_MARK/backend.ran" ] && [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo "$MULTIROOT_G2_STDERR" | grep -qF "frontend"; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G2 — corren los dos, bloquea nombrando frontend"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G2 — corren los dos, bloquea nombrando frontend (exit=$MULTIROOT_G2_EXIT, backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ), stderr=\"$MULTIROOT_G2_STDERR\")"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_cleanup
+
 echo ""
 # --- hooks/lib/workspace-scope.sh (unit) ---
 echo "--- hooks/lib/workspace-scope.sh (unit) ---"
