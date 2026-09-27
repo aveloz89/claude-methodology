@@ -689,6 +689,11 @@ assert_contains "$DEV_COMMON" "## Flujo de trabajo" \
 assert_contains "$DEV_COMMON" "## Desviaciones del diseño" \
   "dev-common.md tiene la sección Desviaciones del diseño común a backend-dev/frontend-dev"
 
+for dev in backend-dev frontend-dev; do
+  assert_contains "$REPO_ROOT/agents/$dev.md" "rulebooks/dev-common.md" \
+    "agents/$dev.md referencia rulebooks/dev-common.md"
+done
+
 echo ""
 echo "--- rulebooks/db-migrations.md: referencia circular corregida ---"
 
