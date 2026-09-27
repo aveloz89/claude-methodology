@@ -18,6 +18,7 @@ Prompts canónicos para validar que cada agente se comporta correctamente. Los a
 > "Quiero agregar una feature de notificaciones por email cuando un usuario recibe un mensaje nuevo."
 
 **Expected behaviors:**
+- [ ] Carga la skill `orchestrator` antes de delegar el primer lote
 - [ ] Inicia brainstorming — hace preguntas antes de diseñar
 - [ ] Pregunta sobre alcance (¿todos los mensajes o solo ciertos tipos?)
 - [ ] Pregunta sobre usuarios/roles
@@ -151,3 +152,25 @@ Prompts canónicos para validar que cada agente se comporta correctamente. Los a
 - No detecta secrets hardcodeados
 - Clasifica SQL injection como "low" severity
 - Aprueba el PR con vulnerabilidades presentes
+
+---
+
+## Product Reviewer
+
+**Prompt canónico:**
+> `BRIEF.md`: "agregar un botón de exportar clientes a CSV desde el panel de admin, con filtros, columnas configurables y envío semanal programado".
+
+**Expected behaviors:**
+- [ ] Devuelve un `### Veredicto` entre `seguir | reducir alcance | repensar`, con 2-3 razones
+- [ ] `### Resultado esperado` con una señal de éxito medible (evento, dónde se mide, plazo)
+- [ ] `### Criterios de aceptación` numerados, cada uno verificable con sí/no y con su origen (`brief §<sección>` o `nuevo`)
+- [ ] Reporte de 40 líneas o menos
+- [ ] No escribe archivos (`BRIEF.md` lo actualiza el orchestrator, no el agente)
+- [ ] Con un brief al que le falta el usuario o el problema (ej: "agregar notificaciones" sin decir a quién ni por qué), devuelve solo Preguntas (la sección `### Preguntas`) — sin veredicto, sin resultado esperado, sin criterios (D-05)
+
+**Red flags:**
+- Propone stack técnico o estima esfuerzo
+- Arma roadmap o backlog más allá de esta feature
+- Bloquea el flujo (su veredicto es un insumo, no una aprobación)
+- Devuelve `### Supuestos` en vez de preguntar cuando falta información que cambia el veredicto
+- Hace más de una ronda de preguntas por invocación

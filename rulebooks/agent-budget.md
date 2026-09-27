@@ -1,6 +1,6 @@
 # Agent Budget
 
-Cada invocación de un agente tiene un techo finito de tokens/iteraciones (`maxTurns`). Cuando se acerca al límite, el agente se corta — y si lo hace en un mal momento, deja código sin commitear, sin reporte, y sin trazabilidad.
+Cada invocación de un agente tiene un techo finito: la ventana de contexto y el corte de la invocación cuando se agota. No es un `maxTurns` configurado — ningún agente de este repo lo define, porque cortaría a mitad de un ciclo TDD y devolvería salida parcial; el control real de alcance es el cap de 5 tareas por lote (regla 1 abajo). Cuando la invocación se acerca al techo, el agente se corta — y si lo hace en un mal momento, deja código sin commitear, sin reporte, y sin trazabilidad.
 
 Este rulebook codifica las reglas que orchestrator y devs aplican para que el trabajo sobreviva al corte.
 
@@ -100,7 +100,7 @@ Cada invocación de un subagente que termina dispara el hook `hooks/subagent-sto
 | `branch` | Branch activo al momento de la invocación | sí |
 | `transcript` | Path al transcript del subagente (útil para post-mortem de cortes `BUDGET LIMIT`) | sí |
 
-- **Query de ejemplo** (invocaciones por agente en el repo actual, para llenar las métricas de `LEARNINGS.md` en la retro de Fase 4):
+- **Query de ejemplo** (invocaciones por agente en el repo actual, para llenar las métricas de la retro de Fase 4):
 
 ```bash
 jq -s '[.[] | select(.repo == "'"$(git rev-parse --show-toplevel)"'")] | group_by(.agent) | map({agent: .[0].agent, invocaciones: length})' ~/.claude/methodology/logs/subagent-invocations.jsonl

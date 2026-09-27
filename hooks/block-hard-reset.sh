@@ -1,12 +1,54 @@
 #!/bin/bash
 # Bloquea git reset --hard que descarta cambios irreversiblemente.
+#
+# hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
+# latencia, no reemplaza la validación de abajo, que sigue mirando el
+# comando completo.
+#
+# Contrato PreToolUse (auditoría best-practices): bloquear = stderr + exit 2,
+# permitir = exit 0 sin stdout. Ver hooks/block-force-push.sh para el mismo
+# cambio y el porqué de anclar con hooks/lib/guard-matching.sh (detecta el
+# reset real dentro de un comando compuesto, ej. "cd repo && git reset
+# --hard", que antes pasaba sin bloquear).
+#
+# Fail-closed sin jq (mismo cierre que #50 en block-admin-merge.sh y
+# pre-commit-guard.sh): sin jq, el parseo de COMMAND más abajo devuelve
+# vacío, el grep nunca matchea, y un "git reset --hard" real pasaba en
+# silencio. CAMBIA el contrato de este hook: antes, sin jq, pasaba.
+if ! command -v jq > /dev/null 2>&1; then
+  echo "BLOCKED: block-hard-reset no operativo: falta jq" >&2
+  exit 2
+fi
+
+LIB="${0%/*}/lib/guard-matching.sh"
+if [ ! -r "$LIB" ]; then
+  echo "BLOCKED: block-hard-reset no operativo: falta hooks/lib/guard-matching.sh" >&2
+  exit 2
+fi
+# shellcheck source=lib/guard-matching.sh
+source "$LIB"
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-if echo "$COMMAND" | grep -qE '^\s*git\s+reset\s+--hard'; then
-  echo '{"decision":"block","reason":"Blocked: git reset --hard descarta cambios irreversiblemente. Usa git stash o git reset --soft."}'
-  exit 0
+# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
+# para por qué se detecta sobre $INPUT y no sobre $COMMAND.
+if guard_command_has_nul "$INPUT"; then
+  echo "BLOCKED: block-hard-reset: el comando trae un byte NUL" >&2
+  exit 2
 fi
 
-echo '{"continue":true}'
+SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
+
+# GUARD_GIT_OPTS (D-07, review dual ronda 1 y 2) tolera, en cualquier
+# orden, "-C <ruta>" (#77 comentario 2, D1), "-c <k=v>"/"--no-pager"/"-P"
+# antes de "reset" — sin esto, "git -c user.name=x reset --hard" no
+# matcheaba y el reset real pasaba SIN EVALUAR, y un orden distinto al
+# fijo de antes ("git -C /x -c a=b reset --hard") tampoco. Ver
+# hooks/lib/guard-matching.sh.
+if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}reset\s+--hard"; then
+  echo "BLOCKED: git reset --hard descarta cambios irreversiblemente. Usa git stash o git reset --soft." >&2
+  exit 2
+fi
+
+exit 0

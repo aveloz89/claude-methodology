@@ -38,6 +38,78 @@ A diferencia de `DESIGN.md` (que vive solo durante una feature), este archivo pe
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-09-27] Guards de texto: fragmentos de detección compartidos, `if` best-effort y formas disfrazadas fuera de alcance
+
+**Contexto:** cada guard tenía su propio regex para "es una invocación de git/gh" y cada uno cubría un subconjunto distinto de las formas honestas (`git -C`, `gh -R`, cluster `-fu`, refspec `+ref`, `cd x && gh pr create`); dos guards no sourceaban la lib y fallaban abiertos sin jq. Verificado (doc oficial de hooks, tabla "Bash if matching"): el `if` de `hooks.json` compara cada subcomando por prefijo, solo descarta asignaciones `VAR=x` al frente, y corre el hook si no puede resolver el comando; `env git …` y `/usr/bin/git …` no lo disparan, y los scripts tampoco los matchean.
+
+**Decisión:** los fragmentos de detección viven en `hooks/lib/guard-matching.sh` (`GUARD_ANCHOR`, `GUARD_GIT_TREE_OPTS`, `GUARD_GH_PR_MERGE_RE`, `guard_command_has_nul`) y todo guard que intercepta comandos Bash la sourcea fail-closed y es fail-closed sin jq. `hooks.json` conserva el `if` con el nombre pelado del binario. Las formas disfrazadas (comillas partidas, variables, `eval`, `bash -c`, alias/funciones, binario por ruta o vía `env`/`command`) quedan fuera de alcance por decisión del usuario (D-05) y se listan en el README y en el header de la lib como inventario verificado, no como garantía.
+
+**Justificación:** el modelo de amenaza es el error honesto; una forma que solo aparece como evasión deliberada no justifica interpretar shell (retro PR-76). Un fragmento compartido evita que dos guards diverjan sobre la misma sintaxis y que un fix en uno deje al otro atrás.
+
+**Implicación:** un hallazgo de review sobre una forma disfrazada se cierra agregándola al inventario, no con un fix. Un fix a un regex de detección lleva en la misma tarea sus casos negativos y se valida contra la suite completa como corpus (retros PR-79, PR-87). Cuando un guard cambia el directorio donde actúa, la tabla de tests trae monorepo, worktree y subdirectorio. Toda verificación sobre el harness que no se pudo ejecutar se escribe como NO VERIFICADA con la razón.
+
+### [2026-09-26] Guards que dependen del directorio: `cwd` del input + allowlist de redirecciones
+
+**Contexto:** `pre-commit-guard.sh` corría `git status` y el runner en el cwd del proceso del hook, y `pre-merge-check.sh` resolvía el repo con `gh repo view` ahí mismo, sin saber si ese directorio era el del comando interceptado (#73, #77 §4). Verificado con CLI 2.1.283 en modo de permisos default: el JSON de `PreToolUse` trae `cwd`, que refleja el `cd` persistido de llamadas Bash anteriores (incluido un directorio agregado con `--add-dir`), y el proceso del hook corre exactamente ahí; `CLAUDE_PROJECT_DIR` no sigue al `cd`. El `if: "Bash(git *)"` de `hooks.json` dispara también con `FOO=1 git …`, `cd X && git …` y `git -C X …`.
+
+**Decisión:** un hook que necesita saber en qué directorio actúa el comando lee `.cwd` del input (con fallback al cwd del proceso si el campo no viene) y trata una discrepancia con el proceso como fail-closed. Para redirecciones dentro del texto del comando, allowlist cerrada de formas literales sobre el texto crudo (`cd <ruta> &&` al inicio y una sola vez, `git -C <ruta>` con una sola ruta) con charset `[A-Za-z0-9_./-]` (más prefijo `~/`); todo lo demás (`pushd`, subshells, variables, comillas, `--git-dir`/`--work-tree`, `GIT_DIR`/`GIT_WORK_TREE`) bloquea con un mensaje que nombra las formas aceptadas y el escape: hacer el `cd` en una llamada previa para que llegue por `.cwd`.
+
+**Justificación:** interpretar shell arbitrario es una carrera perdida (retro PR-76); una allowlist literal es verificable y cada forma lleva su caso positivo, su caso de bloqueo y sus negativos (retro PR-79). El escape por `.cwd` cubre cualquier forma que no esté en la lista sin parsear nada.
+
+**Implicación:** un guard nuevo que dependa del directorio no usa `$PWD` a secas ni `CLAUDE_PROJECT_DIR`; parte de `.cwd`. Si acepta rutas del texto del comando, las valida contra ese charset antes de usarlas y nunca las pasa por `eval`. Los tests afirman en qué árbol actuó el hook (marcador con `pwd -P`), no solo el exit code.
+
+### [2026-09-26] Agentes opcionales se activan por una línea declarativa en el `CLAUDE.md` del proyecto
+
+**Contexto:** `product-reviewer` solo tiene sentido en productos con usuarios reales, no en repos de tooling o metodología. Preguntar en cada brainstorming si corre agrega fricción; inferirlo del código es adivinar.
+
+**Decisión:** un agente o fase opcional que depende del tipo de proyecto se activa por una línea exacta, sin formato, en el `CLAUDE.md` del proyecto (raíz o `.claude/CLAUDE.md`): `Tipo: producto con usuarios`. `/new-project` la pregunta y la escribe; el orchestrator la lee del contexto (o con `Grep`, patrón `^(- )?Tipo: producto con usuarios$`). Sin la línea, la fase no corre y el orchestrator no pregunta.
+
+**Justificación:** el `CLAUDE.md` del proyecto ya está en contexto en toda sesión, así que la detección no cuesta tools ni turnos; una línea literal es greppable y testeable; el falso negativo (no correr) es la dirección segura. Alternativas descartadas: preguntar en cada feature (fricción), variable de entorno (invisible en el repo), detección heurística por stack (adivina).
+
+**Implicación:** futuras fases o agentes condicionales al tipo de proyecto reutilizan la misma clave `Tipo:` con un valor nuevo o existente, no una línea propia. La forma exacta se documenta en el README y en la skill que la escribe; los tests aseguran que ambas coincidan. El agente que se activa así sigue la regla de frontera de contexto (entrada anterior): `product-reviewer` la cumple por contexto limpio.
+
+### [2026-09-26] Hooks bloqueantes: un solo mecanismo, stderr + `exit 2`
+
+**Contexto:** cuatro guards de `PreToolUse` bloqueaban con `{"decision":"block"}` a nivel raíz (deprecado para ese evento) y dos con `exit 2`; la suite tenía dos familias de asserts. La doc prescribe `exit 2` para hooks de policy: bloquea aunque otro JSON diga `allow` y se evalúa antes de las allow rules.
+
+**Decisión:** todo hook que bloquea escribe el motivo en stderr y termina con `exit 2`; permitir es `exit 0` sin stdout. Ningún hook mezcla JSON de decisión con exit codes. Los hooks de contexto (`SessionStart`, observabilidad) siguen imprimiendo texto plano con `exit 0`.
+
+**Justificación:** un mecanismo, una familia de asserts (`assert_blocked_cmd`/`assert_allowed_cmd`), sin depender de `jq` para serializar el motivo. Alternativa descartada: `hookSpecificOutput.permissionDecision: "deny"` (válida, pero segunda vía sin ventaja sobre lo que ya usaban `pre-commit-guard` y `pre-push-guard`).
+
+**Implicación:** un guard nuevo se escribe y se testea por exit code; si además necesita un timeout largo, implementa su propio watchdog fail-closed (un hook que alcanza el `timeout` del harness en `PreToolUse` deja pasar el comando).
+
+### [2026-09-26] `if` en hooks PreToolUse: optimización con superconjunto del guard
+
+**Contexto:** los siete guards `matcher: "Bash"` spawneaban en todo comando Bash. La doc ofrece `if` con sintaxis de permission rules; verificado (CLI 2.1.274) que matchea subcomandos de compuestos (`cd x && git …`) y prefijos (`git -C …`), y que funciona dentro del `hooks.json` de un plugin.
+
+**Decisión:** cada guard lleva `if` con el nombre del binario que ancla su regex (`Bash(git *)`, `Bash(gh *)`), nunca algo más estrecho que lo que el script matchea. El script sigue validando el comando completo.
+
+**Implicación:** `if` reduce latencia, no decide; un `if` más específico que el anclaje del script abre un hueco (el hook ni corre) y se rechaza en review.
+
+### [2026-09-26] Progressive disclosure del orchestrator en tres niveles
+
+**Contexto:** `global/CLAUDE.md` (21 KB, 6.4k tokens medidos) se carga en todos los subagentes; el manual del orchestrator era la mayor parte y su regla "no escribes código" chocaba con el rol de los devs. Verificado: el `SessionStart` no llega a los subagentes; el `CLAUDE.md` sí.
+
+**Decisión:** nivel 1 `global/CLAUDE.md` (siempre; ≤ 10 KB y ≤ 130 líneas, con test de regresión): idioma, rol corto de la sesión principal, workflow, invariantes de merge, gitflow, hooks, verificación pre-commit, reglas operativas comunes. Nivel 2 `skills/orchestrator/SKILL.md` (< 500 líneas, invocable por el modelo, cargada al iniciar trabajo que termina en PR): fases, equipo, lotes, tracker, pause/resume. Nivel 3 `rulebooks/orchestrator-runbook.md`: formatos y comandos exactos, bajo demanda. Cada nivel remite al siguiente por nombre de sección; nada se copia hacia arriba.
+
+**Implicación:** una regla nueva entra en el nivel más bajo que la necesita; si sube al núcleo tiene que caber en el tope y aplicar a todos los subagentes. Medir tokens con `claude -p --output-format json` en dos repos temporales (con y sin el archivo) cuando se toque el núcleo.
+
+### [2026-09-26] Especialidades como rulebooks, agentes solo por frontera de contexto
+
+**Contexto:** 13 agentes divididos por tipo de problema; el log de `SubagentStop` muestra 2 invocaciones de `build-resolver` y 2 de `db-specialist` frente a ~80 de `backend-dev`. Guía oficial: dividir por límites de contexto, no por tipo de problema.
+
+**Decisión:** un agente aparte se justifica cuando necesita un contexto que el invocador no tiene o no debe cargar (fresco, aislado, o de otro tamaño): reviewers, `docs` (diff completo con contexto fresco), `ui-ux` (produce archivos grandes que el architect solo consume resumidos). El conocimiento de una especialidad sin esa frontera vive en `rulebooks/<tema>.md` y lo carga el dev cuando el lote lo pide (`build-errors.md`, `db-migrations.md`).
+
+**Implicación:** antes de proponer un agente nuevo, nombrar la frontera de contexto que lo justifica; si no hay, es un rulebook. El lint de frontmatter verifica que toda referencia a un agente corresponda a un archivo en `agents/`.
+
+### [2026-09-26] Frontmatter de agentes y skills: lint propio, no el validador del plugin
+
+**Contexto:** `claude plugin validate --strict agents` pasa con `memory: true` (inválido) y `permissionMode` (ignorado en plugins). Con `marketplace.json` presente, `validate .` valida solo el marketplace; la validación del plugin es `--strict .claude-plugin/plugin.json`, que advierte por un `CLAUDE.md` en la raíz.
+
+**Decisión:** el `CLAUDE.md` del repo vive en `.claude/CLAUDE.md` (carga igual como instrucciones del proyecto; verificado). La validación documentada corre ambas formas. `tests/adversarial/test-frontmatter.sh` es la fuente de verdad de campos permitidos/prohibidos y valores válidos en `agents/*.md` y `skills/*/SKILL.md`, incluida la forma `Agent(methodology:<agente>)` (el nombre pelado no matchea a un agente de plugin; verificado). `maxTurns` no se configura: el budget se controla con el cap de 5 tareas y commit por tarea.
+
+**Implicación:** un campo nuevo de frontmatter se agrega primero al lint; una skill con efectos secundarios lleva `disable-model-invocation: true`, una que el orchestrator debe poder cargar solo no lo lleva.
+
 ### [2026-08-14] Review dual pre-push (Fase 2.6): el PR nace revisado
 
 **Contexto:** el review dual corría después de crear el PR; cada ronda de fixes post-PR era un push extra = un run extra de GitHub Actions (minutos contados en repos privados). Los reviewers son subagentes locales (Read/Grep/Bash sobre el working tree) — nunca necesitaron el branch pusheado.

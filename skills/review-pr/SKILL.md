@@ -3,7 +3,7 @@ name: review-pr
 description: Re-dispara manualmente el review dual (security + QA según capas tocadas)
   sobre un PR existente, sin pasar por el flujo completo del orchestrator.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Bash, Agent(security-reviewer), Agent(qa-frontend), Agent(qa-backend)
+allowed-tools: Read, Grep, Glob, Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend)
 argument-hint: "<número de PR> [security|qa|full]"
 ---
 
@@ -71,7 +71,7 @@ Lanza los reviewers del alcance **en paralelo** (single message, multiple Agent 
 Consolida los hallazgos en el formato del runbook («Formato de reporte de review» en `~/.claude/rulebooks/orchestrator-runbook.md`: Resumen / Seguridad / QA Frontend / QA Backend / Veredicto / Bloqueantes / Sugerencias) **+ sección NO CUBIERTO**.
 
 - Publica en el PR: `gh pr comment <N> --body "<reporte>"`
-- Copia en `.planning/reviews/PR-<N>.md`. Si el archivo ya existe, **append** de una sección `## Re-review <fecha>` — nunca pisar la historia.
+- Copia en `.planning/reviews/PR-<N>.md`, escrita por la sesión que corre esta skill (consolidando los reportes que le devuelven los reviewers) — igual que en la Fase 2.6 del runbook, el reviewer nunca escribe el registro. Si el archivo ya existe, **append** de una sección `## Re-review <fecha>` — nunca pisar la historia.
 
 ## Qué NO hace esta skill
 

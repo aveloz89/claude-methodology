@@ -1,260 +1,241 @@
-# Diseño: Review dual pre-push (Fase 2.6) — el PR nace revisado
+## Diseño: PR final de guards — #77 (errores honestos, D-05) + #86 (D-06, un solo PR)
 
-## Resumen
+> El `DESIGN.md` anterior era el de #73 (`hooks/pre-commit-guard.sh` lo cita como `.planning/DESIGN.md "Contrato 1"`). Antes del Lote 1 el orchestrator hace `git mv .planning/DESIGN.md .planning/DESIGN-pre-commit-target-tree.md` — si este archivo ya lo reemplazó, lo recupera de `git show a37e8c2:.planning/DESIGN.md`. El Lote 5 actualiza la cita del header.
 
-Se inserta una fase nueva, **Fase 2.6: Review dual local**, entre docs (2.5) y push + PR (2.7): security-reviewer + qa-* revisan el **diff local** (`git diff <base>...HEAD`) y las rondas de fixes ocurren sin pushear nada; el PR nace revisado y el caso normal cuesta **un solo run de CI**. La Fase 3 queda redefinida como fase post-PR (re-reviews condicionales, E2E Modo B, verificación pre-merge, merge) y `post-pr-create.sh` pasa de "instruir el review" a **checkpoint de respaldo** para PRs fuera del flujo (D-02).
+### Resumen
 
-**Decisión de numeración (anti-drift por diseño):** NO se renumera ninguna fase existente. `2.6` entra en el hueco que ya existía entre 2.5 y 2.7; `2.7`, `2.8`, `3` y `4` conservan su número (Fase 3 conserva número pero cambia contenido). Esto preserva válidas todas las referencias existentes a "Fase 2.7" y "Fase 2.8" en docs, skills y agentes — la clase de drift más barata de evitar es la que no se genera.
+Cerrar #77 dentro del modelo de errores honestos (`hooks/lib/guard-matching.sh:19-22`) y #86, más los defectos fail-open encontrados al verificar (D-07), en un solo PR sobre `fix/guards-honest-errors` → `dev`. Nada de interpretar shell: regex de detección ampliados a formas literales conocidas, allowlists donde hace falta resolver algo, y todo lo disfrazado documentado como fuera de alcance.
 
-## Search-first
+### Verificaciones empíricas (hechas en `mktemp -d`, hooks corridos directo con el JSON de input, CLI 2.1.283, macOS)
 
-No aplica búsqueda de librerías: es un cambio de proceso sobre documentos y un hook bash existentes (categoría "fix/refactor de código existente" — se salta search-first según mi propio prompt). La investigación hecha fue de **evidencia interna**:
+| # | Qué | Resultado |
+|---|-----|-----------|
+| V1 | Bloqueo falso con heredoc (#77 §2) | **Reproducido.** Caso mínimo: `cat > r.md << 'EOF'` (espacio entre `<<` y el delimitador) con `` `gh pr merge 5` `` en el cuerpo → `pre-merge-check` bloquea con "más de una línea". Causa: `guard_sanitize` exige `<<-?['"]?(\w+)` sin espacio, no reconoce el heredoc, no borra el cuerpo, y el backtick de markdown es posición de comando para el gate. Segunda variante: delimitador con guion (`<<'END-1'`): `\w+` no lo acepta. Con `<<'EOF'` pegado el mismo cuerpo pasa (también con comillas anidadas y apóstrofos en prosa: el cuerpo entero se borra). Me pasó en vivo dos veces durante este diseño con la misma forma |
+| V2 | `if` de `hooks.json` vs `env git …`, `/usr/bin/git …` | **Por doc oficial** (hooks.md, tabla "Bash if matching"): solo se quitan asignaciones `VAR=x` al frente; cada subcomando se compara por prefijo; `$TOOL git push` corre el hook por no poder resolverlo. `env git push` y `/usr/bin/git push` no matchean `Bash(git *)`. Los regex de los guards (`${GUARD_ANCHOR}git\s+…`) tampoco los matchean: filtro y script son consistentes (superconjunto, ARCHITECTURE 2026-09-26). **Prueba en vivo NO VERIFICADA**: `claude -p` falló por OAuth expirado; además los hooks de `.claude/settings.json` de una carpeta temporal no corren sin trust |
+| V3 | #86 con `workspace-scope.sh` | Sin `package.json` en la raíz, `workspace_scope_resolve npm` devuelve 1: la lib resuelve workspaces **declarados** en un `package.json` raíz, no descubre runners en subdirectorios. Baseline: monorepo `frontend/package.json` + `backend/pyproject.toml`, sesión en la raíz, cambios en ambos → `git commit -am x` sale 0 sin correr nada; lo mismo en un worktree del mismo repo. Con la sesión en `frontend/` o con `cd frontend && git commit` sí corre |
+| V4 | NUL | El JSON trae `\u0000` como escape (sin byte NUL); el NUL aparece al decodificar con `jq -r` y bash lo descarta en `$(…)`. `echo "$INPUT" \| jq -e '.tool_input.command \| contains("\u0000")'` sobre el `INPUT` ya leído lo detecta (verificado): no hace falta archivo temporal |
+| V5 | Formas de #77 que hoy pasan (baseline, todas rc=0) | `git push origin +main`, `git push -fu origin x`, `git push -uf origin x`, `git -C repo push --force`, `gh -R o/r pr merge 5 --admin`, `gh pr -R o/r merge 5 --admin`, `cd x && gh pr create --base main` |
+| V6 | Formas disfrazadas de #77 §1 (baseline) | `echo \'; gh pr merge 5; echo \'`, `$'it\'s' && gh pr merge 5`, heredoc `<<E"OF"`: pasan (rc=0). Comentario con apóstrofo + merge en otra línea: **bloquea** (regla de una sola línea). Se documentan, no se arreglan (D-05) |
+| V7 | Defectos nuevos (D-07) | `pre-push-guard` en repo en `main`: `git commit -m x && git push origin main`, `cd . && git push origin main`, `git -C . push origin main` → rc=0 (grep `^\s*git\s+push` sobre el crudo, sin lib, sin fail-closed sin jq). `block-hard-reset`: `git -C repo reset --hard` → rc=0. `pre-release-sweep`: `gh pr create -B main` → rc=0 |
+| V8 | Negativos que hoy pasan y deben seguir pasando | `git push origin feature/x`, `-u origin x`, `--follow-tags`, `refs/heads/main:refs/heads/main`, `--delete origin x`, `origin :x`, `git commit -m "push -fu"`, `gh pr view 5 \| grep merge`, `gh pr merge 5 --squash`, `gh pr list --search "admin merge"`, `gh pr create --base dev` |
+| V9 | Suite en el branch | `test-hooks.sh`: 415/415 |
 
-1. **Triggers del scaffold de CI** (`skills/new-project/SKILL.md`, paso 4): `ci.yml` → *"Trigger en push a dev y PRs a main/dev"*; `security.yml` → *"Trigger en PRs a main + schedule semanal (cron) sobre dev. NUNCA en push/PRs a dev"*. Conclusión: **pushear un branch `feature/*` sin crear PR no dispara ningún workflow** en repos scaffoldeados por la metodología. Base de la resolución del conflicto remoto (abajo).
-2. **Modelo de ejecución de los reviewers** (`agents/security-reviewer.md`, `agents/qa-*.md`): son subagentes con tools `Read, Grep, Glob, Bash` sobre el **filesystem local** — nada en la metodología los corre en entornos remotos por defecto. El caso remoto es excepción, no default.
-3. **Inventario anti-drift** (grep sobre CLAUDE.md ambos, README, rulebooks/, agents/, skills/, hooks/, tests/): mapa completo en "Archivos afectados".
-4. **Historia del registro de reviews**: `.planning/reviews/PR-{N}.md` está trackeado en git y se commitea en momentos post-review (ej. commit `a053cba` "planning: retro del PR #54"). El naming pre-PR (abajo) respeta esa convención y la reconcilia al crear el PR.
-5. **Tests del hook**: `post-pr-create.sh` **no tiene tests hoy** en `tests/adversarial/test-hooks.sh` — el lote 1 los estrena con TDD, usando la infraestructura sandbox existente (`sandbox_create`, `assert_exit0`, decisión ARCHITECTURE 2026-08-14 "sandbox obligatorio").
-6. **Este repo no tiene `.github/workflows/`** — para el PR de dogfooding (D-04), CI es N/A ("Cuándo NO monitorear CI") y el costo de la reconciliación es cero.
+### Search-first
 
-## Flujo nuevo completo
+Se salta: es fix de hooks existentes sin dependencia nueva. Lo que ya existe y se reutiliza: `guard_sanitize`/`GUARD_ANCHOR` (lib), el fragmento de opciones de árbol de `GIT_COMMIT_RE` (`pre-commit-guard.sh`), `GH_PR_MERGE_RE` (`pre-merge-check.sh`), `_guard_run_with_budget`, `_guard_find_runner_dir`, los helpers `assert_*_cmd`, `_pskip_*`, `assert_bam_*`, `assert_prs_*`, `assert_pre_merge_*` de la suite y el `gh` falso de `pre-release-sweep`.
 
-```
-Fase 0:    Brainstorming    → BRIEF.md                                   [sin cambio]
-Fase 0.5:  Design system    → si hay UI, ui-ux antes del architect       [sin cambio]
-Fase 1:    Diseño           → architect entrega DESIGN.md                [sin cambio]
-Fase 2:    Implementación   → devs por lote, last_batch=true|false       [sin cambio]
-Fase 2.5:  Documentación    → docs sobre diff local, sin push            [sin cambio]
-Fase 2.6:  Review dual LOCAL → security + qa-* sobre git diff <base>...HEAD   [NUEVA]
-                               rondas de fixes locales SIN push hasta veredictos
-                               limpios + sugerencias baratas aplicadas
-                               registro: .planning/reviews/pre-pr-<slug>.md
-Fase 2.7:  Push + PR        → push + gh pr create + RECONCILIACIÓN del   [ampliada]
-                               registro (pre-pr-<slug>.md → PR-<N>.md)
-Fase 2.8:  Monitoreo CI     → gh pr checks --watch --fail-fast           [sin cambio]
-Fase 3:    Post-PR          → re-reviews SOLO si CI obligó fixes que     [redefinida]
-                               cambian código ya revisado
-                               + e2e-runner Modo B si PR a main
-                               + verificación pre-merge + merge
-Fase 4:    Learn (post-merge)                                            [sin cambio]
-```
+### Modelo de amenaza (fijo, no se renegocia en review)
 
-El invariante de CLAUDE.md global no cambia (D-01): review dual **bloqueante antes de merge**. Lo que cambia es el momento: por default ocurre en 2.6, antes del push inicial. La regla "un push por ronda" (pr-workflow 5.2) sobrevive **solo para rondas post-PR** (D-05): las rondas pre-PR no pushean nada.
+Errores honestos del orchestrator/dev: formas que alguien escribe de buena fe (`+main`, `-fu`, `git -C`, `gh -R`, `cd x && gh pr create`, un heredoc de reporte). Fuera de alcance por D-05: todo lo de la sección "Fuera de alcance" abajo. Un reviewer que encuentre una forma disfrazada nueva la agrega a esa lista, no abre un hallazgo bloqueante.
 
-### Fase 2.6 — especificación (va al runbook como sección nueva)
+### Archivos afectados
 
-1. **Clasificar el diff local por capa**: `git diff --name-only <base>...HEAD` + sección "Clasificación del diff por capa" del runbook. `<base>` = branch base del PR futuro (normalmente `dev`).
-2. **Presupuestar el review proporcional al diff**: `git diff --shortstat <base>...HEAD` para additions+deletions; misma tabla y mandato de cierre que la skill `review-pr` paso 3 (el presupuesto proporcional aplica igual en pre-PR — fuera de alcance cambiarlo).
-3. **Lanzar en paralelo** (single message, multiple Agent calls): `security-reviewer` siempre; `qa-frontend`/`qa-backend` según capas. Paquete de contexto (context isolation): base + branch + instrucción de leer `git diff <base>...HEAD` + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida. **Sin número de PR — no existe todavía.**
-4. **Consolidar y registrar**: reporte con el "Formato de reporte de review" del runbook, guardado en `.planning/reviews/pre-pr-<feature-slug>.md` con header de trazabilidad (branch, base, SHA de HEAD revisado, fecha, veredicto). Commit al branch: `planning: registrar review dual pre-push`.
-5. **Blockers** → fixes por el dev correspondiente en el mismo branch, **sin push**. Re-lanzar **solo** los reviewers que marcaron issues, acotados al delta local (`git diff <sha-ya-revisado>...HEAD`). Append de la re-ronda al registro. Sugerencias baratas: aplicadas antes del push (misma regla que hoy).
-6. **Veredictos limpios** → Fase 2.7. Fixes, sugerencias aplicadas y registro viajan en el push inicial: **el PR nace revisado**.
+- `hooks/lib/guard-matching.sh` — regex de heredoc (espacio tras `<<`, delimitador con `-`); nuevos: `guard_command_has_nul`, `GUARD_GIT_TREE_OPTS` (fragmento `((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?\s+)*`, hoy inline en `GIT_COMMIT_RE`), `GUARD_GH_PR_MERGE_RE` (hoy inline en `pre-merge-check.sh`); header con inventario verificado de lo que NO sanea.
+- `hooks/block-force-push.sh` — `+<ref>`, cluster `-…f…`, `git -C <ruta> push`.
+- `hooks/block-hard-reset.sh` — `git -C <ruta> reset --hard`; NUL.
+- `hooks/block-admin-merge.sh` — `gh -R o/r pr merge --admin`, `gh pr -R o/r merge --admin`; NUL.
+- `hooks/pre-merge-check.sh` — NUL (bloqueo) y comentario; usa `GUARD_GH_PR_MERGE_RE`; header de wrappers `gh()`; mensaje `GH_REPO`/`GH_HOST`.
+- `hooks/pre-push-guard.sh` — sourcea la lib (fail-closed), jq fail-closed, detección saneada+anclada, branch desde `.cwd`, redirecciones bloquean; NUL.
+- `hooks/pre-release-sweep.sh` — sourcea la lib, fail-closed sin jq/gh, detección saneada+anclada, `-B main`; NUL.
+- `hooks/pre-commit-guard.sh` — #86 (runners por archivo cambiado), budget compartido, usa `GUARD_GIT_TREE_OPTS`, cita al DESIGN renombrado.
+- `tests/adversarial/test-hooks.sh` — todos los casos de abajo.
+- `README.md` (tabla de hooks: `pre-commit-guard`, `block-force-push`, `block-hard-reset`, `block-admin-merge`, `pre-merge-check`, `pre-push-guard`, `pre-release-sweep`; sección "Fuera de alcance"), `global/CLAUDE.md` (una línea en "Hooks": `--help`/`-h` y que el `if` es best-effort; respetar el tope ≤130 líneas/≤10 KB del test).
+- `hooks/hooks.json` — **sin cambios** (V2).
 
-### Fase 2.7 — ampliación (reconciliación del registro)
+### Contratos por hallazgo
 
-```bash
-git push -u origin <branch>
-gh pr create --base dev --title "..." --body "..."   # body incluye veredictos del review pre-push
-git mv .planning/reviews/pre-pr-<slug>.md .planning/reviews/PR-<N>.md
-# actualizar .planning/state.json: pr = N
-git commit -m "planning: vincular review pre-push al PR #<N>"
-git push
-```
+Cada fila: forma que pasa a bloquear · casos negativos que deben seguir pasando · test. Los tests de "sigue pasando" se escriben en la MISMA tarea que el bloqueo (retro PR-79). Antes de tocar cualquier regex, la suite completa es el corpus de regresión (retro PR-87): se corre al cerrar cada tarea.
 
-Los cinco comandos se ejecutan como **una sola secuencia inmediata** (segundos entre `create` y el segundo push). Costo: con la `concurrency` + `cancel-in-progress` del scaffold (pr-workflow 5.5, **obligatoria en todos los repos**), el run del evento `opened` se cancela a los segundos y solo completa el del `synchronize` → **neto: un run completo de CI**, igual que el ideal. En repos sin Actions (como este), gratis. Si un repo no cumple 5.5, arreglar el workflow es prerequisito — la regla ya existe, no se crea una nueva.
+#### A. `guard-matching.sh` — heredoc (#77 §2)
 
-Por qué reconciliar con rename y no con dos convenciones permanentes: los re-reviews post-PR (Fase 3 y skill `review-pr`) hacen **append** a `PR-<N>.md` — sin el rename, la historia de review de un mismo PR quedaría fragmentada en dos archivos.
+Cambio: `s/<<-?[\x27"]?(\w+)…/` → `<<-?[ \t]*[\x27"]?([A-Za-z0-9_-]+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1[ \t]*$)[^\n]*\n)*?[ \t]*\1(?:\n|$)`. Solo cambia la apertura; el cuerpo y el terminador quedan idénticos (propiedades 1 y 2 del comentario de la lib: `[^\n]` y no-greedy; el test de ReDoS y el de dos heredocs con el mismo delimitador siguen verdes).
 
-### Fase 3 — redefinición (post-PR)
+| ID | Comando (input del hook) | Hook | Esperado |
+|----|--------------------------|------|----------|
+| A1 | `cat > r.md << 'EOF'⏎- corrí `gh pr merge 5`⏎EOF` | pre-merge-check | pasa, 0 llamadas a gh (`assert_pre_merge_continue_no_calls`) — **rojo hoy** |
+| A2 | `cat > r.md << 'EOF'⏎- `git commit -m "x"` falló⏎EOF` en repo con runner y tests en rojo | pre-commit-guard | pasa sin correr el runner (`_pskip_assert_marker … no`) — hoy pasa por casualidad del anchor; el test fija el contrato |
+| A3 | `cat > r.md << EOF⏎- el dev corrió gh pr merge 5 --admin⏎EOF` (delimitador sin comillas, espacio, mención sin comillas) | block-admin-merge | pasa — **rojo hoy** (el cuerpo no se borra y `--admin` queda a la vista). A3b: la misma mención entre comillas dobles ya pasa hoy; se fija como negativo |
+| A4 | `cat > r.md <<'END-1'⏎`gh pr merge 5`⏎END-1` | pre-merge-check | pasa — **rojo hoy** |
+| A5 | heredoc `<<'EOF'` con cuerpo `it's` + `gh pr merge 5` real después del terminador | pre-merge-check | bloquea (multilínea) — negativo, hoy ya bloquea |
+| A6 | `gh pr merge 5 \⏎ --admin` | block-admin-merge | bloquea — negativo existente (continuación de línea) |
+| A7 | Los 4 casos existentes de heredoc (`HEREDOC_MENTION_*`, líneas ~2710-2736, 342, 585, 1134, 1252) | — | siguen verdes sin tocarlos |
 
-1. **Re-review condicional**: SOLO si la Fase 2.8 obligó fixes que cambian código ya revisado. Acotado al delta del fix, re-lanzando solo los reviewers de la capa afectada. Append al registro `PR-<N>.md`. Si CI pasó a la primera (caso normal), esta sub-fase es no-op.
-2. **E2E Modo B si el PR es a `main`** (D-03, sin cambio).
-3. **Verificación pre-merge** (3 comandos `gh`) + merge según tipo de branch + integración de hotfix + updates de `state.json`/`STATE.md` — todo idéntico a los pasos 6–10 de la Fase 3 actual.
-4. PRs fuera del flujo → skill `review-pr` (sin cambio).
+Limitación que queda documentada en el header de la lib (no se arregla): una línea del cuerpo que termina en `\` justo antes del terminador (`s/\\\n\s*/ /` corre antes y se traga el `EOF`); heredoc cuyo delimitador lleva caracteres fuera de `[A-Za-z0-9_-]`.
 
-## Resolución del conflicto reviewers-remotos vs pre-push
+#### B. NUL en el comando (#77 §3)
 
-**Evidencia** (Search-first #1 y #2): los reviewers de la metodología son subagentes locales con acceso directo al working tree — no necesitan el branch pusheado. Y el scaffold de `new-project` genera `ci.yml` con triggers `push: dev` + `pull_request: main/dev`, y `security.yml` con `pull_request: main` + cron: **un push de `feature/*` sin PR dispara cero workflows**.
+Cambio: `guard_command_has_nul "$INPUT"` en la lib (jq -e sobre el JSON, V4). Cada guard lo llama justo después de `INPUT=$(cat)` y bloquea con `BLOCKED: <hook>: el comando trae un byte NUL`. Los 7 guards (los dos que hoy no sourcean la lib pasan a hacerlo, ver E y F). En `pre-merge-check.sh` se reemplaza el párrafo "El caso que sí importa es un NUL…" por la referencia al helper.
 
-**Regla escrita (ambos casos):**
+| ID | Comando | Esperado |
+|----|---------|----------|
+| B1 | `jq -n '{tool_input:{command:"gh pr merge --help\u0000 5 --admin"}}'` → block-admin-merge, pre-merge-check | bloquea (hoy: admin bloquea por `--admin`; pre-merge pasa como `--help` con 0 consultas → **rojo hoy** para pre-merge-check) |
+| B2 | `"git status\u0000"` → block-force-push, block-hard-reset, pre-commit-guard, pre-push-guard, pre-release-sweep | bloquea (rojo hoy en todos) |
+| B3 | Los mismos comandos sin NUL | siguen pasando (existentes) |
 
-- **Default — reviewers locales**: el review de Fase 2.6 corre con subagentes locales sobre `git diff <base>...HEAD`. No hay push antes del review. Este es el único modo que el flujo usa automáticamente.
-- **Excepción — reviewer remoto** (entorno cloud/aislado que necesita clonar): permitido pushear el branch **sin crear PR** antes del review, con esta **condición verificable**: ningún workflow del repo dispara con `on: push` sobre branches que matcheen `feature/*`/`hotfix/*` (verificar con grep de los triggers en `.github/workflows/*.yml` antes del push). Bajo el scaffold de la metodología la condición se cumple siempre. Flujo remoto: push del branch (0 runs) → review remoto → fixes locales → push de fixes (0 runs) → `gh pr create` (primer y único run). Si la condición NO se cumple: corregir el trigger (filtro de branches) o caer al modo local — nunca pagar runs por review.
+#### C. `block-force-push` (#77 comentario 2)
 
-## Contratos
+Regex nuevos sobre el saneado, todos con `${GUARD_ANCHOR}git\s+${GUARD_GIT_TREE_OPTS}push\b`:
+- flag larga/corta como hoy: `\s.*(-f|--force)\b` (sin cambio de semántica; `--force-with-lease`/`--force-if-includes` siguen bloqueando como hoy, test 369);
+- cluster corto: `\s-[a-zA-Z]*f[a-zA-Z]*(\s|$)`;
+- refspec forzado: `\s\+[^\s:]+` (un token que empieza con `+`).
+El segundo camino (flag entre comillas sobre el crudo) queda igual, solo con el anchor nuevo.
 
-### 1. Naming y reconciliación del registro de reviews
+| ID | Comando | Esperado |
+|----|---------|----------|
+| C1 | `git push origin +main` · `git push origin +feature/x` · `git push origin +HEAD:main` | bloquea (rojo hoy) |
+| C2 | `git push -fu origin x` · `git push -uf origin x` | bloquea (rojo hoy) |
+| C3 | `git -C repo push --force` · `git -C repo push -f` · `git -C repo push origin +main` · `cd a && git -C repo push -fu` | bloquea (rojo hoy) |
+| C4 | negativos V8 + `git push origin main --follow-tags` + `git commit -m "+main -fu"` + `git push origin 'feat/+x'` (token quoted) + `git push -u origin feature/x` | pasan |
+| C5 | existentes 297-388 | verdes |
 
-| Momento | Archivo | Quién lo escribe |
-|---|---|---|
-| Fase 2.6 (pre-PR) | `.planning/reviews/pre-pr-<feature-slug>.md` | Orchestrator (consolidación) |
-| Fase 2.7 (al crear el PR) | `git mv` → `.planning/reviews/PR-<N>.md` + `state.json.pr = N`, commit `planning: vincular review pre-push al PR #<N>` | Orchestrator |
-| Fase 3 / `review-pr` (post-PR) | Append `## Re-review <fecha>` a `PR-<N>.md` (convención existente, sin cambio) | Orchestrator / skill |
+#### D. `block-hard-reset` y `block-admin-merge`
 
-`<feature-slug>` = campo `feature` de `state.json`. Header obligatorio del registro pre-PR: branch, base, SHA de HEAD revisado, fecha, veredicto — sin él, el re-review acotado al delta no tiene ancla.
+- hard-reset: `${GUARD_ANCHOR}git\s+${GUARD_GIT_TREE_OPTS}reset\s+--hard`.
+- admin-merge: `${GUARD_ANCHOR}${GUARD_GH_PR_MERGE_RE}\b.*--admin` con `GUARD_GH_PR_MERGE_RE='gh\s+(\S+\s+){0,2}pr\s+(\S+\s+){0,2}merge'` (el mismo texto que hoy usa `pre-merge-check.sh` sin anclar; se mueve a la lib y ese hook lo importa — misma cadena, cero cambio de comportamiento ahí).
 
-### 2. Hook `post-pr-create.sh` (v2 — checkpoint de respaldo, D-02)
+| ID | Comando | Hook | Esperado |
+|----|---------|------|----------|
+| D1 | `git -C repo reset --hard` · `git -C repo reset --hard HEAD~1` · `cd a && git -C b reset --hard` | hard-reset | bloquea (rojo hoy) |
+| D2 | `git commit -m "reset --hard"` · `git reset --soft HEAD~1` · `git -C repo reset --soft` | hard-reset | pasan |
+| D3 | `gh -R o/r pr merge 5 --admin` · `gh pr -R o/r merge 5 --admin` · `gh --repo o/r pr merge 5 --admin` · `git fetch && gh -R o/r pr merge 5 --admin` | admin-merge | bloquea (rojo hoy) |
+| D4 | `gh pr view 5 \| grep merge` · `gh pr merge 5 --squash` · `gh pr list --search "admin merge"` · `gh pr view 5 --repo o/r --json title` · mención quoted existente (471) | admin-merge | pasan |
+| D5 | `pre-merge-check`: toda su sección (2676-3300+) | — | verde sin tocar tests |
 
-Sigue siendo PostToolUse/Bash, mismo registro en `hooks.json` (comando, matcher, timeout 15 — sin cambios), **siempre `exit 0`** (checkpoint, no guard). Parsing del input sin cambios (`tool_input.command`, `stdout`). Lógica de decisión nueva:
+#### E. `pre-push-guard` (D-07, V7)
 
-```
-gh pr create detectado + URL extraída:
-  TOPLEVEL = git rev-parse --show-toplevel
-  STATE    = $TOPLEVEL/.planning/state.json
-  CASO A — "PR del flujo, ya revisado":
-    STATE existe ∧ jq legible ∧ .phases.review == "done" ∧ .branch == branch actual
-    → imprime:
-        PR creado: <URL>
-        Review dual pre-push verificado (state.json: phases.review=done, branch <branch>).
-        CHECKPOINT: confirma la reconciliación — .planning/reviews/PR-<N>.md debe existir
-        (renombrado desde pre-pr-<slug>.md). Si falta, ejecútala ahora (Fase 2.7).
-        No relances reviewers: el PR nació revisado. Re-review solo si CI obliga fixes
-        sobre código ya revisado (Fase 3).
-  CASO B — "sin evidencia de review pre-push" (todo lo demás: sin .planning/state.json,
-    JSON ilegible, review != done, o branch distinto):
-    → imprime una línea de diagnóstico ("No hay evidencia de review dual pre-push para
-      este branch — se trata como PR fuera del flujo") + el bloque ACCIÓN REQUERIDA
-      actual (lanzar security-reviewer + qa-* sobre gh pr diff, con la referencia al
-      runbook para clasificación por capa).
-gh pr create sin URL en stdout → WARNING actual (verificar a mano + lanzar review).
-Comando que no es gh pr create → exit 0 silencioso (passthrough, sin cambio).
-jq ausente → no-op exit 0 (degradación estándar de hooks de observabilidad,
-  decisión ARCHITECTURE 2026-08-14).
-```
+Contrato nuevo (allowlist, misma doctrina que ARCHITECTURE 2026-09-26):
+1. Fail-closed sin jq y sin lib (como los otros guards).
+2. Detección: `${GUARD_ANCHOR}git\s+${GUARD_GIT_TREE_OPTS}push\b` sobre el saneado (una mención quoted no cuenta).
+3. Branch: `git -C "$BASE_DIR" branch --show-current` con `BASE_DIR` = `.cwd` del input (fallback `pwd -P`), igual que `pre-commit-guard`.
+4. Si el saneado tiene `cd`/`pushd` en posición de comando, `-C`, `--git-dir`/`--work-tree` o `GIT_DIR=`/`GIT_WORK_TREE=` → bloquea: "pre-push-guard no resuelve redirecciones; hacé el cd en una llamada previa (el hook sigue el cwd de la sesión)". No se resuelve la ruta: el push lo hace el orchestrator desde el cwd de la sesión, no hay forma honesta que lo necesite.
+5. Excepción del merge commit intacta (línea `^Merge`).
 
-La distinción flujo/fuera-del-flujo se **falla hacia el review**: cualquier ambigüedad produce CASO B. El costo del falso negativo es un review redundante; el del falso positivo sería un PR sin review — por eso CASO A exige las dos señales (fase Y branch).
+| ID | Sandbox (`sandbox_create_pushrepo`, en `main`) | Comando | Esperado |
+|----|-----------------------------------------------|---------|----------|
+| E1 | main | `git commit -m x && git push origin main` · `npm test && git push` · `git push origin main;` | bloquea (rojo hoy) |
+| E2 | main | `git commit -m "git push origin main"` · `gh pr create --body "git push origin main"` | pasa (hoy pasa porque el crudo no empieza con `git push`; el test fija el contrato para la detección anclada nueva) |
+| E3 | main | `cd . && git push origin main` · `git -C . push origin main` · `GIT_DIR=x git push` | bloquea con el mensaje de redirección (rojo hoy) |
+| E4 | feature/test, `HOOK_JSON_CWD=$SANDBOX_REPO` | `git push origin feature/test` | pasa |
+| E5 | main, `.cwd` apuntando a un segundo sandbox en `feature/x` | `git push origin feature/x` | pasa: el branch se lee del `.cwd`, no del cwd del proceso (marcador: el test corre el hook con `run_cwd` = repo en main y `HOOK_JSON_CWD` = repo en feature) |
+| E6 | PATH sin jq | `git push origin main` | bloquea (rojo hoy) |
+| E7 | existentes 267-288 | — | verdes (E4 usa el mismo fixture) |
 
-### 3. Paquete de contexto de reviewers (parametrización de la fuente del diff)
+#### F. `pre-release-sweep` (#77 comentario 1 + V7)
 
-`agents/security-reviewer.md`, `agents/qa-backend.md`, `agents/qa-frontend.md` — mismo cambio en tres lugares de cada uno:
+1. Sourcea la lib (fail-closed si falta). Sin jq o sin gh → `BLOCKED: pre-release-sweep no operativo: falta jq o gh`. (Con `if: Bash(gh *)` el costo es un bloqueo de `gh` sin `gh` instalado, que fallaría igual.)
+2. Detección sobre el saneado: `${GUARD_ANCHOR}gh\s+pr\s+create\b.*(--base[ =]main|-B\s+main)\b`.
 
-- **Handoff "Recibes del orchestrator"**: reemplazar "Número de PR y branch / Diff del PR (o instrucción de leerlo con `gh pr diff <number>`)" por: «**Fuente del diff, indicada por el orchestrator**: *local* (base + branch — lo lees con `git diff <base>...HEAD`; es el default del flujo, el review ocurre antes del push y **no hay número de PR**) o *PR existente* (número — lo lees con `gh pr diff <N>`)».
-- **Flujo de trabajo, paso 1**: "Obtén el diff con la fuente indicada: `git diff <base>...HEAD` (pre-push, default) o `gh pr diff <PR>` (PR existente)". En security-reviewer, paso 2 (lista de archivos): `git diff --name-only <base>...HEAD` o `gh pr view <PR> --json files`.
-- **Re-review, paso 1**: "lee solo el delta desde el SHA ya revisado (misma fuente de diff que la ronda anterior)".
+| ID | Comando (fixture `sandbox_create_prs`, modo `critical`) | Esperado |
+|----|----------------------------------------------------------|----------|
+| F1 | `cd x && gh pr create --base main --title x` (x = `$PRS_REPO` relativo o `.`; el hook sigue corriendo `git diff` en su cwd, no resuelve el cd — documentarlo en el header) | bloquea por `app.js` (rojo hoy) |
+| F2 | `gh pr create -B main --title x` · `gh pr create --title x --base=main` | bloquea (rojo hoy para `-B`) |
+| F3 | `gh pr create --base dev` · `gh pr create --base main-2` · `git commit -m "gh pr create --base main"` · `gh pr create --base dev --body "--base main"` | pasan |
+| F4 | PATH sin jq · PATH sin gh | bloquea (rojo hoy: hoy `exit 0`) |
+| F5 | existentes 2603-2607 | verdes |
 
-El veredicto vinculante no cambia de fuerza, solo de fraseo donde dice "el PR no se mergea": en el caso pre-push, "el branch no se pushea hasta corregir".
+#### G. `pre-commit-guard` — #86
 
-### 4. `state.json` — sin bump de schema
+**Decisión:** correr los runners de los subdirectorios afectados por los archivos con cambios; NO bloquear cuando no se encuentra ninguno. Justificación: "bloquear si hay cambios de código y no hay runner" rompería todo repo sin runner (este mismo repo no tiene `package.json` ni `pyproject.toml`; `test-hooks.sh` no es un runner detectable) y exige definir "código" a ojo. Correr por archivo tocado es una extensión del resolver que ya existe (`_guard_find_runner_dir`) y cae del lado de correr de más.
 
-Claves y enum idénticos (schema 1). Cambia solo el **orden documentado de transiciones**: `review` pasa a `done` en Fase 2.6, **antes** que `pr` y `ci`. Tabla "Quién escribe qué": fila `phases.review` → "Orchestrator, Fase 2.6 (al cerrar veredictos limpios)". El campo `pr` se escribe en 2.7 dentro del commit de reconciliación (mismo commit que el rename).
+Contrato:
+1. Se mantiene TODO lo actual cuando `_guard_find_runner_dir SESSION_DIR TARGET_DIR` encuentra un marcador (`package.json`/`pyproject.toml`/`setup.py`/`pytest.ini`) — incluido `workspace-scope.sh`.
+2. Si no encuentra ninguno: por cada línea de `git status --porcelain --no-renames --untracked-files=all` (ya se corre en `TARGET_DIR`), dir = directorio del archivo; se sube desde `TARGET_DIR/dir` hasta `TARGET_DIR` (exclusive, ya se sabe que no tiene marcador) con el mismo `_guard_find_runner_dir`; se junta el set único (`sort -u`).
+3. Set vacío → `exit 0` como hoy (repo sin runner). Set no vacío → para cada dir, en orden, se corre la detección+suite de siempre (bloque "Detectar el test runner" extraído a `_guard_run_suite_in <dir>`, sin cambios internos; `workspace-scope` sigue aplicando dentro de cada dir si ese `package.json` declara workspaces). Cualquier fallo bloquea con el nombre del dir en el mensaje.
+4. Budget compartido: `_guard_run_with_budget` descuenta de un `GUARD_BUDGET_LEFT` global inicializado una vez con `_guard_resolve_test_budget`; una segunda suite recibe lo que queda. Sin esto dos suites de 540 s superan los 600 s del harness, que descarta la salida y deja pasar el commit (fail-open).
+5. Path con espacios en `git status` (C-quoted) → se trata como "sin dir resoluble" y se ignora para el set (nunca se ejecuta nada derivado de él); se anota en el header como en `workspace-scope.sh`.
 
-## Archivos afectados — MAPA ANTI-DRIFT COMPLETO
+Tabla de layouts (todos con `HOOK_JSON_CWD` y marcador `pwd -P` escrito por un runner falso — `npm` real con script `test` que escribe `pwd -P > <marker>` y sale 1, y un `pytest` falso en PATH que escribe su `pwd -P` y sale 0/1 según `FAKE_PYTEST_RC`):
 
-Resultado del grep DoD (`pr diff|crear el PR|post-pr|Fase 2\.|Fase 3|reviews/PR-|review dual`) sobre CLAUDE.md (ambos), README, rulebooks/, agents/, skills/, hooks/, tests/. Cada entrada indica sección exacta y qué cambia. **Este mapa es la partición de los lotes 2 y 3.**
+| ID | Layout | Cambios | Sesión / comando | Esperado |
+|----|--------|---------|------------------|----------|
+| G1 | `frontend/package.json` + `backend/pyproject.toml`, sin marcador en raíz | `backend/b.py` | raíz, `git commit -am x` | corre solo pytest, marcador = `<repo>/backend`; frontend no corre (rojo hoy: exit 0 sin nada) |
+| G2 | idem | `backend/b.py` + `frontend/a.js` | raíz | corren ambos; con frontend en rojo bloquea nombrando `frontend` |
+| G3 | idem | `docs/README.md` | raíz | pasa sin correr nada (set vacío) |
+| G4 | idem | `docs/README.md` + `frontend/a.js` | raíz | corre solo frontend |
+| G5 | `git worktree add` del layout G1 | `frontend/a.js` en el worktree | raíz del worktree | marcador = `<worktree>/frontend`, nunca el árbol principal (rojo hoy) |
+| G6 | `packages/a/package.json`, cambio en `packages/a/src/x.js` | — | raíz | marcador = `<repo>/packages/a` |
+| G7 | G1 | `frontend/a.js` | raíz, `cd frontend && git commit -am x` | intacto (existente: corre en frontend por SESSION_DIR) |
+| G8 | raíz con `package.json` + `workspaces` | — | raíz | intacto (existentes de workspace-scope) |
+| G9 | repo sin runner en ningún lado | — | raíz | pasa (existente 547) |
+| G10 | G1 con `PRECOMMIT_TEST_BUDGET=3`, ambos runners falsos duermen 2 s | ambos | raíz | bloquea por budget (total 4 s > 3 s) con el mensaje de `superó 3s` — rojo sin el budget compartido |
+| G11 | G1 solo `.planning/` sucio | — | raíz | salta suites (existente 939) |
 
-### Cambios de código (Lote 1)
+### Decisión sobre `hooks.json` `if` (V2)
 
-- `hooks/post-pr-create.sh` — reescritura de la lógica de decisión (contrato #2). Parsing y registro intactos.
-- `tests/adversarial/test-hooks.sh` — sección nueva `--- post-pr-create.sh ---` con TDD (no existe cobertura hoy). Patrón sandbox obligatorio.
-- `hooks/hooks.json` — **sin cambio** (mismo evento/matcher/timeout); la paridad de `test-plugin-manifest.sh` no se toca.
+Sin cambios. `env git …` y `/usr/bin/git …` no disparan el hook y tampoco los matchearía el script: no son errores honestos del flujo (nadie escribe `env git commit` por accidente). Van a "Fuera de alcance". Quitar el `if` costaría 7 spawns por cada llamada Bash sin cerrar nada que el script cierre.
 
-### Documentos núcleo del proceso (Lote 2)
+### Fuera de alcance (texto para el header de `guard-matching.sh` y la sección nueva del README)
 
-- `rulebooks/orchestrator-runbook.md`:
-  - L110 (modo single-PR, punto 2): "después vienen docs (Fase 2.5)" → "docs (2.5), review dual local (2.6) y push + PR (2.7)".
-  - L127 (modo multi-PR, punto 3): insertar "Fase 2.6 (review local)" en la cadena.
-  - L146 (Fase 2.5): "avanza directo a Fase 2.7" → "a Fase 2.6".
-  - **Sección nueva "Fase 2.6: Review dual local"** entre Fase 2.5 y Fase 2.7 (especificación de arriba) + entrada en el índice.
-  - Fase 2.7 (L148–157): agregar la secuencia de reconciliación + nota de costo + body del PR con veredictos.
-  - Fase 2.8 (L159+): nota "si el fix de CI cambia código ya revisado → re-review acotado en Fase 3".
-  - **Fase 3 (L180–201): redefinición completa** (los pasos 1–5 actuales migran a 2.6; quedan re-review condicional, E2E, pre-merge, merge, state).
-  - Context isolation (L252): "security-reviewer / qa-* reciben: diff completo del PR" → "la fuente de diff que indique el orchestrator — local (`git diff <base>...HEAD`, Fase 2.6) o PR (`gh pr diff <N>`, post-PR) — + DESIGN.md + BRIEF.md".
-  - Tracker (L311–331): "Review dual local" como tarea separada bloqueada por los lotes; "Abrir PR + CI" bloqueada por el review; criterios de completed actualizados (review = veredictos limpios + sugerencias aplicadas + registro commiteado; PR+CI = PR creado + registro reconciliado + CI verde). **Fix de paso**: el criterio "lote = commits pusheados" es incorrecto incluso hoy (los devs no pushean) → "commits del lote hechos (locales) y reporte del dev recibido".
-  - state.json (L389–443): contrato #4 (tabla de transiciones; sin bump).
-  - Formato de reporte de review (L600–629): aclarar que `gh pr comment` aplica solo post-PR; L629 "Guardar copia en `.planning/reviews/PR-<number>.md`" → convención dual + reconciliación (contrato #1).
-  - Errores comunes (L677+): fila nueva "PR creado sin review pre-push (checkpoint del hook lo señala) → tratarlo como PR fuera del flujo: skill `review-pr`".
-  - Flujo "revisar PR existente" (L695+): sin cambio de fondo; nota de que guarda directo en `PR-<N>.md`.
-- `skills/pr-workflow/SKILL.md`:
-  - Frontmatter `description` (L3): "Invocar al llegar a Fase 2.7" → "Invocar al llegar a Fase 2.6 (review dual local, antes del push + PR) o al revisar/mergear un PR existente".
-  - **Regla 2 reescrita** (L38–57): título "Review dual local antes del push (Fase 2.6)"; se lanza al terminar docs, sobre el diff local; fixes locales sin push; sugerencias baratas aplicadas antes del push; el PR nace revisado; post-PR solo re-reviews condicionales. Conserva: paralelismo automático sin confirmación, fixes en mismo branch, re-lanzar solo a quien marcó issues, política de sugerencias, referencia al checklist del security-reviewer. Incorpora la **regla del caso remoto** (resolución del conflicto, con su condición de triggers).
-  - Sección E2E (L59–77): sin cambio (D-03).
-  - Regla 5.2 (L112–114): reescribir alcance — "las rondas pre-PR (Fase 2.6) no pushean nada; un-push-por-ronda aplica a rondas post-PR: fixes de CI y re-reviews sobre PR existente" (D-05).
-  - Regla 5.3 (L116–120): "En rondas de review (Fase 3) nunca" → "En rondas de review post-PR nunca".
-  - Regla 5.1 (L106–110): sin cambio de fondo; añadir que tras docs viene el review local (2.6) antes del push.
-- `rulebooks/dev-common.md`:
-  - L22: "el orchestrator invoca `docs` sobre el diff local y recién ahí hace push + PR" → insertar "y el review dual local (Fase 2.6)" antes del push.
-  - L29–40 ("Correcciones post-review"): generalizar — las correcciones de review pueden llegar **pre-push** (Fase 2.6, no hay nada pusheado) o **post-PR**; en ambas: commit al mismo branch sin push, el orchestrator decide cuándo pushear. La excepción de CI (L26, L39) queda igual.
-- `rulebooks/agent-budget.md`:
-  - L29: "push + PR + CI + review una sola vez" → "review local + push + PR + CI una sola vez".
-  - L53: añadir el review local a la cadena "docs → … → push + PR"; la referencia "Fases 2.5–2.7" sigue válida.
+> **Fuera de alcance de los guards (documentado, no parcheado).** Los guards de `hooks/` protegen errores honestos del orchestrator y los devs: formas que alguien escribe de buena fe. No son un parser de shell ni un control de evasión. Verificado contra los hooks reales (2026-09-27), estas formas pasan sin bloquear y quedan así por decisión (D-05):
+> - comillas partidas o escapadas que rompen el emparejamiento del saneo: `echo \'; gh pr merge 5; echo \'`, `$'it\'s' && gh pr merge 5`;
+> - heredoc con delimitador comillado a medias (`<<E"OF"`), delimitador con caracteres fuera de `[A-Za-z0-9_-]`, o una línea del cuerpo que termina en `\` justo antes del terminador;
+> - la flag o el subcomando en una variable (`F=--force; git push $F`), `eval`, `bash -c '…'`/`sh -c`, alias y funciones de git/gh definidas en el mismo comando o en uno anterior (`w() { gh "$@"; }; w pr merge 5` pasa — corrige lo que decía el header de `pre-merge-check.sh`);
+> - la palabra del binario alterada o disfrazada: `"gh"`, `g\h`, `env git …`, `/usr/bin/git …`, `command git …` (el `if` de `hooks.json` tampoco dispara para las tres últimas: compara cada subcomando por prefijo y solo descarta asignaciones `VAR=x` al frente; ver la tabla "Bash if matching" de la doc de hooks).
+> Si una de estas formas te bloquea o se te cuela, no es un bug a arreglar aquí: la salida es escribir el comando en su forma directa.
 
-### Documentos periféricos (Lote 3)
+`README.md`: fila de cada hook actualizada con las formas nuevas y una subsección "Fuera de alcance" con ese texto. `global/CLAUDE.md` (una línea, dentro del tope): "`gh pr merge --help`/`-h` exactos pasan; el filtro `if` de los hooks es best-effort y las formas disfrazadas quedan fuera de alcance por diseño (README, sección Hooks)".
 
-- `global/CLAUDE.md` (canónico de la metodología; el CLAUDE.md del repo NO describe el flujo — verificado, cero hits):
-  - L34 (Workflow obligatorio #4): añadir el momento — "se lanzan… sobre el diff local al terminar docs (Fase 2.6), antes del push inicial; bloqueante antes de merge" (invariante intacto, D-01).
-  - L40 (Lotes): "el push + PR lo hace el orchestrator después de docs — Fases 2.5–2.7" → "después de docs y del review dual local — Fases 2.5–2.7".
-  - L51–53 (tabla de agentes): security-reviewer/qa-* "Al revisar PRs" / "PR con archivos de…" → "En Fase 2.6 (diff local) y re-reviews post-PR" / "Diff con archivos de…".
-  - L87–92 (diagrama de fases): insertar la línea de Fase 2.6 y redefinir la línea de Fase 3 (post-PR: re-reviews condicionales + E2E Modo B). Es el diagrama espejo del de este diseño.
-  - L98 (modo single-PR): insertar review dual local entre docs y push + PR.
-  - L103 (tracker): "una tarea por etapa del pipeline (PR+reviews+CI, …)" → "(review dual local, PR+CI, …)".
-  - L114 (`.planning/`): `reviews/PR-{N}.md` → `reviews/` (pre-PR: `pre-pr-<slug>.md`; al crear el PR se reconcilia a `PR-{N}.md` — ver runbook).
-  - L127 (PR y merge, intro): "que invocas al llegar a Fase 2.7" → "al llegar a Fase 2.6".
-  - L130 (invariante 2): texto intacto + "(el momento default: Fase 2.6, pre-push)".
-  - L156 (hooks background): "review automático al crear un PR" → "checkpoint de review al crear un PR (verifica que el review dual pre-push ocurrió; solo instruye lanzarlo para PRs fuera del flujo)".
-- `README.md`:
-  - L36 (tabla de hooks, post-pr-create): descripción nueva de checkpoint de respaldo.
-  - L51 (tabla de skills, /pr-workflow): "se invoca en Fase 2.7" → "en Fase 2.6".
-  - L60–61 (diagrama del flujo): "→ PR creado → Security + QA review en paralelo → …" → "→ Review dual local (pre-push) → fixes locales → Push + PR (nace revisado) → CI → merge".
-  - L68 (bullet dual review): añadir "pre-push".
-- `agents/security-reviewer.md` — contrato #3 (L14 fraseo del veredicto, L20–21 handoff, L288–289 flujo, L302+ re-review).
-- `agents/qa-backend.md` — contrato #3 (L19–20, L267, L286).
-- `agents/qa-frontend.md` — contrato #3 (L19–20, L196, L215).
-- `agents/docs.md` L14 — precisión opcional: "(Fase 2.5…, ANTES del review dual local y del push + PR)". Barato, evita ambigüedad.
-- `rulebooks/governance-playbook.md` §1–§3 — gates de bloqueo reescritos agnósticos al momento ("no se pushea (pre-push, el default) / no se mergea (post-PR)"). Clasificado inicialmente como sin-cambio; el drift se detectó y cerró en b96bf05.
+Docs puntuales de #77 §3 (van en el Lote 5):
+- Header de `pre-merge-check.sh` (~L123-124): quitar "un wrapper o una función `gh()` … TODOS bloquean"; inventario: `command gh`, `env gh`, `FOO=1 gh`, `\gh`, ruta absoluta → bloquean (siguen verificados); `w() { gh "$@"; }; w pr merge 5` → pasa.
+- Mensaje `GH_REPO`/`GH_HOST` (L420): sin `${MERGE_FORM_HELP}` al final (contradice "no uses --repo"); test que afirma que el stderr de ese bloqueo no contiene "usa --repo".
+- La cita a `hooks/pre-merge-check.sh` en `global/CLAUDE.md` ya no existe (verificado: commit 920a413 la quitó); no hay tarea.
 
-### Verificados SIN cambio (falsos positivos del grep — documentado para no re-investigar)
+### Plan de implementación
 
-- `agents/build-resolver.md` L219 "Fase 3: Aplicar el fix mínimo" — fases **internas** del agente, no del pipeline. L17 referencia "Fase 2.8", que conserva número. Sin cambio.
-- `skills/review-pr/SKILL.md` — post-PR por definición, fuera de alcance por BRIEF; su convención de append a `PR-<N>.md` es exactamente lo que la reconciliación preserva. Sin cambio.
-- `hooks/hooks.json`, `settings.json`, `tests/adversarial/test-plugin-manifest.sh` — registro del hook intacto.
-- E2E Modo B / `agents/e2e-runner.md` — sin cambio (D-03).
-- `tests/validation/`, `docs/books/` — cero referencias al orden del flujo.
-- Presupuesto de review proporcional (memoria `review-budget-proportional.md`) — aplica igual en pre-PR (fuera de alcance por BRIEF); la Fase 2.6 lo referencia con `git diff --shortstat`.
+**Estrategia de PR:** single-PR (D-06). Branch `fix/guards-honest-errors`, base `dev`.
+**Agente:** `backend-dev` en todos los lotes. **Secuenciales** (todos tocan `test-hooks.sh` y los lotes 2-4 dependen de la lib del Lote 1). TDD sobre `tests/adversarial/test-hooks.sh`: cada tarea = test rojo → fix → suite completa verde → commit. Regla de regresión (retro PR-87): al cambiar un regex, la suite completa es el corpus; un test existente que cambie de veredicto se discute, no se edita.
 
-## Plan de implementación
+**Por qué 6 lotes (> 3):** son 7 hooks + la lib compartida, cada uno con sus positivos y negativos; cortar por hook mantiene cada commit trazable a un hallazgo y evita el lote de 490 k tokens de PR-76 (H2). El Lote 6 es la reserva que pide D-07 para la ronda de fixes del review.
 
-**Estrategia de PR:** single-PR (default). Un branch `feature/pre-pr-dual-review` desde `dev`, 3 lotes secuenciales, un commit por tarea.
+#### Lote 1 — lib compartida: heredoc y NUL (backend-dev)
+**Depende de:** ninguno (antes: el `git mv` del DESIGN de #73 por el orchestrator)
+- [ ] T1: `guard_sanitize` reconoce `<< 'EOF'` con espacio tras `<<` (A1, A2, A3/A3b rojos → verdes; A5, A6, A7 siguen igual).
+- [ ] T2: delimitador con `-` (A4); test de ReDoS y de dos heredocs con el mismo delimitador siguen verdes.
+- [ ] T3: `guard_command_has_nul` en la lib + bloqueo en los 5 guards que hoy la sourcean (B1, B2 para esos 5; B3). Reescribir el párrafo del NUL en `pre-merge-check.sh`.
+- [ ] T4: mover a la lib `GUARD_GIT_TREE_OPTS` (desde `GIT_COMMIT_RE`) y `GUARD_GH_PR_MERGE_RE` (desde `pre-merge-check.sh`), importándolos donde estaban: cero cambio de veredicto (suite completa verde, 415 + los nuevos).
+- [ ] T5: header de `guard-matching.sh`: sección "Fuera de alcance" con el texto de arriba (V6 + limitaciones de A).
 
-**Dogfooding (D-04): ESTE MISMO PR estrena el orden nuevo.** Al cerrar el Lote 3 (`last_batch=true`) y la Fase 2.5, el orchestrator ejecuta la Fase 2.6 tal como la define este diseño: review dual sobre `git diff dev...HEAD` con reviewers locales, registro en `.planning/reviews/pre-pr-pre-pr-dual-review.md`, fixes locales, y recién entonces push + `gh pr create` + reconciliación a `PR-<N>.md`. Este repo no tiene Actions: Fase 2.8 es N/A y la reconciliación cuesta cero.
+#### Lote 2 — guards de git: force-push, hard-reset, admin-merge (backend-dev)
+**Depende de:** Lote 1
+- [ ] T1: `block-force-push`: refspec `+<ref>` (C1; negativos C4).
+- [ ] T2: `block-force-push`: cluster corto con `f` (C2; negativos C4, C5).
+- [ ] T3: `block-force-push` y `block-hard-reset`: `git -C <ruta>` vía `GUARD_GIT_TREE_OPTS` (C3, D1; negativos D2).
+- [ ] T4: `block-admin-merge`: `gh -R o/r pr merge --admin` y `gh pr -R o/r merge --admin` vía `GUARD_GH_PR_MERGE_RE` anclado (D3; negativos D4; D5 intacto).
+- [ ] T5: filas de README de los tres hooks con las formas nuevas.
 
-#### Lote 1 — hook checkpoint con TDD (backend-dev)
-**Depende de:** ninguno
+#### Lote 3 — pre-push-guard y pre-release-sweep (backend-dev)
+**Depende de:** Lote 1
+- [ ] T1: `pre-push-guard`: fail-closed sin jq/lib y detección saneada+anclada (E1, E2, E6, E7).
+- [ ] T2: `pre-push-guard`: branch desde `.cwd` y bloqueo de redirecciones con mensaje (E3, E4, E5) + NUL (B2).
+- [ ] T3: `pre-release-sweep`: lib + detección saneada+anclada + `-B main` (F1, F2, F3, F5).
+- [ ] T4: `pre-release-sweep`: fail-closed sin jq/gh (F4) + NUL (B2).
+- [ ] T5: headers y filas de README de ambos hooks (incluida la limitación de F1: `cd` no se resuelve, el diff se calcula en el cwd de la sesión).
 
-- [ ] Tarea 1: test (rojo) + implementación: con `state.json` legible, `phases.review=="done"` y `branch` igual al actual, `post-pr-create.sh` imprime el checkpoint de "PR del flujo ya revisado" (contrato #2, CASO A) y NO imprime "ACCIÓN REQUERIDA"; exit 0.
-- [ ] Tarea 2: test (rojo) + implementación: sin `.planning/state.json` en el toplevel, imprime la línea de diagnóstico "sin evidencia de review pre-push" + el bloque ACCIÓN REQUERIDA de PR fuera del flujo (CASO B); exit 0.
-- [ ] Tarea 3: test (rojo) + implementación: `phases.review != "done"` o `branch` distinto del actual → CASO B (fail hacia el review).
-- [ ] Tarea 4: test (rojo) + implementación: `state.json` malformado (JSON inválido) → CASO B; sin `jq` en PATH → no-op exit 0 (degradación estándar).
-- [ ] Tarea 5: tests de caracterización de lo que se conserva: passthrough de comandos que no son `gh pr create` (sin output) y WARNING cuando no hay URL en stdout; suite adversarial completa verde sin contaminar el repo real (guard de no-contaminación).
+#### Lote 4 — pre-commit-guard: monorepo sin runner en la raíz, #86 (backend-dev)
+**Depende de:** Lote 1 (`GUARD_GIT_TREE_OPTS`)
+- [ ] T1: extraer `_guard_run_suite_in <dir>` (refactor sin cambio de veredicto: suite verde) y correr runners derivados de los archivos cambiados cuando no hay marcador entre SESSION_DIR y TARGET_DIR (G1 rojo → verde; G3, G9 pasan).
+- [ ] T2: varios dirs → todos corren, cualquier fallo bloquea nombrando el dir (G2, G4).
+- [ ] T3: worktree y anidado (G5, G6); intactos G7, G8, G11.
+- [ ] T4: budget compartido entre corridas (G10).
+- [ ] T5: header del hook (contrato 1-5 de G, salvedad de paths con espacios) y fila de README.
 
-Todos los tests con sandbox (`sandbox_create` + branch explícito + `state.json` sembrado en el sandbox), nunca contra el repo real (decisión ARCHITECTURE 2026-08-14).
+#### Lote 5 — docs de #77 §3 y cierre (backend-dev)
+**Depende de:** Lotes 2-4
+- [ ] T1: header de `pre-merge-check.sh`: inventario de wrappers verificado (`w() {…}` pasa) — verificación ejecutada, no deducida.
+- [ ] T2: mensaje `GH_REPO`/`GH_HOST` sin la recomendación de `--repo`; test sobre el stderr.
+- [ ] T3: README: sección "Fuera de alcance"; `global/CLAUDE.md`: línea de `--help`/`-h` + `if` best-effort (test de tope verde).
+- [ ] T4: `pre-commit-guard.sh`: cita a `.planning/DESIGN-pre-commit-target-tree.md`; `claude plugin validate --strict .` y `test-plugin-manifest.sh` verdes.
+- [ ] T5: correr las tres suites completas + revertir cada fix de regex (hunk mínimo) confirmando rojo→verde, y anotar en el reporte qué test cubre cada forma de V5/V7.
 
-#### Lote 2 — documentos núcleo del proceso (backend-dev)
-**Depende de:** ninguno (secuencial tras Lote 1 por trabajar el mismo branch)
+#### Lote 6 — reserva para la ronda de fixes del review (backend-dev)
+**Depende de:** Fase 2.6 (security-reviewer + qa-backend)
+Sin tareas planificadas; hasta 5 tareas con los hallazgos de la ronda. Cada fix lleva su caso negativo. Hallazgos que sean formas disfrazadas van a la sección "Fuera de alcance" (un commit de docs), no a un fix.
 
-- [ ] Tarea 1: `orchestrator-runbook.md` — sección nueva "Fase 2.6", ampliación de 2.7 (reconciliación), nota en 2.8, redefinición de Fase 3, ajustes de L110/L127/L146 e índice.
-- [ ] Tarea 2: `orchestrator-runbook.md` — context isolation (fuente de diff parametrizada), tracker (tarea "Review dual local" separada + criterios corregidos), contrato de transiciones de `state.json`.
-- [ ] Tarea 3: `orchestrator-runbook.md` — formato de reporte (pre-PR vs post-PR), convención del registro con reconciliación (contrato #1), fila nueva en errores comunes, nota en "revisar PR existente".
-- [ ] Tarea 4: `skills/pr-workflow/SKILL.md` — description del frontmatter + regla 2 reescrita (incluye la regla del caso remoto con su condición de triggers) + ajustes 5.1/5.2/5.3.
-- [ ] Tarea 5: `rulebooks/dev-common.md` (L22, L29–40 generalizadas) + `rulebooks/agent-budget.md` (L29, L53).
-
-#### Lote 3 — periferia y cierre anti-drift (backend-dev)
-**Depende de:** Lote 2 (la periferia referencia las secciones nuevas del runbook)
-
-- [ ] Tarea 1: `global/CLAUDE.md` — diagrama de fases, workflow #4, lotes, tabla de agentes, reglas del flujo, `.planning/`, invariante 2, sección hooks (mapa Lote 3, primer bloque). Verificar que sigue global-safe y sin crecer materialmente.
-- [ ] Tarea 2: `README.md` — tabla de hooks, tabla de skills, diagrama del flujo, bullet de dual review.
-- [ ] Tarea 3: `agents/security-reviewer.md` — parametrización de la fuente del diff (contrato #3).
-- [ ] Tarea 4: `agents/qa-backend.md` + `agents/qa-frontend.md` — parametrización de la fuente del diff (contrato #3) + `agents/docs.md` L14 (precisión).
-- [ ] Tarea 5: cierre anti-drift: re-correr el grep DoD completo (`pr diff|crear el PR|post-pr|Fase 2\.|Fase 3|reviews/PR-|review dual`) sobre CLAUDE.md ambos, README, rulebooks/, agents/, skills/, hooks/, tests/ y confirmar que todo hit restante está en la lista "verificados sin cambio" de este diseño; `claude plugin validate --strict .` verde (se tocaron agentes).
-
-### Nota TDD
-
-TDD literal aplica **solo al Lote 1** (lógica del hook): cada comportamiento nuevo entra con su test en rojo en `test-hooks.sh` antes de tocar `post-pr-create.sh` (rojo → verde → refactor, un commit por tarea). Los Lotes 2 y 3 son documentación de proceso — categoría exenta de TDD literal según CLAUDE.md ("archivos de configuración"/docs); su verificación es el grep DoD de la tarea 5 del Lote 3 + la suite adversarial completa verde (restricción del BRIEF).
-
-## Riesgos
-
-- **Drift residual en algún documento no mapeado** → mitigación: el mapa de este diseño se construyó con el grep DoD ampliado (incluye `reviews/PR-` y `review dual`), y la tarea 5 del Lote 3 lo re-corre como cierre; la sección "verificados sin cambio" evita tanto omisiones como cambios innecesarios.
-- **Acoplamiento del hook al schema de `state.json`** → el hook lee solo `phases.review` y `branch` (schema 1); cualquier evolución del schema debe preservarlos o actualizar el hook. Mitigación: fail-hacia-review (CASO B) ante cualquier cosa ilegible — el peor caso es un review redundante, nunca un PR sin review.
-- **Reconciliación en repos con Actions sin `cancel-in-progress`** → costaría un segundo run completo. Mitigación: 5.5 ya es obligatoria en todos los repos; la secuencia de 2.7 es inmediata (segundos) para que la cancelación del run `opened` sea casi gratis.
-- **Push pre-review en el caso remoto con triggers mal configurados** → gastaría runs. Mitigación: la condición de triggers es verificable por grep y está escrita como prerequisito; bajo el scaffold se cumple por construcción.
-- **Estado previo del worktree para el dogfooding**: la sesión está sobre `feature/harden-pre-merge-check` con `settings.json` modificado. El orchestrator debe cerrar/guardar ese trabajo y partir de `dev` limpio antes del setup del branch de esta feature.
-- **`global/CLAUDE.md` debe seguir global-safe** → los cambios son reemplazos de líneas existentes, sin secciones nuevas; el QA del Lote 3 lo verifica.
+### Riesgos
+- **Cambiar la apertura del heredoc afecta a los 5 guards** → el Lote 1 va primero y solo, y la suite completa (415) es el corpus; A5-A7 fijan que lo que bloqueaba sigue bloqueando.
+- **Reorden `\`-newline vs heredoc** no se hace (H5): quedaría como falso positivo posible, documentado; reordenar tocaría la propiedad "un merge partido con `\` se une" y no hay caso honesto que lo pida.
+- **`pre-push-guard` con redirecciones bloqueando** puede sorprender a un flujo que hoy hace `cd repo && git push` en una sola llamada → el mensaje da la salida (cd en una llamada previa); el orchestrator pushea desde el cwd.
+- **#86 corre más suites que antes** (antes: ninguna) → un monorepo con suites lentas puede chocar con el budget; G10 garantiza que choque bloqueando, no dejando pasar. `PRECOMMIT_TEST_BUDGET` sigue siendo la válvula.
+- **`pre-release-sweep` fail-closed sin gh** bloquea todo `gh …` en una máquina sin gh → el comando fallaría igual; mensaje claro.
+- **Prueba en vivo del `if` NO VERIFICADA** → la decisión de no tocar `hooks.json` descansa en la doc y en que el script tampoco cubriría esas formas; si el usuario quiere la prueba, requiere una sesión autenticada en una carpeta con trust.
+- **Tope de `global/CLAUDE.md`** (≤130 líneas/≤10 KB) → una sola línea nueva; el test lo vigila.

@@ -3,7 +3,7 @@ name: e2e-runner
 description: Agente de testing end-to-end con Playwright. Crea, ejecuta y mantiene tests E2E para flujos críticos de usuario. Trabaja en branch propio cuando lo invoca el usuario (sugerencia, no bloqueante) o en el branch del PR a main cuando lo invoca el orchestrator pre-release (bloqueante).
 model: sonnet
 tools: Read, Grep, Glob, Bash, Edit, Write
-memory: true
+memory: project
 ---
 
 # E2E Runner Agent
@@ -79,7 +79,7 @@ Si tienes dudas sobre qué modo aplica, asume **Modo A** (más conservador, no t
 ## Coordinación con otros agentes
 
 - **`qa-frontend`** valida tests E2E si los hay en el diff del PR (estilo Playwright, locators, no `waitForTimeout`). No los crea — los creas tú. División: tú escribes, qa-frontend valida.
-- **`frontend-dev` / `backend-dev` / `db-specialist`** son los que arreglan código de producción cuando un test E2E tuyo falla. Tú no arreglas su código — reportas el fallo y el orchestrator (o el usuario en Modo A) reasigna.
+- **`frontend-dev` / `backend-dev`** son los que arreglan código de producción cuando un test E2E tuyo falla. Tú no arreglas su código — reportas el fallo y el orchestrator (o el usuario en Modo A) reasigna.
 - **`docker-refresh.sh` hook** ya levanta servicios automáticamente cuando hay cambios. Antes de correr E2E, verifica que están corriendo (`docker compose ps`). Si no están, repórtalo como blocker; no levantes Docker tú.
 - **`pre-release-sweep.sh` hook** se dispara antes de `gh pr create --base main` y bloquea si hay issues `latent-bug` CRÍTICOS abiertos. Es complementario a tu Modo B, no conflictivo: el hook hace verificación rápida (chequea issues abiertos), tú haces validación completa de flujos. Pueden coexistir sin orden estricto — el hook bloquea el PR antes de crearse, tu Modo B agrega tests al PR ya creado.
 
@@ -312,7 +312,7 @@ Si necesitas datos para correr los tests:
 
 1. **Vía UI**: navega y crea los datos como lo haría un usuario real (signup, crear recurso, etc.)
 2. **Vía API real**: llama al endpoint real con `request` de Playwright
-3. **Seed scripts del proyecto**: si el proyecto tiene seed (`pnpm db:seed`, `pnpm test:seed`), úsalo. Si no existe, **NO inventes mocks** — pide al orchestrator que reasigne al `db-specialist` o `backend-dev` para crear el seed.
+3. **Seed scripts del proyecto**: si el proyecto tiene seed (`pnpm db:seed`, `pnpm test:seed`), úsalo. Si no existe, **NO inventes mocks** — pide al orchestrator que reasigne al `backend-dev` para crear el seed.
 
 ```typescript
 // BIEN — datos vía API real
@@ -360,7 +360,7 @@ Por default headless en CI y en ejecución normal. El usuario puede pedir headed
   - Screenshot: [path al adjunto]
   - Trace: [path al adjunto]
   - Causa probable: [descripción]
-  - Reasignar a: [frontend-dev / backend-dev / db-specialist]
+  - Reasignar a: [frontend-dev / backend-dev]
 
 ### Tests creados/modificados
 - `e2e/tests/auth.spec.ts` — [nuevo/modificado] — X tests
@@ -388,7 +388,7 @@ Por default headless en CI y en ejecución normal. El usuario puede pedir headed
    - Test que falló
    - Capa donde falla
    - Evidencia adjunta
-   - A quién reasignar (`frontend-dev` / `backend-dev` / `db-specialist`)
+   - A quién reasignar (`frontend-dev` / `backend-dev`)
 4. **Espera**: no toques código de producción. El dev correspondiente arregla.
 5. **Re-corre el test** después del fix para confirmar.
 

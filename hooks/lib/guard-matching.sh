@@ -20,12 +20,70 @@
 # real — un wrapper como bash -c "..." no se detecta porque el comando real
 # queda dentro de una string que este helper sanitiza. Aceptable: los guards
 # protegen errores honestos del orchestrator, no evasión adversarial.
+#
+# Fuera de alcance de los guards (documentado, no parcheado — #77, D-05).
+# Los guards de hooks/ protegen errores honestos del orchestrator y los
+# devs: formas que alguien escribe de buena fe. No son un parser de shell
+# ni un control de evasión. Verificado contra los hooks reales
+# (2026-09-27), estas formas pasan sin bloquear y quedan así por decisión:
+#   - comillas partidas o escapadas que rompen el emparejamiento del
+#     saneo: echo \'; gh pr merge 5; echo \', $'it\'s' && gh pr merge 5;
+#   - heredoc con delimitador comillado a medias (<<E"OF"), delimitador
+#     con caracteres fuera de [A-Za-z0-9_-], o una línea del cuerpo que
+#     termina en \ justo antes del terminador;
+#   - la flag o el subcomando en una variable (F=--force; git push $F),
+#     eval, bash -c '...'/sh -c, alias y funciones de git/gh definidas en
+#     el mismo comando o en uno anterior (w() { gh "$@"; }; w pr merge 5
+#     pasa);
+#   - la palabra del binario alterada o disfrazada: "gh", g\h, env git …,
+#     /usr/bin/git …, command git … (el "if" de hooks.json tampoco
+#     dispara para las tres últimas: compara cada subcomando por prefijo
+#     y solo descarta asignaciones VAR=x al frente; ver la tabla "Bash if
+#     matching" de la doc de hooks).
+# Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá:
+# la salida es escribir el comando en su forma directa.
 
 # Fragmento de regex ERE que ancla el match a posición de comando: inicio
 # de string/línea, o justo después de un separador de comandos (&&, ||, ;,
 # |, $(, backtick, "(", "{", &).
 # shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
 GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
+
+# Fragmento de regex ERE que consume, cero o más veces, una opción de árbol
+# de git ("-C <ruta>"/"-C=<ruta>", "--git-dir"/"--work-tree" con o sin "=")
+# seguida de su valor y un separador — usado entre "git" y el subcomando
+# vigilado (commit) para detectar "git -C <ruta> <subcomando>" como la
+# misma invocación. Antes vivía inline en GIT_COMMIT_RE
+# (pre-commit-guard.sh); un guard nuevo que necesite el mismo fragmento no
+# tiene que copiarlo a mano.
+#
+# Los guards de push/reset (block-force-push, block-hard-reset,
+# pre-push-guard) usan GUARD_GIT_OPTS en vez de este fragmento — ver abajo.
+# shellcheck disable=SC2034 # se usa en pre-commit-guard.sh
+GUARD_GIT_TREE_OPTS='((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?\s+)*'
+
+# Fragmento de regex ERE que consume, cero o más veces y EN CUALQUIER ORDEN,
+# las opciones de git que pueden aparecer entre "git" y el subcomando
+# vigilado (push, reset --hard): opciones de árbol ("-C <ruta>",
+# "--git-dir"/"--work-tree" con o sin "="), "-c <clave=valor>", "--no-pager"
+# y "-P". Una sola alternancia repetida en vez de dos fragmentos
+# concatenados (GUARD_GIT_TREE_OPTS + una versión anterior de esto, "global
+# opts"): la concatenación solo reconocía UN orden fijo entre ambos grupos
+# — "git -C /x -c a=b push --force" (árbol después de "-c") no matcheaba
+# ninguno de los dos fragmentos, y el force push real pasaba SIN EVALUAR
+# (ronda 2 del review dual, security LOW). git acepta estas opciones en
+# cualquier orden antes del subcomando; el regex ahora también.
+# shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh y pre-push-guard.sh
+GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
+
+# Fragmento de regex ERE que reconoce "gh ... pr ... merge" tolerando hasta
+# 2 tokens entre "gh"/"pr" y entre "pr"/"merge" (formas como "gh -R x pr
+# merge N", que gh acepta de verdad). Antes vivía inline en
+# pre-merge-check.sh como GH_PR_MERGE_RE; solo decide si el comando
+# MENCIONA una invocación de merge, nunca extrae nada de él (ver el punto
+# 6 del header de pre-merge-check.sh).
+# shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
+GUARD_GH_PR_MERGE_RE='gh\s+(\S+\s+){0,2}pr\s+(\S+\s+){0,2}merge'
 
 # guard_sanitize: recibe el comando crudo como $1 y devuelve por stdout el
 # texto saneado (sin spans quoted ni cuerpos de heredoc). Exit status: 0
@@ -95,7 +153,7 @@ guard_sanitize() {
     sanitized=$(printf '%s' "$1" | perl -0777 -pe '
       BEGIN { alarm 5 }
       s/\\\n\s*/ /g;
-      s/<<-?[\x27"]?(\w+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1[ \t]*$)[^\n]*\n)*?[ \t]*\1(?:\n|$)/\n/gsm;
+      s/<<-?[ \t]*[\x27"]?([A-Za-z0-9_-]+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1[ \t]*$)[^\n]*\n)*?[ \t]*\1(?:\n|$)/\n/gsm;
       s/\x27[^\x27]*\x27|"(?:[^"\\]|\\.)*"/ /g;
     ')
     status=$?
@@ -123,4 +181,21 @@ guard_sanitize() {
     printf '%s' "$1"
     return 1
   fi
+}
+
+# guard_command_has_nul: recibe por $1 el JSON crudo leído de stdin (el
+# mismo $INPUT que cada guard ya guardó antes de extraer .tool_input.command
+# con jq) y devuelve 0 si ese campo contiene un byte NUL, 1 en caso
+# contrario. El NUL nunca llega como byte real a este punto — jq lo expone
+# como el escape "\u0000" dentro del string JSON, porque INPUT=$(cat) ya lo
+# descartó de la variable bash (los strings de bash no pueden contener un
+# NUL) sin descartar el resto del comando a los dos lados. Esa es la razón
+# por la que hace falta detectarlo ACÁ, sobre $INPUT, y no más abajo sobre
+# $COMMAND: para cuando $COMMAND existe como variable, el guard ya perdió
+# la señal de que el comando original traía un NUL, y el texto que queda
+# (con el NUL simplemente borrado, no el comando cortado ahí) decide el
+# veredicto sin que quien lo escribió sepa que una parte de su comando es
+# invisible para el guard.
+guard_command_has_nul() {
+  echo "$1" | jq -e '.tool_input.command // "" | contains("\u0000")' > /dev/null 2>&1
 }

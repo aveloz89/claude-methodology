@@ -1,44 +1,35 @@
-# Brief: Review dual pre-PR (ahorro de minutos de CI)
+## Brief: cerrar issues abiertos (#78, #71, #73, #77)
 
-## Objetivo
+### Objetivo
+Cerrar los 4 issues abiertos, uno por PR, en orden #78 → #71 → #73 → #77.
 
-Mover el review dual (security + qa-*) de después de crear el PR a **después del último commit de implementación + docs, ANTES del push y del PR**. Motivación del usuario (2026-08-14): cada ronda de fixes post-PR es un push extra = un run extra de GitHub Actions; con el review sobre el diff local, los fixes viajan en el push inicial y el PR nace revisado → un solo run de CI por PR en el caso normal.
+### Decisiones tomadas
+- [D-01] (usuario) Los 4 issues, un PR cada uno, en ese orden.
+- [D-02] (usuario) ~~#77 completo~~ → reemplazada por D-05: #77 acotado a errores honestos; las formas disfrazadas se documentan fuera de alcance, por costo.
+- [D-03] (usuario) #78: autorizado a quitar el bloque `hooks` de `.claude/settings.json` después de verificar que el plugin carga los hooks.
 
-## Flujo nuevo (a diseñar en detalle por el architect)
+### Brainstorming
+Se salta: son bug fixes con causa raíz descrita en cada issue.
 
-```
-Fase 2.5: Documentación (docs sobre diff local, sin push)      [sin cambio]
-Fase 2.6: Review dual LOCAL  ← NUEVO: security + qa-* sobre git diff <base>...HEAD
-          + rondas de fixes locales (sin push) hasta veredictos limpios
-          + sugerencias baratas aplicadas
-Fase 2.7: Push + PR          [el PR nace revisado]
-Fase 2.8: Monitoreo CI       [sin cambio]
-Fase 3:   queda para lo post-PR: E2E Modo B si PR a main; re-reviews
-          solo si CI obligó fixes que cambian código ya revisado
-Fase 4:   Learn              [sin cambio]
-```
+### #78 (este PR)
+- Evidencia de que el plugin carga los hooks: los bloqueos de la sesión 2026-09-26 los atribuye a `methodology@skills-dir plugin`, y el contexto de SessionStart apareció duplicado al inicio de la sesión (plugin + settings.json).
+- Cambio: quitar `hooks` de `.claude/settings.json` y dejar `permissions` intacto. Test que impida que vuelva.
 
-## Alcance
+### #71
+- Decisión D-04: aclarar y cerrar. El registro del review lo escribe solo el orchestrator: consolida los reportes de reviewers que corren en paralelo, porque `security-reviewer`, `qa-backend` y `qa-frontend` tienen `Write`/`Edit` prohibidos. Se agrega una línea al runbook (Fase 2.6, paso 4) y a los 3 prompts: el reviewer devuelve su reporte y no escribe el registro.
 
-1. **`rulebooks/orchestrator-runbook.md`**: renumerar/redefinir Fases 2.6–3; "Context isolation" (los reviewers reciben diff LOCAL, no `gh pr diff`); estructura del tracker ("Review dual local" como tarea separada de "PR + CI"); convención del registro de reviews (nace sin número de PR — el architect define el naming y cuándo se le añade el número).
-2. **`skills/pr-workflow/SKILL.md`**: regla 2 reescrita (el review se lanza al terminar docs, no al crear el PR); la regla "un push por ronda" queda solo para rondas post-PR (fixes de CI, re-reviews sobre PR existente); revisar coherencia de 5.1/5.2.
-3. **`global/CLAUDE.md`**: la descripción del flujo/review dual donde aparezca (el invariante "review dual bloqueante antes de merge" NO cambia — solo se adelanta el momento).
-4. **`hooks/post-pr-create.sh`**: de "instruye lanzar reviews" a **checkpoint de respaldo**: verifica/pregunta si el PR ya pasó review dual pre-push; solo instruye lanzarlo para PRs creados fuera del flujo. Actualizar sus tests si los tiene.
-5. **`agents/security-reviewer.md` y `agents/qa-*.md`**: si referencian "diff del PR"/`gh pr diff` como fuente, generalizar a "diff que el orchestrator indique (local o PR)".
-6. **Anti-drift completo** (DoD de cambios de proceso): grep de `pr diff|crear el PR|post-pr|Fase 2.7|Fase 2.8|Fase 3` en CLAUDE.md (ambos), README, rulebooks/, agents/, skills/ y reconciliar TODO documento que describa el orden viejo.
+### #73
+- Alcance: `pre-commit-guard.sh` debe validar el árbol al que va el commit (`cd <ruta> && git commit`, `git -C <ruta> commit`, `--work-tree`/`--git-dir`, worktrees), no el cwd de la sesión. Si no puede resolverlo con seguridad, bloquea con un mensaje claro. Incluye la detección de repo de `pre-merge-check.sh` sin `--repo` (comentario del issue y #77 §4), que usa el cwd del hook.
+- Coordinación: #77 viene después y toca el mismo saneo (`hooks/lib/guard-matching.sh`); este PR no reescribe el saneo compartido.
 
-NO incluye: cambios a `skills/review-pr` (re-disparo manual post-PR — sigue válido tal cual), a E2E Modo B (queda post-PR, pre-release a main), ni al presupuesto de review proporcional (aplica igual en pre-PR).
-
-## Decisiones tomadas
-
-- [D-01] El invariante de CLAUDE.md global no cambia: review dual bloqueante antes de merge. Cambia el MOMENTO: antes del push inicial.
-- [D-02] `post-pr-create.sh` se conserva como red de seguridad para PRs fuera del flujo (no se elimina).
-- [D-03] E2E Modo B sin cambio (post-PR a main).
-- [D-04] Dogfooding: ESTE MISMO PR estrena el orden nuevo — review dual sobre el diff local antes de su push + PR.
-- [D-05] Las rondas de fixes pre-PR no pushean nada; la regla "un push por ronda" sobrevive solo para el caso post-PR.
-
-## Restricciones
-
-- Los reviewers pierden acceso a `gh pr view/diff` en el caso pre-PR: el paquete de contexto debe darles base y branch para `git diff` local (o el diff inline). Los reviewers remotos necesitan el branch PUSHEADO para clonarlo — conflicto con "review antes del push": el architect debe resolverlo (opciones: reviewers locales por defecto; o push del branch SIN crear PR — pushear un branch no gasta Actions si los workflows disparan on: pull_request y no on: push de branches — verificar qué asume la metodología y documentar la condición).
-- Suite adversarial verde; si `post-pr-create.sh` tiene tests en test-hooks.sh, actualizarlos con TDD.
-- CLAUDE.md del repo ≤~200 líneas; global/CLAUDE.md sigue global-safe.
+### PR final: #77 (errores honestos, D-05) + #86 (D-06: un solo PR)
+- **#77, entra:**
+  - `block-force-push`: `+main` (force por refspec), `-fu` (flags combinadas) y `git -C <ruta> push --force`.
+  - `block-admin-merge`: `gh -R o/r pr merge --admin`.
+  - `pre-release-sweep`: anclaje de `guard-matching` (`cd x && gh pr create --base main`) y fail-closed si falta jq o gh.
+  - Bloqueo falso en vivo con heredocs que citan `gh pr merge` o `git commit`: primero un caso mínimo reproducible, cubierto como test que pasa.
+  - NUL en el comando → bloquear.
+  - Docs: header de wrappers `gh()` (`w() { gh "$@"; }` pasa), `--help`/`-h` en README y `global/CLAUDE.md`, ruta de `hooks/pre-merge-check.sh` en `global/CLAUDE.md` que no existe en un proyecto instalado, y mensaje contradictorio de `GH_REPO`/`GH_HOST`.
+  - Verificar qué formas deja pasar el filtro `if` de `hooks.json` (LOW del review de #78: `env git`, `/usr/bin/git`).
+- **#77, fuera de alcance (se documenta, no se arregla):** las formas disfrazadas de la sección 1 del issue (comillas partidas `\'`, `$'…'`, heredoc con delimitador comillado a medias, comentario con apóstrofo), la flag guardada en una variable, `eval`, `bash -c` y alias de git.
+- **#86:** con la sesión en la raíz de un monorepo sin runner en la raíz, `git commit` pasa sin tests. Resolver con `workspace-scope.sh` (runners de los workspaces afectados por los archivos staged) o bloquear con un mensaje si hay cambios de código y no se encuentra runner.

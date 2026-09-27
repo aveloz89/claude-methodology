@@ -6,38 +6,45 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/block-admin-merge.sh",
+            "if": "Bash(gh *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/block-admin-merge.sh\"",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/block-force-push.sh",
+            "if": "Bash(git *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/block-force-push.sh\"",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/block-hard-reset.sh",
+            "if": "Bash(git *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/block-hard-reset.sh\"",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-push-guard.sh",
+            "if": "Bash(git *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-push-guard.sh\"",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-merge-check.sh",
+            "if": "Bash(gh *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-merge-check.sh\"",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-release-sweep.sh",
+            "if": "Bash(gh *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-release-sweep.sh\"",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-guard.sh",
-            "timeout": 120
+            "if": "Bash(git *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-guard.sh\"",
+            "timeout": 600
           }
         ]
       }
@@ -48,17 +55,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/post-pr-create.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/post-pr-create.sh\"",
             "timeout": 15
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/context-monitor.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/context-monitor.sh\"",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/docker-refresh.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/docker-refresh.sh\"",
             "timeout": 15
           }
         ]
@@ -66,11 +73,11 @@
     ],
     "SessionStart": [
       {
-        "matcher": "startup",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start-context.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-start-context.sh\"",
             "timeout": 15
           }
         ]
@@ -81,7 +88,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-compact-snapshot.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-compact-snapshot.sh\"",
             "timeout": 15
           }
         ]
@@ -92,7 +99,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/subagent-stop-log.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/subagent-stop-log.sh\"",
             "timeout": 10
           }
         ]
@@ -103,7 +110,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-end-check.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-end-check.sh\"",
             "timeout": 10
           }
         ]

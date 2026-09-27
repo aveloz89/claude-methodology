@@ -4,18 +4,31 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** followups-sweep — cerrar los ocho follow-ups accionables en un solo PR, por pedido del usuario
-- **Última actualización:** 2026-08-25
+- **Feature:** cerrar issues abiertos, un PR cada uno: #78 → #71 → #73 → #77 (ver `BRIEF.md`). #78 cerrado (PR #83), #71 cerrado (PR #85). #73 cerrado (PR #87). PR #88 (#77 + #86 + D-07): review aprobado, retro en `learnings/PR-88.md`; pendiente de merge. Con su merge no quedan issues abiertos.
+- **Última actualización:** 2026-09-26
 
 ## Decisiones
 
-- [D-01] Barrido de ocho ítems en un PR, con precedente en el PR #55. La heurística de corte no cuenta commits sino diffs irrevisables: un commit atómico por ítem y el PR body agrupado por naturaleza mantienen la navegabilidad.
-- [D-02] Dos lotes en paralelo sobre el mismo branch con archivos disjuntos: el dev en `hooks/` y `tests/`, el orchestrator en `rules/`, `rulebooks/`, `agents/` y `skills/`. El dev evitó tocar `.planning/` por eso mismo, sin que se lo pidieran.
-- [D-03] El fix del `--repo` osciló cinco rondas entre cortar de más y cortar de menos. La regla final no elige mejor dónde cortar: **una ventana indeterminada no es una ventana y bloquea**. Decisión del usuario entre tres opciones, con el falso positivo aceptado (un backslash legítimo sin comillas bloquea igual).
-- [D-04] El parser de la ventana se hizo en perl y no en un loop de bash porque el dev midió que el loop es cuadrático en este intérprete: 100 KB no terminaba en 2 minutos. Perl mide lineal, con `alarm(5)` como red.
-- [D-05] `README.md` y el `CLAUDE.md` raíz quedan fuera del ruteo por capa salvo en este repo: son meta-documentación, no reglas que los agentes consuman. El grep del DoD sí los cubre — son mecanismos distintos, uno busca drift y el otro decide a quién invocar.
-- [D-06] El conteo mal reportado del dev (1 test en rojo cuando eran 3) se corrige en el registro y no reescribiendo la historia: el branch ya había avanzado y `git reset --hard` está bloqueado por hooks.
-- [D-07] Docs (Fase 2.5) saltada: cuatro de los ocho ítems SON documentación normativa, y los otros cuatro no tienen superficie documentada fuera de sus comentarios.
+- [D-01] (usuario) Los 4 issues, un PR cada uno, en ese orden.
+- [D-02] (usuario) ~~#77 completo, incluidas las formas disfrazadas.~~ Reemplazada por D-05.
+- [D-05] (usuario, 2026-09-27) #77 acotado a errores honestos (`+main`, `-fu`, `git -C … push`, `gh -R … --admin`, bloqueo falso con heredocs, NUL, 4 detalles de docs). Las formas disfrazadas se documentan fuera de alcance, por costo.
+- [D-03] (usuario) #78 autorizado a quitar el bloque `hooks` de `.claude/settings.json` después de verificar.
+- [D-04] (usuario) #71: aclarar y cerrar. Los reviewers no pueden escribir (`Write`/`Edit` prohibidos) y el orchestrator es el único que escribe el registro; se deja explícito en el runbook y en los prompts, con test.
+
+## Feature intercalada: reviewer-sandbox-rule (PR #84)
+
+Otra sesión, en paralelo a esta serie: regla "Pruebas que escriben archivos" en `qa-backend`, `qa-frontend` y `security-reviewer`. Las escrituras sobre el repo van en un worktree desechable fuera del repo, y ningún proceso hijo tiene más permisos que el reviewer. Decisiones y review en `reviews/PR-84.md`; retro en `learnings/PR-84.md`. No toca el estado de esta serie.
+
+- [D-06] (usuario, 2026-09-27) Todo lo que queda (#77 acotado + #86) va en **un solo PR**.
+- [D-07] (usuario, 2026-09-27) Cualquier issue o hallazgo que aparezca durante este trabajo (review, tests, docs) entra en este mismo PR; no se abren issues aparte. Las formas disfrazadas siguen fuera (D-05).
+
+## Feature anterior
+
+`product-reviewer` (PR #82, mergeado): `BRIEF-product-reviewer.md`, `DESIGN-product-reviewer.md`, `learnings/PR-82.md`.
+
+## Feature previa
+
+`audit-best-practices` (PRs #79, #80, #81, mergeados): `BRIEF-audit-best-practices.md`, `DESIGN-audit-best-practices.md` y `learnings/PR-79.md` a `PR-81.md`. `global/CLAUDE.md` pasó de 6.436 a 2.593 tokens; quedan 11 agentes.
 
 ## Blockers
 
