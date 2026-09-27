@@ -694,6 +694,20 @@ for dev in backend-dev frontend-dev; do
     "agents/$dev.md referencia rulebooks/dev-common.md"
 done
 
+declare -A DEV_LINE_CAPS=([backend-dev]=110 [frontend-dev]=140)
+for dev in backend-dev frontend-dev; do
+  DEV_LINES=$(wc -l < "$REPO_ROOT/agents/$dev.md" | tr -d ' ')
+  CAP="${DEV_LINE_CAPS[$dev]}"
+  TOTAL=$((TOTAL + 1))
+  if [ "$DEV_LINES" -le "$CAP" ]; then
+    echo -e "${GREEN}PASS${NC}: agents/$dev.md tiene $DEV_LINES líneas (≤$CAP)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: agents/$dev.md tiene $DEV_LINES líneas (>$CAP)"
+    FAIL=$((FAIL + 1))
+  fi
+done
+
 echo ""
 echo "--- rulebooks/db-migrations.md: referencia circular corregida ---"
 
@@ -737,6 +751,26 @@ assert_contains "$REPO_ROOT/agents/architect.md" "Criterios de aceptación" \
   "agents/architect.md traza los criterios de aceptación del brief a tareas atómicas"
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" "Criterios de aceptación del brief" \
   "rulebooks/reviewer-common.md referencia los criterios de aceptación del brief (no bloquea)"
+
+echo ""
+echo "--- agents/architect.md: catálogo de arquitecturas como tabla corta, SOLID en 5 líneas, ≤240 líneas ---"
+
+ARCHITECT="$REPO_ROOT/agents/architect.md"
+
+assert_contains "$ARCHITECT" "| Tipo | Cuándo | Cuándo NO |" \
+  "agents/architect.md tiene la tabla corta de tipos de arquitectura"
+assert_not_contains "$ARCHITECT" "**Cuándo NO aplicar SOLID:**" \
+  "agents/architect.md ya no tiene la lista larga de cuándo no aplicar SOLID"
+
+ARCHITECT_LINES=$(wc -l < "$ARCHITECT" | tr -d ' ')
+TOTAL=$((TOTAL + 1))
+if [ "$ARCHITECT_LINES" -le 240 ]; then
+  echo -e "${GREEN}PASS${NC}: agents/architect.md tiene $ARCHITECT_LINES líneas (≤240)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: agents/architect.md tiene $ARCHITECT_LINES líneas (>240)"
+  FAIL=$((FAIL + 1))
+fi
 
 echo ""
 echo "--- Conteo de agentes coherente entre agents/, README.md y marketplace.json ---"

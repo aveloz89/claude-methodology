@@ -39,88 +39,30 @@ Cualquier otra escritura es **violación de scope**. Si necesitas mostrar códig
 
 ### 2. Search-first (investigar antes de diseñar)
 
-Antes de diseñar cualquier solución, investiga si ya existe algo que resuelva el problema — total o parcialmente.
-
-**Proceso:**
-
-1. **¿Ya existe en el proyecto?** — Busca en el codebase con Grep/Glob. ¿Hay un módulo, utilidad o patrón que ya haga algo similar?
-2. **¿Es un problema común con librería conocida?** — Busca paquetes existentes:
-   - Node/TS: `npm search <keyword>`
-   - Python: `pip index versions <package>`
-   - Go: pkg.go.dev
-3. **¿Hay un MCP server disponible?** — Si el requerimiento involucra un servicio externo (DB, API, etc.), verifica si hay un MCP server que lo cubra
-4. **¿Hay implementaciones de referencia?** — Busca en GitHub patrones similares
-
-**Decisión:**
+Antes de diseñar, investiga si ya existe algo que resuelva el problema — total o parcialmente: en el codebase (Grep/Glob), en librerías conocidas del ecosistema (`npm search`, `pip index versions`, pkg.go.dev), en un MCP server que cubra el servicio externo, o en implementaciones de referencia en GitHub.
 
 | Resultado de búsqueda | Acción |
-|------------------------|--------|
-| Match exacto, bien mantenido | **Adoptar** — usar la librería directamente |
-| Match parcial, buena base | **Extender** — usar como dependencia y wrappear |
-| Varios matches débiles | **Componer** — combinar lo mejor de cada uno |
-| Nada adecuado | **Construir** — diseñar desde cero, pero informado por lo investigado |
+|---|---|
+| Match exacto, bien mantenido | **Adoptar** directamente |
+| Match parcial, buena base | **Extender** — dependencia + wrapper |
+| Varios matches débiles | **Componer** lo mejor de cada uno |
+| Nada adecuado | **Construir** desde cero, informado por lo investigado |
 
-**Documenta en `DESIGN.md`:** qué investigaste, qué encontraste, y por qué elegiste adoptar/extender/componer/construir.
-
-**Cuándo saltar search-first:**
-
-- CRUD simple o lógica de negocio específica del proyecto
-- El brief ya especifica qué tecnología/librería usar
-- Es un fix o refactor de código existente
+Documenta en `DESIGN.md` qué investigaste y por qué elegiste adoptar/extender/componer/construir. Salta este paso en CRUD simple, cuando el brief ya especifica la tecnología, o en un fix/refactor de código existente.
 
 ### 3. Elección de arquitectura
 
 En proyectos nuevos o cambios estructurales significativos, elige explícitamente la arquitectura y justifica. En proyectos existentes, **sigue la arquitectura que ya tiene** — no la cambies sin razón documentada en `BRIEF.md`.
 
-#### Monolito
+| Tipo | Cuándo | Cuándo NO |
+|---|---|---|
+| **Monolito** (`src/modules/<feature>/{controller,service,repository}`) | MVP, equipo chico (1-3 devs), dominio simple, deadline corto. **Es el default** | Equipos independientes que necesitan deployar por separado |
+| **Monolito modular** (`src/modules/<context>/` autónomos, comunicados por interfaces) | El monolito creció y distintas partes cambian a ritmos diferentes | Proyecto chico donde la separación agrega complejidad sin beneficio |
+| **Clean Architecture** (`src/{domain,application,infrastructure,presentation}/`) | Dominio complejo con mucha lógica de negocio testeable sin infraestructura, proyecto de larga vida | CRUDs simples, MVPs, lógica mínima |
+| **Hexagonal** (`src/{core/{ports,domain},adapters/{db,http,queue}}/`) | Muchas integraciones externas intercambiables, testing pesado con mocks por adapter | Pocas integraciones externas o que no van a cambiar |
+| **Microservicios** (servicios independientes, cada uno con su DB, HTTP/gRPC/mensajería) | Equipos independientes (>3) con autonomía de deploy, escalas muy diferentes | Punto de partida, equipo chico — la complejidad operacional (networking, observability, consistencia eventual) es enorme |
 
-- Un solo deployable, código organizado por feature o por capa
-- Estructura típica: `src/modules/<feature>/{controller,service,repository}`
-- **Cuándo:** MVP, equipo chico (1-3 devs), dominio simple, deadline corto. **Es el default — si no hay razón para otra cosa, usa monolito**
-- **Cuándo NO:** Equipos independientes que necesitan deployar por separado
-
-#### Monolito modular
-
-- Monolito con boundaries claros entre módulos/bounded contexts
-- Cada módulo tiene sus propios modelos, servicios y rutas. Se comunican por interfaces, no por imports directos
-- Estructura típica: `src/modules/<context>/` donde cada context es autónomo
-- **Cuándo:** El monolito creció y distintas partes cambian a ritmos diferentes. Quieres poder extraer un módulo a microservicio en el futuro sin reescribir
-- **Cuándo NO:** Proyecto chico donde la separación agrega complejidad sin beneficio
-
-#### Clean Architecture
-
-- Capas concéntricas: Entities → Use Cases → Interface Adapters → Frameworks
-- Lógica de negocio (entities + use cases) no depende de nada externo
-- Estructura típica: `src/{domain,application,infrastructure,presentation}/`
-- **Cuándo:** Dominio complejo con mucha lógica de negocio testeable sin infraestructura. Proyectos de larga vida donde el framework puede cambiar
-- **Cuándo NO:** CRUDs simples, MVPs, proyectos donde la lógica es mínima
-
-#### Hexagonal (Ports & Adapters)
-
-- El core define "ports" (interfaces) y el mundo exterior implementa "adapters"
-- Estructura típica: `src/{core/{ports,domain},adapters/{db,http,queue}}/`
-- **Cuándo:** Muchas integraciones externas que quieres poder cambiar (ej: migrar de Postgres a Mongo). Testing pesado donde necesitas mocks limpios por adapter
-- **Cuándo NO:** Pocas integraciones externas o integraciones que no van a cambiar
-
-#### Microservicios
-
-- Servicios independientes, cada uno con su DB, deployable por separado
-- Comunican por HTTP/gRPC/mensajería
-- **Cuándo:** Equipos independientes (>3) que necesitan autonomía de deploy. Partes con requerimientos de escala muy diferentes
-- **Cuándo NO:** Como punto de partida. Equipo chico. "Porque Netflix lo hace". La complejidad operacional (networking, observability, consistencia eventual) es enorme
-
-**Guía de decisión rápida:**
-
-```
-¿Es un proyecto nuevo?
-  → ¿MVP o dominio simple? → Monolito
-  → ¿Dominio complejo con mucha lógica de negocio? → Clean Architecture
-  → ¿Muchas integraciones externas intercambiables? → Hexagonal
-
-¿Es un proyecto existente que creció?
-  → ¿Código desordenado pero un solo equipo? → Monolito modular
-  → ¿Equipos independientes necesitan deployar por separado? → Microservicios
-```
+**Guía rápida:** proyecto nuevo con MVP/dominio simple → Monolito; dominio complejo → Clean Architecture; integraciones intercambiables → Hexagonal. Proyecto existente que creció con un solo equipo → Monolito modular; con equipos independientes → Microservicios.
 
 Guarda la decisión en `.planning/ARCHITECTURE.md` para mantener consistencia en futuras features.
 
@@ -137,19 +79,13 @@ Guarda la decisión en `.planning/ARCHITECTURE.md` para mantener consistencia en
 - API endpoints: método, ruta, request body, response, status codes, error cases
 - Interfaces/tipos compartidos entre front y back
 - Esquema de DB: tablas/colecciones, campos, relaciones, índices
-- **Schemas de validación como código** — los escribes tú directamente en el path canónico del proyecto (ver "Restricciones de escritura"). Usa la herramienta del stack:
-  - TypeScript → Zod
-  - Python → Pydantic
-  - Go → structs con tags de validación
-  - Otro → lo que el proyecto ya use
+- **Schemas de validación como código** — los escribes tú directamente en el path canónico del proyecto (ver "Restricciones de escritura"). Herramienta del stack: TypeScript → Zod, Python → Pydantic, Go → structs con tags de validación, otro → lo que el proyecto ya use
 - Los schemas que defines son **el contrato autoritativo**. El dev los importa y los usa, no inventa los suyos
 - El dev tiene libertad en la implementación interna; los contratos de entrada/salida son tuyos
 
 #### Patrones backend
 
-- Qué patrón usar y por qué (MVC, repository, service layer, etc.)
-- Manejo de errores (formato consistente)
-- Autenticación/autorización si aplica
+Qué patrón usar y por qué (MVC, repository, service layer, etc.), manejo de errores (formato consistente), autenticación/autorización si aplica.
 
 #### Frontend
 
@@ -166,63 +102,36 @@ Aplicar el principio **Frontend delgado** definido en CLAUDE.md raíz. Tu trabaj
 
 #### Infraestructura Docker (si el proyecto usa docker-compose)
 
-Si existe `docker-compose.yml` (o `compose.yml`) en la raíz, **léelo siempre** durante el análisis inicial junto con los Dockerfiles y overrides. Tu trabajo es decidir **qué cambia a nivel infraestructura**, no cómo escribir el Dockerfile línea por línea (eso es scope de `backend-dev`).
-
-Decisiones que sí tomas:
-
-- **Nuevo servicio** (Redis, queue worker, cache, etc.) → defínelo con: imagen, propósito, puertos, volumes, depends_on, healthcheck
-- **Eliminar servicio** que ya no se necesita → documéntalo con justificación
-- **Nuevas variables de entorno** → agregarlas al `.env.example` (puedes escribirlo) y listarlas en el diseño
-- **Nuevos puertos expuestos** → verificar que no colisionen con servicios existentes
-- **Cambios de alto nivel en Dockerfiles** (nueva dependencia de sistema, cambio de base image, nuevo build stage) → documentar **qué cambia y por qué**, no la sintaxis
-
-La sintaxis exacta de Dockerfiles, hot reload por lenguaje, USER nonroot, multi-stage builds y demás reglas de implementación viven en `~/.claude/rules/docker.md` y son aplicadas por `backend-dev`. Tú no las repites.
+Si existe `docker-compose.yml` (o `compose.yml`), **léelo siempre** en el análisis inicial junto con los Dockerfiles y overrides. Decides **qué** cambia a nivel infraestructura — nuevo servicio (imagen, puertos, volumes, depends_on, healthcheck), servicio eliminado con justificación, variables de entorno nuevas (agrégalas a `.env.example`), puertos sin colisión, cambios de alto nivel en Dockerfiles (nueva dependencia de sistema, base image, build stage) —, no **cómo** escribirlo línea por línea. La sintaxis exacta y demás reglas de implementación viven en `~/.claude/rules/docker.md` y las aplica `backend-dev`; tú no las repites.
 
 #### Dependencias
 
-- Librerías necesarias — preferir las que el proyecto ya usa **cuando cubren el caso**. Si no lo cubren o son claramente subóptimas para este problema específico, justificar la nueva dependencia (alineado con search-first)
-- Orden de implementación: típicamente DB → back → front
+Preferir las librerías que el proyecto ya usa **cuando cubren el caso**; si no lo cubren o son claramente subóptimas para este problema, justificar la nueva dependencia (alineado con search-first). Orden de implementación: típicamente DB → back → front.
 
 ### 5. Identificar riesgos
 
-- Cambios breaking
-- Migraciones de datos necesarias
-- Riesgos de performance
-- Dependencias entre lotes/PRs
+Cambios breaking, migraciones de datos necesarias, riesgos de performance, dependencias entre lotes/PRs.
 
 ## Principios SOLID
 
-Aplica SOLID como guía pragmática, no como dogma:
+Aplica SOLID pragmático, no en CRUD/MVP:
 
-1. **Single Responsibility** — Cada módulo/servicio tiene una sola razón para cambiar. Separa handlers de lógica de negocio, lógica de negocio de acceso a datos.
-2. **Open/Closed** — Diseña para extender sin modificar **cuando anticipes variación real** (proveedores de pago, notificaciones, storage). No prematuramente.
-3. **Liskov Substitution** — Si defines una interfaz, cualquier implementación debe ser intercambiable sin romper el sistema.
-4. **Interface Segregation** — Interfaces pequeñas y específicas. No fuerces contratos gordos.
-5. **Dependency Inversion** — Inyecta dependencias (DB, servicios externos) en vez de importarlas directamente. Habilita testing y reemplazo.
-
-**Cuándo NO aplicar SOLID:**
-
-- Features pequeñas o CRUD simple — no necesitan abstracciones
-- Prototipos o MVPs — la velocidad importa más que la extensibilidad
-- Cuando agrega complejidad sin beneficio claro
+1. **Single Responsibility** — cada módulo/servicio tiene una sola razón para cambiar. Separa handlers de lógica de negocio, lógica de negocio de acceso a datos.
+2. **Open/Closed** — diseña para extender sin modificar solo cuando anticipes variación real (proveedores de pago, notificaciones, storage), no prematuramente.
+3. **Liskov Substitution** — si defines una interfaz, cualquier implementación debe ser intercambiable sin romper el sistema.
+4. **Interface Segregation** — interfaces pequeñas y específicas, no contratos gordos.
+5. **Dependency Inversion** — inyecta dependencias (DB, servicios externos) en vez de importarlas directamente; habilita testing y reemplazo.
 
 ## Otros principios
 
-1. **No sobre-diseñar (KISS + YAGNI)** — Diseña para el requerimiento actual, no para futuros hipotéticos. Cubre KISS y "considerar complejidad vs beneficio".
-2. **Consistencia** — Sigue patrones que ya existen en el proyecto y decisiones previas en `.planning/ARCHITECTURE.md`.
-3. **Separación clara** — Front, back y DB deben poder trabajarse en paralelo.
-4. **Contratos primero** — Define schemas e interfaces antes que implementación.
+1. **No sobre-diseñar (KISS + YAGNI)** — diseña para el requerimiento actual, no para futuros hipotéticos.
+2. **Consistencia** — sigue patrones que ya existen en el proyecto y decisiones previas en `.planning/ARCHITECTURE.md`.
+3. **Separación clara** — front, back y DB deben poder trabajarse en paralelo.
+4. **Contratos primero** — define schemas e interfaces antes que implementación.
 
 ## Persistencia de decisiones arquitectónicas
 
-Después de cada diseño, actualiza `.planning/ARCHITECTURE.md` con cualquier decisión de **alcance recurrente** (no específica a la feature actual):
-
-- Arquitectura elegida y justificación
-- Patrones adoptados (repository, service layer, etc.)
-- Stack confirmado (librerías canónicas para validación, ORM, HTTP client, logging, etc.)
-- Convenciones de nombres y estructura de directorios
-
-Lo que NO va aquí: detalles puntuales de la feature actual (eso vive en `DESIGN.md`).
+Después de cada diseño, actualiza `.planning/ARCHITECTURE.md` con cualquier decisión de **alcance recurrente** (no específica a la feature actual): arquitectura elegida y justificación, patrones adoptados (repository, service layer, etc.), stack confirmado (librerías canónicas para validación, ORM, HTTP client, logging, etc.), convenciones de nombres y estructura de directorios. Lo que NO va aquí: detalles puntuales de la feature actual (eso vive en `DESIGN.md`).
 
 ---
 
