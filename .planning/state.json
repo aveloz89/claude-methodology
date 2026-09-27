@@ -1,77 +1,33 @@
 {
   "schema": 1,
-  "feature": "product-reviewer",
-  "branch": "feature/product-reviewer",
-  "pr": 82,
-  "review_sha": "a88af9c",
-  "updated": "2026-09-26T20:45:00Z",
+  "feature": "issue-78-settings-hooks",
+  "branch": "fix/settings-duplicate-hooks",
+  "pr": null,
+  "review_sha": null,
+  "updated": "2026-09-26T00:00:00Z",
   "phases": {
-    "brainstorming": "done",
-    "design": "done",
-    "implementation": "done",
-    "docs": "done",
-    "review": "done",
-    "pr": "done",
-    "ci": "skipped",
-    "e2e": "skipped",
+    "brainstorming": "skipped",
+    "design": "skipped",
+    "implementation": "in_progress",
+    "docs": "pending",
+    "review": "pending",
+    "pr": "pending",
+    "ci": "pending",
+    "e2e": "pending",
     "merge": "pending"
   },
   "batches": [
     {
-      "id": "P1",
-      "name": "agente-y-lint",
+      "id": "I78",
+      "name": "quitar-hooks-de-settings",
       "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 4,
-      "tasks_total": 4,
+      "status": "in_progress",
+      "tasks_done": 0,
+      "tasks_total": 1,
       "current_task": null,
-      "commits": [
-        "afa6776",
-        "f726ce9",
-        "8339327",
-        "411f2f1"
-      ],
-      "last_batch": false,
-      "depends_on": []
-    },
-    {
-      "id": "P2",
-      "name": "skill-y-runbook",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 5,
-      "tasks_total": 5,
-      "current_task": null,
-      "commits": [
-        "14d6268",
-        "47bbf93",
-        "b25bac0",
-        "b7d4935",
-        "17df04a"
-      ],
-      "last_batch": false,
-      "depends_on": [
-        "P1"
-      ]
-    },
-    {
-      "id": "P3",
-      "name": "new-project-consumidores-cierre",
-      "agent": "backend-dev",
-      "status": "done",
-      "tasks_done": 5,
-      "tasks_total": 5,
-      "current_task": null,
-      "commits": [
-        "d4cf910",
-        "b15a8f1",
-        "2ca1942",
-        "746778f"
-      ],
+      "commits": [],
       "last_batch": true,
-      "depends_on": [
-        "P2"
-      ]
+      "depends_on": []
     }
   ]
 }
