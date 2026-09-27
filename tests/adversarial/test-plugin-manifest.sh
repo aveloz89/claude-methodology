@@ -943,15 +943,24 @@ for i in 0 1 2; do
 
   assert_section_contains "$section" "git worktree add --detach" \
     "$label exige worktree --detach o directorio temporal para pruebas que escriben archivos"
-  assert_section_contains "$section" "nunca con redirecciones" \
-    "$label prohíbe redirecciones (>, tee, git show ... >, cp) sobre el árbol del repo"
+  assert_section_contains "$section" "git worktree remove" \
+    "$label exige eliminar el worktree con git worktree remove al terminar"
+  assert_section_contains "$section" "git stash" \
+    "$label prohíbe git stash por ser compartido entre worktrees"
+  assert_section_contains "$section" "corre sobre el árbol del repo" \
+    "$label prohíbe que un comando que escriba corra sobre el árbol del repo"
   assert_section_contains "$section" "dangerously-skip-permissions" \
     "$label prohíbe --dangerously-skip-permissions"
   assert_section_contains "$section" "bypassPermissions" \
     "$label prohíbe --permission-mode bypassPermissions"
+  assert_section_contains "$section" "acceptEdits" \
+    "$label prohíbe --permission-mode acceptEdits"
   assert_section_contains "$section" "NO CUBIERTO" \
     "$label exige declarar en NO CUBIERTO lo que requeriría permisos saltados"
 done
+
+assert_contains "$SECURITY_REVIEWER" "### NO CUBIERTO" \
+  "security-reviewer.md tiene la sección NO CUBIERTO en el formato de reporte (revisión inicial)"
 
 echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
