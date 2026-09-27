@@ -3033,6 +3033,84 @@ else
 fi
 _multiroot_cleanup
 
+# G14/G15 (ronda 2 del review dual, security LOW): la exclusión de #86 se
+# evaluaba sobre el PATH DEL ARCHIVO, no sobre el directorio candidato del
+# runner — un archivo bajo un segmento excluido (fixtures/vendor/testdata)
+# descartaba la línea entera ANTES de resolver el candidato, así que
+# apps/web/src/__fixtures__/user.json (con package.json real en apps/web/,
+# NO en el segmento excluido) no corría el "npm test" legítimo de apps/web/.
+# Ahora la exclusión se evalúa sobre el candidato YA resuelto, relativo al
+# toplevel: si el runner mismo no cae bajo un segmento excluido, corre,
+# aunque el archivo que disparó el cambio esté en un fixture/vendor debajo.
+_excl2_setup() {
+  EXCL2_DIR=$(mktemp -d)
+  EXCL2_DIR=$(cd "$EXCL2_DIR" && pwd -P)
+  EXCL2_MARK=$(mktemp -d)
+  EXCL2_BIN=$(mktemp -d)
+  (
+    cd "$EXCL2_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p .planning apps/web svc
+    echo "# STATE" > .planning/x.md
+    cat > apps/web/package.json <<EOF
+{ "name": "web", "private": true, "scripts": { "test": "echo ran > $EXCL2_MARK/web.ran" } }
+EOF
+    echo "console.log(1)" > apps/web/index.js
+    touch svc/pyproject.toml
+    echo "print(1)" > svc/main.py
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+  cat > "$EXCL2_BIN/pytest" <<PYEOF
+#!/bin/bash
+echo ran > "$EXCL2_MARK/svc.ran"
+exit 0
+PYEOF
+  chmod +x "$EXCL2_BIN/pytest"
+}
+_excl2_cleanup() {
+  rm -rf "$EXCL2_DIR" "$EXCL2_MARK" "$EXCL2_BIN"
+}
+
+# G14: tres archivos bajo segmentos excluidos, todos DENTRO de apps/web/
+# (que tiene su propio package.json, el runner real) → corre npm test en
+# apps/web/, igual que si esos archivos no estuvieran en fixtures/vendor.
+_excl2_setup
+mkdir -p "$EXCL2_DIR/apps/web/src/__fixtures__" "$EXCL2_DIR/apps/web/tests/fixtures" "$EXCL2_DIR/apps/web/vendor"
+echo '{}' > "$EXCL2_DIR/apps/web/src/__fixtures__/user.json"
+echo '{}' > "$EXCL2_DIR/apps/web/tests/fixtures/x.json"
+echo 'console.log(1)' > "$EXCL2_DIR/apps/web/vendor/lib.js"
+assert_allowed_cmd "pre-commit-guard: fixtures/vendor DENTRO de apps/web/ → corre npm test en apps/web (G14)" \
+  "pre-commit-guard.sh" "git commit -m x" "$EXCL2_BIN:$PATH" "$EXCL2_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$EXCL2_MARK/web.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G14 — corrió npm test en apps/web (web.ran presente)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G14 — no corrió npm test en apps/web (web.ran ausente)"
+  FAIL=$((FAIL + 1))
+fi
+_excl2_cleanup
+
+# G15: mismo caso con testdata/, dentro de svc/ (pyproject.toml, runner
+# pytest) → corre pytest en svc.
+_excl2_setup
+mkdir -p "$EXCL2_DIR/svc/tests/testdata"
+echo "in" > "$EXCL2_DIR/svc/tests/testdata/in.txt"
+assert_allowed_cmd "pre-commit-guard: testdata/ DENTRO de svc/ → corre pytest en svc (G15)" \
+  "pre-commit-guard.sh" "git commit -m x" "$EXCL2_BIN:$PATH" "$EXCL2_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$EXCL2_MARK/svc.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G15 — corrió pytest en svc (svc.ran presente)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G15 — no corrió pytest en svc (svc.ran ausente)"
+  FAIL=$((FAIL + 1))
+fi
+_excl2_cleanup
+
 echo ""
 # --- hooks/lib/workspace-scope.sh (unit) ---
 echo "--- hooks/lib/workspace-scope.sh (unit) ---"

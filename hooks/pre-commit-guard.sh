@@ -500,10 +500,18 @@ _guard_has_marker() {
 #      trackeado con estado sucio), tampoco se deriva un runner ahí; ese
 #      repo tiene su propio ciclo de test, no el del usuario.
 #   3. Segmento de path no confiable: node_modules, vendor, fixtures,
-#      __fixtures__ o testdata en cualquier parte del path — dependencias
-#      de terceros y fixtures de test no son código del proyecto, así que
-#      un package.json ahí (real, ej. un fixture de test trackeado a
-#      propósito) no es un runner del usuario.
+#      __fixtures__ o testdata en cualquier parte del CANDIDATO YA
+#      RESUELTO (relativo al toplevel) — dependencias de terceros y
+#      fixtures de test no son código del proyecto, así que un
+#      package.json ahí (real, ej. un fixture de test trackeado a
+#      propósito) no es un runner del usuario. Se evalúa sobre el
+#      candidato, NO sobre el path del archivo que disparó el cambio
+#      (ronda 2, security LOW): un archivo bajo un segmento excluido cuyo
+#      runner real vive AFUERA de ese segmento (ej.
+#      "apps/web/src/__fixtures__/user.json", con package.json en
+#      "apps/web/") sigue corriendo el test legítimo de "apps/web/" — solo
+#      se descarta cuando el segmento excluido está en el camino HASTA el
+#      propio candidato (ej. "tests/fixtures/proj/package.json").
 _guard_path_ends_in_slash() {
   case "$1" in
     */) return 0 ;;
@@ -544,7 +552,6 @@ _guard_derive_runner_dirs() {
     [ -z "$line" ] && continue
     path="${line:3}"
     _guard_path_ends_in_slash "$path" && continue
-    _guard_path_has_excluded_segment "$path" && continue
     case "$path" in
       */*) filedir="$top/${path%/*}" ;;
       *) filedir="$top" ;;
@@ -552,6 +559,7 @@ _guard_derive_runner_dirs() {
     _guard_dir_under_nested_git "$filedir" "$top" && continue
     candidate=$(_guard_find_runner_dir "$filedir" "$top")
     [ "$candidate" = "$top" ] && continue
+    _guard_path_has_excluded_segment "${candidate#"$top"/}" && continue
     candidates+=("$candidate")
   done <<< "$files"
 
