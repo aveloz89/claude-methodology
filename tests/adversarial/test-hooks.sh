@@ -317,6 +317,93 @@ assert_blocked_cmd "pre-push-guard: bloquea fail-closed sin jq en PATH (E6)" \
   "pre-push-guard.sh" "git push origin main" "$NO_JQ_PPG_BIN" "$SANDBOX_REPO"
 rm -rf "$NO_JQ_PPG_BIN"
 
+# assert_ppg_blocked_msg: variante de assert_blocked_cmd que además exige
+# el mensaje de redirección en stderr (E3) — pre-push-guard no resuelve
+# "cd"/"git -C"/"GIT_DIR=" y tiene que decir por qué, no solo bloquear.
+assert_ppg_blocked_msg() {
+  local test_name="$1" command="$2" run_cwd="$3" expected_substring="$4"
+  TOTAL=$((TOTAL + 1))
+  local json exit_code=0 stderr_file
+  stderr_file=$(mktemp)
+  json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  (cd "$run_cwd" && echo "$json" | bash "$HOOKS_DIR/pre-push-guard.sh" > /dev/null 2>"$stderr_file") || exit_code=$?
+  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"))"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$stderr_file"
+}
+
+# E3: redirecciones ("cd", "git -C", "GIT_DIR=") no se resuelven — bloquean
+# con el mensaje de la limitación en vez de adivinar a qué árbol apunta el
+# push real (D-07, punto 4).
+(cd "$SANDBOX_REPO" && git checkout -q main)
+assert_ppg_blocked_msg "pre-push-guard: 'cd . && git push origin main' bloquea con mensaje de redirección (E3)" \
+  "cd . && git push origin main" "$SANDBOX_REPO" "no resuelve redirecciones"
+assert_ppg_blocked_msg "pre-push-guard: 'git -C . push origin main' bloquea con mensaje de redirección (E3)" \
+  "git -C . push origin main" "$SANDBOX_REPO" "no resuelve redirecciones"
+assert_ppg_blocked_msg "pre-push-guard: 'GIT_DIR=x git push' bloquea con mensaje de redirección (E3)" \
+  "GIT_DIR=x git push" "$SANDBOX_REPO" "no resuelve redirecciones"
+
+# E4: el branch se lee del ".cwd" del input, no del cwd del PROCESO del
+# hook — mismo criterio que pre-commit-guard. run_cwd (proceso) queda en la
+# raíz de este repo (no en el sandbox); solo HOOK_JSON_CWD apunta al
+# sandbox en feature/test.
+HOOK_JSON_CWD="$SANDBOX_REPO" assert_allowed_cmd "pre-push-guard: .cwd apunta a feature/test → permite (E4)" \
+  "pre-push-guard.sh" "git push origin feature/test"
+
+# E5: el branch se lee del ".cwd", NO del cwd del proceso — dos sandboxes
+# independientes: uno en "main" con HEAD NON-merge (para que un chequeo que
+# mirara el cwd del proceso bloquearía de verdad, no por casualidad de un
+# merge commit) como cwd del PROCESO, y otro en "feature/x" como ".cwd".
+PUSH_E5_MAIN_REPO=$(mktemp -d)
+PUSH_E5_MAIN_REPO=$(cd "$PUSH_E5_MAIN_REPO" && pwd -P)
+(
+  cd "$PUSH_E5_MAIN_REPO" || exit 1
+  git init -q -b main
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  echo "main" > README.md
+  git add -A
+  git commit -q -m "initial commit (non-merge)"
+) > /dev/null 2>&1
+PUSH_E5_FEATURE_REPO=$(mktemp -d)
+PUSH_E5_FEATURE_REPO=$(cd "$PUSH_E5_FEATURE_REPO" && pwd -P)
+(
+  cd "$PUSH_E5_FEATURE_REPO" || exit 1
+  git init -q -b feature/x
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  echo "second" > README.md
+  git add -A
+  git commit -q -m "initial commit"
+) > /dev/null 2>&1
+HOOK_JSON_CWD="$PUSH_E5_FEATURE_REPO" assert_allowed_cmd "pre-push-guard: .cwd (feature/x) decide, no el cwd del proceso (main, HEAD non-merge) (E5)" \
+  "pre-push-guard.sh" "git push origin feature/x" "$PATH" "$PUSH_E5_MAIN_REPO"
+rm -rf "$PUSH_E5_MAIN_REPO" "$PUSH_E5_FEATURE_REPO"
+
+# B2: NUL en un comando inocuo ("git status[NUL]") — pre-push-guard entra a
+# la lista de guards que sourcean guard-matching.sh en este lote.
+assert_nul_blocked_cwd() {
+  local test_name="$1" run_cwd="$2"
+  TOTAL=$((TOTAL + 1))
+  local exit_code=0 stderr_file
+  stderr_file=$(mktemp)
+  (cd "$run_cwd" && jq -n '{tool_input: {command: "git status\u0000"}}' | bash "$HOOKS_DIR/pre-push-guard.sh" > /dev/null 2>"$stderr_file") || exit_code=$?
+  if [ "$exit_code" -eq 2 ] && grep -qi 'NUL' "$stderr_file"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked with NUL-specific reason)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"))"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$stderr_file"
+}
+assert_nul_blocked_cwd "pre-push-guard: bloquea NUL en el comando (B2)" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""
