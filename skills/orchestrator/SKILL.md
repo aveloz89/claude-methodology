@@ -2,7 +2,7 @@
 name: orchestrator
 description: Manual de la sesión principal para coordinar una feature o un fix de punta a punta — fases 0 a 5, qué subagente invocar en cada una, lotes y handoff, tracker de sesión, pause/resume. Cargar al iniciar cualquier trabajo que termine en un PR, antes de delegar el primer lote.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:db-specialist), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner)
+allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner)
 argument-hint: "[feature|fix] <descripción corta>"
 ---
 
@@ -35,7 +35,7 @@ El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesió
 - Creas el branch una sola vez (`git checkout dev && git checkout -b feature/<slug>`); los devs trabajan sobre ese branch existente.
 - Modo single-PR por default: todos los lotes en el mismo branch, último lote con `last_batch=true`. Modo multi-PR solo si el `architect` lo justificó — cada grupo con su branch + PR propio.
 - Un push por ronda de review (las de Fase 2.6 no pushean); docs va en el push inicial; retro en el último commit del branch.
-- Cuando hay `db-specialist`: va primero (schema), luego `backend-dev` lo consume, luego `frontend-dev`. Back/front pueden paralelizarse si son archivos disjuntos.
+- Cuando un lote de `backend-dev` es `db-complejo`: va primero (schema), el resto de `backend-dev` lo consume, luego `frontend-dev`. Back/front pueden paralelizarse si son archivos disjuntos.
 - Fixes de review siempre en el mismo PR/branch — nunca un branch nuevo.
 - Re-lanzas solo los reviewers que marcaron issues, no los que aprobaron.
 - Conflicto entre reviewers: security gana en seguridad, QA gana en UX/accesibilidad/contratos; zona gris → escalas al usuario (`governance-playbook.md` §7).
@@ -59,8 +59,7 @@ En cualquier duda, brainstormeas igual. Formato de `BRIEF.md`: runbook, "Fase 0"
 |--------|--------|-----|----------------|
 | `architect` | fable (fallback: opus) | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva |
 | `ui-ux` | opus | Genera design system y valida flujos | Después del brainstorming, ANTES del architect, si hay UI |
-| `db-specialist` | sonnet | Implementa todo lo de DB cuando es complejo | Lotes con trabajo de DB que califica como complejo |
-| `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples | Lotes con trabajo server-side |
+| `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples y complejas (lotes `db-complejo`) | Lotes con trabajo server-side |
 | `frontend-dev` | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) | Lotes con trabajo client-side |
 | `security-reviewer` | opus | Auditoría OWASP, secrets, dependencias (read-only). Bloqueante | Fase 2.6 y re-reviews post-PR |
 | `qa-frontend` | sonnet | UX, accesibilidad, componentes, tests frontend, coverage. Bloqueante si toca frontend | Diff con archivos de UI |
@@ -72,7 +71,7 @@ En cualquier duda, brainstormeas igual. Formato de `BRIEF.md`: runbook, "Fase 0"
 
 **Degradación de modelo cuando opus está rate-limited:** `security-reviewer` → sonnet solo si el PR no toca auth/crypto/secrets/pagos; `ui-ux` → sonnet aceptable siempre. El `architect` nunca degrada a sonnet: si fable no está disponible, sube a opus (el plan de lotes es la decisión de mayor apalancamiento del flujo).
 
-**db-specialist vs backend-dev:** el specialist hace lo complejo (backfill, cambio de tipo, particionamiento, queries lentas, >1M filas, constraints sobre datos existentes); el backend-dev hace lo simple (tabla nueva sin datos, columna nullable, índice simple, FK). Criterios completos: runbook, "Criterios completos: db-specialist vs backend-dev".
+**Cuándo un lote es `db-complejo`:** backfill, cambio de tipo, particionamiento, queries lentas, >1M filas, constraints sobre datos existentes — lo sigue haciendo `backend-dev`, marcado y ordenado primero en el plan. Lo simple (tabla nueva sin datos, columna nullable, índice simple, FK) es un lote normal. Criterios completos: runbook, "Cuándo un lote es DB complejo".
 
 ## 5. Lotes y handoff
 
@@ -111,7 +110,7 @@ Ante algo inesperado (reviewers en conflicto, hook que falló, agente cortado, b
 |---|---|
 | Formato exacto de `BRIEF.md`/`STATE.md`/`HANDOFF.md`/`learnings/PR-<N>.md` | "Formatos" de cada fase |
 | Comandos `gh` de verificación pre-merge o de PR | "Comandos `gh` específicos" |
-| Duda db-specialist vs backend-dev | "Criterios completos: db-specialist vs backend-dev" |
+| Duda si un lote de DB es complejo | "Cuándo un lote es DB complejo" |
 | Dev se atora con un error de build/compilación | reinvocar al mismo dev con `rulebooks/build-errors.md` (ver "Fase 2" y "Fase 2.8" del runbook) |
 | Template de handoff a un dev | sección de handoff de la fase 2 |
 | Cambiaste una regla de flujo/hooks/formatos de `.planning/` | "Anti-drift: DoD de cambios de proceso" |

@@ -4,16 +4,15 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 
 ## Qué incluye
 
-El **orchestrator** no es un subagente: es el Claude de la sesión principal. Las invariantes viven en `global/CLAUDE.md` (instalado como `~/.claude/CLAUDE.md`); el manual operativo — fases 0 a 5, equipo de subagentes, lotes — vive en la skill `orchestrator`. Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 12 agentes:
+El **orchestrator** no es un subagente: es el Claude de la sesión principal. Las invariantes viven en `global/CLAUDE.md` (instalado como `~/.claude/CLAUDE.md`); el manual operativo — fases 0 a 5, equipo de subagentes, lotes — vive en la skill `orchestrator`. Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 11 agentes:
 
-### Agentes (12)
+### Agentes (11)
 | Agente | Modelo | Rol |
 |--------|--------|-----|
 | **architect** | fable | Diseña soluciones, define contratos/schemas, descompone en tareas atómicas |
 | **ui-ux** | opus | Genera el design system y valida flujos antes de que el frontend implemente |
-| **backend-dev** | sonnet | Implementa backend con TDD, gitflow, verificación pre-commit |
+| **backend-dev** | sonnet | Implementa backend con TDD, gitflow, verificación pre-commit; esquemas complejos, migraciones con backfill y optimización de queries en lotes `db-complejo` |
 | **frontend-dev** | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) |
-| **db-specialist** | sonnet | Esquemas complejos, migraciones con backfill, optimización de queries |
 | **security-reviewer** | opus | Auditoría OWASP Top 10, secrets, dependencias (read-only) |
 | **qa-frontend** | sonnet | UX, accesibilidad, componentes, estado UI, tests frontend, coverage ≥ 80% |
 | **qa-backend** | sonnet | Contratos de API, lógica de negocio, datos, tests backend, coverage ≥ 80% |
@@ -131,7 +130,6 @@ claude-methodology/
 ├── agents/
 │   ├── architect.md
 │   ├── backend-dev.md
-│   ├── db-specialist.md
 │   ├── docs.md
 │   ├── e2e-runner.md
 │   ├── frontend-dev.md
@@ -178,6 +176,7 @@ claude-methodology/
 ├── rulebooks/
 │   ├── agent-budget.md
 │   ├── build-errors.md
+│   ├── db-migrations.md
 │   ├── dev-common.md
 │   ├── governance-playbook.md
 │   ├── orchestrator-runbook.md

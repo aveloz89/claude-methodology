@@ -374,7 +374,7 @@ else
   PASS=$((PASS + 1))
 fi
 
-for agent in architect ui-ux db-specialist backend-dev frontend-dev docs security-reviewer qa-frontend qa-backend e2e-runner; do
+for agent in architect ui-ux backend-dev frontend-dev docs security-reviewer qa-frontend qa-backend e2e-runner; do
   TOTAL=$((TOTAL + 1))
   if echo "$ORCH_ALLOWED_TOOLS" | grep -qF "Agent(methodology:$agent)"; then
     echo -e "${GREEN}PASS${NC}: allowed-tools declara Agent(methodology:$agent)"
@@ -385,17 +385,20 @@ for agent in architect ui-ux db-specialist backend-dev frontend-dev docs securit
   fi
 done
 
-# build-resolver se fusionó en rulebooks/build-errors.md (PR 3, lote 5): ya
-# no es un agente, así que su ausencia de allowed-tools es la condición
-# correcta (antes de la fusión este check exigía lo contrario).
-TOTAL=$((TOTAL + 1))
-if echo "$ORCH_ALLOWED_TOOLS" | grep -qF "Agent(methodology:build-resolver)"; then
-  echo -e "${RED}FAIL${NC}: allowed-tools todavía declara Agent(methodology:build-resolver) (fusionado en rulebooks/build-errors.md)"
-  FAIL=$((FAIL + 1))
-else
-  echo -e "${GREEN}PASS${NC}: allowed-tools no declara Agent(methodology:build-resolver)"
-  PASS=$((PASS + 1))
-fi
+# build-resolver y db-specialist se fusionaron en rulebooks/build-errors.md
+# y rulebooks/db-migrations.md (PR 3, lotes 5 y 6): ya no son agentes, así
+# que su ausencia de allowed-tools es la condición correcta (antes de cada
+# fusión este check exigía lo contrario).
+for merged_agent in build-resolver db-specialist; do
+  TOTAL=$((TOTAL + 1))
+  if echo "$ORCH_ALLOWED_TOOLS" | grep -qF "Agent(methodology:$merged_agent)"; then
+    echo -e "${RED}FAIL${NC}: allowed-tools todavía declara Agent(methodology:$merged_agent) (fusionado en rulebooks/)"
+    FAIL=$((FAIL + 1))
+  else
+    echo -e "${GREEN}PASS${NC}: allowed-tools no declara Agent(methodology:$merged_agent)"
+    PASS=$((PASS + 1))
+  fi
+done
 
 echo ""
 echo "--- skills/orchestrator/SKILL.md §1: puntero al núcleo, sin redefinir el rol ---"

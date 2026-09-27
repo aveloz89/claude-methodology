@@ -1,6 +1,6 @@
 # Dev Common
 
-Procedimientos idénticos para todos los agentes que escriben código (`backend-dev`, `frontend-dev`, `db-specialist`, `refactor`, `e2e-runner`, `docs`). Vivían copiados en cada prompt; ahora viven acá una sola vez.
+Procedimientos idénticos para todos los agentes que escriben código (`backend-dev`, `frontend-dev`, `refactor`, `e2e-runner`, `docs`). Vivían copiados en cada prompt; ahora viven acá una sola vez.
 
 Cada agente los referencia desde su sección "Reglas heredadas" y agrega solo su delta específico, si tiene.
 
@@ -56,7 +56,7 @@ Branch: <nombre>
 
 Procedimiento completo y prevención: `rulebooks/agent-budget.md`.
 
-Algunos agentes agregan información al HANDOFF por su dominio (el `db-specialist` debe registrar el estado exacto de la DB de test; el `refactor` no commitea refactors a medio terminar). Eso está en su prompt.
+Algunos agentes agregan información al HANDOFF por su dominio (el `backend-dev` debe registrar el estado exacto de la DB de test en un lote `db-complejo`; el `refactor` no commitea refactors a medio terminar). Eso está en su prompt.
 
 ## Build roto
 

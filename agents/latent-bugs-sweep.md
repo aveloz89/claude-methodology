@@ -169,7 +169,7 @@ En proyectos sin schemas centralizados, buscar divergencias entre validaciones d
 
 Foreign keys sin `ON DELETE CASCADE`/`SET NULL` apropiado que dejen filas huérfanas. `UNIQUE` constraints que no existen pero el código asume que sí. Indexes faltantes en columnas usadas en `WHERE` frecuentes.
 
-**Coordinación**: este patrón se solapa con scope de `db-specialist` y `qa-backend`. Si el bug está en migración del PR actual, NO lo reportes (los QA agents lo cubren). Si está en código legacy del repo, sí.
+**Coordinación**: este patrón se solapa con scope de `backend-dev` (lote `db-complejo`) y `qa-backend`. Si el bug está en migración del PR actual, NO lo reportes (los QA agents lo cubren). Si está en código legacy del repo, sí.
 
 #### L. Tests que mockean comportamiento incorrecto y validan el bug en vez de la feature
 
