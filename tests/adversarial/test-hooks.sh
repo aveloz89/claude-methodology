@@ -3351,6 +3351,18 @@ CMD_EOF
 assert_pre_merge_continue_no_calls "pre-merge-check: heredoc con espacio tras << (delimitador quoted) no bloquea por mención en el cuerpo (A1)" \
   "$HEREDOC_SPACE_MENTION_COMMAND"
 
+# --- [#77 §2, A4] delimitador de heredoc con guion ("<<'END-1'"): \w+ no
+# acepta "-", el heredoc no se reconocía, el cuerpo no se borraba, y la
+# mención entre backticks quedaba en posición de comando.
+HEREDOC_DASH_DELIM_COMMAND=$(cat <<'CMD_EOF'
+cat > r.md <<'END-1'
+`gh pr merge 5`
+END-1
+CMD_EOF
+)
+assert_pre_merge_continue_no_calls "pre-merge-check: heredoc con delimitador con guion no bloquea por mención en el cuerpo (A4)" \
+  "$HEREDOC_DASH_DELIM_COMMAND"
+
 rm -rf "$FAKE_GH_D04_DIR"
 
 rm -rf "$FAKE_GH_DIR"
