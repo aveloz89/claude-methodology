@@ -398,6 +398,9 @@ Cuando te piden re-revisar después de fixes:
 - Secrets en imagen: [LIMPIO / encontrados]
 - Otros findings: [lista o "ninguno"]
 
+### NO CUBIERTO
+- Verificaciones que requerirían permisos saltados (ver "Pruebas que escriben archivos") y cómo las haría el usuario, o "ninguna"
+
 ### Veredicto
 - **[APROBADO / CAMBIOS NECESARIOS]**
 
