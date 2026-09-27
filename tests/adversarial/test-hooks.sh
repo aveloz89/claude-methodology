@@ -2695,6 +2695,87 @@ else
 fi
 _multiroot_cleanup
 
+# G5 (worktree): layout de G1 pero solo con frontend/package.json — un
+# segundo worktree del mismo repo, cambio en frontend/a.js del worktree,
+# sesión en la raíz del worktree. El resolver tiene que encontrar
+# <worktree>/frontend, nunca <MAIN>/frontend (mismo criterio que el fixture
+# PNEST/PSKIP de #73, acá sin marcador en ningún root).
+_multiroot_wt_setup() {
+  MULTIROOT_WT_MAIN=$(mktemp -d)
+  MULTIROOT_WT_MAIN=$(cd "$MULTIROOT_WT_MAIN" && pwd -P)
+  MULTIROOT_WT_MARK=$(mktemp -d)
+  (
+    cd "$MULTIROOT_WT_MAIN" || exit 1
+    git init -q -b main
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p frontend
+    cat > frontend/package.json <<EOF
+{ "name": "frontend", "private": true, "scripts": { "test": "pwd -P > $MULTIROOT_WT_MARK/test.ran && exit 1" } }
+EOF
+    echo "console.log(1)" > frontend/a.js
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+  MULTIROOT_WT_DIR=$(mktemp -d)
+  rmdir "$MULTIROOT_WT_DIR"
+  git -C "$MULTIROOT_WT_MAIN" worktree add -q -b wt-branch-86 "$MULTIROOT_WT_DIR" main > /dev/null 2>&1
+  MULTIROOT_WT_DIR=$(cd "$MULTIROOT_WT_DIR" && pwd -P)
+}
+
+_multiroot_wt_cleanup() {
+  git -C "$MULTIROOT_WT_MAIN" worktree remove --force "$MULTIROOT_WT_DIR" > /dev/null 2>&1
+  rm -rf "$MULTIROOT_WT_MAIN" "$MULTIROOT_WT_MARK"
+}
+
+_multiroot_wt_setup
+echo "cambio" >> "$MULTIROOT_WT_DIR/frontend/a.js"
+assert_blocked_cmd "pre-commit-guard: monorepo sin marcador en la raíz, worktree → resuelve frontend/ del worktree, nunca el árbol principal (G5)" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$MULTIROOT_WT_DIR"
+TOTAL=$((TOTAL + 1))
+MULTIROOT_WT_EXPECTED=$(cd "$MULTIROOT_WT_DIR/frontend" && pwd -P)
+if [ -f "$MULTIROOT_WT_MARK/test.ran" ] && [ "$(cat "$MULTIROOT_WT_MARK/test.ran")" = "$MULTIROOT_WT_EXPECTED" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G5 — corrió en frontend/ del worktree"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G5 — corrió en frontend/ del worktree (marcador: \"$(cat "$MULTIROOT_WT_MARK/test.ran" 2>/dev/null)\", esperado: \"$MULTIROOT_WT_EXPECTED\")"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_wt_cleanup
+
+# G6 (anidado, workspace de un solo paquete): packages/a/package.json, sin
+# marcador en la raíz ni en packages/, cambio en packages/a/src/x.js →
+# marcador = <repo>/packages/a.
+MULTIROOT_NEST_DIR=$(mktemp -d)
+MULTIROOT_NEST_DIR=$(cd "$MULTIROOT_NEST_DIR" && pwd -P)
+MULTIROOT_NEST_MARK=$(mktemp -d)
+(
+  cd "$MULTIROOT_NEST_DIR" || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  mkdir -p packages/a/src
+  cat > packages/a/package.json <<EOF
+{ "name": "a", "private": true, "scripts": { "test": "pwd -P > $MULTIROOT_NEST_MARK/test.ran && exit 1" } }
+EOF
+  echo "console.log(1)" > packages/a/src/x.js
+  git add -A
+  git commit -q -m init
+) > /dev/null 2>&1
+echo "cambio" >> "$MULTIROOT_NEST_DIR/packages/a/src/x.js"
+assert_blocked_cmd "pre-commit-guard: monorepo sin marcador en la raíz, paquete anidado → marcador = packages/a (G6)" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$MULTIROOT_NEST_DIR"
+TOTAL=$((TOTAL + 1))
+MULTIROOT_NEST_EXPECTED=$(cd "$MULTIROOT_NEST_DIR/packages/a" && pwd -P)
+if [ -f "$MULTIROOT_NEST_MARK/test.ran" ] && [ "$(cat "$MULTIROOT_NEST_MARK/test.ran")" = "$MULTIROOT_NEST_EXPECTED" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G6 — corrió en packages/a"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G6 — corrió en packages/a (marcador: \"$(cat "$MULTIROOT_NEST_MARK/test.ran" 2>/dev/null)\", esperado: \"$MULTIROOT_NEST_EXPECTED\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$MULTIROOT_NEST_DIR" "$MULTIROOT_NEST_MARK"
+
 echo ""
 # --- hooks/lib/workspace-scope.sh (unit) ---
 echo "--- hooks/lib/workspace-scope.sh (unit) ---"
