@@ -168,6 +168,27 @@ fi
 #          el texto del comando interceptado y su propio entorno — el que
 #          sí se chequea explícitamente (GH_REPO/GH_HOST/GIT_DIR/
 #          GIT_WORK_TREE, ver el bloque de "Gramática única del merge").
+#
+# Endurecido 2026-09-27 (.cwd del input vs cwd del proceso, #73, cierra el
+# §4 de #77 para este hook):
+#   7. El punto 6 resuelve el repo con `gh repo view` corriendo en el cwd
+#      del PROCESO del hook, pero nunca había verificación explícita de
+#      que ese cwd fuera el mismo que el de la sesión que emitió el
+#      comando — #77 §4 lo dejó como hueco abierto. Verificado contra
+#      Claude Code 2.1.283 (mismo entorno que .planning/DESIGN.md de #73):
+#      el JSON de un PreToolUse/Bash trae `.cwd`, y ese valor es el mismo
+#      cwd con el que corre el proceso del hook (tres corridas, `pwd -P`
+#      del hook == `.cwd`; ver DESIGN.md preguntas a2/b). Ahora, sin
+#      --repo explícito, si `.cwd` no es un directorio o no coincide con
+#      `pwd -P` del proceso del hook, el guard bloquea sin consultar a gh
+#      y pide --repo owner/repo — no intenta resolver ni adivinar a qué
+#      repo correspondería. Con --repo explícito este check no aplica
+#      (mismo criterio que el chequeo de GIT_DIR/GIT_WORK_TREE del punto
+#      6: con --repo, el guard nunca corre gh repo view, así que el cwd de
+#      la sesión deja de importar). `.cwd` ausente del JSON (CLI que no lo
+#      manda, o los tests que no lo incluyen) deja el comportamiento
+#      intacto — este hook nunca falla abierto por falta de un campo
+#      opcional.
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')

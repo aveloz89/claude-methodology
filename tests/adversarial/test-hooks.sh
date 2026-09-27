@@ -3208,6 +3208,12 @@ assert_pmc_cwd_blocked_no_calls "[#73][M3] .cwd inexistente, sin --repo -> bloqu
 assert_pmc_cwd_continue "[#73][M4] .cwd distinto pero --repo explícito -> continúa, consulta ese repo" \
   "gh pr merge 45 --repo o/r" "$PMC_OTHER_DIR" "o/r"
 
+# M5: .cwd ausente del JSON (CLI viejo o test sin ese campo) -> comportamiento
+# actual, sin bloqueo por este check (ya cubierto por el resto de esta
+# sección, que nunca manda cwd; se deja explícito por claridad del contrato).
+assert_pmc_cwd_continue_no_cwd_field "[#73][M5] .cwd ausente del JSON -> comportamiento actual, continúa" \
+  "gh pr merge 45" "session/repo"
+
 rm -rf "$FAKE_GH_PMC_CWD_DIR" "$PMC_OTHER_DIR"
 
 echo ""
