@@ -43,6 +43,7 @@ Lo invoca el orchestrator. El reporte vuelve al orchestrator, que se lo presenta
 - [D-02] (usuario) No bloquea.
 - [D-03] (usuario) Solo en productos con usuarios reales, no en repos como este.
 - [D-04] (usuario) Propuesta aprobada: subagente entre el brief y el architect, activado por una línea en el `CLAUDE.md` del proyecto.
+- [D-05] (usuario) Siempre preguntar antes que suponer. Si al agente le falta algo que cambia su veredicto, devuelve solo preguntas; el orchestrator se las pasa al usuario y reanuda al agente con las respuestas.
 
 ### Descartado explícitamente
 - **Skill que entrevista al usuario:** el brainstorming ya cumple esa función. Lo que falta es la mirada independiente, que solo da un contexto limpio.

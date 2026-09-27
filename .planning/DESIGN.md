@@ -34,7 +34,7 @@ Eres un product manager senior con contexto limpio: no estuviste en el brainstor
 
 **Entregas:** un reporte en el formato de abajo, como texto de tu respuesta. No escribes archivos: el orchestrator se lo presenta al usuario y escribe en `BRIEF.md` lo que el usuario acepte.
 
-**Si te falta contexto** (quién es el usuario, qué hace hoy sin la feature), no preguntes: declara el supuesto en el reporte, en una línea, y sigue. Una sola vuelta; el usuario corrige el supuesto al leer.
+**Si te falta contexto** que cambia el veredicto, el resultado esperado o un criterio (quién es el usuario, qué hace hoy sin la feature), no supongas: devuelve solo `### Preguntas` (máximo 5, cada una con por qué importa y, si ayuda, 2-3 respuestas posibles) y ningún veredicto. El orchestrator se las pasa al usuario, suma las respuestas al brief y te reanuda. Si no te falta nada, entrega el reporte directo. (D-05, usuario: siempre preguntar antes que suponer.)
 
 ## Cómo evalúas
 
@@ -123,7 +123,7 @@ Brief: "exportar el listado de clientes a CSV desde el panel de admin, con filtr
 | `tools: Read, Grep, Glob` + `disallowedTools: Write, Edit, Bash, Agent` | Read-only por contrato (brief: "no edita archivos"). Sin `Bash`: no necesita ejecutar nada y `tools` sí restringe en agentes (a diferencia de `allowed-tools` en skills, PR-80). `Agent` fuera: no se autoinvoca ni delega. |
 | `description` con disparador | El orchestrator decide con la description; lleva la condición de activación y el momento (después del brainstorming, antes de `ui-ux`/`architect`). |
 | Contexto limpio, sin historial | Es la frontera de contexto que justifica el agente (ARCHITECTURE.md 2026-09-26). |
-| Supuestos en vez de preguntas | Una sola vuelta: el brief pide liviano. Preguntar al orchestrator agrega un round-trip por invocación. |
+| Preguntas antes que supuestos (D-05) | Decisión del usuario: un supuesto equivocado sobre el usuario o el problema invalida el veredicto. La ronda extra solo ocurre cuando falta algo que lo cambia. |
 | No bloquea | D-02. |
 | ≤40 líneas | "Reporte corto: el objetivo es no complicar." Un tope numérico es verificable; "corto" no. |
 | Criterio = sí/no sin interpretar, con origen | Es lo que consumen architect (traza a tareas) y QA (cobertura). El origen distingue lo que el usuario ya pidió de lo que el agente agregó. |
@@ -223,7 +223,7 @@ Además:
 - **`.claude-plugin/marketplace.json`:** description `"Metodología completa: 12 agentes, 14 hooks, 5 skills"`. Sin bump de versión (se hace en release).
 - **`tests/adversarial/test-frontmatter.sh`:** `product-reviewer` en `HISTORICAL_AGENTS`.
 - **`tests/adversarial/test-plugin-manifest.sh`:** asserts nuevos (detalle en el plan): frontmatter read-only del agente con sandbox RED, tope de 150 líneas, palabras del veredicto y encabezados compartidos con `BRIEF.md`, `assert_no_voseo` y lista explícita de mayúsculas de énfasis prohibidas, `product-reviewer` en el loop de `allowed-tools`, Fase 0.3 en skill y runbook, formato de `BRIEF.md`, conteo de agentes derivado de `ls agents/*.md` contra README y marketplace, `Tipo: producto con usuarios` en `new-project`, criterios de aceptación en architect y QAs.
-- **`tests/validation/agent-validation.md`:** sección `## Product Reviewer` con prompt canónico (un brief vago de feature en un producto) y expected behaviors (veredicto con 2-3 razones, señal medible, criterios sí/no con origen, ≤40 líneas, no escribe archivos, no pregunta al usuario) y red flags (propone stack, arma roadmap, bloquea).
+- **`tests/validation/agent-validation.md`:** sección `## Product Reviewer` con prompt canónico (un brief vago de feature en un producto) y expected behaviors (veredicto con 2-3 razones, señal medible, criterios sí/no con origen, ≤40 líneas, no escribe archivos; con un brief al que le falta el usuario o el problema, devuelve solo Preguntas) y red flags (propone stack, arma roadmap, bloquea).
 
 ---
 
@@ -260,7 +260,7 @@ Además:
 **Depende de:** ninguno · **last_batch:** false
 
 - [ ] T1: `agents/product-reviewer.md` existe con el frontmatter de §1 — assert nuevo `assert_agent_read_only <file>`: `model: opus`, `tools:` sin `Write`/`Edit`/`Bash`, `disallowedTools:` con `Write`, `Edit`, `Bash` y `Agent`; más `product-reviewer` en `HISTORICAL_AGENTS` de `test-frontmatter.sh`. Rojo con el archivo ausente; verde al crearlo con el prompt completo de §1.
-- [ ] T2: el prompt cumple el contrato de tamaño y formato — asserts: `wc -l` ≤ 150; contiene `seguir | reducir alcance | repensar`, `### Resultado esperado`, `### Criterios de aceptación` y `### Supuestos` (encabezados compartidos con el formato de `BRIEF.md`).
+- [ ] T2: el prompt cumple el contrato de tamaño y formato — asserts: `wc -l` ≤ 150; contiene `seguir | reducir alcance | repensar`, `### Resultado esperado`, `### Criterios de aceptación` y la regla de `### Preguntas` (encabezados compartidos con el formato de `BRIEF.md`).
 - [ ] T3: tono — `assert_no_voseo "$REPO_ROOT/agents/product-reviewer.md"` y assert de lista explícita de mayúsculas de énfasis prohibidas (`NUNCA`, `SIEMPRE`, `SOLO`, `OBLIGATORIO`, `NO ` como palabra) ausentes del archivo.
 - [ ] T4: sandbox RED de `assert_agent_read_only`: un agente temporal con `tools: Read, Write` y sin `disallowedTools` falla el helper; otro con el frontmatter correcto pasa (mismo patrón que los sandboxes existentes; nunca sobre archivos reales).
 
@@ -291,3 +291,8 @@ Además:
 - **`assert_no_voseo` sobre el runbook actual puede estar rojo por texto preexistente** (el helper hoy no lo cubre) → Lote 2 T3 lo verifica ejecutando antes de agregarlo; si está rojo, acota el assert y lo anota en el reporte, no lo arregla (cambios quirúrgicos).
 - **`global/CLAUDE.md` sin cambio:** intencional por el tope de tamaño; el workflow #1 ya remite a la skill para las condiciones de brainstorming, y la fase 0.3 hereda esa condición. Confirmado por el grep de Lote 3 T5.
 - **Segunda invocación por feature:** permitida una sola vez tras un cambio de fondo del brief; más allá es señal de que el brainstorming no cerró, y se vuelve a Fase 0.
+
+
+### Cambio D-05 (usuario, durante el lote 1)
+
+Siempre preguntar antes que suponer. El agente devuelve solo `### Preguntas` cuando le falta algo que cambia el veredicto; el orchestrator relaya las preguntas al usuario (con `AskUserQuestion` si son cerradas, en prosa si son abiertas), suma las respuestas a `BRIEF.md` y reanuda al mismo agente con `SendMessage` para que conserve el contexto. La sección `### Supuestos` del reporte se elimina. **Lote 2** agrega este ciclo a la Fase 0.3 del runbook y a la skill. **Lote 1** ajusta el prompt y su test. Las secciones 1 y 3.2 de arriba quedan reemplazadas por esta regla donde choquen.

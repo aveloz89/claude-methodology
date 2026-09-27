@@ -15,6 +15,7 @@ Detalle en `BRIEF.md`.
 - [D-02] (usuario) No bloquea.
 - [D-03] (usuario) Solo en productos con usuarios reales.
 - [D-04] (usuario) Subagente entre el brief y el architect, activado por una línea en el `CLAUDE.md` del proyecto.
+- [D-05] (usuario) Siempre preguntar antes que suponer: el agente devuelve preguntas, el orchestrator las relaya y lo reanuda.
 
 ## Feature anterior
 
