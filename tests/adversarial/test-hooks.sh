@@ -621,6 +621,31 @@ assert_bam_continue "block-admin-merge: heredoc con espacio y delimitador sin co
 assert_bam_continue "block-admin-merge: mención entre comillas dobles de --admin no bloquea (A3b, negativo existente)" \
   'echo "el dev corrio gh pr merge 5 --admin"'
 
+# (h) [#77 comentario 2, D3] "gh -R o/r pr merge --admin" y "gh pr -R o/r
+# merge --admin" son la misma invocación real, con "-R"/"--repo" tolerado
+# entre "gh"/"pr" y entre "pr"/"merge" — antes el patrón exigía "gh pr
+# merge" pegado y estos casos pasaban sin bloquear. GUARD_GH_PR_MERGE_RE
+# (movido a la lib en el Lote 1) ya tolera hasta 2 tokens en cada hueco.
+assert_bam_blocked "block-admin-merge: gh -R o/r pr merge 5 --admin blocks (D3)" \
+  "gh -R o/r pr merge 5 --admin"
+assert_bam_blocked "block-admin-merge: gh pr -R o/r merge 5 --admin blocks (D3)" \
+  "gh pr -R o/r merge 5 --admin"
+assert_bam_blocked "block-admin-merge: gh --repo o/r pr merge 5 --admin blocks (D3)" \
+  "gh --repo o/r pr merge 5 --admin"
+assert_bam_blocked "block-admin-merge: git fetch && gh -R o/r pr merge 5 --admin blocks (D3)" \
+  "git fetch && gh -R o/r pr merge 5 --admin"
+
+# Negativos (D4): sin --admin, o "merge" fuera del hueco tolerado de 2
+# tokens, no deben bloquear.
+assert_bam_continue "block-admin-merge: gh pr view 5 | grep merge allowed (D4)" \
+  "gh pr view 5 | grep merge"
+assert_bam_continue "block-admin-merge: gh pr merge 5 --squash allowed (D4)" \
+  "gh pr merge 5 --squash"
+assert_bam_continue "block-admin-merge: gh pr list --search \"admin merge\" allowed (D4)" \
+  'gh pr list --search "admin merge"'
+assert_bam_continue "block-admin-merge: gh pr view 5 --repo o/r --json title allowed (D4)" \
+  "gh pr view 5 --repo o/r --json title"
+
 echo ""
 
 # --- pre-commit-guard.sh ---
