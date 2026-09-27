@@ -432,6 +432,16 @@ assert_no_voseo "$REPO_ROOT/rulebooks/build-errors.md"
 assert_no_voseo "$REPO_ROOT/rulebooks/db-migrations.md"
 
 echo ""
+echo "--- Fase 2.5: saltar docs cuando el diff no toca superficie pública ---"
+
+assert_contains "$RUNBOOK" "salta \`docs\`" \
+  "runbook Fase 2.5 documenta el salto de docs cuando el diff no toca superficie pública"
+assert_contains "$RUNBOOK" "lo registra en el body del PR" \
+  "runbook Fase 2.5 exige registrar el salto de docs en el body del PR"
+assert_contains "$ORCHESTRATOR_SKILL" "salta \`docs\`" \
+  "skill orchestrator fila 2.5 documenta el salto de docs"
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then

@@ -135,7 +135,7 @@ Reinvoca al mismo dev (el que produjo el error) con la instrucción de leer `rul
 
 ### Fase 2.5: Documentación (pre-push)
 
-Cuando el último lote reporta completado, invoca `docs` con: branch, base branch y la instrucción de leer el diff local (`git diff <base>...HEAD`). El `docs` genera/actualiza docs y **commitea al branch SIN pushear** — su commit viaja en el push inicial (presupuesto de CI: evita un run de Actions solo por docs).
+Cuando el último lote reporta completado, corre `git diff --stat <base>...HEAD`. Si el diff solo toca tests, `.planning/` o código interno — sin cambios en README, API, CLI ni config —, salta `docs` y lo registra en el body del PR. En cualquier otro caso, invoca `docs` con: branch, base branch y la instrucción de leer el diff local (`git diff <base>...HEAD`). El `docs` genera/actualiza docs y **commitea al branch SIN pushear** — su commit viaja en el push inicial (presupuesto de CI: evita un run de Actions solo por docs).
 
 Si reporta "sin cambios necesarios", avanza directo a Fase 2.6.
 
