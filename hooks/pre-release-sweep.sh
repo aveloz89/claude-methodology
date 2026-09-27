@@ -60,8 +60,33 @@ SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 # la comilla invertida — "--base main>/tmp/u" o "URL=$(gh pr create --base
 # main)" pasaban sin bloquear porque "\b" solo mira el carácter siguiente a
 # "main", nunca el separador real que sigue a la palabra completa.
-BASE_MAIN_RE="${GUARD_ANCHOR}gh\s+(-R\s+\S+\s+|--repo\s+\S+\s+)?pr\s+create\b.*(--base[ =]main|-B\s+main)(\s|\$|[;&|)><\`])"
-if ! echo "$SANITIZED_COMMAND" | grep -qE "$BASE_MAIN_RE"; then
+#
+# GH_REPO_OPT (ronda 2, security LOW): además de "-R <o/r>"/"--repo <o/r>"
+# (con espacio, F6), tolera "--repo=<o/r>" (con "=") y "-R<o/r>"
+# (clusterizado, sin espacio) — formas honestas que gh acepta de verdad.
+# Se tolera tanto ANTES de "pr" como entre "pr" y "create" (gh también
+# acepta "gh pr -R <o/r> create").
+GH_REPO_OPT='(-R(\s+\S+|\S+)|--repo(=\S+|\s+\S+))'
+GH_PR_CREATE_RE="${GUARD_ANCHOR}gh\s+(${GH_REPO_OPT}\s+)?pr\s+(${GH_REPO_OPT}\s+)?create\b"
+BASE_MAIN_RE="${GH_PR_CREATE_RE}.*(--base[ =]main|-B\s+main)(\s|\$|[;&|)><\`])"
+
+# Forma citada de "--base"/"-B" (ronda 2, security LOW, fail-open):
+# guard_sanitize() borra el span quoted ENTERO (comillas incluidas), así
+# que "--base \"main\"" queda como "--base " en SANITIZED_COMMAND — el
+# "main" que BASE_MAIN_RE busca ya no está ahí, y "gh pr create --base
+# \"main\"" pasaba sin bloquear. Mismo criterio que QUOTED_FORCE_PATTERN en
+# block-force-push.sh: la invocación real de "gh ... pr create" se
+# confirma sobre el SANEADO (ancla en posición de comando, nunca una
+# mención dentro de un span borrado) y la forma citada se busca aparte
+# sobre el comando SIN sanear, donde las comillas siguen ahí.
+QUOTED_BASE_MAIN_RE="(--base[ =]|-B\s+)[\"']main[\"']"
+
+if echo "$SANITIZED_COMMAND" | grep -qE "$BASE_MAIN_RE"; then
+  :
+elif echo "$SANITIZED_COMMAND" | grep -qE "$GH_PR_CREATE_RE" \
+  && echo "$COMMAND" | grep -qE "$QUOTED_BASE_MAIN_RE"; then
+  :
+else
   exit 0
 fi
 

@@ -3520,6 +3520,36 @@ assert_prs_blocked "pre-release-sweep: 'gh -R o/r pr create --base main' bloquea
 assert_prs_blocked "pre-release-sweep: 'gh --repo o/r pr create --base main' bloquea (F6)" \
   "gh --repo o/r pr create --base main --title x --body y" "critical" "app.js"
 
+# Ronda 2 (review dual, security LOW): "--base" con "main" ENTRE COMILLAS
+# no bloqueaba — guard_sanitize() borra el span quoted entero (incluidas
+# las comillas), así que "--base \"main\"" queda como "--base " en el
+# comando SANEADO, y el "main" que el regex busca ya no está ahí. Mismo
+# criterio que QUOTED_FORCE_PATTERN en block-force-push.sh: la invocación
+# real de "gh ... pr create" se confirma sobre el SANEADO (ancla en
+# posición de comando, no una mención dentro de un span borrado), y la
+# forma citada de "--base main" se busca aparte sobre el comando SIN
+# sanear (donde las comillas siguen ahí).
+assert_prs_blocked "pre-release-sweep: 'gh pr create --base \"main\"' bloquea (ronda 2)" \
+  'gh pr create --base "main" --title x --body y' "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: \"gh pr create --base 'main'\" bloquea (ronda 2)" \
+  "gh pr create --base 'main' --title x --body y" "critical" "app.js"
+# Negativo: "main-2" citado no es "main" (el cierre de comilla debe seguir
+# inmediato a "main").
+assert_prs_allowed "pre-release-sweep: 'gh pr create --base \"main-2\"' pasa (ronda 2)" \
+  'gh pr create --base "main-2" --title x --body y' "critical"
+
+# Ronda 2: "-R"/"--repo" con "=" y clusterizado ("-Ro/r", sin espacio) son
+# formas honestas que gh acepta de verdad — antes solo se toleraba la
+# forma con espacio ("-R o/r"/"--repo o/r").
+assert_prs_blocked "pre-release-sweep: 'gh --repo=o/r pr create --base main' bloquea (ronda 2)" \
+  "gh --repo=o/r pr create --base main --title x --body y" "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: 'gh -Ro/r pr create --base main' bloquea (ronda 2)" \
+  "gh -Ro/r pr create --base main --title x --body y" "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: 'gh pr create -R o/r --base main' bloquea (ronda 2)" \
+  "gh pr create -R o/r --base main --title x --body y" "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: 'gh pr -R o/r create --base main' bloquea (ronda 2, trivial)" \
+  "gh pr -R o/r create --base main --title x --body y" "critical" "app.js"
+
 # F4: fail-closed sin jq/gh (D-07) — antes este hook fallaba ABIERTO (exit
 # 0) si faltaba cualquiera de los dos, dejando pasar un "gh pr create
 # --base main" real sin evaluar los issues latent-bug del diff.
