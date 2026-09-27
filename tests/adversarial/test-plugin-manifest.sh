@@ -413,18 +413,44 @@ echo "--- Tuteo consistente en global/CLAUDE.md y skills/orchestrator/SKILL.md -
 
 assert_no_voseo() {
   local file="$1"
-  # [A-Za-zÁÉÍÓÚñ]+[áéí] cubre "sos" (vía alternativa explícita) y los
-  # imperativos voseantes con tilde final (Hacé, hacé, Cargá...). Es más
-  # amplio que un ás/és/ís final, así que necesita más exclusiones abajo.
-  local pattern='\b([A-Za-zÁÉÍÓÚñ]*(ás|és|ís)|Cargá|cargala|obtené|leelo|retomá|[Vv]os|sos|[A-Za-zÁÉÍÓÚñ]+[áéí])\b'
+  # Lista explícita de formas voseantes (recopilada del historial del repo:
+  # commits c036779, 1b07627, 82f1f0c, 5caedaf), en vez de un patrón
+  # genérico por sufijo/tilde. Un patrón genérico necesita una lista blanca
+  # de excepciones ("está", "así", "metodología"...) que crece sin fin; uno
+  # explícito no necesita ninguna.
+  #
+  # Delimitadores literales en vez de \b: \b depende de qué locale trata
+  # los acentos como caracteres de palabra. En locale C, glibc no reconoce
+  # las vocales acentuadas como "word chars" y \b marca borde en cualquier
+  # lado de ellas (falso positivo dentro de "metodología"); en UTF-8 sí las
+  # reconoce y \b funciona bien — pero depender de que el locale correcto
+  # esté generado en la máquina que corre el test (imágenes slim no lo
+  # tienen) es justamente el bug que este comentario reemplaza. Usamos en
+  # cambio "no es letra ASCII, o inicio/fin de línea" como borde: eso no
+  # depende de ninguna configuración de locale.
+  # Un solo patrón grande con delimitadores no-zero-width (ERE no soporta
+  # lookaround) consume el delimitador de cierre de un match y se lo roba
+  # al siguiente: "Vos podés" no detecta "podés" porque el espacio entre
+  # ambas palabras ya lo consumió el match de "Vos". Se recorre la lista
+  # palabra por palabra en llamadas de grep independientes para que cada
+  # búsqueda arranque limpia sobre el archivo completo.
+  local voseo_forms=(
+    vos sos tenés podés hacé hacés querés sabés decís usás notás cargala
+    leelo retomá fijate mirá esperá decilo cortalo aplicá lanzás coordinás
+    entendés escalás escalá cargá obtené arreglás preferís necesitás
+    trabajás reportá
+  )
+  local delim='[^[:alpha:]]'
   TOTAL=$((TOTAL + 1))
-  local hits
-  # LC_ALL=en_US.UTF-8: en locale C, grep trata los acentos como no-word y
-  # \b marca borde en cualquier lado de una vocal acentuada (matchearía
-  # "metodologí" dentro de "metodología"). Con locale UTF-8 los acentos
-  # cuentan como caracteres de palabra y \b funciona como se espera.
-  hits=$(LC_ALL=en_US.UTF-8 grep -noiE "$pattern" "$file" \
-    | LC_ALL=en_US.UTF-8 grep -viE ':(está|estás|después|acá|inglés|más|así|aquí|también|esté|sí|ahí|qué|aplicará)$' || true)
+  local hits=""
+  local word pattern word_hits
+  for word in "${voseo_forms[@]}"; do
+    pattern="(^|${delim})(${word})(${delim}|\$)"
+    word_hits=$(grep -noiE "$pattern" "$file" || true)
+    if [ -n "$word_hits" ]; then
+      hits="${hits}${word_hits}"$'\n'
+    fi
+  done
   if [ -z "$hits" ]; then
     echo -e "${GREEN}PASS${NC}: $file usa tuteo (sin formas voseantes)"
     PASS=$((PASS + 1))
