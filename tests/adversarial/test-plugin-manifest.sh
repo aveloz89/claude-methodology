@@ -806,6 +806,36 @@ assert_contains "$REPO_ROOT/agents/qa-frontend.md" "Criterios de aceptación del
   "agents/qa-frontend.md referencia los criterios de aceptación del brief (no bloquea)"
 
 echo ""
+echo "--- Conteo de agentes coherente entre agents/, README.md y marketplace.json ---"
+
+AGENT_COUNT=$(ls "$REPO_ROOT"/agents/*.md | wc -l | tr -d ' ')
+
+TOTAL=$((TOTAL + 1))
+if grep -q "### Agentes ($AGENT_COUNT)" "$README"; then
+  echo -e "${GREEN}PASS${NC}: README.md declara ### Agentes ($AGENT_COUNT)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: README.md no declara ### Agentes ($AGENT_COUNT) (agents/*.md tiene $AGENT_COUNT archivos)"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+if echo "$MARKETPLACE_DESC" | grep -q "$AGENT_COUNT agentes"; then
+  echo -e "${GREEN}PASS${NC}: marketplace.json describe $AGENT_COUNT agentes"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: marketplace.json no describe $AGENT_COUNT agentes (actual: \"$MARKETPLACE_DESC\")"
+  FAIL=$((FAIL + 1))
+fi
+
+assert_contains "$README" "product-reviewer" \
+  "README.md menciona a product-reviewer (tabla/árbol/workflow)"
+assert_contains "$README" "Tipo: producto con usuarios" \
+  "README.md documenta la línea Tipo: producto con usuarios que activa product-reviewer"
+assert_contains "$REPO_ROOT/tests/adversarial/README.md" "product-reviewer" \
+  "tests/adversarial/README.md menciona los checks nuevos de product-reviewer"
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then

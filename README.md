@@ -4,11 +4,12 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 
 ## Qué incluye
 
-El **orchestrator** no es un subagente: es el Claude de la sesión principal. Las invariantes viven en `global/CLAUDE.md` (instalado como `~/.claude/CLAUDE.md`); el manual operativo — fases 0 a 5, equipo de subagentes, lotes — vive en la skill `orchestrator`. Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 11 agentes:
+El **orchestrator** no es un subagente: es el Claude de la sesión principal. Las invariantes viven en `global/CLAUDE.md` (instalado como `~/.claude/CLAUDE.md`); el manual operativo — fases 0 a 5, equipo de subagentes, lotes — vive en la skill `orchestrator`. Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 12 agentes:
 
-### Agentes (11)
+### Agentes (12)
 | Agente | Modelo | Rol |
 |--------|--------|-----|
+| **product-reviewer** | opus | Cuestiona si la feature vale la pena y deja resultado esperado y criterios de aceptación medibles (read-only, no bloquea). Solo en proyectos con `Tipo: producto con usuarios` |
 | **architect** | fable | Diseña soluciones, define contratos/schemas, descompone en tareas atómicas |
 | **ui-ux** | opus | Genera el design system y valida flujos antes de que el frontend implemente |
 | **backend-dev** | sonnet | Implementa backend con TDD, gitflow, verificación pre-commit; esquemas complejos, migraciones con backfill y optimización de queries en lotes `db-complejo` |
@@ -54,6 +55,7 @@ Los tres hooks de observabilidad (`pre-compact-snapshot`, `subagent-stop-log`, `
 
 ```
 Idea → Brainstorming (orchestrator pregunta) → Brief
+  → Product reviewer (solo productos con usuarios): ¿vale la pena?, resultado esperado, criterios de aceptación
   → Architect diseña + escribe schemas/contratos
   → Devs implementan con TDD (Red → Green → Refactor)
   → Review dual local pre-push → Security + QA (qa-frontend y/o qa-backend según capas) en paralelo
@@ -134,6 +136,7 @@ claude-methodology/
 │   ├── e2e-runner.md
 │   ├── frontend-dev.md
 │   ├── latent-bugs-sweep.md
+│   ├── product-reviewer.md
 │   ├── qa-backend.md
 │   ├── qa-frontend.md
 │   ├── refactor.md
@@ -198,6 +201,8 @@ claude-methodology/
 ```
 
 ## Stack-agnóstico
+
+Si el `CLAUDE.md` del proyecto tiene la línea `Tipo: producto con usuarios`, el orchestrator invoca `product-reviewer` después del brainstorming de cada feature nueva. Sin la línea no corre; `/new-project` la escribe al preguntar el tipo de proyecto.
 
 Los agentes detectan el stack del proyecto leyendo CLAUDE.md. Funcionan con:
 - **Node.js** (pnpm/yarn/npm) + TypeScript/JavaScript
