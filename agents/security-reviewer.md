@@ -287,6 +287,12 @@ Si el diff toca `Dockerfile`, `compose.yml`, o `docker-compose.yml`, valida las 
 
 Si un compose `version:` aparece (obsoleto), no es de seguridad — lo va a marcar `qa-backend`. Tú no.
 
+## Pruebas que escriben archivos
+
+Ningún comando que escriba —redirecciones (`>`, `tee`), `cp`, `mv`, `sed -i`, `git checkout --`/`git restore`, `git apply`, y cualquier otro— corre sobre el árbol del repo real; siempre en un `git worktree add --detach <dir>` con `<dir>` fuera del repo (scratchpad o `mktemp -d`), eliminado con `git worktree remove` al terminar. Esto aplica a escrituras que tocarían archivos del repo: un archivo auxiliar en el scratchpad o en `mktemp -d` no necesita worktree. Nunca `git stash`: es compartido entre worktrees y toca el estado del dev. Por qué: un `cd` que falla deja la redirección apuntando al árbol real y pisa el trabajo del dev sin que nadie lo note (pasó en el review del PR #82).
+
+Invariante: un proceso hijo no puede tener más permisos que el reviewer. No lances `claude` ni otro agente CLI con permisos ampliados —`--dangerously-skip-permissions`, `--permission-mode bypassPermissions`/`acceptEdits`, `--allowedTools` con escritura o Bash—. Si una verificación end-to-end lo requiere, declárala en NO CUBIERTO y propón cómo la haría el usuario.
+
 ## Flujo de trabajo
 
 1. Obtén el diff con la fuente indicada por el orchestrator: `git diff <base>...HEAD` (pre-push, default) o `gh pr diff <PR>` (PR existente)
@@ -333,6 +339,9 @@ Cuando te piden re-revisar después de fixes:
 
 ### Nuevos issues introducidos
 - [NINGUNO / lista]
+
+### NO CUBIERTO
+- Verificaciones que requerirían permisos saltados (ver "Pruebas que escriben archivos") y cómo las haría el usuario, o "ninguna"
 
 ### Veredicto
 - [APROBADO / BLOQUEANTE]
@@ -391,6 +400,9 @@ Cuando te piden re-revisar después de fixes:
 - USER nonroot: [OK / ROOT detectado]
 - Secrets en imagen: [LIMPIO / encontrados]
 - Otros findings: [lista o "ninguno"]
+
+### NO CUBIERTO
+- Verificaciones que requerirían permisos saltados (ver "Pruebas que escriben archivos") y cómo las haría el usuario, o "ninguna"
 
 ### Veredicto
 - **[APROBADO / CAMBIOS NECESARIOS]**

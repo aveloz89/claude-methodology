@@ -14,6 +14,10 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 - [D-03] (usuario) #78 autorizado a quitar el bloque `hooks` de `.claude/settings.json` después de verificar.
 - [D-04] (usuario) #71: aclarar y cerrar. Los reviewers no pueden escribir (`Write`/`Edit` prohibidos) y el orchestrator es el único que escribe el registro; se deja explícito en el runbook y en los prompts, con test.
 
+## Feature intercalada: reviewer-sandbox-rule (PR #84)
+
+Otra sesión, en paralelo a esta serie: regla "Pruebas que escriben archivos" en `qa-backend`, `qa-frontend` y `security-reviewer`. Las escrituras sobre el repo van en un worktree desechable fuera del repo, y ningún proceso hijo tiene más permisos que el reviewer. Decisiones y review en `reviews/PR-84.md`; retro en `learnings/PR-84.md`. No toca el estado de esta serie.
+
 ## Feature anterior
 
 `product-reviewer` (PR #82, mergeado): `BRIEF-product-reviewer.md`, `DESIGN-product-reviewer.md`, `learnings/PR-82.md`.

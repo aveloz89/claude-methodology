@@ -874,6 +874,99 @@ assert_contains "$AGENT_VALIDATION" "solo Preguntas" \
   "agent-validation.md documenta el expected behavior de un brief vago (devuelve solo Preguntas, D-05)"
 
 echo ""
+echo "--- agents/qa-backend.md, qa-frontend.md, security-reviewer.md: regla de sandbox para pruebas que escriben archivos ---"
+
+# extract_section <file> <heading>: extrae el texto desde la línea que
+# empieza con "$heading" (encabezado propio, p. ej. "## Pruebas que escriben
+# archivos") hasta la línea anterior al siguiente "## " (o EOF). Usa awk en
+# vez de sed/grep porque necesita devolver el rango completo de líneas, no
+# un solo match.
+extract_section() {
+  local file="$1" heading="$2"
+  awk -v h="$heading" '
+    $0 == h { found=1; print; next }
+    found && /^## / { exit }
+    found { print }
+  ' "$file"
+}
+
+# assert_section_contains <section> <pattern> <label>: como assert_contains
+# pero sobre un string ya extraído en vez de un archivo — así el patrón
+# buscado tiene que estar dentro de la sección nueva, no en cualquier parte
+# del archivo (p. ej. "NO CUBIERTO" ya existía en qa-backend.md y
+# qa-frontend.md antes de este bloque, fuera de esta sección).
+assert_section_contains() {
+  local section="$1" pattern="$2" label="$3"
+  TOTAL=$((TOTAL + 1))
+  if printf '%s' "$section" | grep -q -- "$pattern"; then
+    echo -e "${GREEN}PASS${NC}: $label"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $label (no se encontró \"$pattern\" en la sección)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+QA_BACKEND="$REPO_ROOT/agents/qa-backend.md"
+QA_FRONTEND="$REPO_ROOT/agents/qa-frontend.md"
+SECURITY_REVIEWER="$REPO_ROOT/agents/security-reviewer.md"
+SANDBOX_HEADING="## Pruebas que escriben archivos"
+
+SECTION_QA_BACKEND=$(extract_section "$QA_BACKEND" "$SANDBOX_HEADING")
+SECTION_QA_FRONTEND=$(extract_section "$QA_FRONTEND" "$SANDBOX_HEADING")
+SECTION_SECURITY_REVIEWER=$(extract_section "$SECURITY_REVIEWER" "$SANDBOX_HEADING")
+
+TOTAL=$((TOTAL + 1))
+if [ "$SECTION_QA_BACKEND" = "$SECTION_QA_FRONTEND" ] && [ "$SECTION_QA_FRONTEND" = "$SECTION_SECURITY_REVIEWER" ] && [ -n "$SECTION_QA_BACKEND" ]; then
+  echo -e "${GREEN}PASS${NC}: la sección \"$SANDBOX_HEADING\" es idéntica en los 3 agentes"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: la sección \"$SANDBOX_HEADING\" difiere entre qa-backend.md, qa-frontend.md y security-reviewer.md"
+  FAIL=$((FAIL + 1))
+fi
+
+SECTION_LABELS=("agents/qa-backend.md" "agents/qa-frontend.md" "agents/security-reviewer.md")
+SECTION_VALUES=("$SECTION_QA_BACKEND" "$SECTION_QA_FRONTEND" "$SECTION_SECURITY_REVIEWER")
+
+for i in 0 1 2; do
+  label="${SECTION_LABELS[$i]}"
+  section="${SECTION_VALUES[$i]}"
+
+  TOTAL=$((TOTAL + 1))
+  if [ -n "$section" ]; then
+    echo -e "${GREEN}PASS${NC}: $label tiene la sección \"$SANDBOX_HEADING\""
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $label no tiene la sección \"$SANDBOX_HEADING\""
+    FAIL=$((FAIL + 1))
+  fi
+
+  assert_section_contains "$section" "git worktree add --detach" \
+    "$label exige worktree --detach para escrituras sobre el repo (scratchpad/mktemp -d no lo necesita)"
+  assert_section_contains "$section" "git worktree remove" \
+    "$label exige eliminar el worktree con git worktree remove al terminar"
+  assert_section_contains "$section" "git stash" \
+    "$label prohíbe git stash por ser compartido entre worktrees"
+  assert_section_contains "$section" "corre sobre el árbol del repo" \
+    "$label prohíbe que un comando que escriba corra sobre el árbol del repo"
+  assert_section_contains "$section" "dangerously-skip-permissions" \
+    "$label prohíbe --dangerously-skip-permissions"
+  assert_section_contains "$section" "bypassPermissions" \
+    "$label prohíbe --permission-mode bypassPermissions"
+  assert_section_contains "$section" "acceptEdits" \
+    "$label prohíbe --permission-mode acceptEdits"
+  assert_section_contains "$section" "NO CUBIERTO" \
+    "$label exige declarar en NO CUBIERTO lo que requeriría permisos saltados"
+done
+
+assert_contains "$SECURITY_REVIEWER" "### NO CUBIERTO" \
+  "security-reviewer.md tiene la sección NO CUBIERTO en el formato de reporte (revisión inicial)"
+
+SECURITY_REREVIEW_SECTION=$(extract_section "$SECURITY_REVIEWER" "## Security Re-Review")
+assert_section_contains "$SECURITY_REREVIEW_SECTION" "### NO CUBIERTO" \
+  "security-reviewer.md tiene la sección NO CUBIERTO en el formato de Security Re-Review"
+
+echo ""
 echo "--- .claude/settings.json: no duplica el registro de hooks del plugin (#78) ---"
 
 SETTINGS_JSON="$REPO_ROOT/.claude/settings.json"
