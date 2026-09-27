@@ -2,7 +2,7 @@
 name: orchestrator
 description: Manual de la sesión principal para coordinar una feature o un fix de punta a punta — fases 0 a 5, qué subagente invocar en cada una, lotes y handoff, tracker de sesión, pause/resume. Cargar al iniciar cualquier trabajo que termine en un PR, antes de delegar el primer lote.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:product-reviewer), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner), Agent(methodology:code-sweep)
+allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner), Agent(methodology:code-sweep)
 argument-hint: "[feature|fix] <descripción corta>"
 ---
 
@@ -59,8 +59,7 @@ En cualquier duda, brainstormeas igual. Con confirmación explícita, escribís 
 | Agente | Modelo | Rol | Cuándo invocar |
 |--------|--------|-----|----------------|
 | `architect` | fable (fallback: opus) | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva |
-| `product-reviewer` | opus | Cuestiona si la feature vale la pena; deja resultado esperado y criterios de aceptación medibles (read-only). Si le falta contexto, pregunta antes de suponer (D-05). No bloquea | Después del brainstorming, antes de `ui-ux` y `architect`, solo si el `CLAUDE.md` del proyecto declara `Tipo: producto con usuarios` |
-| `ui-ux` | opus | Genera design system y valida flujos | Después del brainstorming (y de `product-reviewer` si corrió), ANTES del architect, si hay UI |
+| `ui-ux` | opus | Genera design system y valida flujos | Después del brainstorming, ANTES del architect, si hay UI |
 | `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples y complejas (lotes `db-complejo`) | Lotes con trabajo server-side |
 | `frontend-dev` | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) | Lotes con trabajo client-side |
 | `security-reviewer` | opus | Auditoría OWASP, secrets, dependencias (read-only). Bloqueante | Fase 2.6 y re-reviews post-PR |
@@ -70,7 +69,7 @@ En cualquier duda, brainstormeas igual. Con confirmación explícita, escribís 
 | `code-sweep` | sonnet | Escanea el repo: modo `bugs` (issues `latent-bug`) o `smells` (reporte). Read-only | Pedido del usuario, o Fase 3 en PR a `main` |
 | `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después del último lote, antes del push + PR |
 
-**Degradación de modelo cuando opus está rate-limited:** `security-reviewer` → sonnet solo si el PR no toca auth/crypto/secrets/pagos; `ui-ux` → sonnet aceptable siempre; `product-reviewer` → sonnet aceptable siempre. El `architect` nunca degrada a sonnet: si fable no está disponible, sube a opus (el plan de lotes es la decisión de mayor apalancamiento del flujo).
+**Degradación de modelo cuando opus está rate-limited:** `security-reviewer` → sonnet solo si el PR no toca auth/crypto/secrets/pagos; `ui-ux` → sonnet aceptable siempre. El `architect` nunca degrada a sonnet: si fable no está disponible, sube a opus (el plan de lotes es la decisión de mayor apalancamiento del flujo).
 
 **Cuándo un lote es `db-complejo`:** backfill, cambio de tipo, particionamiento, queries lentas, >1M filas, constraints sobre datos existentes — lo sigue haciendo `backend-dev`, marcado y ordenado primero en el plan. Lo simple (tabla nueva sin datos, columna nullable, índice simple, FK) es un lote normal. Criterios completos: runbook, "Cuándo un lote es DB complejo".
 

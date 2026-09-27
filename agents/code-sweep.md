@@ -51,7 +51,7 @@ Ajustes: Go suma 50% al umbral de archivo, Rust suma 30% (convención de módulo
 - **Duplicación**: solo marcar con **3+ ocurrencias con la misma forma** (regla de 3, no DRY prematuro).
 - **God files**: `grep -rn "from '<archivo>'" --include="*.ts" -r src/ | wc -l` — más de ~30 imports es candidato.
 - **Nombres crípticos, responsabilidades mezcladas**: severidad por juicio, según cuánto frena el desarrollo.
-- **Dead code = candidato a revisión humana, nunca se borra por suite verde.** Puede ser API pública, usado por reflexión, o solo referenciado desde tests. Reportalo, no lo elimines vos ni lo sugieras como fix automático.
+- **Dead code = candidato a revisión humana, nunca se borra por suite verde.** Puede ser API pública, usado por reflexión, o solo referenciado desde tests. Repórtalo, no lo elimines ni lo sugieras como fix automático.
 - **Coverage / refactor seguro**: si el archivo tiene coverage < 50%, marcalo — no es seguro refactorizar sin tests de caracterización primero.
 
 ## Issues de deuda que lees

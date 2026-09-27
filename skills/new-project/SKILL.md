@@ -57,7 +57,7 @@ Antes de generar el archivo, pregunta con `AskUserQuestion` "¿Qué tipo de proy
 Escribe la línea `Tipo: <valor elegido>` como primera línea después del encabezado del `CLAUDE.md` generado, tal cual, sin negritas — por ejemplo `Tipo: producto con usuarios`.
 
 Crea un CLAUDE.md con:
-- Tipo de proyecto (`Tipo: producto con usuarios` activa `product-reviewer`; los otros valores no)
+- Tipo de proyecto (`Tipo: producto con usuarios` activa la revisión de producto en el brainstorming; los otros valores no)
 - Nombre del proyecto y stack
 - Estructura de directorios
 - Comandos: dev, test, lint, build
