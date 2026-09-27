@@ -710,6 +710,20 @@ assert_not_contains "$RUNBOOK" "aplica su checklist directamente" \
   "runbook Fase 0.5 ya no usa el término checklist, ausente en agents/frontend-dev.md"
 
 echo ""
+echo "--- Fase 0.3: skills/orchestrator/SKILL.md declara la revisión de producto ---"
+
+assert_contains "$ORCHESTRATOR_SKILL" "0.3. Revisión de producto" \
+  "skill orchestrator tiene la fila 0.3 en el mapa del flujo"
+assert_contains "$ORCHESTRATOR_SKILL" "Tipo: producto con usuarios" \
+  "skill orchestrator documenta la condición de activación Tipo: producto con usuarios"
+assert_contains "$ORCHESTRATOR_SKILL" "\`product-reviewer\` → sonnet aceptable siempre" \
+  "skill orchestrator agrega la degradación de product-reviewer"
+assert_contains "$ORCHESTRATOR_SKILL" "y de \`product-reviewer\` si corrió" \
+  "skill orchestrator actualiza la fila de ui-ux para mencionar a product-reviewer"
+assert_contains "$ORCHESTRATOR_SKILL" "Presentar el reporte de \`product-reviewer\`" \
+  "skill orchestrator §9 remite al runbook para la Fase 0.3"
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then
