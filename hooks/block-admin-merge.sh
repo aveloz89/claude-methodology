@@ -40,9 +40,20 @@ fi
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
 
+# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
+# para por qué se detecta sobre $INPUT y no sobre $COMMAND.
+if guard_command_has_nul "$INPUT"; then
+  echo "BLOCKED: block-admin-merge: el comando trae un byte NUL" >&2
+  exit 2
+fi
+
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
-if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}gh\s+pr\s+merge\b.*--admin"; then
+# GUARD_GH_PR_MERGE_RE (lib, movido ahí en el Lote 1) tolera hasta 2 tokens
+# entre "gh"/"pr" y entre "pr"/"merge" — detecta "gh -R o/r pr merge
+# --admin" y "gh pr -R o/r merge --admin" como la misma invocación real
+# (#77 comentario 2, D3).
+if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}${GUARD_GH_PR_MERGE_RE}\b.*--admin"; then
   echo "BLOCKED: --admin bypasses branch protections. PRs must pass all required checks before merging." >&2
   exit 2
 fi

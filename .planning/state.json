@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "feature": "issue-73-target-tree",
-  "branch": "fix/pre-commit-target-tree",
-  "pr": 87,
-  "review_sha": "8907589",
-  "updated": "2026-09-27T00:00:00Z",
+  "feature": "guards-honest-errors",
+  "branch": "fix/guards-honest-errors",
+  "pr": 88,
+  "review_sha": "31ce30b",
+  "updated": "2026-09-27T00:10:00Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "done",
@@ -18,52 +18,99 @@
   },
   "batches": [
     {
-      "id": "T1",
-      "name": "base-cwd-git-C-gitdir",
+      "id": "G1",
+      "name": "lib-heredoc-nul",
       "agent": "backend-dev",
       "status": "done",
       "tasks_done": 5,
       "tasks_total": 5,
       "current_task": null,
-      "commits": [],
+      "commits": [
+        "a2be826",
+        "f9ca072",
+        "5853e43",
+        "8b076ae"
+      ],
       "last_batch": false,
       "depends_on": []
     },
     {
-      "id": "T2",
-      "name": "forma-cd-y-bloqueos",
+      "id": "G2",
+      "name": "force-push-hard-reset-admin-merge",
       "agent": "backend-dev",
       "status": "done",
-      "tasks_done": 4,
-      "tasks_total": 4,
+      "tasks_done": 5,
+      "tasks_total": 5,
       "current_task": null,
       "commits": [
-        "ec16fcb",
-        "bb4a1e1",
-        "5758bf7",
-        "ece0f34"
+        "ed445a6",
+        "c73bfd1",
+        "4200461",
+        "973bf08",
+        "1d0e3bc"
       ],
       "last_batch": false,
       "depends_on": [
-        "T1"
+        "G1"
       ]
     },
     {
-      "id": "T3",
-      "name": "pre-merge-cwd",
+      "id": "G3",
+      "name": "pre-push-pre-release",
       "agent": "backend-dev",
       "status": "done",
-      "tasks_done": 3,
-      "tasks_total": 3,
+      "tasks_done": 5,
+      "tasks_total": 5,
       "current_task": null,
       "commits": [
-        "d195592",
-        "00242d3",
-        "4b9e617"
+        "fa8824a",
+        "d606138",
+        "f158d2d",
+        "40b2e8c",
+        "6af636b"
+      ],
+      "last_batch": false,
+      "depends_on": [
+        "G2"
+      ]
+    },
+    {
+      "id": "G4",
+      "name": "issue-86-runners-subdir",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 5,
+      "tasks_total": 5,
+      "current_task": null,
+      "commits": [
+        "bf5eec0",
+        "ca8c6f9",
+        "04a7208",
+        "9d6407d",
+        "8b0bd65"
+      ],
+      "last_batch": false,
+      "depends_on": [
+        "G3"
+      ]
+    },
+    {
+      "id": "G5",
+      "name": "docs-77",
+      "agent": "backend-dev",
+      "status": "done",
+      "tasks_done": 5,
+      "tasks_total": 5,
+      "current_task": null,
+      "commits": [
+        "f40d441",
+        "bc4f167",
+        "f3d516d",
+        "9bb41c3"
       ],
       "last_batch": true,
       "depends_on": [
-        "T2"
+        "G4"
       ]
     }
   ]

@@ -55,7 +55,7 @@ El resto del proceso de PR — presupuesto de CI, E2E pre-release, branch protec
 
 Los hooks son enforcement del harness, no instrucciones tuyas — corren solos.
 
-**Bloquean el comando:** push directo a `main`, `gh pr merge --admin`, `git push --force`, `git reset --hard`, commit sin la suite de tests en verde, y (cuando reconoce la invocación) `gh pr merge` fuera de la forma exacta esperada. Si uno te bloquea, la solución nunca es esquivarlo.
+**Bloquean el comando:** push directo a `main`, `gh pr merge --admin`, `git push --force`, `git reset --hard`, commit sin la suite de tests en verde, y (cuando reconoce la invocación) `gh pr merge` fuera de la forma exacta esperada — `gh pr merge --help`/`-h` exactos y solos pasan, no mergean nada. El `if` de `hooks.json` que decide qué invocación dispara cada hook es best-effort (matching por prefijo del comando, no un parser de shell): una forma que no puede resolver corre el hook igual, nunca lo salta por error. Si uno te bloquea, la solución nunca es esquivarlo.
 
 **Corren en background:** contexto de sesión al arrancar, aviso de contexto agotándose, checkpoint de review al crear un PR, detección de servicios Docker que necesitan restart, `latent-bugs-sweep` antes de un `gh pr create --base main`, snapshot de `.planning/` antes de compactar, log de invocaciones de subagentes, verificación de STATE desactualizado al cerrar sesión.
 

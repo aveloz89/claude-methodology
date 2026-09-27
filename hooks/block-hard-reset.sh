@@ -31,9 +31,22 @@ source "$LIB"
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
+# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
+# para por qué se detecta sobre $INPUT y no sobre $COMMAND.
+if guard_command_has_nul "$INPUT"; then
+  echo "BLOCKED: block-hard-reset: el comando trae un byte NUL" >&2
+  exit 2
+fi
+
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
-if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+reset\s+--hard"; then
+# GUARD_GIT_OPTS (D-07, review dual ronda 1 y 2) tolera, en cualquier
+# orden, "-C <ruta>" (#77 comentario 2, D1), "-c <k=v>"/"--no-pager"/"-P"
+# antes de "reset" — sin esto, "git -c user.name=x reset --hard" no
+# matcheaba y el reset real pasaba SIN EVALUAR, y un orden distinto al
+# fijo de antes ("git -C /x -c a=b reset --hard") tampoco. Ver
+# hooks/lib/guard-matching.sh.
+if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}reset\s+--hard"; then
   echo "BLOCKED: git reset --hard descarta cambios irreversiblemente. Usa git stash o git reset --soft." >&2
   exit 2
 fi

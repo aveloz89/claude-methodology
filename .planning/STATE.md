@@ -4,7 +4,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** cerrar issues abiertos, un PR cada uno: #78 → #71 → #73 → #77 (ver `BRIEF.md`). #78 cerrado (PR #83), #71 cerrado (PR #85). #73 en PR #87 (review aprobado, pendiente de merge). Sigue #77 (acotado a errores honestos, D-05).
+- **Feature:** cerrar issues abiertos, un PR cada uno: #78 → #71 → #73 → #77 (ver `BRIEF.md`). #78 cerrado (PR #83), #71 cerrado (PR #85). #73 cerrado (PR #87). PR #88 (#77 + #86 + D-07): review aprobado, retro en `learnings/PR-88.md`; pendiente de merge. Con su merge no quedan issues abiertos.
 - **Última actualización:** 2026-09-26
 
 ## Decisiones
@@ -18,6 +18,9 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 ## Feature intercalada: reviewer-sandbox-rule (PR #84)
 
 Otra sesión, en paralelo a esta serie: regla "Pruebas que escriben archivos" en `qa-backend`, `qa-frontend` y `security-reviewer`. Las escrituras sobre el repo van en un worktree desechable fuera del repo, y ningún proceso hijo tiene más permisos que el reviewer. Decisiones y review en `reviews/PR-84.md`; retro en `learnings/PR-84.md`. No toca el estado de esta serie.
+
+- [D-06] (usuario, 2026-09-27) Todo lo que queda (#77 acotado + #86) va en **un solo PR**.
+- [D-07] (usuario, 2026-09-27) Cualquier issue o hallazgo que aparezca durante este trabajo (review, tests, docs) entra en este mismo PR; no se abren issues aparte. Las formas disfrazadas siguen fuera (D-05).
 
 ## Feature anterior
 

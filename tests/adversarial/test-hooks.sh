@@ -287,6 +287,147 @@ assert_allowed_cmd "Push from main with merge commit HEAD" "pre-push-guard.sh" "
 (cd "$SANDBOX_REPO" && git checkout -q -b master "$PUSH_INITIAL_COMMIT")
 assert_blocked_cmd "Push from master branch (non-merge commit)" "pre-push-guard.sh" "git push origin master" "$PATH" "$SANDBOX_REPO"
 
+# Matching endurecido (D-07, E1/E2): el match se sanea y se ancla a
+# posición de comando en vez de exigir "git push" al INICIO del string —
+# mismo helper que el resto de los guards de git.
+assert_blocked_cmd "pre-push-guard: 'git commit -m x && git push origin main' bloquea (E1)" \
+  "pre-push-guard.sh" "git commit -m x && git push origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: 'npm test && git push' bloquea (E1)" \
+  "pre-push-guard.sh" "npm test && git push" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: 'git push origin main;' bloquea (E1)" \
+  "pre-push-guard.sh" "git push origin main;" "$PATH" "$SANDBOX_REPO"
+
+# E2: una mención de "git push origin main" dentro de un span quoted (un
+# mensaje de commit, un --body) no es una invocación real — el saneo la
+# borra antes de anclar el match.
+assert_allowed_cmd "pre-push-guard: mención quoted en mensaje de commit pasa (E2)" \
+  "pre-push-guard.sh" "git commit -m \"git push origin main\"" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: mención quoted en --body de gh pr create pasa (E2)" \
+  "pre-push-guard.sh" "gh pr create --body \"git push origin main\"" "$PATH" "$SANDBOX_REPO"
+
+# E6: fail-closed sin jq en PATH (mismo cierre que #50 en los otros guards
+# de git) — sin jq, COMMAND queda vacío y un push real a main pasaba en
+# silencio.
+NO_JQ_PPG_BIN=$(mktemp -d)
+for cmd in bash cat perl grep git; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_PPG_BIN/$cmd"
+done
+assert_blocked_cmd "pre-push-guard: bloquea fail-closed sin jq en PATH (E6)" \
+  "pre-push-guard.sh" "git push origin main" "$NO_JQ_PPG_BIN" "$SANDBOX_REPO"
+rm -rf "$NO_JQ_PPG_BIN"
+
+# assert_ppg_blocked_msg: variante de assert_blocked_cmd que además exige
+# el mensaje de redirección en stderr (E3) — pre-push-guard no resuelve
+# "cd"/"git -C"/"GIT_DIR=" y tiene que decir por qué, no solo bloquear.
+assert_ppg_blocked_msg() {
+  local test_name="$1" command="$2" run_cwd="$3" expected_substring="$4"
+  TOTAL=$((TOTAL + 1))
+  local json exit_code=0 stderr_file
+  stderr_file=$(mktemp)
+  json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  (cd "$run_cwd" && echo "$json" | bash "$HOOKS_DIR/pre-push-guard.sh" > /dev/null 2>"$stderr_file") || exit_code=$?
+  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked as expected)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"))"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$stderr_file"
+}
+
+# E3: redirecciones ("cd", "git -C", "GIT_DIR=") no se resuelven — bloquean
+# con el mensaje de la limitación en vez de adivinar a qué árbol apunta el
+# push real (D-07, punto 4).
+(cd "$SANDBOX_REPO" && git checkout -q main)
+assert_ppg_blocked_msg "pre-push-guard: 'cd . && git push origin main' bloquea con mensaje de redirección (E3)" \
+  "cd . && git push origin main" "$SANDBOX_REPO" "no resuelve redirecciones"
+assert_ppg_blocked_msg "pre-push-guard: 'git -C . push origin main' bloquea con mensaje de redirección (E3)" \
+  "git -C . push origin main" "$SANDBOX_REPO" "no resuelve redirecciones"
+assert_ppg_blocked_msg "pre-push-guard: 'GIT_DIR=x git push' bloquea con mensaje de redirección (E3)" \
+  "GIT_DIR=x git push" "$SANDBOX_REPO" "no resuelve redirecciones"
+
+# D-07 (review dual ronda 1, informativo): "-c <clave=valor>"/"--no-pager"
+# antes de "push" no matcheaban PUSH_RE (nada consumía esa opción entre
+# "git" y "push"), así que un push real a main con esa opción por delante
+# pasaba SIN EVALUAR (exit 0) en vez de bloquear por ser push directo a
+# main. Sigue en main (checkout de E3, arriba); commit --allow-empty para
+# que HEAD deje de ser el merge commit de "Caso 4" (que el guard permite
+# sin más) y vuelva a ser un commit non-merge — se restaura después (E4/E5
+# reutilizan este mismo SANDBOX_REPO asumiendo el HEAD merge de Caso 4).
+PUSH_D07_HEAD=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
+(cd "$SANDBOX_REPO" && git commit -q --allow-empty -m "d07 non-merge")
+assert_blocked_cmd "pre-push-guard: 'git -c user.name=x push origin main' bloquea (D-07)" \
+  "pre-push-guard.sh" "git -c user.name=x push origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: 'git --no-pager push origin main' bloquea (D-07)" \
+  "pre-push-guard.sh" "git --no-pager push origin main" "$PATH" "$SANDBOX_REPO"
+
+# Ronda 2 (review dual, security LOW): mismo fix de orden — "-C" antes de
+# "-c" no matcheaba PUSH_RE con la concatenación de fragmentos de orden
+# fijo (bloquea igual por la vía de "no resuelve redirecciones", al
+# detectar "-C" más abajo, pero antes ni llegaba ahí: salía en 0 sin
+# evaluar nada).
+assert_blocked_cmd "pre-push-guard: 'git -C . -c a=b push' en main bloquea (-C antes de -c, ronda 2)" \
+  "pre-push-guard.sh" "git -C . -c a=b push" "$PATH" "$SANDBOX_REPO"
+(cd "$SANDBOX_REPO" && git reset -q --hard "$PUSH_D07_HEAD")
+
+# E4: el branch se lee del ".cwd" del input, no del cwd del PROCESO del
+# hook — mismo criterio que pre-commit-guard. run_cwd (proceso) queda en la
+# raíz de este repo (no en el sandbox); solo HOOK_JSON_CWD apunta al
+# sandbox en feature/test.
+HOOK_JSON_CWD="$SANDBOX_REPO" assert_allowed_cmd "pre-push-guard: .cwd apunta a feature/test → permite (E4)" \
+  "pre-push-guard.sh" "git push origin feature/test"
+
+# E5: el branch se lee del ".cwd", NO del cwd del proceso — dos sandboxes
+# independientes: uno en "main" con HEAD NON-merge (para que un chequeo que
+# mirara el cwd del proceso bloquearía de verdad, no por casualidad de un
+# merge commit) como cwd del PROCESO, y otro en "feature/x" como ".cwd".
+PUSH_E5_MAIN_REPO=$(mktemp -d)
+PUSH_E5_MAIN_REPO=$(cd "$PUSH_E5_MAIN_REPO" && pwd -P)
+(
+  cd "$PUSH_E5_MAIN_REPO" || exit 1
+  git init -q -b main
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  echo "main" > README.md
+  git add -A
+  git commit -q -m "initial commit (non-merge)"
+) > /dev/null 2>&1
+PUSH_E5_FEATURE_REPO=$(mktemp -d)
+PUSH_E5_FEATURE_REPO=$(cd "$PUSH_E5_FEATURE_REPO" && pwd -P)
+(
+  cd "$PUSH_E5_FEATURE_REPO" || exit 1
+  git init -q -b feature/x
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  echo "second" > README.md
+  git add -A
+  git commit -q -m "initial commit"
+) > /dev/null 2>&1
+HOOK_JSON_CWD="$PUSH_E5_FEATURE_REPO" assert_allowed_cmd "pre-push-guard: .cwd (feature/x) decide, no el cwd del proceso (main, HEAD non-merge) (E5)" \
+  "pre-push-guard.sh" "git push origin feature/x" "$PATH" "$PUSH_E5_MAIN_REPO"
+rm -rf "$PUSH_E5_MAIN_REPO" "$PUSH_E5_FEATURE_REPO"
+
+# B2: NUL en un comando inocuo ("git status[NUL]") — pre-push-guard entra a
+# la lista de guards que sourcean guard-matching.sh en este lote.
+assert_nul_blocked_cwd() {
+  local test_name="$1" run_cwd="$2"
+  TOTAL=$((TOTAL + 1))
+  local exit_code=0 stderr_file
+  stderr_file=$(mktemp)
+  (cd "$run_cwd" && jq -n '{tool_input: {command: "git status\u0000"}}' | bash "$HOOKS_DIR/pre-push-guard.sh" > /dev/null 2>"$stderr_file") || exit_code=$?
+  if [ "$exit_code" -eq 2 ] && grep -qi 'NUL' "$stderr_file"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked with NUL-specific reason)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"))"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$stderr_file"
+}
+assert_nul_blocked_cwd "pre-push-guard: bloquea NUL en el comando (B2)" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""
@@ -391,6 +532,205 @@ assert_blocked_cmd "block-force-push: bloquea fail-closed sin jq en PATH" \
   "$NO_JQ_BFP_BIN"
 rm -rf "$NO_JQ_BFP_BIN"
 
+# #77 comentario 2 (C1): refspec forzado (+<ref>) — antes FORCE_PATTERN solo
+# miraba -f/--force, así que "git push origin +main" (forma equivalente a
+# --force para ese ref) pasaba sin bloquear.
+assert_blocked_cmd "block-force-push: git push origin +main (refspec forzado) blocks" \
+  "block-force-push.sh" \
+  "git push origin +main"
+assert_blocked_cmd "block-force-push: git push origin +feature/x (refspec forzado) blocks" \
+  "block-force-push.sh" \
+  "git push origin +feature/x"
+assert_blocked_cmd "block-force-push: git push origin +HEAD:main (refspec forzado) blocks" \
+  "block-force-push.sh" \
+  "git push origin +HEAD:main"
+
+# Negativos (C4): no deben bloquear por el nuevo camino del refspec.
+assert_allowed_cmd "block-force-push: git push origin main --follow-tags allowed" \
+  "block-force-push.sh" \
+  "git push origin main --follow-tags"
+assert_allowed_cmd "block-force-push: git commit -m \"+main -fu\" (mención quoted) allowed" \
+  "block-force-push.sh" \
+  'git commit -m "+main -fu"'
+assert_allowed_cmd "block-force-push: git push origin 'feat/+x' (token quoted) allowed" \
+  "block-force-push.sh" \
+  "git push origin 'feat/+x'"
+
+# #77 comentario 2 (C2): flag -f dentro de un cluster corto (ej. "-fu",
+# "-uf") — antes solo "-f"/"--force" como token exacto disparaba.
+assert_blocked_cmd "block-force-push: git push -fu origin x (cluster corto) blocks" \
+  "block-force-push.sh" \
+  "git push -fu origin x"
+assert_blocked_cmd "block-force-push: git push -uf origin x (cluster corto) blocks" \
+  "block-force-push.sh" \
+  "git push -uf origin x"
+
+# Negativos (C4): flags sin 'f' no deben disparar el cluster.
+assert_allowed_cmd "block-force-push: git push -u origin feature/x allowed" \
+  "block-force-push.sh" \
+  "git push -u origin feature/x"
+assert_allowed_cmd "block-force-push: git push --delete origin x allowed" \
+  "block-force-push.sh" \
+  "git push --delete origin x"
+
+# #77 comentario 2 (C3): "git -C <ruta> push" es la misma invocación real,
+# con la opción de árbol entre "git" y "push" — antes el patrón exigía
+# "push" pegado a "git" y este caso pasaba sin bloquear.
+assert_blocked_cmd "block-force-push: git -C repo push --force blocks" \
+  "block-force-push.sh" \
+  "git -C repo push --force"
+assert_blocked_cmd "block-force-push: git -C repo push -f blocks" \
+  "block-force-push.sh" \
+  "git -C repo push -f"
+assert_blocked_cmd "block-force-push: git -C repo push origin +main blocks" \
+  "block-force-push.sh" \
+  "git -C repo push origin +main"
+assert_blocked_cmd "block-force-push: cd a && git -C repo push -fu blocks" \
+  "block-force-push.sh" \
+  "cd a && git -C repo push -fu"
+
+# Falso bloqueo (review dual ronda 1, security LOW): el cluster corto de
+# C2/C4 no tenía borde izquierdo — "-[a-zA-Z]*f[a-zA-Z]*" matchea la "f"
+# de un TOKEN que no es una flag, como el sufijo "-form"/"-flags" de un
+# nombre de branch, si "push\s+" ya consumió el espacio anterior y no queda
+# ningún separador real antes del "-" para exigir un borde. Fix: la
+# alternativa del cluster exige un espacio (o el inicio de la cadena)
+# inmediato antes del "-", nunca un "-" en medio de un token.
+assert_allowed_cmd "block-force-push: git push -u origin fix/login-form allowed (falso bloqueo)" \
+  "block-force-push.sh" \
+  "git push -u origin fix/login-form"
+assert_allowed_cmd "block-force-push: git push origin fix/update-footer allowed (falso bloqueo)" \
+  "block-force-push.sh" \
+  "git push origin fix/update-footer"
+assert_allowed_cmd "block-force-push: git push -u origin feature/add-feature-flags allowed (falso bloqueo)" \
+  "block-force-push.sh" \
+  "git push -u origin feature/add-feature-flags"
+assert_allowed_cmd "block-force-push: git push --no-verify -u origin feat allowed (falso bloqueo)" \
+  "block-force-push.sh" \
+  "git push --no-verify -u origin feat"
+# Negativo del fix: el cluster corto sigue bloqueando con borde real.
+assert_blocked_cmd "block-force-push: git push -fu origin x sigue bloqueando (borde real)" \
+  "block-force-push.sh" \
+  "git push -fu origin x"
+assert_blocked_cmd "block-force-push: git push -uf origin x sigue bloqueando (borde real)" \
+  "block-force-push.sh" \
+  "git push -uf origin x"
+assert_blocked_cmd "block-force-push: git push -f sigue bloqueando (borde real)" \
+  "block-force-push.sh" \
+  "git push -f"
+
+# Ronda 2 (review dual, security LOW, falso bloqueo): el ".*" entre
+# "push\b" y la flag cruzaba un separador de comando real y agarraba la
+# "-f" de un comando DISTINTO después de "&&" — "git push origin
+# feature/fix-flaky" (sin --force) seguido de "echo -f" bloqueaba como si
+# el push mismo llevara --force.
+assert_allowed_cmd "block-force-push: git push origin feature/fix-flaky && echo -f allowed (no cruza && , ronda 2)" \
+  "block-force-push.sh" \
+  "git push origin feature/fix-flaky && echo -f"
+assert_blocked_cmd "block-force-push: git push -f sigue bloqueando tras el fix del separador (ronda 2)" \
+  "block-force-push.sh" \
+  "git push -f"
+assert_blocked_cmd "block-force-push: git push origin x -f sigue bloqueando tras el fix del separador (ronda 2)" \
+  "block-force-push.sh" \
+  "git push origin x -f"
+
+# D-07 (review dual ronda 1, informativo): opciones globales de git antes
+# del subcomando — "-c <clave=valor>" (una o varias) y "--no-pager" — son
+# formas honestas que antes no matcheaban el ancla "git\s+push" (nada
+# consumía "-c ... "/"--no-pager " entre "git" y "push"), así que un push
+# --force real con esa opción por delante pasaba SIN EVALUAR.
+assert_blocked_cmd "block-force-push: git -c user.name=x push --force blocks (D-07)" \
+  "block-force-push.sh" \
+  "git -c user.name=x push --force"
+assert_blocked_cmd "block-force-push: git -c a=b -c c=d push -f blocks (D-07, dos -c)" \
+  "block-force-push.sh" \
+  "git -c a=b -c c=d push -f"
+assert_blocked_cmd "block-force-push: git --no-pager push --force blocks (D-07)" \
+  "block-force-push.sh" \
+  "git --no-pager push --force"
+assert_allowed_cmd "block-force-push: git -c user.name=x push (sin force) allowed (D-07)" \
+  "block-force-push.sh" \
+  "git -c user.name=x push"
+
+# Ronda 2 (review dual, security LOW): GUARD_GIT_OPTS reemplaza la
+# concatenación de dos fragmentos con orden fijo (árbol, luego -c/
+# --no-pager) por una sola alternancia repetida — antes, un orden
+# DISTINTO al fijo ("-C" antes de "-c", o "-P") no matcheaba ninguno de
+# los dos fragmentos y el force push real pasaba SIN EVALUAR.
+assert_blocked_cmd "block-force-push: git -C /x -c a=b push --force blocks (-C antes de -c, ronda 2)" \
+  "block-force-push.sh" \
+  "git -C /x -c a=b push --force"
+assert_blocked_cmd "block-force-push: git -P push --force blocks (ronda 2)" \
+  "block-force-push.sh" \
+  "git -P push --force"
+
+# Ronda 3 (regresión fail-open, security): FORCE_PATTERN usaba "[^&|;]*"
+# entre "push\b" y la flag para no cruzar un separador de comando real
+# (&&, ;, |) — pero ese charset también corta en el "&" de una
+# redirección honesta (2>&1, >&2, &>log), así que un force push real
+# seguido de esa redirección antes de la flag pasaba SIN EVALUAR. Cadenas
+# armadas por concatenación para que el hook activo de esta sesión no
+# bloquee el propio comando de test.
+FORCE_FLAG_BFP="--force"
+CMD_REDIR_2AND1_BFP="git push origin x 2>&1 ${FORCE_FLAG_BFP}"
+assert_blocked_cmd "block-force-push: git push origin x 2>&1 --force blocks (ronda 3, redirección 2>&1)" \
+  "block-force-push.sh" \
+  "$CMD_REDIR_2AND1_BFP"
+
+CMD_REDIR_2AND1_SHORT_BFP="git push origin x 2>&1 -f"
+assert_blocked_cmd "block-force-push: git push origin x 2>&1 -f blocks (ronda 3, redirección 2>&1)" \
+  "block-force-push.sh" \
+  "$CMD_REDIR_2AND1_SHORT_BFP"
+
+CMD_REDIR_DEVNULL_2AND1_BFP="git push origin x >/dev/null 2>&1 ${FORCE_FLAG_BFP}"
+assert_blocked_cmd "block-force-push: git push origin x >/dev/null 2>&1 --force blocks (ronda 3)" \
+  "block-force-push.sh" \
+  "$CMD_REDIR_DEVNULL_2AND1_BFP"
+
+CMD_REDIR_2AND_AMP2_BFP="git push origin x >&2 ${FORCE_FLAG_BFP}"
+assert_blocked_cmd "block-force-push: git push origin x >&2 --force blocks (ronda 3, redirección >&2)" \
+  "block-force-push.sh" \
+  "$CMD_REDIR_2AND_AMP2_BFP"
+
+CMD_REDIR_AMP_LOG_BFP="git push origin x &>log ${FORCE_FLAG_BFP}"
+assert_blocked_cmd "block-force-push: git push origin x &>log --force blocks (ronda 3, redirección &>)" \
+  "block-force-push.sh" \
+  "$CMD_REDIR_AMP_LOG_BFP"
+
+MULTILINE_REDIR_BFP=$'git push origin x \\\n2>&1 --force'
+assert_blocked_cmd "block-force-push: git push origin x \\ + salto de línea + 2>&1 --force blocks (ronda 3)" \
+  "block-force-push.sh" \
+  "$MULTILINE_REDIR_BFP"
+
+CMD_TREE_OPTS_REDIR_BFP="git -C /x -c a=b push origin x 2>&1 ${FORCE_FLAG_BFP}"
+assert_blocked_cmd "block-force-push: git -C /x -c a=b push origin x 2>&1 --force blocks (ronda 3)" \
+  "block-force-push.sh" \
+  "$CMD_TREE_OPTS_REDIR_BFP"
+
+# Negativos (ronda 3): la redirección con "&" no debe abrir la puerta a
+# cruzar un separador de comando real — sigue sin bloquear un push sin
+# force seguido de un comando distinto tras &&, & o ;.
+assert_allowed_cmd "block-force-push: git push origin feature/fix-flaky && echo -f allowed (ronda 3, sigue sin cruzar &&)" \
+  "block-force-push.sh" \
+  "git push origin feature/fix-flaky && echo -f"
+assert_allowed_cmd "block-force-push: git push origin x & echo -f allowed (ronda 3, no cruza & de background)" \
+  "block-force-push.sh" \
+  "git push origin x & echo -f"
+assert_allowed_cmd "block-force-push: git push origin x; echo -f allowed (ronda 3, no cruza ;)" \
+  "block-force-push.sh" \
+  "git push origin x; echo -f"
+assert_allowed_cmd "block-force-push: git push origin fix/login-form allowed (ronda 3, sin force)" \
+  "block-force-push.sh" \
+  "git push origin fix/login-form"
+
+# Bonus (ronda 3): mismo trato para un ";" escapado (\;), literal para el
+# shell y no un separador real, antes de la flag.
+ESCAPED_SEMICOLON_VALUE_BFP='a\;b'
+CMD_ESCAPED_SEMICOLON_BFP="git push -o ${ESCAPED_SEMICOLON_VALUE_BFP} ${FORCE_FLAG_BFP} origin x"
+assert_blocked_cmd "block-force-push: git push -o a\\;b --force origin x blocks (ronda 3, ; escapado)" \
+  "block-force-push.sh" \
+  "$CMD_ESCAPED_SEMICOLON_BFP"
+
 echo ""
 
 # --- block-hard-reset.sh ---
@@ -414,6 +754,49 @@ assert_blocked_cmd "block-hard-reset: bloquea fail-closed sin jq en PATH" \
   "git reset --hard" \
   "$NO_JQ_BHR_BIN"
 rm -rf "$NO_JQ_BHR_BIN"
+
+# #77 comentario 2 (D1): "git -C <ruta> reset --hard" es el mismo reset
+# real, con la opción de árbol entre "git" y "reset".
+assert_blocked_cmd "block-hard-reset: git -C repo reset --hard blocks" \
+  "block-hard-reset.sh" \
+  "git -C repo reset --hard"
+assert_blocked_cmd "block-hard-reset: git -C repo reset --hard HEAD~1 blocks" \
+  "block-hard-reset.sh" \
+  "git -C repo reset --hard HEAD~1"
+assert_blocked_cmd "block-hard-reset: cd a && git -C b reset --hard blocks" \
+  "block-hard-reset.sh" \
+  "cd a && git -C b reset --hard"
+
+# Negativos (D2): no deben bloquear.
+assert_allowed_cmd "block-hard-reset: git commit -m \"reset --hard\" (mención quoted) allowed" \
+  "block-hard-reset.sh" \
+  'git commit -m "reset --hard"'
+assert_allowed_cmd "block-hard-reset: git reset --soft HEAD~1 allowed" \
+  "block-hard-reset.sh" \
+  "git reset --soft HEAD~1"
+assert_allowed_cmd "block-hard-reset: git -C repo reset --soft allowed" \
+  "block-hard-reset.sh" \
+  "git -C repo reset --soft"
+
+# D-07 (review dual ronda 1, informativo): mismo hueco que en
+# block-force-push — "-c <clave=valor>"/"--no-pager" antes de "reset
+# --hard" no matcheaban el ancla y el reset real pasaba sin evaluar.
+assert_blocked_cmd "block-hard-reset: git -c user.name=x reset --hard blocks (D-07)" \
+  "block-hard-reset.sh" \
+  "git -c user.name=x reset --hard"
+assert_blocked_cmd "block-hard-reset: git --no-pager reset --hard blocks (D-07)" \
+  "block-hard-reset.sh" \
+  "git --no-pager reset --hard"
+assert_allowed_cmd "block-hard-reset: git -c user.name=x reset --soft allowed (D-07)" \
+  "block-hard-reset.sh" \
+  "git -c user.name=x reset --soft"
+
+# Ronda 2 (review dual, security LOW): mismo fix de orden que
+# block-force-push — "-C" antes de "-c" no matcheaba con la concatenación
+# de fragmentos de orden fijo.
+assert_blocked_cmd "block-hard-reset: git -C /x -c a=b reset --hard blocks (-C antes de -c, ronda 2)" \
+  "block-hard-reset.sh" \
+  "git -C /x -c a=b reset --hard"
 
 echo ""
 
@@ -520,6 +903,51 @@ assert_bam_blocked "block-admin-merge: bloquea fail-closed sin jq en PATH (#50)"
   "gh pr merge 5 --admin" \
   "$NO_JQ_BAM_BIN"
 rm -rf "$NO_JQ_BAM_BIN"
+
+# (g) [#77 §2, A3/A3b] Heredoc con espacio tras "<<" y delimitador sin
+# comillas: antes, guard_sanitize no reconocía la apertura (exige "<<-?"
+# pegado al delimitador), el cuerpo no se borraba, y la mención entre
+# backticks de markdown quedaba en posición de comando (GUARD_ANCHOR trata
+# el backtick como separador real) — el guard bloqueaba una mención, no una
+# invocación real.
+A3_COMMAND=$(cat <<'CMD_EOF'
+cat > r.md << EOF
+- el dev corrio `gh pr merge 5 --admin`
+EOF
+CMD_EOF
+)
+assert_bam_continue "block-admin-merge: heredoc con espacio y delimitador sin comillas no bloquea por mención entre backticks (A3)" \
+  "$A3_COMMAND"
+
+# A3b: la misma mención, pero entre comillas dobles (sin heredoc) — guard_
+# sanitize ya la borra hoy (negativo existente, se fija como regresión).
+assert_bam_continue "block-admin-merge: mención entre comillas dobles de --admin no bloquea (A3b, negativo existente)" \
+  'echo "el dev corrio gh pr merge 5 --admin"'
+
+# (h) [#77 comentario 2, D3] "gh -R o/r pr merge --admin" y "gh pr -R o/r
+# merge --admin" son la misma invocación real, con "-R"/"--repo" tolerado
+# entre "gh"/"pr" y entre "pr"/"merge" — antes el patrón exigía "gh pr
+# merge" pegado y estos casos pasaban sin bloquear. GUARD_GH_PR_MERGE_RE
+# (movido a la lib en el Lote 1) ya tolera hasta 2 tokens en cada hueco.
+assert_bam_blocked "block-admin-merge: gh -R o/r pr merge 5 --admin blocks (D3)" \
+  "gh -R o/r pr merge 5 --admin"
+assert_bam_blocked "block-admin-merge: gh pr -R o/r merge 5 --admin blocks (D3)" \
+  "gh pr -R o/r merge 5 --admin"
+assert_bam_blocked "block-admin-merge: gh --repo o/r pr merge 5 --admin blocks (D3)" \
+  "gh --repo o/r pr merge 5 --admin"
+assert_bam_blocked "block-admin-merge: git fetch && gh -R o/r pr merge 5 --admin blocks (D3)" \
+  "git fetch && gh -R o/r pr merge 5 --admin"
+
+# Negativos (D4): sin --admin, o "merge" fuera del hueco tolerado de 2
+# tokens, no deben bloquear.
+assert_bam_continue "block-admin-merge: gh pr view 5 | grep merge allowed (D4)" \
+  "gh pr view 5 | grep merge"
+assert_bam_continue "block-admin-merge: gh pr merge 5 --squash allowed (D4)" \
+  "gh pr merge 5 --squash"
+assert_bam_continue "block-admin-merge: gh pr list --search \"admin merge\" allowed (D4)" \
+  'gh pr list --search "admin merge"'
+assert_bam_continue "block-admin-merge: gh pr view 5 --repo o/r --json title allowed (D4)" \
+  "gh pr view 5 --repo o/r --json title"
 
 echo ""
 
@@ -959,6 +1387,24 @@ echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
 assert_allowed_cmd "pre-commit-guard: mención de \"cd /tmp && git commit\" dentro del mensaje va por el camino rápido (no se enruta al resolver de cd)" \
   "pre-commit-guard.sh" 'git commit -m "cd /tmp && git commit"' "$PATH" "$PSKIP_DIR"
 _pskip_assert_marker "pre-commit-guard: mención de \"cd /tmp && git commit\" en el mensaje — el test runner NO corrió" no
+
+# (a4) [#77 §2, A2] El comando interceptado NO es un git commit — es un
+# heredoc con espacio tras "<<" que ESCRIBE un archivo cuyo cuerpo menciona
+# "git commit" entre backticks de markdown. Antes del fix de guard_sanitize
+# (espacio tras "<<"), el heredoc no se reconocía, el cuerpo no se borraba,
+# y el backtick antes de "git commit" quedaba en posición de comando
+# (GUARD_ANCHOR) — el guard corría el runner como si fuera un commit real.
+_pskip_reset
+echo "cambio" >> "$PSKIP_DIR/.planning/x.md"
+A2_COMMAND=$(cat <<'CMD_EOF'
+cat > r.md << 'EOF'
+- `git commit -m "x"` fallo
+EOF
+CMD_EOF
+)
+assert_allowed_cmd "pre-commit-guard: heredoc con espacio tras << y mención de git commit en el cuerpo no dispara el runner (A2)" \
+  "pre-commit-guard.sh" "$A2_COMMAND" "$PATH" "$PSKIP_DIR"
+_pskip_assert_marker "pre-commit-guard: A2 — el test runner NO corrió" no
 
 # (b) .planning/x.md + src/a.js → corre (bloquea: el runner siempre falla).
 _pskip_reset
@@ -2290,6 +2736,491 @@ else
 fi
 
 echo ""
+# --- pre-commit-guard.sh: monorepo SIN marcador en la raíz (#86) ---
+echo "--- pre-commit-guard.sh: monorepo sin marcador en la raíz (#86) ---"
+
+# _multiroot_setup: repo git temporal SIN package.json/pyproject.toml en la
+# raíz — el único caso que V3 (DESIGN.md) documenta como sin cubrir:
+# workspace-scope.sh resuelve workspaces DECLARADOS en un package.json raíz,
+# no descubre runners en subdirectorios. Layout: frontend/package.json
+# (marcador npm) + backend/pyproject.toml (marcador pytest, vía un pytest
+# fake en PATH) + docs/README.md (ningún marcador arriba). Cada test.ran deja
+# un marcador propio en MULTIROOT_MARK para afirmar qué corrió de verdad, no
+# solo el exit code (mismo criterio que _wsscope_assert_markers).
+_multiroot_setup() {
+  MULTIROOT_DIR=$(mktemp -d)
+  MULTIROOT_DIR=$(cd "$MULTIROOT_DIR" && pwd -P)
+  MULTIROOT_MARK=$(mktemp -d)
+  MULTIROOT_FAKE_BIN=$(mktemp -d)
+  (
+    cd "$MULTIROOT_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p .planning frontend backend docs
+    echo "# STATE" > .planning/x.md
+    echo "# README" > docs/README.md
+    cat > frontend/package.json <<EOF
+{ "name": "frontend", "private": true, "scripts": { "test": "echo ran > $MULTIROOT_MARK/frontend.ran" } }
+EOF
+    echo "console.log(1)" > frontend/a.js
+    touch backend/pyproject.toml
+    echo "print(1)" > backend/b.py
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+  cat > "$MULTIROOT_FAKE_BIN/pytest" <<PYEOF
+#!/bin/bash
+echo ran > "$MULTIROOT_MARK/backend.ran"
+exit 0
+PYEOF
+  chmod +x "$MULTIROOT_FAKE_BIN/pytest"
+}
+
+# _multiroot_make_frontend_fail: reescribe frontend/package.json para que su
+# script "test" siga dejando el marcador (así se distingue "no corrió" de
+# "corrió y falló") pero salga en 1 — usado por G2.
+_multiroot_make_frontend_fail() {
+  cat > "$MULTIROOT_DIR/frontend/package.json" <<EOF
+{ "name": "frontend", "private": true, "scripts": { "test": "echo ran > $MULTIROOT_MARK/frontend.ran && exit 1" } }
+EOF
+}
+
+_multiroot_cleanup() {
+  rm -rf "$MULTIROOT_DIR" "$MULTIROOT_MARK" "$MULTIROOT_FAKE_BIN"
+}
+
+# G1: solo backend/b.py tocado, sesión en la raíz → corre solo pytest en
+# backend (marcador = backend, no frontend). Antes de #86: exit 0 sin correr
+# nada (ningún marcador presente en la raíz).
+_multiroot_setup
+echo "cambio" >> "$MULTIROOT_DIR/backend/b.py"
+assert_allowed_cmd "pre-commit-guard: monorepo sin marcador en la raíz, solo backend tocado → corre solo pytest en backend (G1)" \
+  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$MULTIROOT_MARK/backend.ran" ] && [ ! -f "$MULTIROOT_MARK/frontend.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G1 — corrió backend, no frontend"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G1 — corrió backend, no frontend (backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ))"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_cleanup
+
+# G3: solo docs/README.md tocado (fuera de frontend/ y backend/, sin
+# marcador arriba de él) → ningún runner corre, el commit pasa.
+_multiroot_setup
+echo "cambio" >> "$MULTIROOT_DIR/docs/README.md"
+assert_allowed_cmd "pre-commit-guard: monorepo sin marcador en la raíz, solo docs/ tocado → no corre nada (G3)" \
+  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
+TOTAL=$((TOTAL + 1))
+if [ ! -f "$MULTIROOT_MARK/backend.ran" ] && [ ! -f "$MULTIROOT_MARK/frontend.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G3 — ningún runner corrió"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G3 — ningún runner corrió (backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ))"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_cleanup
+
+# G9 (regresión, ya cubierto por "Commit in repo without test runner passes
+# through" contra el repo real de esta suite — acá con un fixture propio
+# para que quede documentado junto al resto de la tabla): repo sin marcador
+# en NINGÚN lado → sin candidatos, pasa sin correr nada.
+MULTIROOT_NORUNNER_DIR=$(mktemp -d)
+MULTIROOT_NORUNNER_DIR=$(cd "$MULTIROOT_NORUNNER_DIR" && pwd -P)
+(
+  cd "$MULTIROOT_NORUNNER_DIR" || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  mkdir -p src
+  echo "x" > src/a.txt
+  git add -A
+  git commit -q -m init
+) > /dev/null 2>&1
+echo "cambio" >> "$MULTIROOT_NORUNNER_DIR/src/a.txt"
+assert_allowed_cmd "pre-commit-guard: repo sin marcador en ningún lado → pasa sin correr nada (G9)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$MULTIROOT_NORUNNER_DIR"
+rm -rf "$MULTIROOT_NORUNNER_DIR"
+
+# G4: docs/README.md + frontend/a.js tocados (docs sin marcador arriba,
+# frontend sí) → corre solo frontend, pasa.
+_multiroot_setup
+echo "cambio" >> "$MULTIROOT_DIR/docs/README.md"
+echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
+assert_allowed_cmd "pre-commit-guard: monorepo sin marcador en la raíz, docs/ + frontend/ tocados → corre solo frontend (G4)" \
+  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$MULTIROOT_MARK/frontend.ran" ] && [ ! -f "$MULTIROOT_MARK/backend.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G4 — corrió frontend, no backend"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G4 — corrió frontend, no backend (backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ))"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_cleanup
+
+# G2: backend/b.py + frontend/a.js tocados, frontend con test que falla →
+# corren los dos (ambos marcadores presentes) y bloquea nombrando "frontend"
+# en el stderr.
+_multiroot_setup
+_multiroot_make_frontend_fail
+echo "cambio" >> "$MULTIROOT_DIR/backend/b.py"
+echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
+MULTIROOT_G2_JSON=$(jq -n --arg cmd "git commit -m x" '{tool_input: {command: $cmd}}')
+MULTIROOT_G2_EXIT=0
+MULTIROOT_G2_STDERR=$(cd "$MULTIROOT_DIR" && echo "$MULTIROOT_G2_JSON" | PATH="$MULTIROOT_FAKE_BIN:$PATH" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || MULTIROOT_G2_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$MULTIROOT_G2_EXIT" -eq 2 ] && [ -f "$MULTIROOT_MARK/backend.ran" ] && [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo "$MULTIROOT_G2_STDERR" | grep -qF "frontend"; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G2 — corren los dos, bloquea nombrando frontend"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G2 — corren los dos, bloquea nombrando frontend (exit=$MULTIROOT_G2_EXIT, backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ), stderr=\"$MULTIROOT_G2_STDERR\")"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_cleanup
+
+# G5 (worktree): layout de G1 pero solo con frontend/package.json — un
+# segundo worktree del mismo repo, cambio en frontend/a.js del worktree,
+# sesión en la raíz del worktree. El resolver tiene que encontrar
+# <worktree>/frontend, nunca <MAIN>/frontend (mismo criterio que el fixture
+# PNEST/PSKIP de #73, acá sin marcador en ningún root).
+_multiroot_wt_setup() {
+  MULTIROOT_WT_MAIN=$(mktemp -d)
+  MULTIROOT_WT_MAIN=$(cd "$MULTIROOT_WT_MAIN" && pwd -P)
+  MULTIROOT_WT_MARK=$(mktemp -d)
+  (
+    cd "$MULTIROOT_WT_MAIN" || exit 1
+    git init -q -b main
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p frontend
+    cat > frontend/package.json <<EOF
+{ "name": "frontend", "private": true, "scripts": { "test": "pwd -P > $MULTIROOT_WT_MARK/test.ran && exit 1" } }
+EOF
+    echo "console.log(1)" > frontend/a.js
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+  MULTIROOT_WT_DIR=$(mktemp -d)
+  rmdir "$MULTIROOT_WT_DIR"
+  git -C "$MULTIROOT_WT_MAIN" worktree add -q -b wt-branch-86 "$MULTIROOT_WT_DIR" main > /dev/null 2>&1
+  MULTIROOT_WT_DIR=$(cd "$MULTIROOT_WT_DIR" && pwd -P)
+}
+
+_multiroot_wt_cleanup() {
+  git -C "$MULTIROOT_WT_MAIN" worktree remove --force "$MULTIROOT_WT_DIR" > /dev/null 2>&1
+  rm -rf "$MULTIROOT_WT_MAIN" "$MULTIROOT_WT_MARK"
+}
+
+_multiroot_wt_setup
+echo "cambio" >> "$MULTIROOT_WT_DIR/frontend/a.js"
+assert_blocked_cmd "pre-commit-guard: monorepo sin marcador en la raíz, worktree → resuelve frontend/ del worktree, nunca el árbol principal (G5)" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$MULTIROOT_WT_DIR"
+TOTAL=$((TOTAL + 1))
+MULTIROOT_WT_EXPECTED=$(cd "$MULTIROOT_WT_DIR/frontend" && pwd -P)
+if [ -f "$MULTIROOT_WT_MARK/test.ran" ] && [ "$(cat "$MULTIROOT_WT_MARK/test.ran")" = "$MULTIROOT_WT_EXPECTED" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G5 — corrió en frontend/ del worktree"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G5 — corrió en frontend/ del worktree (marcador: \"$(cat "$MULTIROOT_WT_MARK/test.ran" 2>/dev/null)\", esperado: \"$MULTIROOT_WT_EXPECTED\")"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_wt_cleanup
+
+# G6 (anidado, workspace de un solo paquete): packages/a/package.json, sin
+# marcador en la raíz ni en packages/, cambio en packages/a/src/x.js →
+# marcador = <repo>/packages/a.
+MULTIROOT_NEST_DIR=$(mktemp -d)
+MULTIROOT_NEST_DIR=$(cd "$MULTIROOT_NEST_DIR" && pwd -P)
+MULTIROOT_NEST_MARK=$(mktemp -d)
+(
+  cd "$MULTIROOT_NEST_DIR" || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  mkdir -p packages/a/src
+  cat > packages/a/package.json <<EOF
+{ "name": "a", "private": true, "scripts": { "test": "pwd -P > $MULTIROOT_NEST_MARK/test.ran && exit 1" } }
+EOF
+  echo "console.log(1)" > packages/a/src/x.js
+  git add -A
+  git commit -q -m init
+) > /dev/null 2>&1
+echo "cambio" >> "$MULTIROOT_NEST_DIR/packages/a/src/x.js"
+assert_blocked_cmd "pre-commit-guard: monorepo sin marcador en la raíz, paquete anidado → marcador = packages/a (G6)" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$MULTIROOT_NEST_DIR"
+TOTAL=$((TOTAL + 1))
+MULTIROOT_NEST_EXPECTED=$(cd "$MULTIROOT_NEST_DIR/packages/a" && pwd -P)
+if [ -f "$MULTIROOT_NEST_MARK/test.ran" ] && [ "$(cat "$MULTIROOT_NEST_MARK/test.ran")" = "$MULTIROOT_NEST_EXPECTED" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G6 — corrió en packages/a"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G6 — corrió en packages/a (marcador: \"$(cat "$MULTIROOT_NEST_MARK/test.ran" 2>/dev/null)\", esperado: \"$MULTIROOT_NEST_EXPECTED\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$MULTIROOT_NEST_DIR" "$MULTIROOT_NEST_MARK"
+
+# G10 (presupuesto compartido, #86 T4): ambos runners duermen 2s (ninguno
+# falla) con PRECOMMIT_TEST_BUDGET=3 — sin presupuesto COMPARTIDO entre las
+# dos corridas, cada llamada a _guard_run_with_budget resolvería su propio
+# budget de 3s de nuevo y ninguna de las dos, por separado, lo superaría
+# (2s < 3s cada una); el total real (4s) sí lo supera. Bloquea fail-closed
+# (exit 2, mensaje "superó") sin dejar procesos huérfanos.
+_multiroot_budget_setup() {
+  MULTIROOT_BUDGET_DIR=$(mktemp -d)
+  MULTIROOT_BUDGET_DIR=$(cd "$MULTIROOT_BUDGET_DIR" && pwd -P)
+  MULTIROOT_BUDGET_FAKE_BIN=$(mktemp -d)
+  (
+    cd "$MULTIROOT_BUDGET_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p frontend backend
+    cat > frontend/package.json <<EOF
+{ "name": "frontend", "private": true, "scripts": { "test": "sleep 2 && exit 0" } }
+EOF
+    echo "console.log(1)" > frontend/a.js
+    touch backend/pyproject.toml
+    echo "print(1)" > backend/b.py
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+  cat > "$MULTIROOT_BUDGET_FAKE_BIN/pytest" <<'PYEOF'
+#!/bin/bash
+sleep 2
+exit 0
+PYEOF
+  chmod +x "$MULTIROOT_BUDGET_FAKE_BIN/pytest"
+}
+
+_multiroot_budget_cleanup() {
+  rm -rf "$MULTIROOT_BUDGET_DIR" "$MULTIROOT_BUDGET_FAKE_BIN"
+}
+
+_multiroot_budget_setup
+echo "cambio" >> "$MULTIROOT_BUDGET_DIR/frontend/a.js"
+echo "cambio" >> "$MULTIROOT_BUDGET_DIR/backend/b.py"
+MULTIROOT_G10_JSON=$(jq -n --arg cmd "git commit -m x" '{tool_input: {command: $cmd}}')
+MULTIROOT_G10_EXIT=0
+MULTIROOT_G10_STDERR=$(cd "$MULTIROOT_BUDGET_DIR" && echo "$MULTIROOT_G10_JSON" | PATH="$MULTIROOT_BUDGET_FAKE_BIN:$PATH" PRECOMMIT_TEST_BUDGET=3 bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || MULTIROOT_G10_EXIT=$?
+sleep 1
+MULTIROOT_G10_ORPHAN=$(pgrep -f "$MULTIROOT_BUDGET_FAKE_BIN/pytest" || true)
+TOTAL=$((TOTAL + 1))
+if [ "$MULTIROOT_G10_EXIT" -eq 2 ] && echo "$MULTIROOT_G10_STDERR" | grep -qF "superó" && [ -z "$MULTIROOT_G10_ORPHAN" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G10 — presupuesto compartido entre corridas bloquea (2s + 2s > 3s)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G10 — presupuesto compartido entre corridas bloquea (exit=$MULTIROOT_G10_EXIT, huérfano: $MULTIROOT_G10_ORPHAN, stderr: $MULTIROOT_G10_STDERR)"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_budget_cleanup
+
+# --- pre-commit-guard.sh: #86 ronda 2 (security MEDIUM) — excluir
+# directorios sin trackear/repos git anidados y segmentos node_modules,
+# vendor, fixtures, __fixtures__, testdata al derivar runners por archivo
+# ---
+#
+# G11: clone git anidado SIN TRACKEAR en vendor/thirdparty/ (su propio
+# ".git", nunca agregado al índice del repo externo) — `git status
+# --porcelain --untracked-files=all` del repo externo NO desciende dentro
+# de un repo anidado, lo colapsa a una sola línea "?? vendor/thirdparty/".
+# Antes de la exclusión, esa línea se resolvía como el archivo
+# "vendor/thirdparty" y subía buscando un marcador — con un package.json
+# DENTRO del clone anidado (ya con marcador propio, sin relación con el
+# repo externo), el candidato resuelto corría el test de terceros con el
+# comando del usuario. Ahora se descarta cualquier línea de porcelain que
+# termine en "/" antes de intentar resolverla.
+_excl_setup() {
+  EXCL_DIR=$(mktemp -d)
+  EXCL_DIR=$(cd "$EXCL_DIR" && pwd -P)
+  EXCL_MARK=$(mktemp -d)
+  (
+    cd "$EXCL_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p .planning
+    echo "# STATE" > .planning/x.md
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+}
+_excl_cleanup() {
+  rm -rf "$EXCL_DIR" "$EXCL_MARK"
+}
+
+_excl_setup
+(
+  cd "$EXCL_DIR" || exit 1
+  mkdir -p vendor/thirdparty
+  cd vendor/thirdparty || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  cat > package.json <<EOF
+{ "name": "thirdparty", "private": true, "scripts": { "test": "echo ran > $EXCL_MARK/vendor.ran" } }
+EOF
+  echo "console.log(1)" > index.js
+  git add -A
+  git commit -q -m "nested init"
+) > /dev/null 2>&1
+assert_allowed_cmd "pre-commit-guard: clone anidado sin trackear en vendor/thirdparty/ → no corre su test (G11)" \
+  "pre-commit-guard.sh" "git commit -m x" "$PATH" "$EXCL_DIR"
+TOTAL=$((TOTAL + 1))
+if [ ! -f "$EXCL_MARK/vendor.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G11 — el test del clone anidado no corrió"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G11 — el test del clone anidado no corrió (vendor.ran presente)"
+  FAIL=$((FAIL + 1))
+fi
+_excl_cleanup
+
+# G12: tests/fixtures/proj/package.json TRACKEADO (no un repo anidado, no
+# un directorio sin trackear) con un test que falla ("exit 1") — el
+# segmento "fixtures" en el camino lo descarta igual, sin importar que el
+# archivo esté trackeado. Antes de la exclusión, un cambio en
+# tests/fixtures/proj/app.js resolvía tests/fixtures/proj como candidato
+# (tiene su propio package.json) y corría el test del fixture, que falla
+# a propósito — bloqueando el commit del usuario por un test que no es
+# del proyecto.
+_excl_setup
+(
+  cd "$EXCL_DIR" || exit 1
+  mkdir -p tests/fixtures/proj
+  cat > tests/fixtures/proj/package.json <<EOF
+{ "name": "proj-fixture", "private": true, "scripts": { "test": "echo ran > $EXCL_MARK/fixtures.ran && exit 1" } }
+EOF
+  echo "console.log(1)" > tests/fixtures/proj/app.js
+  git add -A
+  git commit -q -m "fixture init"
+) > /dev/null 2>&1
+echo "cambio" >> "$EXCL_DIR/tests/fixtures/proj/app.js"
+assert_allowed_cmd "pre-commit-guard: tests/fixtures/proj/ trackeado (segmento 'fixtures') → no corre su test, aunque falle (G12)" \
+  "pre-commit-guard.sh" "git commit -am x" "$PATH" "$EXCL_DIR"
+TOTAL=$((TOTAL + 1))
+if [ ! -f "$EXCL_MARK/fixtures.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G12 — el test del fixture no corrió"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G12 — el test del fixture no corrió (fixtures.ran presente)"
+  FAIL=$((FAIL + 1))
+fi
+_excl_cleanup
+
+# G13 (negativo, combinado): vendor/thirdparty/ (excluido) + frontend/
+# (marcador real, layout de G1-G6) tocados a la vez → corre SOLO frontend,
+# igual que si vendor/thirdparty/ no existiera. Confirma que la exclusión
+# no afecta la resolución normal de los demás candidatos.
+_multiroot_setup
+(
+  cd "$MULTIROOT_DIR" || exit 1
+  mkdir -p vendor/thirdparty
+  cd vendor/thirdparty || exit 1
+  git init -q
+  git config user.email "sandbox@example.com"
+  git config user.name "Sandbox"
+  cat > package.json <<EOF
+{ "name": "thirdparty", "private": true, "scripts": { "test": "echo ran > $MULTIROOT_MARK/vendor.ran" } }
+EOF
+  echo "console.log(1)" > index.js
+  git add -A
+  git commit -q -m "nested init"
+) > /dev/null 2>&1
+echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
+assert_allowed_cmd "pre-commit-guard: vendor/thirdparty/ + frontend/ tocados → corre solo frontend (G13)" \
+  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$MULTIROOT_MARK/frontend.ran" ] && [ ! -f "$MULTIROOT_MARK/vendor.ran" ] && [ ! -f "$MULTIROOT_MARK/backend.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G13 — corrió frontend, vendor/thirdparty/ excluido"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G13 — corrió frontend, vendor/thirdparty/ excluido (frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ), vendor.ran=$( [ -f "$MULTIROOT_MARK/vendor.ran" ] && echo si || echo no ))"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_cleanup
+
+# G14/G15 (ronda 2 del review dual, security LOW): la exclusión de #86 se
+# evaluaba sobre el PATH DEL ARCHIVO, no sobre el directorio candidato del
+# runner — un archivo bajo un segmento excluido (fixtures/vendor/testdata)
+# descartaba la línea entera ANTES de resolver el candidato, así que
+# apps/web/src/__fixtures__/user.json (con package.json real en apps/web/,
+# NO en el segmento excluido) no corría el "npm test" legítimo de apps/web/.
+# Ahora la exclusión se evalúa sobre el candidato YA resuelto, relativo al
+# toplevel: si el runner mismo no cae bajo un segmento excluido, corre,
+# aunque el archivo que disparó el cambio esté en un fixture/vendor debajo.
+_excl2_setup() {
+  EXCL2_DIR=$(mktemp -d)
+  EXCL2_DIR=$(cd "$EXCL2_DIR" && pwd -P)
+  EXCL2_MARK=$(mktemp -d)
+  EXCL2_BIN=$(mktemp -d)
+  (
+    cd "$EXCL2_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p .planning apps/web svc
+    echo "# STATE" > .planning/x.md
+    cat > apps/web/package.json <<EOF
+{ "name": "web", "private": true, "scripts": { "test": "echo ran > $EXCL2_MARK/web.ran" } }
+EOF
+    echo "console.log(1)" > apps/web/index.js
+    touch svc/pyproject.toml
+    echo "print(1)" > svc/main.py
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+  cat > "$EXCL2_BIN/pytest" <<PYEOF
+#!/bin/bash
+echo ran > "$EXCL2_MARK/svc.ran"
+exit 0
+PYEOF
+  chmod +x "$EXCL2_BIN/pytest"
+}
+_excl2_cleanup() {
+  rm -rf "$EXCL2_DIR" "$EXCL2_MARK" "$EXCL2_BIN"
+}
+
+# G14: tres archivos bajo segmentos excluidos, todos DENTRO de apps/web/
+# (que tiene su propio package.json, el runner real) → corre npm test en
+# apps/web/, igual que si esos archivos no estuvieran en fixtures/vendor.
+_excl2_setup
+mkdir -p "$EXCL2_DIR/apps/web/src/__fixtures__" "$EXCL2_DIR/apps/web/tests/fixtures" "$EXCL2_DIR/apps/web/vendor"
+echo '{}' > "$EXCL2_DIR/apps/web/src/__fixtures__/user.json"
+echo '{}' > "$EXCL2_DIR/apps/web/tests/fixtures/x.json"
+echo 'console.log(1)' > "$EXCL2_DIR/apps/web/vendor/lib.js"
+assert_allowed_cmd "pre-commit-guard: fixtures/vendor DENTRO de apps/web/ → corre npm test en apps/web (G14)" \
+  "pre-commit-guard.sh" "git commit -m x" "$EXCL2_BIN:$PATH" "$EXCL2_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$EXCL2_MARK/web.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G14 — corrió npm test en apps/web (web.ran presente)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G14 — no corrió npm test en apps/web (web.ran ausente)"
+  FAIL=$((FAIL + 1))
+fi
+_excl2_cleanup
+
+# G15: mismo caso con testdata/, dentro de svc/ (pyproject.toml, runner
+# pytest) → corre pytest en svc.
+_excl2_setup
+mkdir -p "$EXCL2_DIR/svc/tests/testdata"
+echo "in" > "$EXCL2_DIR/svc/tests/testdata/in.txt"
+assert_allowed_cmd "pre-commit-guard: testdata/ DENTRO de svc/ → corre pytest en svc (G15)" \
+  "pre-commit-guard.sh" "git commit -m x" "$EXCL2_BIN:$PATH" "$EXCL2_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$EXCL2_MARK/svc.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G15 — corrió pytest en svc (svc.ran presente)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G15 — no corrió pytest en svc (svc.ran ausente)"
+  FAIL=$((FAIL + 1))
+fi
+_excl2_cleanup
+
+echo ""
 # --- hooks/lib/workspace-scope.sh (unit) ---
 echo "--- hooks/lib/workspace-scope.sh (unit) ---"
 
@@ -2606,6 +3537,141 @@ assert_prs_allowed "pre-release-sweep: pasa sin issues abiertos" \
   "gh pr create --base main --title x --body y" "none"
 assert_prs_allowed "pre-release-sweep: pasa si el comando no es gh pr create --base main" \
   "gh pr create --base dev --title x --body y" "critical"
+
+# F1: matching endurecido, saneado+anclado — antes exigía "gh pr create" al
+# INICIO del string crudo; "cd . && gh pr create --base main" pasaba sin
+# bloquear. El hook sigue sin resolver el "cd" (limitación documentada,
+# T5): el "git diff" sigue corriendo en el cwd de la sesión (acá, $PRS_REPO
+# ya vía "cd $PRS_REPO" del propio assert_prs_blocked), así que el diff
+# real igual encuentra app.js.
+assert_prs_blocked "pre-release-sweep: 'cd . && gh pr create --base main' bloquea (F1)" \
+  "cd . && gh pr create --base main --title x --body y" "critical" "app.js"
+
+# F2: "-B main" (forma corta) y "--base=main" (con "=") — antes solo
+# "--base main"/"--base=main" con el charset limitado del regex crudo
+# reconocía "--base=main"; "-B main" no se reconocía en absoluto.
+assert_prs_blocked "pre-release-sweep: 'gh pr create -B main' bloquea (F2)" \
+  "gh pr create -B main --title x --body y" "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: 'gh pr create --title x --base=main' bloquea (F2)" \
+  "gh pr create --title x --base=main --body y" "critical" "app.js"
+
+# F3: negativos — "--base main-2" no es "main", una mención dentro de un
+# mensaje de commit no es una invocación real, y "--base dev" con "--base
+# main" citado en el --body tampoco.
+assert_prs_allowed "pre-release-sweep: 'gh pr create --base main-2' pasa (F3)" \
+  "gh pr create --base main-2 --title x --body y" "critical"
+assert_prs_allowed "pre-release-sweep: mención en mensaje de commit pasa (F3)" \
+  "git commit -m \"gh pr create --base main\"" "critical"
+assert_prs_allowed "pre-release-sweep: '--base dev' con '--base main' citado en --body pasa (F3)" \
+  "gh pr create --base dev --body \"--base main\"" "critical"
+
+# F5 (review dual ronda 1, security MEDIUM): el sufijo de BASE_MAIN_RE no
+# incluía ")", ">", "<" ni la comilla invertida — "--base main>/tmp/u" o un
+# "gh pr create --base main" dentro de un "$(...)" pasaban sin bloquear
+# porque "\b" solo mira el carácter siguiente a "main", nunca el que sigue
+# a la palabra completa antes de ")"/">"/"<"/"\`".
+assert_prs_blocked "pre-release-sweep: 'gh pr create --base main>out' bloquea (F5)" \
+  "gh pr create --base main>out --title x --body y" "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: 'URL=\$(gh pr create --base main)' bloquea (F5)" \
+  'URL=$(gh pr create --title x --base main)' "critical" "app.js"
+# Negativo: "--base main-2" sigue pasando con el sufijo ampliado.
+assert_prs_allowed "pre-release-sweep: 'gh pr create --base main-2' sigue pasando con sufijo ampliado (F5)" \
+  "gh pr create --base main-2 --title x --body y" "critical"
+
+# F6 (review dual ronda 1, D-07): "gh -R <o/r> pr create" y "gh --repo
+# <o/r> pr create" son invocaciones reales — antes el ancla exigía "gh"
+# seguido directo de "pr", así que estas formas honestas pasaban sin que el
+# hook evaluara los issues latent-bug del diff (fail-open silencioso).
+assert_prs_blocked "pre-release-sweep: 'gh -R o/r pr create --base main' bloquea (F6)" \
+  "gh -R o/r pr create --base main --title x --body y" "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: 'gh --repo o/r pr create --base main' bloquea (F6)" \
+  "gh --repo o/r pr create --base main --title x --body y" "critical" "app.js"
+
+# Ronda 2 (review dual, security LOW): "--base" con "main" ENTRE COMILLAS
+# no bloqueaba — guard_sanitize() borra el span quoted entero (incluidas
+# las comillas), así que "--base \"main\"" queda como "--base " en el
+# comando SANEADO, y el "main" que el regex busca ya no está ahí. Mismo
+# criterio que QUOTED_FORCE_PATTERN en block-force-push.sh: la invocación
+# real de "gh ... pr create" se confirma sobre el SANEADO (ancla en
+# posición de comando, no una mención dentro de un span borrado), y la
+# forma citada de "--base main" se busca aparte sobre el comando SIN
+# sanear (donde las comillas siguen ahí).
+assert_prs_blocked "pre-release-sweep: 'gh pr create --base \"main\"' bloquea (ronda 2)" \
+  'gh pr create --base "main" --title x --body y' "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: \"gh pr create --base 'main'\" bloquea (ronda 2)" \
+  "gh pr create --base 'main' --title x --body y" "critical" "app.js"
+# Negativo: "main-2" citado no es "main" (el cierre de comilla debe seguir
+# inmediato a "main").
+assert_prs_allowed "pre-release-sweep: 'gh pr create --base \"main-2\"' pasa (ronda 2)" \
+  'gh pr create --base "main-2" --title x --body y' "critical"
+
+# Ronda 2: "-R"/"--repo" con "=" y clusterizado ("-Ro/r", sin espacio) son
+# formas honestas que gh acepta de verdad — antes solo se toleraba la
+# forma con espacio ("-R o/r"/"--repo o/r").
+assert_prs_blocked "pre-release-sweep: 'gh --repo=o/r pr create --base main' bloquea (ronda 2)" \
+  "gh --repo=o/r pr create --base main --title x --body y" "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: 'gh -Ro/r pr create --base main' bloquea (ronda 2)" \
+  "gh -Ro/r pr create --base main --title x --body y" "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: 'gh pr create -R o/r --base main' bloquea (ronda 2)" \
+  "gh pr create -R o/r --base main --title x --body y" "critical" "app.js"
+assert_prs_blocked "pre-release-sweep: 'gh pr -R o/r create --base main' bloquea (ronda 2, trivial)" \
+  "gh pr -R o/r create --base main --title x --body y" "critical" "app.js"
+
+# F4: fail-closed sin jq/gh (D-07) — antes este hook fallaba ABIERTO (exit
+# 0) si faltaba cualquiera de los dos, dejando pasar un "gh pr create
+# --base main" real sin evaluar los issues latent-bug del diff.
+NO_JQ_PRS_BIN=$(mktemp -d)
+for cmd in bash cat perl grep git; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_PRS_BIN/$cmd"
+done
+ln -s "$PRS_FAKE_GH_DIR/gh" "$NO_JQ_PRS_BIN/gh"
+PRS_F4_EXIT=0
+(cd "$PRS_REPO" && echo '{"tool_input":{"command":"gh pr create --base main --title x --body y"}}' \
+  | PATH="$NO_JQ_PRS_BIN" PRS_FAKE_GH_MODE="critical" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>&1) || PRS_F4_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$PRS_F4_EXIT" -eq 2 ]; then
+  echo -e "${GREEN}PASS${NC}: pre-release-sweep: bloquea fail-closed sin jq en PATH (F4)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-release-sweep: bloquea fail-closed sin jq en PATH (F4) (exit code: $PRS_F4_EXIT, expected: 2)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$NO_JQ_PRS_BIN"
+
+NO_GH_PRS_BIN=$(mktemp -d)
+for cmd in bash cat perl grep git jq; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_GH_PRS_BIN/$cmd"
+done
+PRS_F4_NOGH_EXIT=0
+(cd "$PRS_REPO" && echo '{"tool_input":{"command":"gh pr create --base main --title x --body y"}}' \
+  | PATH="$NO_GH_PRS_BIN" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>&1) || PRS_F4_NOGH_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$PRS_F4_NOGH_EXIT" -eq 2 ]; then
+  echo -e "${GREEN}PASS${NC}: pre-release-sweep: bloquea fail-closed sin gh en PATH (F4)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-release-sweep: bloquea fail-closed sin gh en PATH (F4) (exit code: $PRS_F4_NOGH_EXIT, expected: 2)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$NO_GH_PRS_BIN"
+
+# B2: NUL en un comando inocuo ("git status[NUL]") — pre-release-sweep
+# entra a la lista de guards que sourcean guard-matching.sh en este lote.
+TOTAL=$((TOTAL + 1))
+PRS_NUL_STDERR_FILE=$(mktemp)
+PRS_NUL_EXIT=0
+(cd "$PRS_REPO" && jq -n '{tool_input: {command: "git status\u0000"}}' \
+  | PATH="$PRS_FAKE_GH_DIR:$PATH" PRS_FAKE_GH_MODE="none" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>"$PRS_NUL_STDERR_FILE") || PRS_NUL_EXIT=$?
+if [ "$PRS_NUL_EXIT" -eq 2 ] && grep -qi 'NUL' "$PRS_NUL_STDERR_FILE"; then
+  echo -e "${GREEN}PASS${NC}: pre-release-sweep: bloquea NUL en el comando (B2)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-release-sweep: bloquea NUL en el comando (B2) (exit code: $PRS_NUL_EXIT, stderr: $(cat "$PRS_NUL_STDERR_FILE"))"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$PRS_NUL_STDERR_FILE"
 
 sandbox_cleanup_prs
 rm -rf "$PRS_FAKE_GH_DIR"
@@ -2996,6 +4062,28 @@ assert_pre_merge_blocked_no_calls_env() {
   rm -f "$stderr_file"
 }
 
+# Igual que assert_pre_merge_blocked_no_calls_env, pero afirma que el
+# stderr NO contiene un substring (#77 §3: el mensaje de GH_REPO/GH_HOST no
+# debe recomendar --repo, porque acá --repo no es remedio).
+assert_pre_merge_blocked_no_calls_env_not_contains() {
+  local test_name="$1" cmd="$2" forbidden_substring="$3"; shift 3
+  TOTAL=$((TOTAL + 1))
+  : > "$FAKE_GH_D04_LOG"
+  local json exit_code=0 calls stderr_file
+  stderr_file=$(mktemp)
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  echo "$json" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" env "$@" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>"$stderr_file" || exit_code=$?
+  calls=$(wc -l < "$FAKE_GH_D04_LOG" | tr -d ' ')
+  if [ "$exit_code" -eq 2 ] && ! grep -qF -- "$forbidden_substring" "$stderr_file" && [ "$calls" = "0" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked, 0 consultas a gh, sin \"$forbidden_substring\")"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"), consultas: $calls)"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$stderr_file"
+}
+
 # --- El incidente original (PR #75): cd a otro repo bloquea, menciona --repo ---
 assert_pre_merge_blocked_no_calls "gh pr merge [D-04, incidente]: cd a otro repo bloquea (ya no se resuelve el cd) y el mensaje menciona --repo" \
   "cd /otro && gh pr merge 75" "--repo"
@@ -3140,6 +4228,10 @@ assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GH_HOST en 
   "gh pr merge 5" "GH_HOST" GH_HOST=evil.example.com
 assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GH_HOST en el entorno del hook bloquea CON --repo" \
   "gh pr merge 5 --repo aveloz89/easy-quotes" "GH_HOST" GH_HOST=evil.example.com
+assert_pre_merge_blocked_no_calls_env_not_contains "gh pr merge [#77 §3]: GH_REPO bloquea sin recomendar --repo (no es remedio)" \
+  "gh pr merge 5" "usa --repo" GH_REPO=evil/x
+assert_pre_merge_blocked_no_calls_env_not_contains "gh pr merge [#77 §3]: GH_HOST bloquea sin recomendar --repo (no es remedio)" \
+  "gh pr merge 5" "usa --repo" GH_HOST=evil.example.com
 assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GIT_DIR en el entorno del hook bloquea sin --repo" \
   "gh pr merge 5" "GIT_DIR" GIT_DIR=/tmp/otro/.git
 assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GIT_WORK_TREE en el entorno del hook bloquea sin --repo" \
@@ -3296,6 +4388,36 @@ assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: gh pr view 5 | gre
   "gh pr view 5 | grep merge"
 assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: gh pr create --body-file corriente no se trata como merge" \
   "gh pr create --body-file x.md"
+assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: wrapper w() { gh \"\$@\"; } en el mismo comando, más de 2 tokens antes de 'pr merge', pasa sin consultar (limitación documentada en el header)" \
+  'w() { gh "$@"; }; w pr merge 5'
+
+# --- [#77 §2, A1/A4] guard_sanitize: heredoc con espacio tras "<<" y
+# delimitador con guion. Antes, guard_sanitize exigía "<<-?['\"]?(\w+)" sin
+# espacio y sin guion: ninguna de las dos formas se reconocía como heredoc,
+# el cuerpo no se borraba, y una mención de merge dentro de ese cuerpo podía
+# quedar en posición de comando (después de un backtick de markdown, que
+# GUARD_ANCHOR trata como separador real) y bloquear como si fuera una
+# invocación real.
+HEREDOC_SPACE_MENTION_COMMAND=$(cat <<'CMD_EOF'
+cat > r.md << 'EOF'
+- corri `gh pr merge 5`
+EOF
+CMD_EOF
+)
+assert_pre_merge_continue_no_calls "pre-merge-check: heredoc con espacio tras << (delimitador quoted) no bloquea por mención en el cuerpo (A1)" \
+  "$HEREDOC_SPACE_MENTION_COMMAND"
+
+# --- [#77 §2, A4] delimitador de heredoc con guion ("<<'END-1'"): \w+ no
+# acepta "-", el heredoc no se reconocía, el cuerpo no se borraba, y la
+# mención entre backticks quedaba en posición de comando.
+HEREDOC_DASH_DELIM_COMMAND=$(cat <<'CMD_EOF'
+cat > r.md <<'END-1'
+`gh pr merge 5`
+END-1
+CMD_EOF
+)
+assert_pre_merge_continue_no_calls "pre-merge-check: heredoc con delimitador con guion no bloquea por mención en el cuerpo (A4)" \
+  "$HEREDOC_DASH_DELIM_COMMAND"
 
 rm -rf "$FAKE_GH_D04_DIR"
 
@@ -3916,6 +5038,61 @@ ${SIZE_HD}EOF
 "
 assert_guard_sanitize_bounded "guard_sanitize [size]: payload combinado ~600KB (comillas + continuaciones + heredoc) se mantiene acotado en tiempo" \
   "$SIZE_PAYLOAD"
+
+echo ""
+
+# --- guard_command_has_nul (#77 §3) ---
+# El JSON de entrada trae un NUL en el comando como el escape "\u0000" (sin
+# byte NUL real: bash lo descarta al leer stdin en INPUT=$(cat), así que
+# para cuando existe COMMAND como variable ya no puede contenerlo). Cada
+# uno de los 5 guards que hoy sourcean guard-matching.sh detecta el NUL
+# sobre el JSON crudo, antes de construir COMMAND, y bloquea explicando —
+# antes, ese NUL se perdía en silencio y el resto del comando (después del
+# NUL) decidía el veredicto sin que quien lo escribió lo supiera.
+echo "--- guard-matching.sh: guard_command_has_nul (#77 §3) ---"
+
+assert_nul_blocked() {
+  local test_name="$1" hook="$2" jq_program="$3"
+  TOTAL=$((TOTAL + 1))
+  local exit_code=0 stderr_file
+  stderr_file=$(mktemp)
+  jq -n "$jq_program" | bash "$HOOKS_DIR/$hook" > /dev/null 2>"$stderr_file" || exit_code=$?
+  if [ "$exit_code" -eq 2 ] && grep -qi 'NUL' "$stderr_file"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked with NUL-specific reason)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"))"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$stderr_file"
+}
+
+# B1: NUL en medio de "gh pr merge --help[NUL] 5 --admin". block-admin-merge
+# ya bloqueaba por el "--admin" visible; pre-merge-check hoy pasa el
+# comando como si fuera "gh pr merge --help" exacto (0 consultas) porque
+# el resto, después del NUL que bash descarta, queda invisible.
+NUL_ADMIN_PROGRAM='{tool_input: {command: "gh pr merge --help\u0000 5 --admin"}}'
+assert_nul_blocked "block-admin-merge: bloquea NUL en el comando (B1)" \
+  "block-admin-merge.sh" "$NUL_ADMIN_PROGRAM"
+assert_nul_blocked "pre-merge-check: bloquea NUL en el comando (B1)" \
+  "pre-merge-check.sh" "$NUL_ADMIN_PROGRAM"
+
+# B2: NUL en un comando inocuo ("git status[NUL]"), sobre los otros 3 guards
+# que ya sourcean la lib en este lote (pre-push-guard y pre-release-sweep
+# la incorporan en un lote posterior).
+NUL_STATUS_PROGRAM='{tool_input: {command: "git status\u0000"}}'
+assert_nul_blocked "block-force-push: bloquea NUL en el comando (B2)" \
+  "block-force-push.sh" "$NUL_STATUS_PROGRAM"
+assert_nul_blocked "block-hard-reset: bloquea NUL en el comando (B2)" \
+  "block-hard-reset.sh" "$NUL_STATUS_PROGRAM"
+assert_nul_blocked "pre-commit-guard: bloquea NUL en el comando (B2)" \
+  "pre-commit-guard.sh" "$NUL_STATUS_PROGRAM"
+
+# B3: los mismos comandos, sin NUL, siguen pasando (negativos existentes —
+# "git status" ya pasa hoy en los tres, "gh pr merge --help" exacto ya pasa
+# en pre-merge-check, D-04). No se agregan asserts nuevos: la suite
+# completa ya los cubre (ver "assert_allowed_cmd ... git status" y
+# "assert_pre_merge_continue_no_calls ... --help" arriba).
 
 echo ""
 

@@ -120,12 +120,13 @@ fi
 #      que casi cualquier prefijo SÍ llega a la gramática y bloquea —
 #      verificado uno por uno contra el hook real, worktree limpio, sin
 #      mocks: `command gh`, `env gh`, `FOO=1 gh`, `\gh` (backslash pegado
-#      sin partir la palabra), una ruta absoluta al binario, y un wrapper
-#      o una función `gh()` definidos en el MISMO comando que el merge
-#      TODOS bloquean (el texto antes de la invocación real rompe "nada
-#      antes de gh pr merge"). Solo evaden de verdad los casos donde el
-#      saneo o la sintaxis rompen la palabra "gh" en el texto saneado, y
-#      por lo tanto el gate sin ancla nunca la encuentra:
+#      sin partir la palabra), una ruta absoluta al binario TODOS
+#      bloquean (el texto antes de la invocación real rompe "nada antes
+#      de gh pr merge"). Solo evaden de verdad los casos donde el saneo o
+#      la sintaxis rompen la palabra "gh" en el texto saneado, o donde
+#      "gh" queda separado de "pr"/"merge" por más tokens de los que
+#      GUARD_GH_PR_MERGE_RE tolera (2), y por lo tanto el gate sin ancla
+#      nunca la encuentra:
 #        - El nombre completo entre comillas: `"gh"`, `'gh'` — el span
 #          quoted se colapsa entero a un espacio, la palabra desaparece.
 #        - Un backslash A MITAD de la palabra: `g\h` (distinto de `\gh`,
@@ -135,6 +136,13 @@ fi
 #          quoted que contiene "gh pr merge" se colapsa entero.
 #        - Un comando ANTERIOR de la sesión que define una función/alias
 #          `gh` (ver el punto siguiente: el entorno previo no es visible).
+#        - Un wrapper o función definido en el MISMO comando que el merge,
+#          si la definición mete más de 2 tokens entre "gh" y la
+#          invocación real: `w() { gh "$@"; }; w pr merge 5` — verificado,
+#          continue, 0 llamadas a gh. El caso equivalente sin ese
+#          espaciado (la palabra "gh" pegada a "pr merge" en el texto
+#          saneado) sí bloquea, como cualquier otro prefijo de la lista de
+#          arriba.
 #        Dirección segura: el código bloquea MÁS de lo que este comentario
 #        admite, nunca menos.
 #      Aparte, el saneo COMPARTIDO de hooks/lib/guard-matching.sh (no se
@@ -150,7 +158,7 @@ fi
 #      ciego de comillas documentado en guard-matching.sh:58-65 (un par de
 #      comillas de spans DISTINTOS se emparejan entre sí y se tragan el
 #      comando real de en medio) — no es un hueco nuevo de este archivo.
-#      Tampoco se ensancha GH_PR_MERGE_RE (abajo) para tolerar más de 2
+#      Tampoco se ensancha GUARD_GH_PR_MERGE_RE (abajo) para tolerar más de 2
 #      tokens entre gh/pr/merge y así detectar flags de repo repetidos
 #      ANTES de "pr" o "merge" (ej. `gh pr -R o/a -R o/red merge 5`, que
 #      hoy pasa sin validar, 0 llamadas): ensanchar el tope genérico a 4
@@ -206,6 +214,16 @@ fi
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
 
+# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
+# para por qué se detecta sobre $INPUT y no sobre $COMMAND. Se chequea antes
+# de cualquier otro gate de este archivo — con un NUL, ni el gate permisivo
+# de abajo ni la gramática única pueden confiar en que $COMMAND refleja el
+# comando completo que se ejecutaría.
+if guard_command_has_nul "$INPUT"; then
+  echo "BLOCKED: pre-merge-check: el comando trae un byte NUL" >&2
+  exit 2
+fi
+
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 SANITIZE_STATUS=$?
 
@@ -250,7 +268,7 @@ if [ "$SANITIZE_STATUS" -ne 0 ]; then
   exit 0
 fi
 
-# [D-04] GH_PR_MERGE_RE decide, sobre el texto SANEADO, si el comando
+# [D-04] GUARD_GH_PR_MERGE_RE decide, sobre el texto SANEADO, si el comando
 # MENCIONA una invocación de merge — es todo lo que le queda a este
 # regex: ya no se usa para extraer nada (eso lo hace la gramática única
 # sobre el texto crudo, más abajo). Tolera hasta 2 tokens entre "gh"/"pr"
@@ -281,9 +299,10 @@ fi
 # por coincidencia trae las palabras sueltas "gh"/"pr"/"merge" sin
 # comillas entra a validar la gramática y bloquea con el mensaje de forma
 # — sobre-bloqueo, no sub-bloqueo, la dirección segura de este archivo.
-GH_PR_MERGE_RE='gh\s+(\S+\s+){0,2}pr\s+(\S+\s+){0,2}merge'
+# GUARD_GH_PR_MERGE_RE vive en hooks/lib/guard-matching.sh (movido ahí para
+# que block-admin-merge.sh lo reutilice sin duplicar el fragmento).
 
-if ! echo "$SANITIZED_COMMAND" | grep -qE "${GH_PR_MERGE_RE}\b"; then
+if ! echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_GH_PR_MERGE_RE}\b"; then
   exit 0
 fi
 
@@ -306,6 +325,10 @@ block() {
 # EXACTAMENTE uno de los conocidos.
 # ============================================================
 MERGE_FORM_HELP='Forma aceptada: gh pr merge <N> [--merge|--squash|--rebase] [--delete-branch] [--repo owner/repo], sola en el comando y en una línea. Para un PR de otro repo usa --repo; no uses cd.'
+# Misma forma aceptada, sin la recomendación de --repo: se usa en el
+# bloqueo de GH_REPO/GH_HOST (más abajo), donde --repo NO es remedio —
+# recomendarlo ahí sería contradictorio (#77 §3).
+MERGE_FORM_HELP_NO_REPO_ADVICE='Forma aceptada: gh pr merge <N> [--merge|--squash|--rebase] [--delete-branch] [--repo owner/repo], sola en el comando y en una línea.'
 
 # Una sola línea: un \n o \r en cualquier posición del crudo (incluida
 # una continuación con backslash, que guard_sanitize normalmente uniría
@@ -322,12 +345,9 @@ esac
 # arriba. Defensa en profundidad, no el cierre de un bypass demostrado —
 # cada token de la gramática de abajo ya pasa por una allowlist de
 # charset que un carácter de control no calza, así que en la práctica ya
-# termina bloqueando por otra razón (verificado). El caso que sí importa
-# es un NUL: bash lo descarta al leer stdin en INPUT=$(cat), así que para
-# cuando $COMMAND existe como variable ya no puede contenerlo — pero eso
-# significa que el texto que este guard valida puede no ser exactamente
-# el que jq extrajo de .tool_input.command, la clase de discrepancia que
-# este archivo trata como no confiable en cualquier otro punto.
+# termina bloqueando por otra razón (verificado). El caso de un NUL ya se
+# bloqueó explícitamente más arriba, justo después de sourcear la lib (#77
+# §3, guard_command_has_nul) — antes de este punto, nunca sobre $COMMAND.
 CONTROL_CHARS_RE=$'[\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0C\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F]'
 if printf '%s' "$COMMAND" | LC_ALL=C grep -q "$CONTROL_CHARS_RE"; then
   block "Blocked: el comando trae caracteres de control no imprimibles (fuera de tab). ${MERGE_FORM_HELP}"
@@ -417,7 +437,7 @@ fi
 # contra gh real), así que un --repo explícito en el comando no evita
 # que gh termine resolviendo otro repo/host de todas formas.
 if [ -n "${GH_REPO:-}" ] || [ -n "${GH_HOST:-}" ]; then
-  block "Blocked: el entorno del proceso de este hook tiene GH_REPO o GH_HOST seteado — bloquea siempre, con o sin --repo explícito en el comando (gh pr merge respeta esas variables igual que gh repo view). Quita GH_REPO/GH_HOST del entorno del proceso. ${MERGE_FORM_HELP}"
+  block "Blocked: el entorno del proceso de este hook tiene GH_REPO o GH_HOST seteado — bloquea siempre, con o sin --repo explícito en el comando (gh pr merge respeta esas variables igual que gh repo view). Quita GH_REPO/GH_HOST del entorno del proceso. ${MERGE_FORM_HELP_NO_REPO_ADVICE}"
 fi
 
 # GIT_DIR/GIT_WORK_TREE en el entorno del proceso del hook: solo importan
