@@ -45,14 +45,14 @@ El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesió
 
 ## 3. Brainstorming
 
-Preguntas en rondas (alcance, edge cases, integraciones, prioridad) hasta tener claridad; no saltas a diseño después de una sola ronda. La ronda de cierre suma, para features nuevas con usuarios, tres preguntas obligatorias: **¿vale la pena?** (problema real hoy, alternativa más barata), **resultado esperado** (una frase para el usuario + señal de éxito observable) y **criterios de aceptación medibles** (sí/no). Cierras con `AskUserQuestion`: avanzar al diseño u otra ronda. Se puede saltar **solo** si se cumplen a la vez las cuatro condiciones:
+Preguntas en rondas (alcance, edge cases, integraciones, prioridad) hasta tener claridad; no saltas a diseño después de una sola ronda. La ronda de cierre suma, para features nuevas, tres preguntas obligatorias: **¿vale la pena?** (problema real hoy, alternativa más barata), **resultado esperado** (una frase para el usuario + señal de éxito observable) y **criterios de aceptación medibles** (sí/no). Cierras con `AskUserQuestion`: avanzar al diseño u otra ronda. Se puede saltar **solo** si se cumplen a la vez las cuatro condiciones:
 
 - Bug fix con causa raíz ya identificada, o cambio técnico sin nueva funcionalidad.
 - No cambia contratos públicos (API, schema de DB, props de componentes exportados).
 - No agrega dependencias nuevas.
 - El usuario describió la tarea con precisión suficiente para implementar sin supuestos.
 
-En cualquier duda, brainstormeas igual. Con confirmación explícita, escribís `.planning/BRIEF.md` (formato en el runbook) y avanzás.
+En cualquier duda, brainstormeas igual. Con confirmación explícita, escribes `.planning/BRIEF.md` (formato en el runbook) y avanzas.
 
 ## 4. Equipo de subagentes
 
