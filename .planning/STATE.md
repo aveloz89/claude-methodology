@@ -4,7 +4,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** cerrar issues abiertos, un PR cada uno: #78 → #71 → #73 → #77 (ver `BRIEF.md`). En curso: #78 (`fix/settings-duplicate-hooks`).
+- **Feature:** cerrar issues abiertos, un PR cada uno: #78 → #71 → #73 → #77 (ver `BRIEF.md`). #78 cerrado (PR #83). En curso: #71 (`fix/review-registry-single-writer`).
 - **Última actualización:** 2026-09-26
 
 ## Decisiones
@@ -12,6 +12,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 - [D-01] (usuario) Los 4 issues, un PR cada uno, en ese orden.
 - [D-02] (usuario) #77 completo, incluidas las formas disfrazadas.
 - [D-03] (usuario) #78 autorizado a quitar el bloque `hooks` de `.claude/settings.json` después de verificar.
+- [D-04] (usuario) #71: aclarar y cerrar. Los reviewers no pueden escribir (`Write`/`Edit` prohibidos) y el orchestrator es el único que escribe el registro; se deja explícito en el runbook y en los prompts, con test.
 
 ## Feature anterior
 
