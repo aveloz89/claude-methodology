@@ -157,6 +157,15 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+TOTAL=$((TOTAL + 1))
+if [ "$(jq '.hooks | has("SessionEnd")' "$HOOKS_JSON")" = "false" ]; then
+  echo -e "${GREEN}PASS${NC}: hooks.json no tiene clave \"SessionEnd\""
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: hooks.json todavía tiene clave \"SessionEnd\""
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "--- hooks.json: CLAUDE_PLUGIN_ROOT entrecomillado en cada command ---"
 

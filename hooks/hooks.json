@@ -98,17 +98,6 @@
           }
         ]
       }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-end-check.sh\"",
-            "timeout": 10
-          }
-        ]
-      }
     ]
   }
 }

@@ -33,8 +33,8 @@ GREEN='\033[0;32m'
 NC='\033[0m'
 
 # --- Infraestructura de sandbox para hooks no-bloqueantes ---
-# (PreCompact, SubagentStop, SessionEnd: no interceptan comandos, reaccionan
-# a eventos del ciclo de vida y escriben artefactos bajo $HOME/.claude/.)
+# (PreCompact, SubagentStop: no interceptan comandos, reaccionan a eventos
+# del ciclo de vida y escriben artefactos bajo $HOME/.claude/.)
 #
 # sandbox_create: crea un repo git temporal con .planning/ poblado
 # (SANDBOX_REPO) y un HOME aislado (SANDBOX_HOME) para que los hooks nunca
@@ -3792,7 +3792,7 @@ rm -f "$GUARD_SESSION_DIR_MISSING_OUT"
 
 echo ""
 
-# --- Sandbox infra para hooks no-bloqueantes (PreCompact, SubagentStop, SessionEnd) ---
+# --- Sandbox infra para hooks no-bloqueantes (PreCompact, SubagentStop) ---
 echo "--- sandbox infra ---"
 
 # Caso trivial: usa sandbox_create/sandbox_cleanup + assert_exit0 con un hook
@@ -4346,264 +4346,12 @@ assert_exit0 "SubagentStop no agrega raw_keys cuando el agente es conocido" \
   'LOG="$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl"; [ "$(jq -r .agent "$LOG")" = "backend-dev" ] && [ "$(jq "has(\"raw_keys\")" "$LOG")" = "false" ]'
 sandbox_cleanup
 
-echo ""
-
-# --- session-end-check.sh ---
-echo "--- session-end-check.sh ---"
-
-# Caso: señal S1 — commit posterior a STATE.md con mtime viejo (touch -t).
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd S1: commit posterior a STATE.md escribe marker" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{"reason":"other"}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ -f "$MARKER" ] && [ "$(jq -c .signals "$MARKER")" = "[\"commits_after_state\"]" ] && [ "$(jq -r .branch "$MARKER")" != "null" ] && [ "$(jq -r .head "$MARKER")" != "null" ] && [ "$(jq -r .reason "$MARKER")" = "other" ] && [ "$(jq -r .ts "$MARKER")" != "null" ]'
-sandbox_cleanup
-
-# Caso: umask 077 — el marker (branch, head, señales) queda sin permisos de
-# grupo/otros.
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd crea el marker sin permisos de grupo/otros (umask 077)" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{"reason":"other"}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  '[ "$(perm_of "$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json")" = "600" ]'
-sandbox_cleanup
-
-# Caso: escritura atómica — si el jq que arma el marker falla, el archivo
-# destino nunca queda truncado a 0 bytes. Mismo fake jq de PreCompact:
-# intercepta solo "-n" (la del marker final), deja pasar el resto al jq
-# real para no romper el resto del hook (jq -R/-s de SIGNALS_JSON).
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-FAKE_JQ_DIR=$(mktemp -d)
-REAL_JQ=$(command -v jq)
-cat > "$FAKE_JQ_DIR/jq" <<FAKE_JQ_EOF
-#!/bin/bash
-if [ "\$1" = "-n" ]; then
-  exit 1
-fi
-exec "$REAL_JQ" "\$@"
-FAKE_JQ_EOF
-chmod +x "$FAKE_JQ_DIR/jq"
-assert_exit0 "SessionEnd no deja marker truncado si jq falla al escribir (atomic write)" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{"reason":"other"}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  'MARKER_DIR="$SANDBOX_HOME/.claude/methodology/session-end"; [ ! -f "$MARKER_DIR/$SLUG.json" ] && [ -z "$(find "$MARKER_DIR" -maxdepth 1 -name "$SLUG.json.tmp.*" 2>/dev/null)" ]' \
-  "$FAKE_JQ_DIR:$PATH"
-rm -rf "$FAKE_JQ_DIR"
-sandbox_cleanup
-
-# Caso: señal S2 — archivo dirty (sin commitear) fuera de .planning/ con
-# mtime posterior a STATE.md. STATE.md se toca a "ahora" (después del commit
-# inicial del sandbox, para no disparar S1 también) y el archivo dirty se
-# crea tras un sleep para garantizar mtime estrictamente posterior.
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch .planning/STATE.md
-) > /dev/null 2>&1
-sleep 1
-(
-  cd "$SANDBOX_REPO" || exit 1
-  echo "dirty" > dirty-file.txt
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd S2: archivo dirty posterior a STATE.md escribe marker" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ -f "$MARKER" ] && [ "$(jq -c .signals "$MARKER")" = "[\"dirty_files_after_state\"]" ] && [ "$(jq -r .reason "$MARKER")" = "other" ]'
-sandbox_cleanup
-
-# Caso: archivos dirty DENTRO de .planning/ no cuentan para S2 (solo fuera).
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch .planning/STATE.md
-) > /dev/null 2>&1
-sleep 1
-(
-  cd "$SANDBOX_REPO" || exit 1
-  echo "more design" >> .planning/DESIGN.md
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd ignora archivos dirty dentro de .planning/" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  '[ ! -f "$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json" ]'
-sandbox_cleanup
-
-# Caso: STATE.md más reciente que todo (commits y archivos dirty) — no se
-# escribe marker.
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch .planning/STATE.md
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd sin señales: STATE.md fresco no escribe marker" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  '[ ! -f "$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json" ]'
-sandbox_cleanup
-
-# Caso: sin .planning/STATE.md — exit 0 sin efectos.
-sandbox_create
-rm -f "$SANDBOX_REPO/.planning/STATE.md"
-assert_exit0 "SessionEnd no-op sin .planning/STATE.md" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  '[ ! -e "$SANDBOX_HOME/.claude" ]'
-sandbox_cleanup
-
-# Caso: fuera de repo git — exit 0 sin efectos.
-NO_GIT_DIR=$(mktemp -d)
-NO_GIT_DIR=$(cd "$NO_GIT_DIR" && pwd -P)
-NO_GIT_HOME=$(mktemp -d)
-NO_GIT_HOME=$(cd "$NO_GIT_HOME" && pwd -P)
-mkdir -p "$NO_GIT_DIR/.planning"
-echo "# STATE" > "$NO_GIT_DIR/.planning/STATE.md"
-assert_exit0 "SessionEnd no-op fuera de repo git" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$NO_GIT_DIR" \
-  "$NO_GIT_HOME" \
-  '[ ! -e "$NO_GIT_HOME/.claude" ]'
-rm -rf "$NO_GIT_DIR" "$NO_GIT_HOME"
-
-# Caso: el marker se SOBRESCRIBE entre invocaciones sucesivas, nunca acumula
-# señales de invocaciones anteriores.
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd overwrite paso 1: marker con commits_after_state" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ "$(jq -c .signals "$MARKER")" = "[\"commits_after_state\"]" ]'
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch .planning/STATE.md
-) > /dev/null 2>&1
-sleep 1
-(
-  cd "$SANDBOX_REPO" || exit 1
-  echo "dirty" > dirty-file.txt
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd overwrite paso 2: marker se sobrescribe, no acumula" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  'MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$SLUG.json"; [ "$(jq -c .signals "$MARKER")" = "[\"dirty_files_after_state\"]" ]'
-sandbox_cleanup
-
-# Caso: jq ausente en PATH — exit 0, sin escribir marker. Señal S1 forzada
-# (commit posterior a STATE.md) para garantizar que, de estar jq disponible,
-# SÍ se escribiría un marker — así la ausencia de marker se debe realmente a
-# la falta de jq, no a la falta de señales.
-sandbox_create
-SLUG=$(repo_slug "$SANDBOX_REPO")
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-NO_JQ_BIN=$(mktemp -d)
-for cmd in bash cat git stat date tr mkdir; do
-  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
-  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_BIN/$cmd"
-done
-assert_exit0 "SessionEnd exit 0 sin jq en PATH (sin escribir marker)" \
-  "$HOOKS_DIR/session-end-check.sh" \
-  '{"reason":"other"}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  '[ ! -e "$SANDBOX_HOME/.claude" ]' \
-  "$NO_JQ_BIN"
-rm -rf "$NO_JQ_BIN"
-sandbox_cleanup
-
-echo ""
-
 # --- session-start-context.sh (consumo del marker de SessionEnd + render de state.json) ---
 echo "--- session-start-context.sh ---"
 
 # session-start-context.sh no lee stdin y su salida SÍ importa (a diferencia
 # de los hooks no-bloqueantes anteriores), así que estos casos no usan
 # assert_exit0 (descarta stdout) sino asserts inline sobre el output capturado.
-
-# Caso: roundtrip escritor/lector — session-end-check.sh escribe el marker
-# con repo_slug() y session-start-context.sh lo encuentra con el MISMO
-# repo_slug() (no un slug manual construido en el test). Si el par
-# escritor/lector alguna vez divergiera de slug, este es el test que lo
-# detecta: el marker quedaría escrito bajo un nombre que el lector nunca
-# busca, y se "perdería" en silencio.
-sandbox_create
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-(cd "$SANDBOX_REPO" && echo '{"reason":"other"}' | HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-end-check.sh" > /dev/null 2>&1)
-OUTPUT_ROUNDTRIP=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
-TOTAL=$((TOTAL + 1))
-ROUNDTRIP_SLUG=$(repo_slug "$SANDBOX_REPO")
-ROUNDTRIP_MARKER="$SANDBOX_HOME/.claude/methodology/session-end/$ROUNDTRIP_SLUG.json"
-if echo "$OUTPUT_ROUNDTRIP" | grep -qF "commits_after_state" && [ ! -f "$ROUNDTRIP_MARKER" ]; then
-  echo -e "${GREEN}PASS${NC}: roundtrip SessionEnd→SessionStart: el marker escrito con repo_slug() se encuentra y se consume"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: roundtrip SessionEnd→SessionStart: el marker escrito con repo_slug() se encuentra y se consume (output: $OUTPUT_ROUNDTRIP)"
-  FAIL=$((FAIL + 1))
-fi
-sandbox_cleanup
 
 # Caso: sin marker y sin state.json, el output no cambia (no rompe el
 # comportamiento actual del hook).
@@ -5052,22 +4800,6 @@ sandbox_create
 assert_exit0 "PreCompact modo degradado: exit 0 sin snapshot si falta hooks/lib/slug.sh" \
   "$DEGRADED_HOOKS_DIR/pre-compact-snapshot.sh" \
   '{"trigger":"auto"}' \
-  "$SANDBOX_REPO" \
-  "$SANDBOX_HOME" \
-  '[ ! -e "$SANDBOX_HOME/.claude" ]'
-sandbox_cleanup
-
-sandbox_create
-(
-  cd "$SANDBOX_REPO" || exit 1
-  touch -t 202001010000 .planning/STATE.md
-  echo "new work" > new-file.txt
-  git add new-file.txt
-  git commit -q -m "commit after state"
-) > /dev/null 2>&1
-assert_exit0 "SessionEnd modo degradado: exit 0 sin marker si falta hooks/lib/slug.sh (con señal S1 forzada)" \
-  "$DEGRADED_HOOKS_DIR/session-end-check.sh" \
-  '{"reason":"other"}' \
   "$SANDBOX_REPO" \
   "$SANDBOX_HOME" \
   '[ ! -e "$SANDBOX_HOME/.claude" ]'
