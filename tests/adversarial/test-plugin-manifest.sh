@@ -466,6 +466,76 @@ assert_no_voseo "$REPO_ROOT/rulebooks/build-errors.md"
 assert_no_voseo "$REPO_ROOT/rulebooks/db-migrations.md"
 
 echo ""
+echo "--- agents/product-reviewer.md: existe y es read-only ---"
+
+PRODUCT_REVIEWER="$REPO_ROOT/agents/product-reviewer.md"
+
+# assert_agent_read_only <file>: verifica que el agente sea opus, que
+# `tools:` no incluya Write/Edit/Bash y que `disallowedTools:` incluya
+# Write, Edit, Bash y Agent. No usa las funciones de test-frontmatter.sh
+# (script independiente); parsea el frontmatter con grep/sed inline.
+assert_agent_read_only() {
+  local file="$1"
+  local model_line tools_line disallowed_line
+  model_line=$(grep -E "^model:" "$file" | head -1 | sed -E 's/^model:[[:space:]]*//')
+  tools_line=$(grep -E "^tools:" "$file" | head -1 | sed -E 's/^tools:[[:space:]]*//')
+  disallowed_line=$(grep -E "^disallowedTools:" "$file" | head -1 | sed -E 's/^disallowedTools:[[:space:]]*//')
+
+  TOTAL=$((TOTAL + 1))
+  if [ "$model_line" = "opus" ]; then
+    echo -e "${GREEN}PASS${NC}: $(basename "$file") model: opus"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $(basename "$file") model=\"$model_line\" (esperado opus)"
+    FAIL=$((FAIL + 1))
+  fi
+
+  local tool bad_tool=""
+  for tool in Write Edit Bash; do
+    if echo "$tools_line" | grep -qE "(^|, )$tool(,|\$)"; then
+      bad_tool="$tool"
+      break
+    fi
+  done
+  TOTAL=$((TOTAL + 1))
+  if [ -z "$bad_tool" ]; then
+    echo -e "${GREEN}PASS${NC}: $(basename "$file") tools sin Write/Edit/Bash"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $(basename "$file") tools incluye $bad_tool (debe ser read-only)"
+    FAIL=$((FAIL + 1))
+  fi
+
+  local missing=""
+  for tool in Write Edit Bash Agent; do
+    if ! echo "$disallowed_line" | grep -qE "(^|, )$tool(,|\$)"; then
+      missing="$missing $tool"
+    fi
+  done
+  TOTAL=$((TOTAL + 1))
+  if [ -z "$missing" ]; then
+    echo -e "${GREEN}PASS${NC}: $(basename "$file") disallowedTools incluye Write, Edit, Bash, Agent"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $(basename "$file") disallowedTools le faltan:$missing"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+TOTAL=$((TOTAL + 1))
+if [ -f "$PRODUCT_REVIEWER" ]; then
+  echo -e "${GREEN}PASS${NC}: agents/product-reviewer.md existe"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: agents/product-reviewer.md no existe"
+  FAIL=$((FAIL + 1))
+fi
+
+if [ -f "$PRODUCT_REVIEWER" ]; then
+  assert_agent_read_only "$PRODUCT_REVIEWER"
+fi
+
+echo ""
 echo "--- Fase 2.5: saltar docs cuando el diff no toca superficie pública ---"
 
 assert_contains "$RUNBOOK" "salta \`docs\`" \
