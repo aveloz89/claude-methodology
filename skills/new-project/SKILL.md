@@ -64,8 +64,8 @@ Crea un CLAUDE.md con:
 > **Presupuesto de CI** (ver la skill `pr-workflow`, §3): los repos privados tienen minutos contados. Todo workflow lleva `concurrency` con `cancel-in-progress`, `timeout-minutes` por job, cache de dependencias y runners `ubuntu-latest` (macOS cuesta 10×).
 
 > **Actions factura cada job redondeando hacia arriba al minuto.** Un job de 12 segundos cuesta lo mismo que uno de 55. Consecuencias de diseño, contraintuitivas:
-> - **Menos jobs, no más.** Partir un job en varios paralelos acelera el wall-clock pero **encarece la factura**: cada uno paga su minuto mínimo más el overhead de arranque. Solo separar cuando el job tarda lo suficiente para que la paralelización valga el costo, o cuando necesitás el check por separado en las branch protections.
-> - **Un job barato que corre siempre cuesta 1 minuto por run.** Si tenés dos (ej: un gate de docs-only y un escaneo de secretos), fusionalos: hacen el mismo checkout y pagan un solo minuto.
+> - **Menos jobs, no más.** Partir un job en varios paralelos acelera el wall-clock pero **encarece la factura**: cada uno paga su minuto mínimo más el overhead de arranque. Solo separar cuando el job tarda lo suficiente para que la paralelización valga el costo, o cuando necesitas el check por separado en las branch protections.
+> - **Un job barato que corre siempre cuesta 1 minuto por run.** Si tienes dos (ej: un gate de docs-only y un escaneo de secretos), fusiónalos: hacen el mismo checkout y pagan un solo minuto.
 
 **ci.yml** — Trigger en push a dev y PRs a main/dev. Tres jobs:
 
@@ -75,9 +75,9 @@ Crea un CLAUDE.md con:
 
 `timeout-minutes` explícito en cada job.
 
-> **Trampa crítica con jobs salteados y matrices.** Cuando un job con `strategy.matrix` se saltea por `if:`, GitHub reporta **un solo check con el nombre del job** (`docker-build`), no las patas (`docker-build (api)`, `docker-build (web)`). Si las patas están en `required_status_checks`, esos contexts **nunca reportan y el PR queda `BLOCKED` para siempre**. Nunca listes las patas de una matriz que puede saltearse — listá solo checks que reporten en todos los caminos.
+> **Trampa crítica con jobs salteados y matrices.** Cuando un job con `strategy.matrix` se saltea por `if:`, GitHub reporta **un solo check con el nombre del job** (`docker-build`), no las patas (`docker-build (api)`, `docker-build (web)`). Si las patas están en `required_status_checks`, esos contexts **nunca reportan y el PR queda `BLOCKED` para siempre**. Nunca listes las patas de una matriz que puede saltearse — lista solo checks que reporten en todos los caminos.
 
-> **Renombrar un job rompe los merges.** El nombre del job *es* el context de la branch protection. Si lo cambiás, actualizá `required_status_checks` en el mismo movimiento, o todos los PRs abiertos quedan colgados esperando un check que ya no existe.
+> **Renombrar un job rompe los merges.** El nombre del job *es* el context de la branch protection. Si lo cambias, actualiza `required_status_checks` en el mismo movimiento, o todos los PRs abiertos quedan colgados esperando un check que ya no existe.
 
 ```yaml
 concurrency:

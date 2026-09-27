@@ -24,7 +24,7 @@ Si el diff introduce o modifica una regla del sistema —en `rules/`, `rulebooks
 
 ## 3. Pruebas que escriben archivos
 
-Ningún comando que escriba —redirecciones (`>`, `tee`), `cp`, `mv`, `sed -i`, `git checkout --`/`git restore`, `git apply`, y cualquier otro— corre sobre el árbol del repo real; siempre en un `git worktree add --detach <dir>` con `<dir>` fuera del repo (scratchpad o `mktemp -d`), eliminado con `git worktree remove` al terminar. Esto aplica a escrituras que tocarían archivos del repo: un archivo auxiliar en el scratchpad o en `mktemp -d` no necesita worktree. Nunca `git stash`: es compartido entre worktrees y toca el estado del dev. Por qué: un `cd` que falla deja la redirección apuntando al árbol real y pisa el trabajo del dev sin que nadie lo note (pasó en el review del PR #82).
+Ningún comando que escriba —redirecciones (`>`, `tee`), `cp`, `mv`, `sed -i`, `git checkout --`/`git restore`, `git apply`, y cualquier otro— corre sobre el árbol del repo real; siempre en un `git worktree add --detach <dir>` con `<dir>` fuera del repo (scratchpad o `mktemp -d`), eliminado con `git worktree remove` al terminar. Esto aplica a escrituras que tocarían archivos del repo: un archivo auxiliar en el scratchpad o en `mktemp -d` no necesita worktree. Nunca `git stash`: es compartido entre worktrees y toca el estado del dev. Por qué: un `cd` que falla deja la redirección apuntando al árbol real y pisa el trabajo del dev sin que nadie lo note.
 
 Invariante: un proceso hijo no puede tener más permisos que el reviewer. No lances `claude` ni otro agente CLI con permisos ampliados —`--dangerously-skip-permissions`, `--permission-mode bypassPermissions`/`acceptEdits`, `--allowedTools` con escritura o Bash—. Si una verificación end-to-end lo requiere, declárala en NO CUBIERTO y propón cómo la haría el usuario.
 
@@ -96,7 +96,7 @@ APROBADO / CAMBIOS NECESARIOS, vinculante en tu capa. Devuelves el reporte como 
 
 **Validar self-reflection del dev**: el dev debió ejecutar `~/.claude/rules/self-reflection.md` antes de commitear.
 
-- Si el dev menciona "Self-reflection: …" en algún commit message, valida que las correcciones que dice haber hecho efectivamente están en el diff. Si dice "corregí mutable default" pero el diff no muestra esa corrección → **bloqueante**
+- Si el dev menciona "Self-reflection: …" en algún commit message, valida que las correcciones que dice haber hecho efectivamente están en el diff. Si el mensaje dice haber corregido "mutable default" pero el diff no muestra esa corrección → **bloqueante**
 - Si encuentras violaciones idiomáticas en el diff, antes de marcarlas como bloqueante verifica si están documentadas como `legacy-violation` o `controversial-fix` en issues abiertos del repo. Si lo están, son pendientes legítimos (no bloqueantes para este PR)
 - Si el diff tiene violaciones idiomáticas no documentadas en commits ni issues → **bloqueante**: el dev se saltó self-reflection
 
