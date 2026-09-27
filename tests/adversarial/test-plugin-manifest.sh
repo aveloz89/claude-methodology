@@ -175,6 +175,246 @@ else
 fi
 
 echo ""
+echo "--- skills/orchestrator/SKILL.md: existe, tamaño y frontmatter ---"
+
+ORCHESTRATOR_SKILL="$REPO_ROOT/skills/orchestrator/SKILL.md"
+
+TOTAL=$((TOTAL + 1))
+if [ -f "$ORCHESTRATOR_SKILL" ]; then
+  echo -e "${GREEN}PASS${NC}: skills/orchestrator/SKILL.md existe"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: skills/orchestrator/SKILL.md no existe"
+  FAIL=$((FAIL + 1))
+fi
+
+if [ -f "$ORCHESTRATOR_SKILL" ]; then
+  TOTAL=$((TOTAL + 1))
+  SKILL_LINES=$(wc -l < "$ORCHESTRATOR_SKILL" | tr -d ' ')
+  if [ "$SKILL_LINES" -lt 500 ]; then
+    echo -e "${GREEN}PASS${NC}: skills/orchestrator/SKILL.md tiene $SKILL_LINES líneas (< 500)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: skills/orchestrator/SKILL.md tiene $SKILL_LINES líneas (esperado < 500)"
+    FAIL=$((FAIL + 1))
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if grep -q "^name: orchestrator$" "$ORCHESTRATOR_SKILL"; then
+    echo -e "${GREEN}PASS${NC}: frontmatter tiene name: orchestrator"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: frontmatter no tiene name: orchestrator"
+    FAIL=$((FAIL + 1))
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if grep -q "^disable-model-invocation:" "$ORCHESTRATOR_SKILL"; then
+    echo -e "${RED}FAIL${NC}: skills/orchestrator/SKILL.md tiene disable-model-invocation (debe poder cargarse sola)"
+    FAIL=$((FAIL + 1))
+  else
+    echo -e "${GREEN}PASS${NC}: skills/orchestrator/SKILL.md no tiene disable-model-invocation"
+    PASS=$((PASS + 1))
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if grep -q "^user-invocable: true$" "$ORCHESTRATOR_SKILL"; then
+    echo -e "${GREEN}PASS${NC}: frontmatter tiene user-invocable: true"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: frontmatter no tiene user-invocable: true"
+    FAIL=$((FAIL + 1))
+  fi
+fi
+
+echo ""
+echo "--- global/CLAUDE.md: tamaño del núcleo tras la división ---"
+
+TOTAL=$((TOTAL + 1))
+GLOBAL_BYTES=$(wc -c < "$GLOBAL_CLAUDE_MD" | tr -d ' ')
+if [ "$GLOBAL_BYTES" -le 10240 ]; then
+  echo -e "${GREEN}PASS${NC}: global/CLAUDE.md pesa $GLOBAL_BYTES bytes (<= 10240)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: global/CLAUDE.md pesa $GLOBAL_BYTES bytes (esperado <= 10240)"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+GLOBAL_LINES=$(wc -l < "$GLOBAL_CLAUDE_MD" | tr -d ' ')
+if [ "$GLOBAL_LINES" -le 130 ]; then
+  echo -e "${GREEN}PASS${NC}: global/CLAUDE.md tiene $GLOBAL_LINES líneas (<= 130)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: global/CLAUDE.md tiene $GLOBAL_LINES líneas (esperado <= 130)"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
+echo "--- Referencias cruzadas al detalle movido a la skill orchestrator ---"
+
+RUNBOOK="$REPO_ROOT/rulebooks/orchestrator-runbook.md"
+GOVERNANCE="$REPO_ROOT/rulebooks/governance-playbook.md"
+
+assert_contains() {
+  local file="$1" pattern="$2" label="$3"
+  TOTAL=$((TOTAL + 1))
+  if grep -q -- "$pattern" "$file"; then
+    echo -e "${GREEN}PASS${NC}: $label"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $label (no se encontró \"$pattern\" en $file)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_not_contains() {
+  local file="$1" pattern="$2" label="$3"
+  TOTAL=$((TOTAL + 1))
+  if grep -q -- "$pattern" "$file"; then
+    echo -e "${RED}FAIL${NC}: $label (todavía se encontró \"$pattern\" en $file)"
+    FAIL=$((FAIL + 1))
+  else
+    echo -e "${GREEN}PASS${NC}: $label"
+    PASS=$((PASS + 1))
+  fi
+}
+
+assert_not_contains "$RUNBOOK" "el comportamiento esencial vive en \`CLAUDE.md\` raíz" \
+  "runbook línea 3 ya no apunta el detalle esencial a CLAUDE.md raíz"
+assert_contains "$RUNBOOK" "skill \`orchestrator\`" \
+  "runbook línea 3 apunta el manual de la sesión principal a la skill orchestrator"
+assert_not_contains "$RUNBOOK" "regla operativa de \`CLAUDE.md\`" \
+  "runbook línea 42 (AskUserQuestion) ya no cita CLAUDE.md como fuente"
+assert_not_contains "$RUNBOOK" "\"Pause / Resume\" en \`CLAUDE.md\` raíz" \
+  "runbook (Retomar) ya no remite Pause/Resume a CLAUDE.md raíz"
+assert_not_contains "$GOVERNANCE" "Pause / Resume de CLAUDE.md" \
+  "governance-playbook (#9) ya no remite Pause/Resume a CLAUDE.md"
+assert_not_contains "$ORCHESTRATOR_SKILL" "Flujo de trabajo: nueva feature" \
+  "skill orchestrator ya no cita el header viejo 'Flujo de trabajo: nueva feature' (movido a 'Fase 2: Implementación')"
+
+assert_contains "$REPO_ROOT/agents/security-reviewer.md" "skills/orchestrator/SKILL.md" \
+  "security-reviewer nombra skills/orchestrator/SKILL.md en la lista de documentos normativos"
+assert_contains "$REPO_ROOT/agents/qa-backend.md" "skills/orchestrator/SKILL.md" \
+  "qa-backend nombra skills/orchestrator/SKILL.md en la lista de documentos normativos"
+assert_contains "$RUNBOOK" "skills/orchestrator/SKILL.md" \
+  "runbook (Documentos normativos) nombra skills/orchestrator/SKILL.md"
+
+README="$REPO_ROOT/README.md"
+assert_contains "$README" "skill \`orchestrator\`" \
+  "README menciona la skill orchestrator como definición del rol"
+assert_contains "$README" "### Skills (5)" \
+  "README cuenta 5 skills"
+assert_contains "$README" "orchestrator/" \
+  "README (árbol) lista skills/orchestrator/"
+
+MARKETPLACE_DESC=$(jq -r '.plugins[0].description' "$MARKETPLACE_JSON")
+TOTAL=$((TOTAL + 1))
+if echo "$MARKETPLACE_DESC" | grep -q "5 skills"; then
+  echo -e "${GREEN}PASS${NC}: marketplace.json describe 5 skills"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: marketplace.json no describe 5 skills (actual: \"$MARKETPLACE_DESC\")"
+  FAIL=$((FAIL + 1))
+fi
+
+AGENT_VALIDATION="$REPO_ROOT/tests/validation/agent-validation.md"
+TOTAL=$((TOTAL + 1))
+if grep -qi "carga la skill" "$AGENT_VALIDATION"; then
+  echo -e "${GREEN}PASS${NC}: agent-validation.md (Orchestrator) espera que cargue la skill antes de delegar"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: agent-validation.md (Orchestrator) no espera que cargue la skill antes de delegar"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
+echo "--- Condiciones para saltar el brainstorming: una sola lista, en la skill ---"
+
+assert_contains "$ORCHESTRATOR_SKILL" "causa raíz ya identificada" \
+  "skill orchestrator §3 tiene la condición de bug fix / cambio técnico sin funcionalidad nueva"
+assert_contains "$ORCHESTRATOR_SKILL" "No cambia contratos públicos" \
+  "skill orchestrator §3 tiene la condición de no cambiar contratos públicos"
+assert_contains "$ORCHESTRATOR_SKILL" "No agrega dependencias nuevas" \
+  "skill orchestrator §3 tiene la condición de no agregar dependencias"
+assert_contains "$ORCHESTRATOR_SKILL" "precisión suficiente" \
+  "skill orchestrator §3 tiene la condición de descripción con precisión suficiente"
+assert_not_contains "$RUNBOOK" "Bug fix con pasos de reproducción claros" \
+  "runbook (Fase 0) ya no tiene su propia lista de condiciones para saltar brainstorming"
+
+echo ""
+echo "--- global/CLAUDE.md: restricciones de rol, degradación y pre-commit-guard ---"
+
+assert_contains "$GLOBAL_CLAUDE_MD" "Bash solo para git" \
+  "Rol de la sesión principal restringe Bash a git/gh/lectura de estado/orquestación"
+assert_contains "$GLOBAL_CLAUDE_MD" "si te tienta escribir código" \
+  "Rol de la sesión principal advierte contra escribir código \"porque es rápido\""
+assert_contains "$GLOBAL_CLAUDE_MD" "auth, crypto, secrets o pagos" \
+  "Workflow obligatorio #4 tiene la regla de degradación de security-reviewer"
+assert_contains "$GLOBAL_CLAUDE_MD" "pre-commit-guard.sh" \
+  "Verificación pre-commit menciona que el paso 1 lo refuerza pre-commit-guard.sh"
+
+echo ""
+echo "--- skills/orchestrator/SKILL.md: allowed-tools sin Bash (pre-aprueba, no restringe) y declara sus agentes ---"
+
+ORCH_ALLOWED_TOOLS=$(grep -E "^allowed-tools:" "$ORCHESTRATOR_SKILL" | head -1)
+
+# allowed-tools de una skill SUMA pre-aprobaciones, no restringe (verificado
+# ejecutando: Bash(git *) deja correr `git -c alias.x='!cmd' x`, es decir
+# cualquier comando; ver .planning/reviews/pre-pr-orchestrator-skill.md,
+# Ronda 2, M2 de security-reviewer). El commit 8cc659c afirmaba que
+# Bash(git *)/Bash(gh *)/Bash(jq *) "acotan" Bash: es falso, por eso este
+# check ahora exige la ausencia de Bash en cualquier forma.
+TOTAL=$((TOTAL + 1))
+if echo "$ORCH_ALLOWED_TOOLS" | grep -qE '(^|, )Bash(\(|,|$)'; then
+  echo -e "${RED}FAIL${NC}: allowed-tools todavía tiene Bash (pre-aprueba, no restringe)"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "${GREEN}PASS${NC}: allowed-tools no tiene Bash en ninguna forma"
+  PASS=$((PASS + 1))
+fi
+
+for agent in architect ui-ux db-specialist backend-dev frontend-dev docs security-reviewer qa-frontend qa-backend e2e-runner build-resolver; do
+  TOTAL=$((TOTAL + 1))
+  if echo "$ORCH_ALLOWED_TOOLS" | grep -qF "Agent(methodology:$agent)"; then
+    echo -e "${GREEN}PASS${NC}: allowed-tools declara Agent(methodology:$agent)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: allowed-tools no declara Agent(methodology:$agent)"
+    FAIL=$((FAIL + 1))
+  fi
+done
+
+echo ""
+echo "--- skills/orchestrator/SKILL.md §1: puntero al núcleo, sin redefinir el rol ---"
+
+assert_not_contains "$ORCHESTRATOR_SKILL" "Coordinas: entiendes el pedido, haces diseñar, repartes lotes" \
+  "§1 ya no redefine el rol (evita divergencia con global/CLAUDE.md)"
+assert_contains "$ORCHESTRATOR_SKILL" "para que no diverja" \
+  "§1 apunta a global/CLAUDE.md como fuente única del rol"
+
+echo ""
+echo "--- Tuteo consistente en global/CLAUDE.md y skills/orchestrator/SKILL.md ---"
+
+assert_no_voseo() {
+  local file="$1"
+  local pattern='\b([A-Za-zÁÉÍÓÚñ]*(ás|és|ís)|Cargá|cargala|obtené|leelo|retomá|[Vv]os)\b'
+  TOTAL=$((TOTAL + 1))
+  local hits
+  hits=$(grep -noE "$pattern" "$file" | grep -vE ':(está|estás|Después|después|acá|inglés)$' || true)
+  if [ -z "$hits" ]; then
+    echo -e "${GREEN}PASS${NC}: $file usa tuteo (sin formas voseantes)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $file tiene formas voseantes: $(echo "$hits" | tr '\n' ' ')"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_no_voseo "$REPO_ROOT/global/CLAUDE.md"
+assert_no_voseo "$ORCHESTRATOR_SKILL"
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then

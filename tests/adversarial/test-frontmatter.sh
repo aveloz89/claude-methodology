@@ -18,6 +18,12 @@
 #       deriva de agents/) para que borrar un agente sin limpiar sus
 #       menciones en prosa haga fallar este check (RED del PR 3, ver
 #       .planning/DESIGN.md, sección "Contratos").
+#   (h) una skill invocable por el modelo (sin disable-model-invocation:
+#       true) no tiene Bash en ninguna forma (Bash, Bash(...)) en
+#       allowed-tools: allowed-tools SUMA pre-aprobaciones, no restringe
+#       (verificado ejecutando, ver .planning/reviews/pre-pr-orchestrator-skill.md,
+#       Ronda 2, M2). Las skills solo invocables por el usuario quedan
+#       exentas: su invocación ya es una decisión explícita del usuario.
 #
 # Uso: bash tests/adversarial/test-frontmatter.sh
 
@@ -266,6 +272,22 @@ for skill_file in "$SKILLS_DIR"/*/SKILL.md; do
         "$skill_name: sin disable-model-invocation"
       ;;
   esac
+
+  # allowed-tools de una skill SUMA pre-aprobaciones, no restringe (verificado
+  # ejecutando: `Bash(git *)` deja correr `git -c alias.x='!cmd' x`, es decir
+  # cualquier comando, ver .planning/reviews/pre-pr-orchestrator-skill.md,
+  # Ronda 2, hallazgo M2 de security-reviewer). Una skill invocable por el
+  # modelo (sin disable-model-invocation: true) no controla cuándo se carga,
+  # así que no puede llevar Bash en ninguna forma. Las user-invocable-only
+  # quedan exentas porque su carga ya es una decisión explícita del usuario.
+  if [ "$disable_value" != "true" ]; then
+    TOTAL=$((TOTAL + 1))
+    if echo "$allowed_tools_line" | grep -qE '(^|, )Bash(\(|,|$)'; then
+      fail "$skill_name: invocable por el modelo con Bash en allowed-tools (pre-aprueba, no restringe)"
+    else
+      pass "$skill_name: invocable por el modelo sin Bash en allowed-tools"
+    fi
+  fi
 done
 
 echo ""

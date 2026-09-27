@@ -1,6 +1,6 @@
 # Orchestrator Runbook
 
-Detalle operativo del flujo de orchestration. **Lectura bajo demanda**: el comportamiento esencial vive en `CLAUDE.md` raíz y se carga siempre; este documento se consulta cuando necesitas un formato exacto, un comando específico o resolver una situación puntual.
+Detalle operativo del flujo de orchestration. **Lectura bajo demanda**: las invariantes viven en `CLAUDE.md` raíz y se cargan siempre; el manual de la sesión principal (fases, equipo de subagentes, lotes) vive en la skill `orchestrator`; este documento se consulta cuando necesitas un formato exacto, un comando específico o resolver una situación puntual.
 
 ---
 
@@ -39,16 +39,11 @@ Antes de diseñar o implementar nada, entiende qué quiere el usuario. **Nunca a
    - **Integraciones**: ¿APIs externas, dependencias?
    - **Prioridad**: si hay mucho, ¿qué primero?
 3. **Itera en rondas**. Después de cada respuesta, evalúa huecos y haz nueva ronda. NO saltes a diseño después de una sola ronda
-4. Cuando creas tener claridad, presenta el resumen y pregunta con `AskUserQuestion` (regla operativa de `CLAUDE.md`): dos opciones — avanzar al diseño, u otra ronda de preguntas sobre lo que siga abierto. Marca la recomendada. En prosa no: la decisión enterrada en un párrafo se pierde
+4. Cuando creas tener claridad, presenta el resumen y pregunta con `AskUserQuestion` (regla operativa de la skill `orchestrator`): dos opciones — avanzar al diseño, u otra ronda de preguntas sobre lo que siga abierto. Marca la recomendada. En prosa no: la decisión enterrada en un párrafo se pierde
 5. **Solo avanza al diseño con confirmación explícita del usuario.** Si agrega contexto, otra ronda
 6. Con confirmación, escribe `.planning/BRIEF.md` (formato más abajo) y avanza
 
-**Cuándo saltar brainstorming:**
-
-- Bug fix con pasos de reproducción claros
-- Tarea técnica acotada y concreta ("actualiza dependencia X", "cambia puerto 3000 a 8080")
-
-**NUNCA saltes brainstorming para features o cambios funcionales**, aunque el requerimiento parezca detallado. Mínimo una ronda de preguntas.
+**Cuándo saltar brainstorming:** las cuatro condiciones AND completas viven en la skill `orchestrator`, sección 3 (Brainstorming). No hay una segunda lista acá — si algo parece divergir, gana la skill.
 
 ### Fase 0.5: Design system (si hay UI)
 
@@ -528,7 +523,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ### Retomar (resume)
 
-Pasos exactos cuando el hook `session-start-context.sh` detecta `HANDOFF.md` (ver "Pause / Resume" en `CLAUDE.md` raíz para el resumen):
+Pasos exactos cuando el hook `session-start-context.sh` detecta `HANDOFF.md` (ver "Pause / Resume" en la skill `orchestrator` para el resumen):
 
 1. **Leer** `HANDOFF.md` + `STATE.md` + `state.json` — el HANDOFF da el corte exacto, `STATE.md` las decisiones, `state.json` la fase y el lote activos.
 2. **Smoke test ANTES de tocar código.** Misma detección de runner que `hooks/pre-commit-guard.sh`:
@@ -606,7 +601,7 @@ O archivos `.ts` / `.js` bajo:
 
 ### Documentos normativos del sistema de agentes
 
-Un diff que toca `rules/`, `rulebooks/`, `agents/`, `skills/` o `global/CLAUDE.md` va a **`qa-backend`**, con criterio de coherencia normativa y anti-drift en vez de capas de aplicación (ver `agents/qa-backend.md`). No hay capa de aplicación que clasificar ahí: el contrato son los documentos.
+Un diff que toca `rules/`, `rulebooks/`, `agents/`, `skills/` (incluida `skills/orchestrator/SKILL.md`) o `global/CLAUDE.md` va a **`qa-backend`**, con criterio de coherencia normativa y anti-drift en vez de capas de aplicación (ver `agents/qa-backend.md`). No hay capa de aplicación que clasificar ahí: el contrato son los documentos.
 
 Sin esta entrada, un diff 100% de metodología no matchea ninguna capa y el ruteo automático no invoca a nadie — pasó en esta misma sesión, donde el review ocurrió solo porque el orchestrator lo pidió a mano.
 

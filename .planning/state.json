@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "feature": "audit-best-practices",
-  "branch": "feature/audit-best-practices",
-  "pr": 79,
-  "review_sha": "2054c67",
+  "branch": "feature/orchestrator-skill",
+  "pr": 80,
+  "review_sha": "28bc248",
   "updated": "2026-09-26T00:00:00Z",
   "phases": {
     "brainstorming": "done",
@@ -18,29 +18,38 @@
   },
   "batches": [
     {
-      "id": "L1",
-      "name": "hooks-formato-if-matcher-failclosed",
+      "id": "L3",
+      "name": "skill-orchestrator-nucleo-recordatorio",
       "agent": "backend-dev",
       "status": "done",
       "tasks_done": 5,
       "tasks_total": 5,
       "current_task": null,
-      "commits": [],
+      "commits": [
+        "333d6f5",
+        "920a413",
+        "c9cf8d0",
+        "c817364",
+        "43f94a0"
+      ],
       "last_batch": false,
       "depends_on": []
     },
     {
-      "id": "L2",
-      "name": "frontmatter-skills-validacion",
+      "id": "L4",
+      "name": "medicion-y-cierre-pr2",
       "agent": "backend-dev",
       "status": "done",
-      "tasks_done": 5,
-      "tasks_total": 5,
+      "tasks_done": 3,
+      "tasks_total": 3,
       "current_task": null,
-      "commits": [],
+      "commits": [
+        "5addeab",
+        "2896cc5"
+      ],
       "last_batch": true,
       "depends_on": [
-        "L1"
+        "L3"
       ]
     }
   ]

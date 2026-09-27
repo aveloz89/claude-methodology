@@ -4,7 +4,7 @@ Sistema de agentes especializados, hooks de automatización y workflows para des
 
 ## Qué incluye
 
-El **orchestrator** no es un subagente: es el Claude de la sesión principal, definido en `global/CLAUDE.md` (instalado como `~/.claude/CLAUDE.md`). Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 13 agentes:
+El **orchestrator** no es un subagente: es el Claude de la sesión principal. Las invariantes viven en `global/CLAUDE.md` (instalado como `~/.claude/CLAUDE.md`); el manual operativo — fases 0 a 5, equipo de subagentes, lotes — vive en la skill `orchestrator`. Coordina el flujo (brainstorming → diseño → implementación → review → merge) y delega en estos 13 agentes:
 
 ### Agentes (13)
 | Agente | Modelo | Rol |
@@ -43,9 +43,10 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal, de
 
 Los tres hooks de observabilidad (`pre-compact-snapshot`, `subagent-stop-log`, `session-end-check`) escriben sus artefactos bajo `~/.claude/methodology/` (`snapshots/`, `logs/`, `session-end/`, uno por repo vía slug) con retención acotada (5 snapshots más recientes por repo, log rotado a `.old` al superar 1 MB, marker de sesión sobrescrito en cada cierre); el directorio entero se puede borrar sin riesgo — se regenera solo en la siguiente invocación de cada hook.
 
-### Skills (4)
+### Skills (5)
 | Skill | Qué hace |
 |-------|----------|
+| **orchestrator** | Manual operativo de la sesión principal: fases 0 a 5, equipo de subagentes, lotes y handoff, tracker de sesión, pause/resume — se carga al iniciar cualquier trabajo que termine en un PR |
 | **/new-project** | Scaffold de proyecto con gitflow, GitHub Actions CI/CD, CLAUDE.md |
 | **/refactor-scan** | Escanea el codebase buscando code smells y genera un reporte priorizado |
 | **/pr-workflow** | Review dual local pre-push, presupuesto de CI, E2E pre-release, branch protection y verificación pre-merge — se invoca en Fase 2.6 o al trabajar sobre un PR existente |
@@ -184,6 +185,8 @@ claude-methodology/
 │   └── validation-schedule.md
 ├── skills/
 │   ├── new-project/
+│   │   └── SKILL.md
+│   ├── orchestrator/
 │   │   └── SKILL.md
 │   ├── pr-workflow/
 │   │   └── SKILL.md

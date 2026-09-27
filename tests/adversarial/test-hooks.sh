@@ -3963,6 +3963,32 @@ else
 fi
 sandbox_cleanup
 
+# Caso: recordatorio de cargar la skill orchestrator — presente dentro de un
+# repo git, ausente fuera de uno (el hook sale temprano sin imprimir nada).
+sandbox_create
+OUTPUT_REMINDER=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+TOTAL=$((TOTAL + 1))
+if echo "$OUTPUT_REMINDER" | grep -q "methodology:orchestrator"; then
+  echo -e "${GREEN}PASS${NC}: SessionStart recuerda cargar la skill methodology:orchestrator dentro de un repo git"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart no menciona methodology:orchestrator (output: $OUTPUT_REMINDER)"
+  FAIL=$((FAIL + 1))
+fi
+sandbox_cleanup
+
+NON_GIT_DIR=$(mktemp -d)
+OUTPUT_NON_GIT=$(cd "$NON_GIT_DIR" && bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+TOTAL=$((TOTAL + 1))
+if [ -z "$OUTPUT_NON_GIT" ]; then
+  echo -e "${GREEN}PASS${NC}: SessionStart no imprime nada (ni el recordatorio) fuera de un repo git"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart imprimió algo fuera de un repo git (output: $OUTPUT_NON_GIT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$NON_GIT_DIR"
+
 # Caso: con marker presente, la primera invocación avisa con las señales y
 # borra el marker (consume-once); la segunda invocación ya no avisa.
 sandbox_create
