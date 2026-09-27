@@ -678,6 +678,18 @@ assert_contains "$DEV_COMMON" "rulebooks/build-errors.md" \
   "dev-common.md apunta a build-errors.md para el detalle de las guardas"
 
 echo ""
+echo "--- rulebooks/dev-common.md: recibe Handoff, Reglas heredadas, Flujo de trabajo y Desviaciones de los devs ---"
+
+assert_contains "$DEV_COMMON" "## Handoff: qué recibes y qué entregas" \
+  "dev-common.md tiene la sección Handoff común a backend-dev/frontend-dev"
+assert_contains "$DEV_COMMON" "## Reglas heredadas (no reimplementar acá)" \
+  "dev-common.md tiene la sección Reglas heredadas común a backend-dev/frontend-dev"
+assert_contains "$DEV_COMMON" "## Flujo de trabajo" \
+  "dev-common.md tiene la sección Flujo de trabajo común a backend-dev/frontend-dev"
+assert_contains "$DEV_COMMON" "## Desviaciones del diseño" \
+  "dev-common.md tiene la sección Desviaciones del diseño común a backend-dev/frontend-dev"
+
+echo ""
 echo "--- rulebooks/db-migrations.md: referencia circular corregida ---"
 
 assert_not_contains "$DB_MIGRATIONS" "Migraciones de DB: simple vs complejo" \
