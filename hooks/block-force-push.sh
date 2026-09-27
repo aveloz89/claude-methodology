@@ -59,7 +59,12 @@ SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 # "push\s+" ya consumió el único espacio real antes del "-" de la flag,
 # así que "push\b" (en vez de "push\s+") deja ese espacio disponible para
 # que el propio cluster lo exija como borde.
-FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_TREE_OPTS}push\b.*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
+#
+# GUARD_GIT_GLOBAL_OPTS (D-07, review dual ronda 1): tolera "-c <k=v>"
+# (una o varias) y "--no-pager" antes de "push" — sin esto, "git -c
+# user.name=x push --force" no matcheaba y el force push real pasaba SIN
+# EVALUAR. Ver hooks/lib/guard-matching.sh.
+FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_GLOBAL_OPTS}${GUARD_GIT_TREE_OPTS}push\b.*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
 
 if echo "$SANITIZED_COMMAND" | grep -qE "$FORCE_PATTERN"; then
   echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2
@@ -96,7 +101,7 @@ fi
 # coincidencia de `"--force"` citada tal cual dentro de un mensaje, junto a
 # un push real sin force en el mismo comando compuesto, bloquearía por esta
 # vía.
-PUSH_ANCHORED_PATTERN="${GUARD_ANCHOR}git\s+push\b"
+PUSH_ANCHORED_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_GLOBAL_OPTS}${GUARD_GIT_TREE_OPTS}push\b"
 QUOTED_FORCE_PATTERN="[\"'](-f|--force(-with-lease(=[^\"']*)?)?)[\"']"
 
 if echo "$SANITIZED_COMMAND" | grep -qE "$PUSH_ANCHORED_PATTERN" \

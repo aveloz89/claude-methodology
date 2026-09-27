@@ -41,8 +41,11 @@ fi
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
 # GUARD_GIT_TREE_OPTS detecta "git -C <ruta> reset --hard" como el mismo
-# reset real (#77 comentario 2, D1).
-if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+${GUARD_GIT_TREE_OPTS}reset\s+--hard"; then
+# reset real (#77 comentario 2, D1). GUARD_GIT_GLOBAL_OPTS (D-07, review
+# dual ronda 1) tolera "-c <k=v>"/"--no-pager" antes de "reset" — sin esto
+# "git -c user.name=x reset --hard" no matcheaba y el reset real pasaba
+# SIN EVALUAR. Ver hooks/lib/guard-matching.sh.
+if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+${GUARD_GIT_GLOBAL_OPTS}${GUARD_GIT_TREE_OPTS}reset\s+--hard"; then
   echo "BLOCKED: git reset --hard descarta cambios irreversiblemente. Usa git stash o git reset --soft." >&2
   exit 2
 fi

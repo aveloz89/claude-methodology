@@ -348,6 +348,22 @@ assert_ppg_blocked_msg "pre-push-guard: 'git -C . push origin main' bloquea con 
 assert_ppg_blocked_msg "pre-push-guard: 'GIT_DIR=x git push' bloquea con mensaje de redirección (E3)" \
   "GIT_DIR=x git push" "$SANDBOX_REPO" "no resuelve redirecciones"
 
+# D-07 (review dual ronda 1, informativo): "-c <clave=valor>"/"--no-pager"
+# antes de "push" no matcheaban PUSH_RE (nada consumía esa opción entre
+# "git" y "push"), así que un push real a main con esa opción por delante
+# pasaba SIN EVALUAR (exit 0) en vez de bloquear por ser push directo a
+# main. Sigue en main (checkout de E3, arriba); commit --allow-empty para
+# que HEAD deje de ser el merge commit de "Caso 4" (que el guard permite
+# sin más) y vuelva a ser un commit non-merge — se restaura después (E4/E5
+# reutilizan este mismo SANDBOX_REPO asumiendo el HEAD merge de Caso 4).
+PUSH_D07_HEAD=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
+(cd "$SANDBOX_REPO" && git commit -q --allow-empty -m "d07 non-merge")
+assert_blocked_cmd "pre-push-guard: 'git -c user.name=x push origin main' bloquea (D-07)" \
+  "pre-push-guard.sh" "git -c user.name=x push origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: 'git --no-pager push origin main' bloquea (D-07)" \
+  "pre-push-guard.sh" "git --no-pager push origin main" "$PATH" "$SANDBOX_REPO"
+(cd "$SANDBOX_REPO" && git reset -q --hard "$PUSH_D07_HEAD")
+
 # E4: el branch se lee del ".cwd" del input, no del cwd del PROCESO del
 # hook — mismo criterio que pre-commit-guard. run_cwd (proceso) queda en la
 # raíz de este repo (no en el sandbox); solo HOOK_JSON_CWD apunta al
@@ -595,6 +611,24 @@ assert_blocked_cmd "block-force-push: git push -f sigue bloqueando (borde real)"
   "block-force-push.sh" \
   "git push -f"
 
+# D-07 (review dual ronda 1, informativo): opciones globales de git antes
+# del subcomando — "-c <clave=valor>" (una o varias) y "--no-pager" — son
+# formas honestas que antes no matcheaban el ancla "git\s+push" (nada
+# consumía "-c ... "/"--no-pager " entre "git" y "push"), así que un push
+# --force real con esa opción por delante pasaba SIN EVALUAR.
+assert_blocked_cmd "block-force-push: git -c user.name=x push --force blocks (D-07)" \
+  "block-force-push.sh" \
+  "git -c user.name=x push --force"
+assert_blocked_cmd "block-force-push: git -c a=b -c c=d push -f blocks (D-07, dos -c)" \
+  "block-force-push.sh" \
+  "git -c a=b -c c=d push -f"
+assert_blocked_cmd "block-force-push: git --no-pager push --force blocks (D-07)" \
+  "block-force-push.sh" \
+  "git --no-pager push --force"
+assert_allowed_cmd "block-force-push: git -c user.name=x push (sin force) allowed (D-07)" \
+  "block-force-push.sh" \
+  "git -c user.name=x push"
+
 echo ""
 
 # --- block-hard-reset.sh ---
@@ -641,6 +675,19 @@ assert_allowed_cmd "block-hard-reset: git reset --soft HEAD~1 allowed" \
 assert_allowed_cmd "block-hard-reset: git -C repo reset --soft allowed" \
   "block-hard-reset.sh" \
   "git -C repo reset --soft"
+
+# D-07 (review dual ronda 1, informativo): mismo hueco que en
+# block-force-push — "-c <clave=valor>"/"--no-pager" antes de "reset
+# --hard" no matcheaban el ancla y el reset real pasaba sin evaluar.
+assert_blocked_cmd "block-hard-reset: git -c user.name=x reset --hard blocks (D-07)" \
+  "block-hard-reset.sh" \
+  "git -c user.name=x reset --hard"
+assert_blocked_cmd "block-hard-reset: git --no-pager reset --hard blocks (D-07)" \
+  "block-hard-reset.sh" \
+  "git --no-pager reset --hard"
+assert_allowed_cmd "block-hard-reset: git -c user.name=x reset --soft allowed (D-07)" \
+  "block-hard-reset.sh" \
+  "git -c user.name=x reset --soft"
 
 echo ""
 

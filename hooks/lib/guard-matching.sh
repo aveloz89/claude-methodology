@@ -59,6 +59,18 @@ GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
 # shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
 GUARD_GIT_TREE_OPTS='((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?\s+)*'
 
+# Fragmento de regex ERE que consume, cero o más veces, una opción global de
+# git que no cambia el árbol de trabajo: "-c <clave=valor>" (una o varias)
+# y "--no-pager" — usado junto a GUARD_GIT_TREE_OPTS entre "git" y el
+# subcomando vigilado (push, reset --hard). D-07 (review dual ronda 1): sin
+# esto, "git -c user.name=x push" o "git --no-pager reset --hard" no
+# matcheaban el "git\s+push"/"git\s+reset\s+--hard" que cada guard ancla —
+# el "-c ..."/"--no-pager" quedaba entre medio sin que ningún fragmento lo
+# consumiera — así que el push/reset real pasaba SIN EVALUAR, no bloqueado
+# a propósito: un fail-open silencioso sobre una forma honesta.
+# shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
+GUARD_GIT_GLOBAL_OPTS='((-c\s+\S+|--no-pager)\s+)*'
+
 # Fragmento de regex ERE que reconoce "gh ... pr ... merge" tolerando hasta
 # 2 tokens entre "gh"/"pr" y entre "pr"/"merge" (formas como "gh -R x pr
 # merge N", que gh acepta de verdad). Antes vivía inline en

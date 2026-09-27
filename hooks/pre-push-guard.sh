@@ -47,7 +47,11 @@ SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 # ("GIT_DIR=... git push") entre el ancla y "push": esas formas SÍ son un
 # push real y tienen que llegar al chequeo de redirección de abajo, no
 # salir en 0 sin evaluarlas.
-PUSH_RE="${GUARD_ANCHOR}((GIT_DIR|GIT_WORK_TREE)=\S*\s+)*git\s+${GUARD_GIT_TREE_OPTS}push\b"
+# GUARD_GIT_GLOBAL_OPTS (D-07, review dual ronda 1) tolera "-c <k=v>"/
+# "--no-pager" antes de "push" — sin esto, "git -c user.name=x push origin
+# main" no matcheaba y un push real a main pasaba SIN EVALUAR (exit 0) en
+# vez de bloquear por ser push directo a main. Ver hooks/lib/guard-matching.sh.
+PUSH_RE="${GUARD_ANCHOR}((GIT_DIR|GIT_WORK_TREE)=\S*\s+)*git\s+${GUARD_GIT_GLOBAL_OPTS}${GUARD_GIT_TREE_OPTS}push\b"
 if ! echo "$SANITIZED_COMMAND" | grep -qE "$PUSH_RE"; then
   exit 0
 fi
