@@ -10,34 +10,21 @@ LIB="${0%/*}/lib/guard-matching.sh"
 source "$LIB"
 guard_init "block-force-push"
 
-# #77 comentario 2: un refspec forzado (+<ref>, ej. "git push origin
-# +main") es equivalente a --force y antes pasaba sin bloquear, igual que
-# la flag -f dentro de un cluster corto (ej. "-fu", "-uf") y "git -C <ruta>
-# push" (GUARD_GIT_TREE_OPTS detecta el mismo push real con esa opción de
-# árbol entre "git" y "push").
+# Un refspec forzado (+<ref>, ej. "git push origin +main") equivale a
+# --force, igual que -f dentro de un cluster corto ("-fu", "-uf").
+# GUARD_GIT_OPTS (guard-matching.sh) tolera, en cualquier orden, las
+# opciones de git ("-c k=v", "--no-pager", "-P", "-C"/"--git-dir"/
+# "--work-tree") entre "git" y "push", para seguir detectando el mismo
+# push real con esas opciones de por medio.
 #
-# Borde izquierdo del cluster (review dual ronda 1, security LOW, falso
-# bloqueo): sin "(^|[[:space:]])" antes del "-", el cluster matchea la "f"
-# de un TOKEN que no es una flag, como el sufijo "-form"/"-flags" de un
-# nombre de branch ("fix/login-form", "feature/add-feature-flags") —
-# "push\s+" ya consumió el único espacio real antes del "-" de la flag,
-# así que "push\b" (en vez de "push\s+") deja ese espacio disponible para
-# que el propio cluster lo exija como borde.
+# El cluster corto exige "(^|espacio)" a su izquierda: sin ese borde,
+# matchea la "f" de un token que no es una flag, como el sufijo de
+# "fix/login-form" o "feature/add-feature-flags".
 #
-# GUARD_GIT_OPTS (D-07, review dual ronda 1 y 2): tolera, en cualquier
-# orden, "-c <k=v>" (una o varias), "--no-pager", "-P" y las opciones de
-# árbol ("-C <ruta>", "--git-dir"/"--work-tree") antes de "push" — sin
-# esto, "git -c user.name=x push --force" no matcheaba y el force push
-# real pasaba SIN EVALUAR. Ver hooks/lib/guard-matching.sh.
-#
-# El ".*" entre "push\b" y la flag NO cruza un separador de comando real
-# (&&, ;, |) — ronda 2, security LOW, falso bloqueo: antes, "git push
-# origin feature/fix-flaky && echo -f" (sin --force) bloqueaba igual,
-# porque el ".*" greedy se estiraba hasta la "-f" de "echo -f", un
-# comando DISTINTO después del "&&". La invocación real de "push" termina
-# en el primer separador de comando. Un salto de línea real no necesita
-# entrar al charset: grep procesa línea por línea por defecto, así que
-# ninguna de las dos partes del patrón puede cruzar uno sin ayuda extra.
+# El "[^&|;]*" entre "push\b" y la flag no cruza un separador de comando
+# real (&&, ;, |): sin esto, "git push origin x && echo -f" (sin
+# --force) bloquearía igual, porque el charset se estiraría hasta la
+# "-f" de un comando distinto después del separador.
 
 # guard_force_with_lease_allowed: 0 (permitido) solo si el branch actual
 # (de guard_session_dir) NO es main/master/dev y ningún token del segmento
