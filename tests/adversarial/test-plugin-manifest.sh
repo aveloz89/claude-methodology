@@ -914,6 +914,21 @@ else
 fi
 
 echo ""
+echo "--- reviewers: no escriben el registro de review (#71) ---"
+
+for agent in security-reviewer qa-backend qa-frontend; do
+  AGENT_FILE="$REPO_ROOT/agents/$agent.md"
+  TOTAL=$((TOTAL + 1))
+  if grep -q "no escrib.*registro de review" "$AGENT_FILE"; then
+    echo -e "${GREEN}PASS${NC}: agents/$agent.md aclara que no escribe el registro de review"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: agents/$agent.md no aclara que no escribe el registro de review"
+    FAIL=$((FAIL + 1))
+  fi
+done
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then
