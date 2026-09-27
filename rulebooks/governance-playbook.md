@@ -97,7 +97,7 @@ Output del agente es de baja calidad / incorrecto / incompleto
      → git log agents/<agente>.md para ver cambios
   → Paso 3: Si el prompt está correcto, hacer review manual
      → El orchestrator o el usuario revisan el output directamente
-     → Abrí un issue si el patrón se repite
+     → Abre un issue si el patrón se repite
   → Paso 4: Si es un patrón recurrente
      → Ajustar el prompt del agente
      → Agregar el caso como test de validación (tests/validation/)
@@ -152,4 +152,4 @@ El context-monitor avisa que el contexto está en 25% (critical)
 
 Distinto de #9 — acá el corte es del *sub-agente* (dev, qa, etc.), no de la sesión del usuario. Causa raíz típica: el orchestrator pasó demasiadas tareas en una invocación.
 
-El fallback completo (leer `HANDOFF.md`, confirmar commits per-tarea, reinvocar bajo el cap de 5) y su prevención viven en `rulebooks/agent-budget.md` — no se duplican acá. Si el agente se cortó sin aplicarlo: sin commits, re-invoca desde cero con el cap; con commits parciales, continúa desde la última tarea completada. Abrí un issue si el patrón se repite.
+El fallback completo (leer `HANDOFF.md`, confirmar commits per-tarea, reinvocar bajo el cap de 5) y su prevención viven en `rulebooks/agent-budget.md` — no se duplican acá. Si el agente se cortó sin aplicarlo: sin commits, re-invoca desde cero con el cap; con commits parciales, continúa desde la última tarea completada. Abre un issue si el patrón se repite.

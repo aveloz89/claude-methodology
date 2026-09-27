@@ -46,13 +46,13 @@ El architect ya entregó el plan con lotes y estrategia de PR. **Tu trabajo es s
 
 Setup del branch (una sola vez): `git checkout dev && git pull origin dev && git checkout -b feature/<feature-slug>`. Los devs **no crean branches nuevos** — trabajan sobre el que ya creaste.
 
-**Modo single-PR (default):** todos los lotes corren sobre el mismo branch. Invocás cada lote en orden con `last_batch=false`; el dev commitea por tarea y termina sin push ni PR; esperás su reporte antes de pasar al siguiente. El último lote lleva `last_batch=true` (verificación final completa, sin push ni PR) — después vienen docs (2.5), review dual local (2.6) y push + PR (2.7). **Con lote `db-complejo`**: primero ese lote (schema, migraciones, queries, tests de DB, con `rulebooks/db-migrations.md`), después el resto de `backend-dev`, `frontend-dev` al final. Back/front paralelizan si son archivos disjuntos. Un plan con lote consumidor antes del `db-complejo` se devuelve al architect.
+**Modo single-PR (default):** todos los lotes corren sobre el mismo branch. Invocas cada lote en orden con `last_batch=false`; el dev commitea por tarea y termina sin push ni PR; esperas su reporte antes de pasar al siguiente. El último lote lleva `last_batch=true` (verificación final completa, sin push ni PR) — después vienen docs (2.5), review dual local (2.6) y push + PR (2.7). **Con lote `db-complejo`**: primero ese lote (schema, migraciones, queries, tests de DB, con `rulebooks/db-migrations.md`), después el resto de `backend-dev`, `frontend-dev` al final. Back/front paralelizan si son archivos disjuntos. Un plan con lote consumidor antes del `db-complejo` se devuelve al architect.
 
 **Modo multi-PR** (solo si el architect lo justificó): cada grupo de lotes corre sobre branch + PR propio — branch desde dev, lotes del grupo (último `last_batch=true`), Fase 2.5 → 2.6 → 2.7 → 2.8 → 3 → 5, y al siguiente grupo.
 
-**Si un dev reporta `BUDGET LIMIT`**: lee `.planning/HANDOFF.md`, reinvocalo con solo las tareas restantes, y abrí un issue si el patrón se repite.
+**Si un dev reporta `BUDGET LIMIT`**: lee `.planning/HANDOFF.md`, reinvócalo con solo las tareas restantes, y abre un issue si el patrón se repite.
 
-**Si un dev reporta error de build/CI que no resuelve**: reinvocalo con `rulebooks/build-errors.md`, en el mismo branch.
+**Si un dev reporta error de build/CI que no resuelve**: reinvócalo con `rulebooks/build-errors.md`, en el mismo branch.
 
 ### Fase 2.5: Documentación (pre-push)
 
@@ -63,9 +63,9 @@ Cuando el último lote reporta completado, corre `git diff --stat <base>...HEAD`
 El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` revisan el diff local y las rondas de fixes suceden sin pushear nada. El PR nace revisado y el caso normal cuesta un solo run de CI. `<base>` = branch base del PR futuro (normalmente `dev`).
 
 1. Clasifica el diff local por capa (`git diff --name-only <base>...HEAD` + "Clasificación del diff por capa") y presupuesta el review proporcional (`git diff --shortstat`, misma tabla que la skill `review-pr` paso 3)
-2. Lanza en paralelo: `security-reviewer` siempre, `qa-frontend`/`qa-backend` según la capa (single message, multiple Agent calls). Paquete de contexto: base + branch + diff + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida — sin número de PR, no existe todavía. Si el diff introduce una regla nueva, decilo (el reviewer la aplica al propio diff). Si corre suites desde un worktree, que use su propia base de test
-3. **Consolida y registra**: el orchestrator es el único escritor del registro — ningún reviewer lo toca (tienen `Write`/`Edit` prohibidos). Consolidás los reportes **después de que vuelvan todos**, con el "Formato de reporte de review", guardado local (sin commit) en `.planning/reviews/<feature-slug>.md`
-4. **Mientras haya un reviewer corriendo, el árbol no se mueve.** Esperá a que vuelvan todos antes de aplicar nada. Vale igual para un dev en paralelo: si un lote y un review tocan los mismos archivos, no van juntos
+2. Lanza en paralelo: `security-reviewer` siempre, `qa-frontend`/`qa-backend` según la capa (single message, multiple Agent calls). Paquete de contexto: base + branch + diff + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida — sin número de PR, no existe todavía. Si el diff introduce una regla nueva, dilo (el reviewer la aplica al propio diff). Si corre suites desde un worktree, que use su propia base de test
+3. **Consolida y registra**: el orchestrator es el único escritor del registro — ningún reviewer lo toca (tienen `Write`/`Edit` prohibidos). Consolidas los reportes **después de que vuelvan todos**, con el "Formato de reporte de review", guardado local (sin commit) en `.planning/reviews/<feature-slug>.md`
+4. **Mientras haya un reviewer corriendo, el árbol no se mueve.** Espera a que vuelvan todos antes de aplicar nada. Vale igual para un dev en paralelo: si un lote y un review tocan los mismos archivos, no van juntos
 5. **Si hay bloqueantes**: fixes por el dev correspondiente, sin push (schema/migración va a `backend-dev` con `rulebooks/db-migrations.md`). Re-lanza solo los reviewers que marcaron issues, acotados al delta local. Sugerencias baratas: aplicadas antes del push (skill `pr-workflow`, regla 2)
 6. **Veredictos limpios**: `phases.review = done` y `review_sha` al SHA de HEAD, avanza a Fase 2.7. Fixes, sugerencias y registro viajan en el push inicial: **el PR nace revisado**
 
@@ -89,7 +89,7 @@ gh pr checks <number> --watch --fail-fast
 
 **El chequeo de `mergeable` va primero y no es opcional.** GitHub no crea ninguna corrida en un PR con conflictos, así que un `--watch` esperaría algo que nunca llega — se lee igual que "CI encolado". `CONFLICTING`/`DIRTY` → resolver el conflicto (nunca `--force`). `UNKNOWN` → reintentar, no es verde.
 
-Si falla algún check: leé logs (`gh run view <run-id> --log-failed`), asigná el fix (build/lint → dev del PR; DB → `backend-dev` con `rulebooks/db-migrations.md`), corregí en el mismo branch y **reproducí el check fallido localmente antes de pushear**. Si el fix cambia código ya revisado, anotalo para el re-review de Fase 3. **Máximo 3 intentos**: si un fix introduce una regresión nueva, ese intento no cuenta; si el mismo error persiste tras 3 ciclos genuinos, escalás al usuario.
+Si falla algún check: lee logs (`gh run view <run-id> --log-failed`), asigna el fix (build/lint → dev del PR; DB → `backend-dev` con `rulebooks/db-migrations.md`), corrige en el mismo branch y **reproduce el check fallido localmente antes de pushear**. Si el fix cambia código ya revisado, anótalo para el re-review de Fase 3. **Máximo 3 intentos**: si un fix introduce una regresión nueva, ese intento no cuenta; si el mismo error persiste tras 3 ciclos genuinos, escalas al usuario.
 
 **Cuándo NO monitorear CI**: sin GitHub Actions, o el usuario lo pide.
 
@@ -130,7 +130,7 @@ El review dual ya ocurrió en Fase 2.6: **el PR nació revisado**. Esta fase cub
 
 ## Template del prompt de handoff a devs
 
-Cada subagente recibe un paquete de contexto armado por vos, **no el historial completo ni tareas de otros lotes**: `architect` recibe `BRIEF.md` completo; `backend-dev`/`frontend-dev` reciben solo las tareas y la sección de `DESIGN.md` de su lote + path al schema/contratos + branch + `last_batch` + `rules/<lenguaje>.md` (y en `db-complejo`, además schema actual + `rulebooks/db-migrations.md`); si no es el primer lote, instrucción de leer `git log`/`STATE.md`/`state.json`; `security-reviewer`/`qa-*` reciben la fuente del diff (local o `gh pr diff`, según la fase) + `DESIGN.md` + `BRIEF.md`.
+Cada subagente recibe un paquete de contexto armado por ti, **no el historial completo ni tareas de otros lotes**: `architect` recibe `BRIEF.md` completo; `backend-dev`/`frontend-dev` reciben solo las tareas y la sección de `DESIGN.md` de su lote + path al schema/contratos + branch + `last_batch` + `rules/<lenguaje>.md` (y en `db-complejo`, además schema actual + `rulebooks/db-migrations.md`); si no es el primer lote, instrucción de leer `git log`/`STATE.md`/`state.json`; `security-reviewer`/`qa-*` reciben la fuente del diff (local o `gh pr diff`, según la fase) + `DESIGN.md` + `BRIEF.md`.
 
 Aplica para `backend-dev`, `frontend-dev`. El formato del prompt:
 
@@ -158,7 +158,7 @@ Rules aplicables:
 
 Si no es el primer lote: lee `git log`, `.planning/STATE.md` y `.planning/state.json` antes de empezar.
 
-Si trabajás o corrés suites desde un worktree: exportá tu propia base de test (`TEST_DATABASE_URL` o el equivalente del proyecto, ej. `<base>_<lote>`) para no pisar la corrida del árbol principal ni bloquear el hook de pre-commit de otro agente.
+Si trabajas o corres suites desde un worktree: exporta tu propia base de test (`TEST_DATABASE_URL` o el equivalente del proyecto, ej. `<base>_<lote>`) para no pisar la corrida del árbol principal ni bloquear el hook de pre-commit de otro agente.
 
 Si last_batch=false: NO push, NO PR. Reporta completado.
 Si last_batch=true: verificación final completa del branch y reporta listo.
@@ -295,7 +295,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ### Retomar (resume)
 
-Cuando `session-start-context.sh` detecta `HANDOFF.md` (ver "Pause / Resume" en la skill `orchestrator`): leé `HANDOFF.md` + `STATE.md` + `state.json` (corte, decisiones, fase/lote activos); corré el smoke test del proyecto ANTES de tocar código (misma detección de runner que `hooks/pre-commit-guard.sh` — Node/pytest según lockfile/config; sin runner, anotalo y seguí; rojo, diagnosticá antes de retomar); recién con el estado confirmado, eliminá `HANDOFF.md` y retomá la tarea de `current_task`.
+Cuando `session-start-context.sh` detecta `HANDOFF.md` (ver "Pause / Resume" en la skill `orchestrator`): lee `HANDOFF.md` + `STATE.md` + `state.json` (corte, decisiones, fase/lote activos); corre el smoke test del proyecto ANTES de tocar código (misma detección de runner que `hooks/pre-commit-guard.sh` — Node/pytest según lockfile/config; sin runner, anótalo y sigue; rojo, diagnostica antes de retomar); recién con el estado confirmado, elimina `HANDOFF.md` y retoma la tarea de `current_task`.
 
 ---
 
@@ -411,7 +411,7 @@ El registro vive en `.planning/reviews/<feature-slug>.md` (local, sin commit —
 
 **Solo aplica para PRs a `main` (release).** Para PRs a `dev`, el usuario invoca a `e2e-runner` aparte (Modo A) — no es tu scope.
 
-Antes de la verificación pre-merge: `docker compose up -d && docker compose ps`, verificá `healthy` en todos los servicios (si alguno falla, escala al dev antes de lanzar E2E). Invocá `e2e-runner` Modo B con branch del PR, lista de archivos del diff (`gh pr view <PR> --json files --jq '.files[].path'`) y URL base del frontend. El agente trabaja directo sobre el branch: crea tests si faltan, corre los existentes, commitea y pushea. Si fallan → **BLOQUEANTE**, asigná el fix al dev correspondiente y el `e2e-runner` re-ejecuta. **Máximo 3 ciclos**; si sigue fallando, escala al usuario.
+Antes de la verificación pre-merge: `docker compose up -d && docker compose ps`, verifica `healthy` en todos los servicios (si alguno falla, escala al dev antes de lanzar E2E). Invoca `e2e-runner` Modo B con branch del PR, lista de archivos del diff (`gh pr view <PR> --json files --jq '.files[].path'`) y URL base del frontend. El agente trabaja directo sobre el branch: crea tests si faltan, corre los existentes, commitea y pushea. Si fallan → **BLOQUEANTE**, asigna el fix al dev correspondiente y el `e2e-runner` re-ejecuta. **Máximo 3 ciclos**; si sigue fallando, escala al usuario.
 
 **Cuándo NO ejecutar E2E pre-release** (raro):
 

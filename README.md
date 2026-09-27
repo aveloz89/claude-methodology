@@ -24,7 +24,7 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal. La
 | Hook | Evento | Qué hace |
 |------|--------|----------|
 | **pre-commit-guard** | PreToolUse (Bash) | Resuelve el árbol al que va el commit —cwd de la sesión o `cd /ruta/absoluta && git commit`, allowlist de dos formas— y corre tests ahí. Detecta pnpm/yarn/npm/pytest. Sin marcador de runner (`package.json`/`pyproject.toml`/`setup.py`/`pytest.ini`) en la raíz del árbol resuelto (#86): deriva un candidato por el primer segmento de cada path con cambios locales que sí tenga marcador arriba, corre todos (presupuesto dividido entre ellos) y no bloquea si ninguno tiene. Cualquier otra forma de resolver el árbol (`git -C`, `--git-dir`/`--work-tree`, `pushd`, dos `cd`, ruta con comillas/variables/`~/`) bloquea sin correr, con las formas aceptadas en el mensaje. Watchdog fail-closed: si la suma de las corridas supera `PRECOMMIT_TEST_BUDGET` segundos (default 540, overridable por env), mata el grupo de procesos y bloquea en vez de dejar pasar el commit sin tests |
-| **pre-push-guard** | PreToolUse (Bash) | Bloquea push directo a main (branch resuelto del `.cwd` de la sesión, no del cwd del proceso). Detección saneada+anclada: `git commit -m x && git push origin main`, `npm test && git push`. Fail-closed sin jq; cualquier redirección (`cd`, `git -C`, `--git-dir`/`--work-tree`, `GIT_DIR=`/`GIT_WORK_TREE=`) bloquea sin resolverla — hacé el cd en una llamada previa |
+| **pre-push-guard** | PreToolUse (Bash) | Bloquea push directo a main (branch resuelto del `.cwd` de la sesión, no del cwd del proceso). Detección saneada+anclada: `git commit -m x && git push origin main`, `npm test && git push`. Fail-closed sin jq; cualquier redirección (`cd`, `git -C`, `--git-dir`/`--work-tree`, `GIT_DIR=`/`GIT_WORK_TREE=`) bloquea sin resolverla — haz el cd en una llamada previa |
 | **block-admin-merge** | PreToolUse (Bash) | Bloquea `gh pr merge --admin` que bypasea branch protections; también `gh -R o/r pr merge --admin` y `gh pr -R o/r merge --admin` |
 | **block-force-push** | PreToolUse (Bash) | Bloquea `git push --force` / `-f`, un refspec forzado (`+<ref>`) y un cluster corto con `f` (`-fu`, `-uf`); permite `--force-with-lease` fuera de `main`/`master`/`dev` (branch de `.cwd` y tokens del segmento `push`), y lo bloquea hacia/desde uno de esos tres o fuera de un repo git resoluble |
 | **block-hard-reset** | PreToolUse (Bash) | Bloquea `git reset --hard`, incluido `git -C <ruta> reset --hard` |
@@ -80,7 +80,7 @@ Idea → Brainstorming (orchestrator pregunta: ¿vale la pena?, resultado espera
 - **Frontend delgado** — cero lógica de negocio
 - **Estado persistente** en `.planning/` — sobrevive cambios de sesión, no se versiona (salvo `.planning/ARCHITECTURE.md`)
 
-> **Proyectos que ya adoptaron esta metodología con `.planning/` versionado (incluidas retros de PRs anteriores)**: agregá `.planning/*` + `!.planning/ARCHITECTURE.md` al `.gitignore` del proyecto, corré `git rm -r --cached .planning` (re-agregando `ARCHITECTURE.md` si existe) y borrá del working tree los archivos de retro que ya no se generan — la historia queda igual en git.
+> **Proyectos que ya adoptaron esta metodología con `.planning/` versionado (incluidas retros de PRs anteriores)**: agrega `.planning/*` + `!.planning/ARCHITECTURE.md` al `.gitignore` del proyecto, corre `git rm -r --cached .planning` (re-agregando `ARCHITECTURE.md` si existe) y borra del working tree los archivos de retro que ya no se generan — la historia queda igual en git.
 
 ## Instalación
 

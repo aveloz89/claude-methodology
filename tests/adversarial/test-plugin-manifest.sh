@@ -470,9 +470,14 @@ assert_no_voseo() {
   # búsqueda arranque limpia sobre el archivo completo.
   local voseo_forms=(
     vos sos tenés podés hacé hacés querés sabés decís usás notás cargala
-    leelo retomá fijate mirá esperá decilo cortalo aplicá lanzás coordinás
-    entendés escalás escalá cargá obtené arreglás preferís necesitás
-    trabajás reportá evaluás
+    leelo retomá fijate mirá esperá esperás decilo cortalo aplicá lanzás
+    coordinás entendés escalás escalá cargá obtené arreglás preferís
+    necesitás trabajás reportá evaluás invocás invocá abrí reinvocalo
+    consolidás corregí corré corrés leé asigná diagnosticá eliminá
+    verificá exportá cambiás actualizá creás limpiá controlás ejecutás
+    lográs revertís agregá borrá construí bloqueá
+    validá devolvé elegí etiquetá reconciliá enunciá remití reproducí
+    listá marcalo reportalo mencionalo anotalo seguí
   )
   local delim='[^[:alpha:]]'
   TOTAL=$((TOTAL + 1))
@@ -494,10 +499,23 @@ assert_no_voseo() {
   fi
 }
 
-assert_no_voseo "$REPO_ROOT/global/CLAUDE.md"
-assert_no_voseo "$ORCHESTRATOR_SKILL"
-assert_no_voseo "$REPO_ROOT/rulebooks/build-errors.md"
-assert_no_voseo "$REPO_ROOT/rulebooks/db-migrations.md"
+# Corre sobre todos los .md normativos del repo (agentes, rulebooks, skills,
+# reglas por lenguaje y los dos CLAUDE.md), no solo sobre una muestra: un
+# archivo nuevo o editado en cualquiera de estas rutas queda cubierto sin
+# tocar esta lista.
+NORMATIVE_MD_FILES=(
+  "$REPO_ROOT"/agents/*.md
+  "$REPO_ROOT"/rulebooks/*.md
+  "$REPO_ROOT"/skills/*/SKILL.md
+  "$REPO_ROOT"/rules/*.md
+  "$REPO_ROOT/global/CLAUDE.md"
+  "$REPO_ROOT/README.md"
+  "$REPO_ROOT/.claude/CLAUDE.md"
+)
+for md_file in "${NORMATIVE_MD_FILES[@]}"; do
+  [ -f "$md_file" ] || continue
+  assert_no_voseo "$md_file"
+done
 
 echo ""
 echo "--- agents/code-sweep.md: existe y no escribe (Write/Edit vedados) ---"
@@ -569,7 +587,7 @@ fi
 
 if [ -f "$CODE_SWEEP" ]; then
   assert_agent_read_only "$CODE_SWEEP" "sonnet"
-  assert_no_voseo "$CODE_SWEEP"
+  # assert_no_voseo se corre sobre agents/*.md en el loop de más arriba.
 fi
 
 echo ""

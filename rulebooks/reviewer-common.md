@@ -96,7 +96,7 @@ APROBADO / CAMBIOS NECESARIOS, vinculante en tu capa. Devuelves el reporte como 
 
 **Validar self-reflection del dev**: el dev debió ejecutar `~/.claude/rules/self-reflection.md` antes de commitear.
 
-- Si el dev menciona "Self-reflection: …" en algún commit message, valida que las correcciones que dice haber hecho efectivamente están en el diff. Si dice "corregí mutable default" pero el diff no muestra esa corrección → **bloqueante**
+- Si el dev menciona "Self-reflection: …" en algún commit message, valida que las correcciones que dice haber hecho efectivamente están en el diff. Si el mensaje dice haber corregido "mutable default" pero el diff no muestra esa corrección → **bloqueante**
 - Si encuentras violaciones idiomáticas en el diff, antes de marcarlas como bloqueante verifica si están documentadas como `legacy-violation` o `controversial-fix` en issues abiertos del repo. Si lo están, son pendientes legítimos (no bloqueantes para este PR)
 - Si el diff tiene violaciones idiomáticas no documentadas en commits ni issues → **bloqueante**: el dev se saltó self-reflection
 
