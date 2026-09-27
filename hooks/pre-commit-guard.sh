@@ -544,9 +544,20 @@ _guard_resolve_test_budget() {
   return 0
 }
 
+# GUARD_BUDGET_LEFT (#86, T4): presupuesto COMPARTIDO entre corridas. Sin
+# esto, un monorepo con dos runners que corren cada uno por debajo del
+# budget individual (2s + 2s con PRECOMMIT_TEST_BUDGET=3) pasaba sin bloquear
+# aunque el TOTAL (4s) superara el presupuesto — cada llamada resolvía su
+# propio budget desde cero. Se resuelve una sola vez (la primera llamada de
+# este hook, para cualquier directorio) y cada llamada posterior recibe lo
+# que quedó, restando el tiempo real que tardó la corrida anterior
+# ($SECONDS, ya medido más abajo con el mismo criterio del comentario de la
+# ronda 2).
 _guard_run_with_budget() {
-  local budget
-  budget=$(_guard_resolve_test_budget)
+  if [ -z "${GUARD_BUDGET_LEFT+x}" ]; then
+    GUARD_BUDGET_LEFT=$(_guard_resolve_test_budget)
+  fi
+  local budget="$GUARD_BUDGET_LEFT"
   local outfile pgid_file
   outfile=$(mktemp)
   pgid_file=$(mktemp)
@@ -591,6 +602,8 @@ _guard_run_with_budget() {
   local rc=$?
   cat "$outfile"
   rm -f "$outfile" "$pgid_file"
+  GUARD_BUDGET_LEFT=$((GUARD_BUDGET_LEFT - SECONDS))
+  [ "$GUARD_BUDGET_LEFT" -lt 0 ] && GUARD_BUDGET_LEFT=0
   return "$rc"
 }
 

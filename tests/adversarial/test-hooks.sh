@@ -2776,6 +2776,61 @@ else
 fi
 rm -rf "$MULTIROOT_NEST_DIR" "$MULTIROOT_NEST_MARK"
 
+# G10 (presupuesto compartido, #86 T4): ambos runners duermen 2s (ninguno
+# falla) con PRECOMMIT_TEST_BUDGET=3 — sin presupuesto COMPARTIDO entre las
+# dos corridas, cada llamada a _guard_run_with_budget resolvería su propio
+# budget de 3s de nuevo y ninguna de las dos, por separado, lo superaría
+# (2s < 3s cada una); el total real (4s) sí lo supera. Bloquea fail-closed
+# (exit 2, mensaje "superó") sin dejar procesos huérfanos.
+_multiroot_budget_setup() {
+  MULTIROOT_BUDGET_DIR=$(mktemp -d)
+  MULTIROOT_BUDGET_DIR=$(cd "$MULTIROOT_BUDGET_DIR" && pwd -P)
+  MULTIROOT_BUDGET_FAKE_BIN=$(mktemp -d)
+  (
+    cd "$MULTIROOT_BUDGET_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p frontend backend
+    cat > frontend/package.json <<EOF
+{ "name": "frontend", "private": true, "scripts": { "test": "sleep 2 && exit 0" } }
+EOF
+    echo "console.log(1)" > frontend/a.js
+    touch backend/pyproject.toml
+    echo "print(1)" > backend/b.py
+    git add -A
+    git commit -q -m init
+  ) > /dev/null 2>&1
+  cat > "$MULTIROOT_BUDGET_FAKE_BIN/pytest" <<'PYEOF'
+#!/bin/bash
+sleep 2
+exit 0
+PYEOF
+  chmod +x "$MULTIROOT_BUDGET_FAKE_BIN/pytest"
+}
+
+_multiroot_budget_cleanup() {
+  rm -rf "$MULTIROOT_BUDGET_DIR" "$MULTIROOT_BUDGET_FAKE_BIN"
+}
+
+_multiroot_budget_setup
+echo "cambio" >> "$MULTIROOT_BUDGET_DIR/frontend/a.js"
+echo "cambio" >> "$MULTIROOT_BUDGET_DIR/backend/b.py"
+MULTIROOT_G10_JSON=$(jq -n --arg cmd "git commit -m x" '{tool_input: {command: $cmd}}')
+MULTIROOT_G10_EXIT=0
+MULTIROOT_G10_STDERR=$(cd "$MULTIROOT_BUDGET_DIR" && echo "$MULTIROOT_G10_JSON" | PATH="$MULTIROOT_BUDGET_FAKE_BIN:$PATH" PRECOMMIT_TEST_BUDGET=3 bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || MULTIROOT_G10_EXIT=$?
+sleep 1
+MULTIROOT_G10_ORPHAN=$(pgrep -f "$MULTIROOT_BUDGET_FAKE_BIN/pytest" || true)
+TOTAL=$((TOTAL + 1))
+if [ "$MULTIROOT_G10_EXIT" -eq 2 ] && echo "$MULTIROOT_G10_STDERR" | grep -qF "superó" && [ -z "$MULTIROOT_G10_ORPHAN" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: G10 — presupuesto compartido entre corridas bloquea (2s + 2s > 3s)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: G10 — presupuesto compartido entre corridas bloquea (exit=$MULTIROOT_G10_EXIT, huérfano: $MULTIROOT_G10_ORPHAN, stderr: $MULTIROOT_G10_STDERR)"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_budget_cleanup
+
 echo ""
 # --- hooks/lib/workspace-scope.sh (unit) ---
 echo "--- hooks/lib/workspace-scope.sh (unit) ---"
