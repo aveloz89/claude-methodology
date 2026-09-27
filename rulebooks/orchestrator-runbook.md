@@ -66,7 +66,7 @@ El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` r
 2. Lanza en paralelo: `security-reviewer` siempre, `qa-frontend`/`qa-backend` según la capa (single message, multiple Agent calls). Paquete de contexto: base + branch + diff + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida — sin número de PR, no existe todavía. Si el diff introduce una regla nueva, dilo (el reviewer la aplica al propio diff). Si corre suites desde un worktree, que use su propia base de test
 3. **Consolida y registra**: el orchestrator es el único escritor del registro — ningún reviewer lo toca (tienen `Write`/`Edit` prohibidos). Consolidas los reportes **después de que vuelvan todos**, con el "Formato de reporte de review", guardado local (sin commit) en `.planning/reviews/<feature-slug>.md`
 4. **Mientras haya un reviewer corriendo, el árbol no se mueve.** Espera a que vuelvan todos antes de aplicar nada. Vale igual para un dev en paralelo: si un lote y un review tocan los mismos archivos, no van juntos
-5. **Si hay bloqueantes**: fixes por el dev correspondiente, sin push (schema/migración va a `backend-dev` con `rulebooks/db-migrations.md`). Re-lanza solo los reviewers que marcaron issues, acotados al delta local. Sugerencias baratas: aplicadas antes del push (skill `pr-workflow`, regla 2)
+5. **Si hay bloqueantes**: fixes por el dev correspondiente, sin push (schema/migración va a `backend-dev` con `rulebooks/db-migrations.md`). Re-lanza solo los reviewers que marcaron issues, acotados al delta local. Sugerencias baratas: aplicadas antes del push (skill `pr-workflow`, §2)
 6. **Veredictos limpios**: `phases.review = done` y `review_sha` al SHA de HEAD, avanza a Fase 2.7. Fixes, sugerencias y registro viajan en el push inicial: **el PR nace revisado**
 
 ### Fase 2.7: Push + PR
@@ -97,7 +97,7 @@ Si falla algún check: lee logs (`gh run view <run-id> --log-failed`), asigna el
 
 El review dual ya ocurrió en Fase 2.6: **el PR nació revisado**. Esta fase cubre solo lo que requiere el PR abierto:
 
-1. **Re-review condicional**: solo si la Fase 2.8 obligó fixes sobre código ya revisado. Acotado al delta, re-lanzando solo los reviewers de la capa afectada (skill `pr-workflow`, regla 5.2). Append al registro local. Si CI pasó a la primera, no-op
+1. **Re-review condicional**: solo si la Fase 2.8 obligó fixes sobre código ya revisado. Acotado al delta, re-lanzando solo los reviewers de la capa afectada (skill `pr-workflow`, §2). Append al registro local. Si CI pasó a la primera, no-op
 2. **Si el PR es a `main`**: invoca `e2e-runner` Modo B antes de la verificación pre-merge (ver "Pre-release E2E"); opcionalmente `code-sweep` modo `bugs` sobre el diff
 3. Sin nada pendiente, avanza a **Fase 5**
 
