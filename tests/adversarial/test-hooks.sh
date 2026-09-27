@@ -590,6 +590,57 @@ assert_allowed_cmd "pre-commit-guard: heredoc mentioning git commit is not a rea
 
 rm -rf "$PCG_TEST_DIR" "$FAKE_PYTEST_DIR"
 
+# GIT_COMMIT_RE (#73 ronda 1, security MEDIUM): "commit(\s|$)" no intercepta
+# un "git commit" seguido de un terminador de comando pegado (";", "&", "|",
+# ")") sin espacio antes del siguiente comando — en `dev` (matching más
+# simple) esas formas sí se interceptaban. Mismo fixture que arriba
+# (pyproject.toml + pytest fake que siempre falla) para que la intercepción
+# sea observable por el efecto (bloquea) y no por el nombre del regex.
+PCG_TERM_DIR=$(mktemp -d)
+touch "$PCG_TERM_DIR/pyproject.toml"
+FAKE_PYTEST_TERM_DIR=$(mktemp -d)
+cat > "$FAKE_PYTEST_TERM_DIR/pytest" <<'FAKE_PYTEST_TERM_EOF'
+#!/bin/bash
+exit 1
+FAKE_PYTEST_TERM_EOF
+chmod +x "$FAKE_PYTEST_TERM_DIR/pytest"
+
+assert_blocked_cmd "pre-commit-guard: git commit; (terminador ';' pegado) se intercepta" \
+  "pre-commit-guard.sh" \
+  "git commit;" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_blocked_cmd "pre-commit-guard: git add . && git commit&&git push (terminador '&&' pegado) se intercepta" \
+  "pre-commit-guard.sh" \
+  "git add . && git commit&&git push" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_blocked_cmd "pre-commit-guard: (git commit) (terminador ')' pegado) se intercepta" \
+  "pre-commit-guard.sh" \
+  "(git commit)" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+# Negativo: "git commit-tree"/"git commit-graph" no son un commit real y no
+# deben interceptarse — con el mismo fixture (fake pytest que siempre
+# falla), si el regex ampliado matcheara por error, el fake correría y
+# bloquearía (falso positivo observable).
+assert_allowed_cmd "pre-commit-guard: git commit-tree no se intercepta" \
+  "pre-commit-guard.sh" \
+  "git commit-tree HEAD^{tree}" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_allowed_cmd "pre-commit-guard: git commit-graph write no se intercepta" \
+  "pre-commit-guard.sh" \
+  "git commit-graph write" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+rm -rf "$PCG_TERM_DIR" "$FAKE_PYTEST_TERM_DIR"
+
 # --- pre-commit-guard.sh: watchdog fail-closed por tiempo (PRECOMMIT_TEST_BUDGET) ---
 # La suite corre en background; un bucle espera hasta PRECOMMIT_TEST_BUDGET
 # segundos (default 540). Si se agota, mata el grupo de procesos y bloquea

@@ -96,7 +96,15 @@ SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 # la colapsa guard_sanitize (deja la opción sin valor pegado), y el detector
 # tiene que seguir disparando para que la Etapa B (abajo) BLOQUEE esa forma
 # en vez de dejarla salir por este "exit 0" sin evaluar nada.
-GIT_COMMIT_RE="${GUARD_ANCHOR}((GIT_DIR|GIT_WORK_TREE)=\S*\s+)*git\s+((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?\s+)*commit(\s|\$)"
+#
+# Terminador de comando pegado (#73 ronda 1, security MEDIUM): "commit"
+# puede venir seguido directo de ";", "&", "|" o ")" sin espacio de por
+# medio ("git commit;", "git commit&&git push", "(git commit)") — antes
+# solo "\s" o fin de string cerraban el match, y esas formas se colaban sin
+# interceptar. El charset no agrega "-" ni letras, así que "commit-tree" y
+# "commit-graph" siguen sin matchear (ninguno de sus caracteres siguientes
+# cae en "\s|\$|[;&|)]").
+GIT_COMMIT_RE="${GUARD_ANCHOR}((GIT_DIR|GIT_WORK_TREE)=\S*\s+)*git\s+((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?\s+)*commit(\s|\$|[;&|)])"
 if ! echo "$SANITIZED_COMMAND" | grep -qE "$GIT_COMMIT_RE"; then
   exit 0
 fi
