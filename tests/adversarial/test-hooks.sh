@@ -731,6 +731,46 @@ assert_blocked_cmd "block-force-push: git push -o a\\;b --force origin x blocks 
   "block-force-push.sh" \
   "$CMD_ESCAPED_SEMICOLON_BFP"
 
+# --force-with-lease: excepción fuera de main/master/dev (B.1). El branch
+# actual y el destino del push se resuelven en el sandbox real (no en el
+# repo de esta suite) — mismo criterio que pre-push-guard.sh.
+sandbox_create_pushrepo
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/x)
+assert_allowed_cmd "block-force-push: --force-with-lease permitido en feature/x" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: --force-with-lease=feature/x permitido en feature/x" \
+  "block-force-push.sh" "git push --force-with-lease=feature/x origin feature/x" "$PATH" "$SANDBOX_REPO"
+
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/dev-tools)
+assert_allowed_cmd "block-force-push: --force-with-lease permitido en feature/dev-tools (no falso bloqueo por substring de dev)" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/dev-tools" "$PATH" "$SANDBOX_REPO"
+
+(cd "$SANDBOX_REPO" && git checkout -q feature/x)
+assert_blocked_cmd "block-force-push: --force-with-lease a main desde feature bloquea" \
+  "block-force-push.sh" "git push --force-with-lease origin main" "$PATH" "$SANDBOX_REPO"
+
+(cd "$SANDBOX_REPO" && git checkout -q main)
+assert_blocked_cmd "block-force-push: --force-with-lease en main (sin refspec) bloquea" \
+  "block-force-push.sh" "git push --force-with-lease" "$PATH" "$SANDBOX_REPO"
+
+(cd "$SANDBOX_REPO" && git checkout -q -b dev)
+assert_blocked_cmd "block-force-push: --force-with-lease en dev bloquea" \
+  "block-force-push.sh" "git push --force-with-lease" "$PATH" "$SANDBOX_REPO"
+
+(cd "$SANDBOX_REPO" && git checkout -q feature/x)
+assert_blocked_cmd "block-force-push: refspec feature/x:main con --force-with-lease bloquea" \
+  "block-force-push.sh" "git push origin feature/x:main --force-with-lease" "$PATH" "$SANDBOX_REPO"
+
+assert_blocked_cmd "block-force-push: --force en feature/x sigue bloqueando (la excepción no alcanza a --force)" \
+  "block-force-push.sh" "git push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+
+sandbox_cleanup_pushrepo
+
+NO_GIT_BFP_DIR=$(mktemp -d)
+assert_blocked_cmd "block-force-push: --force-with-lease fuera de un repo git bloquea fail-closed" \
+  "block-force-push.sh" "git push --force-with-lease" "$PATH" "$NO_GIT_BFP_DIR"
+rm -rf "$NO_GIT_BFP_DIR"
+
 echo ""
 
 # --- block-hard-reset.sh ---

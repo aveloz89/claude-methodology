@@ -51,11 +51,40 @@ guard_init "block-force-push"
 # cerró la ronda 2 (ver comentario de esa ronda, abajo del patrón). Mismo
 # trato para un ";" escapado (\;), literal para el shell y no un
 # separador real — ej. "git push -o a\;b --force origin x".
+
+# guard_force_with_lease_allowed: 0 (permitido) solo si el branch actual
+# (de guard_session_dir) NO es main/master/dev y ningún token del segmento
+# "push ... " (hasta el primer &&/;/|) es exactamente main/master/dev ni un
+# refspec hacia/desde uno de esos tres (x:main, main:x). Fuera de un repo
+# git, o sin poder resolver el branch, bloquea (fail-closed) — no hay forma
+# segura de asumir "no es main".
+guard_force_with_lease_allowed() {
+  local dir branch push_segment
+  dir=$(guard_session_dir) || return 1
+  branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2> /dev/null) || return 1
+  case "$branch" in
+    main | master | dev) return 1 ;;
+  esac
+  push_segment=$(echo "$SANITIZED_COMMAND" | grep -oE 'push\b[^&|;]*' | head -1)
+  ! echo "$push_segment" | grep -qE '(^|[[:space:]:])(main|master|dev)([[:space:]:]|$)'
+}
+
 FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b([^&|;]|[0-9]*>&|&>|\\\\;)*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
 
+# --force-with-lease no puede reescribir un ref que otro ya movió (falla si
+# el remoto no coincide con lo que el cliente esperaba) — a diferencia de
+# --force/-f, permitirlo fuera de main/master/dev no reabre el riesgo que
+# este guard existe para cortar. La excepción es angosta a propósito: si
+# quitar "--force-with-lease(=valor)?" del comando SIGUE matcheando
+# FORCE_PATTERN, hay una flag de force real e independiente (--force, -f,
+# refspec "+x") en el mismo comando y esa sigue bloqueando siempre.
+LEASE_STRIPPED_COMMAND=$(echo "$SANITIZED_COMMAND" | sed -E 's/--force-with-lease(=[^[:space:]]*)?//g')
+
 if echo "$SANITIZED_COMMAND" | grep -qE "$FORCE_PATTERN"; then
-  echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2
-  exit 2
+  if echo "$LEASE_STRIPPED_COMMAND" | grep -qE "$FORCE_PATTERN" || ! guard_force_with_lease_allowed; then
+    echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2
+    exit 2
+  fi
 fi
 
 # Regresión (auditoría best-practices): guard_sanitize() borra el contenido
