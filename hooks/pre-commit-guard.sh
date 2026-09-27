@@ -122,21 +122,12 @@ fi
 # no lo manda — comportamiento actual) y su toplevel real, para que un
 # commit lanzado desde un subdirectorio del repo (en vez de la raíz) siga
 # encontrando el test runner en vez de pasar sin tests.
-TREE_FORM_HELP="Formas aceptadas: 'git commit …' en el cwd de la sesión; 'cd <ruta> && git commit …' (cd al inicio, una sola vez, ruta literal sin comillas/variables/espacios); 'git -C <ruta> commit …' (la misma ruta en cada git del comando). Alternativa: hacé el cd en una llamada Bash previa — el hook sigue el cwd de la sesión. No se resuelven --git-dir/--work-tree, GIT_DIR/GIT_WORK_TREE, pushd, subshells ni rutas con expansión."
+TREE_FORM_HELP="Formas aceptadas: 'git commit …' en el cwd de la sesión, o 'cd /ruta/absoluta && git commit …' (cd al inicio, una sola vez, ruta absoluta literal). Alternativa: hacé el cd en una llamada Bash previa."
 
 _guard_block_tree() {
   echo "BLOCKED: pre-commit-guard no puede resolver en qué árbol va el commit: $1. ${TREE_FORM_HELP}" >&2
   exit 2
 }
-
-if [ -n "$INPUT_CWD" ]; then
-  if [ ! -d "$INPUT_CWD" ]; then
-    _guard_block_tree "el cwd del input no es un directorio ($INPUT_CWD)"
-  fi
-  BASE_DIR=$(cd "$INPUT_CWD" && pwd -P)
-else
-  BASE_DIR=$(pwd -P)
-fi
 
 # _guard_toplevel_or_base: toplevel real de $1 si cae dentro de un repo git;
 # si no (repo corrupto, cwd fuera de un repo, "git" ausente), $1 tal cual —
@@ -151,104 +142,13 @@ _guard_toplevel_or_base() {
   printf '%s' "$1"
 }
 
-# _guard_resolve_dash_c: forma "git -C <ruta> commit" (allowlist B4 de
-# DESIGN-pre-commit-target-tree.md). Devuelve por stdout la única ruta candidata y sale 0, o sale 1
-# (sin salida) si el comando no califica para esta regla — el caller
-# bloquea. Condiciones, todas exigidas (allowlist: lo que no calza, falla):
-#   - Ninguna mención de "cd"/"pushd" en el saneado (mezclar formas no se
-#     adivina, se bloquea).
-#   - Ninguna invocación de "git commit" SIN "-C" en el mismo comando (un
-#     "git commit" local junto a un "git -C X" a otro árbol es OTRO árbol,
-#     no el mismo — defensa en profundidad, ver X15/(j) en test-hooks.sh).
-#   - Extraer todas las ocurrencias "git -C <ruta>" del saneado y quedarse
-#     con las rutas únicas (sort -u): tiene que haber EXACTAMENTE una — dos
-#     ocurrencias con rutas distintas es "a qué árbol" ambiguo.
-#   - La ruta cumple TREE_PATH_RE (ver abajo): sin comillas, "$", espacios
-#     ni otro carácter que el shell interpretaría — así el artefacto de un
-#     guard_sanitize sobre una ruta quoted (que colapsa el valor) nunca pasa
-#     como si fuera una ruta real.
-CD_PUSHD_RE="${GUARD_ANCHOR}(cd|pushd)(\s|;|&&|\$)"
-BARE_COMMIT_RE="${GUARD_ANCHOR}git\s+commit"
-TREE_PATH_RE='^[A-Za-z0-9_./-]+$'
-
-_guard_resolve_dash_c() {
-  echo "$SANITIZED_COMMAND" | grep -qE "$CD_PUSHD_RE" && return 1
-  echo "$SANITIZED_COMMAND" | grep -qE "$BARE_COMMIT_RE" && return 1
-
-  local paths count candidate
-  paths=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+-C\s+[^[:space:]]+" | sed -E 's/^.*-C[[:space:]]+//' | sort -u)
-  count=$(printf '%s\n' "$paths" | grep -c .)
-  [ "$count" -eq 1 ] || return 1
-
-  candidate="$paths"
-  echo "$candidate" | grep -qE "$TREE_PATH_RE" || return 1
-  printf '%s' "$candidate"
-}
-
-# _guard_resolve_cd: forma "cd <ruta> && git commit …" / "cd <ruta>; …"
-# (allowlist B3 de DESIGN-pre-commit-target-tree.md). Devuelve por stdout la ruta candidata y sale
-# 0, o sale 1 (sin salida) si el comando no califica — el caller bloquea.
-# Se valida sobre el comando CRUDO ($COMMAND, no el saneado): el saneado
-# colapsa comillas y no preserva la forma que ejecuta el shell de verdad
-# (retro PR-76), así que la ruta que termina en `cd "$ruta"` sale del texto
-# real tal cual, nunca de un `eval`. El ancla `^cd[[:blank:]]+` exige "cd"
-# al INICIO del comando con al menos un espacio/tab de separación — así
-# "pushd …", "cd" no al inicio ("npm ci && cd …") y "cd" pelado sin
-# argumento (sin nada entre "cd" y el terminador) nunca matchean esta
-# regla y caen al bloqueo genérico (B5): no se adivina a qué apunta un
-# "cd" que no tiene esta forma exacta.
-_guard_resolve_cd() {
-  # Exactamente UNA ocurrencia de "cd"/"pushd" en el saneado: dos "cd" en
-  # el mismo comando compuesto (o un "cd" + un "pushd") es "a qué árbol"
-  # ambiguo — mezclar formas no se adivina, se bloquea. Mismo criterio que
-  # _guard_resolve_dash_c con "-C" repetido (ahí sí se permite si es la
-  # MISMA ruta; acá ni se llega a comparar rutas, ninguna forma real del
-  # issue necesita dos "cd").
-  local occurrences count
-  occurrences=$(echo "$SANITIZED_COMMAND" | grep -oE "$CD_PUSHD_RE")
-  count=$(printf '%s\n' "$occurrences" | grep -c .)
-  [ "$count" -eq 1 ] || return 1
-
-  [[ "$COMMAND" =~ ^cd[[:blank:]]+([^[:space:]]+)[[:blank:]]*(\&\&|\;) ]] || return 1
-  local raw_path="${BASH_REMATCH[1]}"
-
-  # "cd -" (destino implícito, el directorio anterior) no es una ruta: es
-  # un alias que depende de $OLDPWD del proceso, no del texto del comando.
-  # Rechazo explícito en vez de dejarlo caer solo: bash igual reconoce "-"
-  # como especial dentro de "cd \"$ruta\"" (comillas no lo neutralizan), y
-  # confiar en que eso "por las buenas" termine bloqueando sería frágil —
-  # depende de un efecto colateral (que "cd -" imprime la ruta nueva por
-  # stdout, ensuciando la variable con dos líneas) y no de una regla.
-  [ "$raw_path" = "-" ] && return 1
-
-  # Prefijo "~/" (único caso de expansión permitido): se expande contra
-  # $HOME del ENTORNO del hook, nunca con "eval" ni sub-shell sobre el
-  # resto de la ruta — un "~/" a secas (sin nada detrás) no matchea este
-  # case (le falta el "/" final) y sigue de largo tal cual, así que
-  # termina fallando TREE_PATH_RE/la existencia del directorio más abajo
-  # en vez de resolver a "$HOME" entero.
-  case "$raw_path" in
-    "~/"*) raw_path="$HOME${raw_path#\~}" ;;
-  esac
-
-  # TREE_PATH_RE (charset sin comillas/"$"/espacios/etc.): la ruta que
-  # termina en `cd "$raw_path"` tiene que ser literal — nunca el artefacto
-  # de algo que el shell habría expandido o citado.
-  echo "$raw_path" | grep -qE "$TREE_PATH_RE" || return 1
-
-  printf '%s' "$raw_path"
-}
-
-# "--git-dir"/"--work-tree"/"GIT_DIR="/"GIT_WORK_TREE=" nunca se resuelven
-# (fuera de alcance por diseño, documentado en TREE_FORM_HELP): a diferencia
-# de "-C", no hay forma de saber si valen para TODO el comando o solo para
-# la invocación de "git" a la que están pegados sin parsear de verdad el
-# shell — así que siempre bloquean, sin importar si acompañan al "git
-# commit" real o aparecen en otra invocación del mismo comando compuesto
-# (defensa en profundidad, reemplaza (j) parte 2 en test-hooks.sh). Mismo
-# criterio para el entorno DEL PROCESO del hook (no el texto del comando):
-# "pre-merge-check.sh" ya bloquea igual ante "GIT_DIR"/"GIT_WORK_TREE"
-# seteadas ahí.
+# "-C"/"--git-dir"/"--work-tree"/"GIT_DIR="/"GIT_WORK_TREE=" nunca se
+# resuelven (fuera de la allowlist de B.3): a diferencia de "cd", no hay
+# forma de saber si valen para TODO el comando o solo para la invocación de
+# "git" a la que están pegados sin parsear de verdad el shell — así que
+# siempre bloquean, sin importar si acompañan a un "git commit" local en el
+# mismo comando compuesto. Mismo criterio para el entorno DEL PROCESO del
+# hook (no el texto del comando).
 if [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ]; then
   _guard_block_tree "GIT_DIR/GIT_WORK_TREE en el entorno del hook"
 fi
@@ -258,53 +158,35 @@ fi
 if echo "$SANITIZED_COMMAND" | grep -qE "(^|\s|;|&&|\|)(GIT_DIR|GIT_WORK_TREE)="; then
   _guard_block_tree "GIT_DIR/GIT_WORK_TREE como prefijo de entorno en el comando no se resuelven"
 fi
-
-# Más de un "-C" pegado a la MISMA invocación de "git" antes del "commit"
-# real (#73 ronda 1, informativo/security): "git -C O -C R commit" — git de
-# verdad interpreta "-C" repetido de forma acumulativa (cada uno relativo
-# al anterior), pero _guard_resolve_dash_c extrae "git\s+-C\s+[^[:space:]]+"
-# una sola vez por cada "git" del comando, así que solo veía el PRIMER "-C"
-# de esta invocación y trataba esa ruta como si fuera la única candidata —
-# si esa primera ruta resultaba ser un repo real sin runner, el hook salía
-# en 0 sin haber corrido nada sobre "R", el árbol al que el commit iba de
-# verdad. No choca con la forma ya soportada de repetir "-C" en INVOCACIONES
-# SEPARADAS de "git" con la MISMA ruta (test "misma ruta" más abajo en este
-# archivo): ahí cada "git" lleva un solo "-C", así que "{2,}" no matchea.
-MULTI_DASH_C_RE="${GUARD_ANCHOR}git(\s+-C\s+\S+){2,}\s+commit(\s|\$|[;&|)])"
-if echo "$SANITIZED_COMMAND" | grep -qE "$MULTI_DASH_C_RE"; then
-  _guard_block_tree "más de un '-C' en la misma invocación de 'git'"
+if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+-C\s"; then
+  _guard_block_tree "'git -C' no se resuelve"
 fi
 
-# Etapa B (resto): sin "-C" ni "cd"/"pushd" en el texto → camino rápido
-# sobre BASE_DIR (toplevel real o BASE_DIR tal cual). Con "-C" → se
-# resuelve con _guard_resolve_dash_c; con "cd"/"pushd" (y ninguna mención
-# de "-C") → se resuelve con _guard_resolve_cd. Ambos casos validan que la
-# ruta exista y sea un repo git real; cualquier falla bloquea SIN correr
-# suites (a diferencia del camino rápido, acá no hay "correr de más"
-# posible: no se sabe en qué árbol correr).
-# SESSION_DIR (#73 ronda 1, security HIGH): el directorio real de la sesión
-# antes de subir a TARGET_DIR (el toplevel) — BASE_DIR en el camino rápido,
-# RESOLVED_DIR en las formas "-C"/"cd". _guard_find_runner_dir, más abajo,
-# busca el test runner empezando ACÁ y subiendo hasta TARGET_DIR inclusive,
-# en vez de mirar solo el toplevel. Antes de este fix, un layout con el
-# runner solo en un subdirectorio ("frontend/package.json", sin
-# "package.json" en la raíz) hacía que el hook subiera SIEMPRE al toplevel
-# antes de buscar, no encontrara nada ahí y saliera en 0 sin correr tests
-# — regresión fail-open contra `dev`, hallada por security-reviewer en la
-# ronda 1 de #73. TARGET_DIR sigue siendo el árbol donde se evalúan
-# git status/el salto de .planning/ (sin cambios: esos chequeos necesitan
-# rutas relativas a la raíz del repo, no al subdirectorio de la sesión).
-if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+-C\s"; then
-  DASH_C_PATH=$(_guard_resolve_dash_c) || _guard_block_tree "no se pudo resolver una única ruta de 'git -C' en el comando"
-  RESOLVED_DIR=$(cd "$BASE_DIR" 2>/dev/null && cd "$DASH_C_PATH" 2>/dev/null && pwd -P) || _guard_block_tree "la ruta '$DASH_C_PATH' no existe"
-  TARGET_DIR=$(git -C "$RESOLVED_DIR" rev-parse --show-toplevel 2>/dev/null) || _guard_block_tree "'$DASH_C_PATH' no es un repo git"
-  SESSION_DIR="$RESOLVED_DIR"
-elif echo "$SANITIZED_COMMAND" | grep -qE "$CD_PUSHD_RE"; then
-  CD_PATH=$(_guard_resolve_cd) || _guard_block_tree "no se pudo resolver una única ruta de 'cd' al inicio del comando"
-  RESOLVED_DIR=$(cd "$BASE_DIR" 2>/dev/null && cd "$CD_PATH" 2>/dev/null && pwd -P) || _guard_block_tree "la ruta '$CD_PATH' no existe"
-  TARGET_DIR=$(git -C "$RESOLVED_DIR" rev-parse --show-toplevel 2>/dev/null) || _guard_block_tree "'$CD_PATH' no es un repo git"
-  SESSION_DIR="$RESOLVED_DIR"
+CD_PUSHD_RE="${GUARD_ANCHOR}(cd|pushd)(\s|;|&&|\$)"
+
+if echo "$SANITIZED_COMMAND" | grep -qE "$CD_PUSHD_RE"; then
+  # Forma 2 (B.3): "cd /ruta/absoluta && git commit …" — se valida sobre
+  # el comando CRUDO ($COMMAND, no el saneado): el saneado colapsa comillas
+  # y no preserva la forma que ejecuta el shell de verdad. Exactamente UNA
+  # ocurrencia de "cd"/"pushd" en el saneado (dos, o un "pushd" solo, es
+  # mezclar formas — no se adivina, se bloquea) y "cd" al INICIO del
+  # comando con una ruta absoluta literal (empieza con "/", sin comillas,
+  # "$" ni espacios) seguida directo de "&&".
+  CD_OCCURRENCES=$(echo "$SANITIZED_COMMAND" | grep -oE "$CD_PUSHD_RE")
+  CD_COUNT=$(printf '%s\n' "$CD_OCCURRENCES" | grep -c .)
+  [ "$CD_COUNT" -eq 1 ] || _guard_block_tree "más de una mención de 'cd'/'pushd', o 'pushd' en vez de 'cd'"
+
+  [[ "$COMMAND" =~ ^cd[[:blank:]]+(/[A-Za-z0-9_./-]*)[[:blank:]]*\&\& ]] || _guard_block_tree "'cd' no está al inicio del comando, o la ruta no es absoluta y literal seguida de '&&'"
+  CD_PATH="${BASH_REMATCH[1]}"
+
+  BASE_DIR=$(cd "$CD_PATH" 2>/dev/null && pwd -P) || _guard_block_tree "la ruta '$CD_PATH' no existe"
+  TARGET_DIR=$(git -C "$BASE_DIR" rev-parse --show-toplevel 2>/dev/null) || _guard_block_tree "'$CD_PATH' no es un repo git"
+  SESSION_DIR="$BASE_DIR"
 else
+  # Forma 1 (B.3): sin redirección en el texto — el árbol es el de la
+  # sesión (".cwd" del input vía guard_session_dir, o el cwd del proceso
+  # si el harness no lo manda).
+  BASE_DIR=$(guard_session_dir) || _guard_block_tree "el cwd del input no es un directorio ($INPUT_CWD)"
   TARGET_DIR=$(_guard_toplevel_or_base "$BASE_DIR")
   SESSION_DIR="$BASE_DIR"
 fi
