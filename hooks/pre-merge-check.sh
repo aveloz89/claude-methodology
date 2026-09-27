@@ -120,12 +120,13 @@ fi
 #      que casi cualquier prefijo SÍ llega a la gramática y bloquea —
 #      verificado uno por uno contra el hook real, worktree limpio, sin
 #      mocks: `command gh`, `env gh`, `FOO=1 gh`, `\gh` (backslash pegado
-#      sin partir la palabra), una ruta absoluta al binario, y un wrapper
-#      o una función `gh()` definidos en el MISMO comando que el merge
-#      TODOS bloquean (el texto antes de la invocación real rompe "nada
-#      antes de gh pr merge"). Solo evaden de verdad los casos donde el
-#      saneo o la sintaxis rompen la palabra "gh" en el texto saneado, y
-#      por lo tanto el gate sin ancla nunca la encuentra:
+#      sin partir la palabra), una ruta absoluta al binario TODOS
+#      bloquean (el texto antes de la invocación real rompe "nada antes
+#      de gh pr merge"). Solo evaden de verdad los casos donde el saneo o
+#      la sintaxis rompen la palabra "gh" en el texto saneado, o donde
+#      "gh" queda separado de "pr"/"merge" por más tokens de los que
+#      GUARD_GH_PR_MERGE_RE tolera (2), y por lo tanto el gate sin ancla
+#      nunca la encuentra:
 #        - El nombre completo entre comillas: `"gh"`, `'gh'` — el span
 #          quoted se colapsa entero a un espacio, la palabra desaparece.
 #        - Un backslash A MITAD de la palabra: `g\h` (distinto de `\gh`,
@@ -135,6 +136,13 @@ fi
 #          quoted que contiene "gh pr merge" se colapsa entero.
 #        - Un comando ANTERIOR de la sesión que define una función/alias
 #          `gh` (ver el punto siguiente: el entorno previo no es visible).
+#        - Un wrapper o función definido en el MISMO comando que el merge,
+#          si la definición mete más de 2 tokens entre "gh" y la
+#          invocación real: `w() { gh "$@"; }; w pr merge 5` — verificado,
+#          continue, 0 llamadas a gh. El caso equivalente sin ese
+#          espaciado (la palabra "gh" pegada a "pr merge" en el texto
+#          saneado) sí bloquea, como cualquier otro prefijo de la lista de
+#          arriba.
 #        Dirección segura: el código bloquea MÁS de lo que este comentario
 #        admite, nunca menos.
 #      Aparte, el saneo COMPARTIDO de hooks/lib/guard-matching.sh (no se

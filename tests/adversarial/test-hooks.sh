@@ -3921,6 +3921,8 @@ assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: gh pr view 5 | gre
   "gh pr view 5 | grep merge"
 assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: gh pr create --body-file corriente no se trata como merge" \
   "gh pr create --body-file x.md"
+assert_pre_merge_continue_no_calls "gh pr merge [D-04, pasa]: wrapper w() { gh \"\$@\"; } en el mismo comando, más de 2 tokens antes de 'pr merge', pasa sin consultar (limitación documentada en el header)" \
+  'w() { gh "$@"; }; w pr merge 5'
 
 # --- [#77 §2, A1/A4] guard_sanitize: heredoc con espacio tras "<<" y
 # delimitador con guion. Antes, guard_sanitize exigía "<<-?['\"]?(\w+)" sin
