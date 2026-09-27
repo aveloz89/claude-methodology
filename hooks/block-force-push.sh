@@ -46,7 +46,9 @@ fi
 
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
-FORCE_PATTERN="${GUARD_ANCHOR}git\s+push\s+.*(-f|--force)\b"
+# #77 comentario 2: un refspec forzado (+<ref>, ej. "git push origin
+# +main") es equivalente a --force y antes pasaba sin bloquear.
+FORCE_PATTERN="${GUARD_ANCHOR}git\s+push\s+.*((-f|--force)\b|\s\+[^\s:]+)"
 
 if echo "$SANITIZED_COMMAND" | grep -qE "$FORCE_PATTERN"; then
   echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2

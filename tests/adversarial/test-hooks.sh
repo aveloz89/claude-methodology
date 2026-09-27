@@ -391,6 +391,30 @@ assert_blocked_cmd "block-force-push: bloquea fail-closed sin jq en PATH" \
   "$NO_JQ_BFP_BIN"
 rm -rf "$NO_JQ_BFP_BIN"
 
+# #77 comentario 2 (C1): refspec forzado (+<ref>) — antes FORCE_PATTERN solo
+# miraba -f/--force, así que "git push origin +main" (forma equivalente a
+# --force para ese ref) pasaba sin bloquear.
+assert_blocked_cmd "block-force-push: git push origin +main (refspec forzado) blocks" \
+  "block-force-push.sh" \
+  "git push origin +main"
+assert_blocked_cmd "block-force-push: git push origin +feature/x (refspec forzado) blocks" \
+  "block-force-push.sh" \
+  "git push origin +feature/x"
+assert_blocked_cmd "block-force-push: git push origin +HEAD:main (refspec forzado) blocks" \
+  "block-force-push.sh" \
+  "git push origin +HEAD:main"
+
+# Negativos (C4): no deben bloquear por el nuevo camino del refspec.
+assert_allowed_cmd "block-force-push: git push origin main --follow-tags allowed" \
+  "block-force-push.sh" \
+  "git push origin main --follow-tags"
+assert_allowed_cmd "block-force-push: git commit -m \"+main -fu\" (mención quoted) allowed" \
+  "block-force-push.sh" \
+  'git commit -m "+main -fu"'
+assert_allowed_cmd "block-force-push: git push origin 'feat/+x' (token quoted) allowed" \
+  "block-force-push.sh" \
+  "git push origin 'feat/+x'"
+
 echo ""
 
 # --- block-hard-reset.sh ---
