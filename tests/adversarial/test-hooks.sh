@@ -432,6 +432,22 @@ assert_allowed_cmd "block-force-push: git push --delete origin x allowed" \
   "block-force-push.sh" \
   "git push --delete origin x"
 
+# #77 comentario 2 (C3): "git -C <ruta> push" es la misma invocación real,
+# con la opción de árbol entre "git" y "push" — antes el patrón exigía
+# "push" pegado a "git" y este caso pasaba sin bloquear.
+assert_blocked_cmd "block-force-push: git -C repo push --force blocks" \
+  "block-force-push.sh" \
+  "git -C repo push --force"
+assert_blocked_cmd "block-force-push: git -C repo push -f blocks" \
+  "block-force-push.sh" \
+  "git -C repo push -f"
+assert_blocked_cmd "block-force-push: git -C repo push origin +main blocks" \
+  "block-force-push.sh" \
+  "git -C repo push origin +main"
+assert_blocked_cmd "block-force-push: cd a && git -C repo push -fu blocks" \
+  "block-force-push.sh" \
+  "cd a && git -C repo push -fu"
+
 echo ""
 
 # --- block-hard-reset.sh ---
@@ -455,6 +471,29 @@ assert_blocked_cmd "block-hard-reset: bloquea fail-closed sin jq en PATH" \
   "git reset --hard" \
   "$NO_JQ_BHR_BIN"
 rm -rf "$NO_JQ_BHR_BIN"
+
+# #77 comentario 2 (D1): "git -C <ruta> reset --hard" es el mismo reset
+# real, con la opción de árbol entre "git" y "reset".
+assert_blocked_cmd "block-hard-reset: git -C repo reset --hard blocks" \
+  "block-hard-reset.sh" \
+  "git -C repo reset --hard"
+assert_blocked_cmd "block-hard-reset: git -C repo reset --hard HEAD~1 blocks" \
+  "block-hard-reset.sh" \
+  "git -C repo reset --hard HEAD~1"
+assert_blocked_cmd "block-hard-reset: cd a && git -C b reset --hard blocks" \
+  "block-hard-reset.sh" \
+  "cd a && git -C b reset --hard"
+
+# Negativos (D2): no deben bloquear.
+assert_allowed_cmd "block-hard-reset: git commit -m \"reset --hard\" (mención quoted) allowed" \
+  "block-hard-reset.sh" \
+  'git commit -m "reset --hard"'
+assert_allowed_cmd "block-hard-reset: git reset --soft HEAD~1 allowed" \
+  "block-hard-reset.sh" \
+  "git reset --soft HEAD~1"
+assert_allowed_cmd "block-hard-reset: git -C repo reset --soft allowed" \
+  "block-hard-reset.sh" \
+  "git -C repo reset --soft"
 
 echo ""
 

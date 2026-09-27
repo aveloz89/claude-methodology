@@ -40,7 +40,9 @@ fi
 
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
-if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+reset\s+--hard"; then
+# GUARD_GIT_TREE_OPTS detecta "git -C <ruta> reset --hard" como el mismo
+# reset real (#77 comentario 2, D1).
+if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+${GUARD_GIT_TREE_OPTS}reset\s+--hard"; then
   echo "BLOCKED: git reset --hard descarta cambios irreversiblemente. Usa git stash o git reset --soft." >&2
   exit 2
 fi
