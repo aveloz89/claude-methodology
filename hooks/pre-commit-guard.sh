@@ -41,8 +41,21 @@ source "$LIB"
 
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 
-# Solo interceptar comandos git commit
-if ! echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+commit"; then
+# Solo interceptar comandos git commit. GIT_COMMIT_RE (#73) amplía el match
+# original ("git\s+commit" a secas) para que también detecte invocaciones
+# con opciones de árbol entre "git" y "commit" ("git -C <ruta> commit",
+# "git --git-dir=... commit") y con prefijo de entorno ("GIT_DIR=... git
+# commit") — antes de esto, esas formas no llegaban ni a este punto y el
+# hook salía sin evaluar nada (ver DESIGN.md "Contrato 1, Etapa A"). Un
+# "git log | grep commit" o "git log --grep commit" siguen sin matchear:
+# solo tokens con forma de opción de árbol ("-C", "--git-dir", "--work-tree")
+# o un commit real cuentan, no cualquier texto entre "git" y "commit". El
+# "\S*" (no "\S+") tras cada opción es deliberado: una ruta entre comillas
+# la colapsa guard_sanitize (deja la opción sin valor pegado), y el detector
+# tiene que seguir disparando para que la Etapa B (abajo) BLOQUEE esa forma
+# en vez de dejarla salir por este "exit 0" sin evaluar nada.
+GIT_COMMIT_RE="${GUARD_ANCHOR}((GIT_DIR|GIT_WORK_TREE)=\S*\s+)*git\s+((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?\s+)*commit(\s|\$)"
+if ! echo "$SANITIZED_COMMAND" | grep -qE "$GIT_COMMIT_RE"; then
   exit 0
 fi
 
@@ -71,16 +84,66 @@ else
   BASE_DIR=$(pwd -P)
 fi
 
-# Camino rápido (sin redirección de árbol en el texto del comando, único
-# caso que este lote resuelve — "cd"/"git -C"/"--git-dir"/"GIT_DIR=" quedan
-# para lotes siguientes): el árbol objetivo es el toplevel de BASE_DIR si
-# BASE_DIR cae dentro de un repo git; si no (repo corrupto, cwd fuera de un
-# repo, "git" ausente), BASE_DIR tal cual — nunca falla abierto ni bloquea
-# por esto, es el mismo criterio conservador del resto del hook.
-if TARGET_TOPLEVEL=$(git -C "$BASE_DIR" rev-parse --show-toplevel 2>/dev/null); then
-  TARGET_DIR="$TARGET_TOPLEVEL"
+# _guard_toplevel_or_base: toplevel real de $1 si cae dentro de un repo git;
+# si no (repo corrupto, cwd fuera de un repo, "git" ausente), $1 tal cual —
+# nunca falla abierto ni bloquea por esto, mismo criterio conservador del
+# resto del hook.
+_guard_toplevel_or_base() {
+  local toplevel
+  if toplevel=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null); then
+    printf '%s' "$toplevel"
+    return 0
+  fi
+  printf '%s' "$1"
+}
+
+# _guard_resolve_dash_c: forma "git -C <ruta> commit" (allowlist B4 de
+# DESIGN.md). Devuelve por stdout la única ruta candidata y sale 0, o sale 1
+# (sin salida) si el comando no califica para esta regla — el caller
+# bloquea. Condiciones, todas exigidas (allowlist: lo que no calza, falla):
+#   - Ninguna mención de "cd"/"pushd" en el saneado (mezclar formas no se
+#     adivina, se bloquea).
+#   - Ninguna invocación de "git commit" SIN "-C" en el mismo comando (un
+#     "git commit" local junto a un "git -C X" a otro árbol es OTRO árbol,
+#     no el mismo — defensa en profundidad, ver X15/(j) en test-hooks.sh).
+#   - Extraer todas las ocurrencias "git -C <ruta>" del saneado y quedarse
+#     con las rutas únicas (sort -u): tiene que haber EXACTAMENTE una — dos
+#     ocurrencias con rutas distintas es "a qué árbol" ambiguo.
+#   - La ruta cumple TREE_PATH_RE (ver abajo): sin comillas, "$", espacios
+#     ni otro carácter que el shell interpretaría — así el artefacto de un
+#     guard_sanitize sobre una ruta quoted (que colapsa el valor) nunca pasa
+#     como si fuera una ruta real.
+CD_PUSHD_RE="${GUARD_ANCHOR}(cd|pushd)(\s|;|&&|\$)"
+BARE_COMMIT_RE="${GUARD_ANCHOR}git\s+commit"
+TREE_PATH_RE='^[A-Za-z0-9_./-]+$'
+
+_guard_resolve_dash_c() {
+  echo "$SANITIZED_COMMAND" | grep -qE "$CD_PUSHD_RE" && return 1
+  echo "$SANITIZED_COMMAND" | grep -qE "$BARE_COMMIT_RE" && return 1
+
+  local paths count candidate
+  paths=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+-C\s+[^[:space:]]+" | sed -E 's/^.*-C[[:space:]]+//' | sort -u)
+  count=$(printf '%s\n' "$paths" | grep -c .)
+  [ "$count" -eq 1 ] || return 1
+
+  candidate="$paths"
+  echo "$candidate" | grep -qE "$TREE_PATH_RE" || return 1
+  printf '%s' "$candidate"
+}
+
+# Etapa B (parcial, este lote): sin "-C" en el texto → camino rápido sobre
+# BASE_DIR (toplevel real o BASE_DIR tal cual). Con "-C" → se resuelve con
+# _guard_resolve_dash_c y se valida que la ruta exista y sea un repo git
+# real; cualquier falla bloquea SIN correr suites (a diferencia del camino
+# rápido, acá no hay "correr de más" posible: no se sabe en qué árbol
+# correr). "cd"/"pushd"/"--git-dir"/"--work-tree"/"GIT_DIR="/"GIT_WORK_TREE="
+# quedan para próximos lotes.
+if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+-C\s"; then
+  DASH_C_PATH=$(_guard_resolve_dash_c) || _guard_block_tree "no se pudo resolver una única ruta de 'git -C' en el comando"
+  RESOLVED_DIR=$(cd "$BASE_DIR" 2>/dev/null && cd "$DASH_C_PATH" 2>/dev/null && pwd -P) || _guard_block_tree "la ruta '$DASH_C_PATH' no existe"
+  TARGET_DIR=$(git -C "$RESOLVED_DIR" rev-parse --show-toplevel 2>/dev/null) || _guard_block_tree "'$DASH_C_PATH' no es un repo git"
 else
-  TARGET_DIR="$BASE_DIR"
+  TARGET_DIR=$(_guard_toplevel_or_base "$BASE_DIR")
 fi
 
 cd "$TARGET_DIR" || _guard_block_tree "no se pudo entrar al árbol resuelto ($TARGET_DIR)"
@@ -155,19 +218,21 @@ _guard_planning_only_change() {
   return 0
 }
 
-# _guard_planning_only_change lee "git status" del cwd del hook — pero el
-# comando interceptado puede commitear en OTRO árbol: "cd <ruta> && git
-# commit", "git -C <ruta> commit", "git --git-dir=... --work-tree=...
-# commit". En esos casos decidiría "solo .planning/" leyendo un árbol que
-# no es el que se está commiteando, y el salto anularía el gate en
-# silencio sobre un commit de código real (verificado con git worktree
-# real: árbol principal sucio solo bajo .planning/, worktree con código
-# sucio, comando "cd $WT && git commit -am x" → saltaba sin correr
-# suites). Ante cualquiera de esos patrones en el comando, no se toma el
-# salto: cae al camino normal exacto de antes de este salto (corre de más,
-# nunca de menos). #212 (este guard no sigue al árbol real del commit en
-# general) sigue fuera de alcance — esto solo evita que el salto nuevo lo
-# agrave, de "gate corriendo contra el árbol equivocado" a "sin gate".
+# _guard_planning_only_change lee "git status" del cwd DEL HOOK — que a esta
+# altura ya es TARGET_DIR (la Etapa B de arriba resolvió el árbol real del
+# commit y ya hizo "cd" ahí), así que para las formas que ese resolver YA
+# entiende ("git -C <ruta>", camino rápido) esto evalúa el árbol correcto
+# sin necesidad de más chequeos. Sigue existiendo este bloqueo adicional
+# para las formas que el resolver TODAVÍA no resuelve ("cd"/"pushd" —
+# próximos lotes): ante esos patrones en el texto, no se toma el salto,
+# porque el hook no sabe (todavía) si TARGET_DIR es el árbol real del
+# commit (verificado con git worktree real: árbol principal sucio solo bajo
+# .planning/, worktree con código sucio, comando "cd $WT && git commit -am
+# x" → saltaba sin correr suites antes de este fix). #212 (este guard no
+# sigue al árbol real del commit en general) sigue fuera de alcance para
+# "cd"/"pushd" — esto solo evita que el salto lo agrave, de "gate corriendo
+# contra el árbol equivocado" a "sin gate", hasta que el próximo lote los
+# resuelva igual que a "-C" acá.
 #
 # "cd"/"pushd" se anclan a posición de comando con el mismo GUARD_ANCHOR
 # que el resto del hook (no matchean como parte de otra palabra, y
@@ -179,13 +244,14 @@ _guard_planning_only_change() {
 # sobre el tope del stack): con solo "cd\s" y sin "pushd" en la lista,
 # "pushd $WT && git commit" y "cd; git commit" tomaban el salto en
 # silencio (ni "pushd" estaba cubierto, ni un "cd" pelado seguido de ";"
-# trae el espacio que "cd\s" exigía). "-C" se ancla igual porque es una
-# opción corta de una sola letra, más propensa a aparecer por casualidad;
-# "--git-dir"/"--work-tree" son lo bastante específicas como para no
-# necesitar el mismo anclaje — un falso positivo acá solo corre suites de
-# más.
-if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}(cd|pushd)(\s|;|&&|\$)|${GUARD_ANCHOR}git\s+-C\s|--git-dir|--work-tree"; then
-  : # comando redirige a otro árbol: camino normal, no se evalúa el salto
+# trae el espacio que "cd\s" exigía). "--git-dir"/"--work-tree" siguen en
+# esta lista (aunque ya matchean el detector de Etapa A de arriba) porque
+# Etapa B todavía no los resuelve ni bloquea (llega en un lote siguiente):
+# hasta entonces, la única red de seguridad para esas formas es no tomar el
+# salto acá — un falso positivo acá solo corre suites de más.
+if echo "$SANITIZED_COMMAND" | grep -qE "${CD_PUSHD_RE}|--git-dir|--work-tree"; then
+  : # comando redirige a otro árbol (sin resolver/bloquear todavía en Etapa
+    # B): camino normal, no se evalúa el salto
 elif _guard_planning_only_change; then
   echo "Solo cambios en .planning/: sin suites." >&2
   exit 0

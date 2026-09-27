@@ -22,9 +22,9 @@
       "name": "base-cwd-git-C-gitdir",
       "agent": "backend-dev",
       "status": "in_progress",
-      "tasks_done": 1,
+      "tasks_done": 2,
       "tasks_total": 5,
-      "current_task": "tarea 2: detector GIT_COMMIT_RE + forma git -C",
+      "current_task": "tarea 3: git -C irresoluble bloquea sin correr",
       "commits": [],
       "last_batch": false,
       "depends_on": []
