@@ -664,6 +664,73 @@ assert_blocked_cmd "block-force-push: git -P push --force blocks (ronda 2)" \
   "block-force-push.sh" \
   "git -P push --force"
 
+# Ronda 3 (regresión fail-open, security): FORCE_PATTERN usaba "[^&|;]*"
+# entre "push\b" y la flag para no cruzar un separador de comando real
+# (&&, ;, |) — pero ese charset también corta en el "&" de una
+# redirección honesta (2>&1, >&2, &>log), así que un force push real
+# seguido de esa redirección antes de la flag pasaba SIN EVALUAR. Cadenas
+# armadas por concatenación para que el hook activo de esta sesión no
+# bloquee el propio comando de test.
+FORCE_FLAG_BFP="--force"
+CMD_REDIR_2AND1_BFP="git push origin x 2>&1 ${FORCE_FLAG_BFP}"
+assert_blocked_cmd "block-force-push: git push origin x 2>&1 --force blocks (ronda 3, redirección 2>&1)" \
+  "block-force-push.sh" \
+  "$CMD_REDIR_2AND1_BFP"
+
+CMD_REDIR_2AND1_SHORT_BFP="git push origin x 2>&1 -f"
+assert_blocked_cmd "block-force-push: git push origin x 2>&1 -f blocks (ronda 3, redirección 2>&1)" \
+  "block-force-push.sh" \
+  "$CMD_REDIR_2AND1_SHORT_BFP"
+
+CMD_REDIR_DEVNULL_2AND1_BFP="git push origin x >/dev/null 2>&1 ${FORCE_FLAG_BFP}"
+assert_blocked_cmd "block-force-push: git push origin x >/dev/null 2>&1 --force blocks (ronda 3)" \
+  "block-force-push.sh" \
+  "$CMD_REDIR_DEVNULL_2AND1_BFP"
+
+CMD_REDIR_2AND_AMP2_BFP="git push origin x >&2 ${FORCE_FLAG_BFP}"
+assert_blocked_cmd "block-force-push: git push origin x >&2 --force blocks (ronda 3, redirección >&2)" \
+  "block-force-push.sh" \
+  "$CMD_REDIR_2AND_AMP2_BFP"
+
+CMD_REDIR_AMP_LOG_BFP="git push origin x &>log ${FORCE_FLAG_BFP}"
+assert_blocked_cmd "block-force-push: git push origin x &>log --force blocks (ronda 3, redirección &>)" \
+  "block-force-push.sh" \
+  "$CMD_REDIR_AMP_LOG_BFP"
+
+MULTILINE_REDIR_BFP=$'git push origin x \\\n2>&1 --force'
+assert_blocked_cmd "block-force-push: git push origin x \\ + salto de línea + 2>&1 --force blocks (ronda 3)" \
+  "block-force-push.sh" \
+  "$MULTILINE_REDIR_BFP"
+
+CMD_TREE_OPTS_REDIR_BFP="git -C /x -c a=b push origin x 2>&1 ${FORCE_FLAG_BFP}"
+assert_blocked_cmd "block-force-push: git -C /x -c a=b push origin x 2>&1 --force blocks (ronda 3)" \
+  "block-force-push.sh" \
+  "$CMD_TREE_OPTS_REDIR_BFP"
+
+# Negativos (ronda 3): la redirección con "&" no debe abrir la puerta a
+# cruzar un separador de comando real — sigue sin bloquear un push sin
+# force seguido de un comando distinto tras &&, & o ;.
+assert_allowed_cmd "block-force-push: git push origin feature/fix-flaky && echo -f allowed (ronda 3, sigue sin cruzar &&)" \
+  "block-force-push.sh" \
+  "git push origin feature/fix-flaky && echo -f"
+assert_allowed_cmd "block-force-push: git push origin x & echo -f allowed (ronda 3, no cruza & de background)" \
+  "block-force-push.sh" \
+  "git push origin x & echo -f"
+assert_allowed_cmd "block-force-push: git push origin x; echo -f allowed (ronda 3, no cruza ;)" \
+  "block-force-push.sh" \
+  "git push origin x; echo -f"
+assert_allowed_cmd "block-force-push: git push origin fix/login-form allowed (ronda 3, sin force)" \
+  "block-force-push.sh" \
+  "git push origin fix/login-form"
+
+# Bonus (ronda 3): mismo trato para un ";" escapado (\;), literal para el
+# shell y no un separador real, antes de la flag.
+ESCAPED_SEMICOLON_VALUE_BFP='a\;b'
+CMD_ESCAPED_SEMICOLON_BFP="git push -o ${ESCAPED_SEMICOLON_VALUE_BFP} ${FORCE_FLAG_BFP} origin x"
+assert_blocked_cmd "block-force-push: git push -o a\\;b --force origin x blocks (ronda 3, ; escapado)" \
+  "block-force-push.sh" \
+  "$CMD_ESCAPED_SEMICOLON_BFP"
+
 echo ""
 
 # --- block-hard-reset.sh ---

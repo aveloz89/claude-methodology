@@ -74,7 +74,20 @@ SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 # en el primer separador de comando. Un salto de línea real no necesita
 # entrar al charset: grep procesa línea por línea por defecto, así que
 # ninguna de las dos partes del patrón puede cruzar uno sin ayuda extra.
-FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
+
+# Ronda 3 (regresión fail-open, security): el charset de arriba usaba
+# "[^&|;]*" para no cruzar un separador de comando real (&&, ;, |) — pero
+# ese mismo charset excluye el "&" de una redirección honesta (2>&1,
+# >&2, &>log), así que un push --force real seguido de esa redirección
+# ANTES de la flag ("git push origin x 2>&1 --force") no matcheaba y
+# pasaba SIN EVALUAR. Fix: el charset intercalado ahora también acepta,
+# repetidas veces, "<dígitos opcionales>>&" (2>&1, >&1) o "&>" (&>log) —
+# ninguna de las dos formas es un separador real de comando (&&, ;, |,
+# & de background), así que seguir aceptándolas no reabre el hueco que
+# cerró la ronda 2 (ver comentario de esa ronda, abajo del patrón). Mismo
+# trato para un ";" escapado (\;), literal para el shell y no un
+# separador real — ej. "git push -o a\;b --force origin x".
+FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b([^&|;]|[0-9]*>&|&>|\\\\;)*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
 
 if echo "$SANITIZED_COMMAND" | grep -qE "$FORCE_PATTERN"; then
   echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2
