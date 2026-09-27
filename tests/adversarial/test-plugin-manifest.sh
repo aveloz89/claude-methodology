@@ -796,6 +796,16 @@ assert_contains "$NEW_PROJECT_SKILL" "librería o tooling" \
   "skills/new-project/SKILL.md pregunta por el tipo de proyecto (opción librería o tooling)"
 
 echo ""
+echo "--- agents/architect.md y QAs: referencian los criterios de aceptación del brief ---"
+
+assert_contains "$REPO_ROOT/agents/architect.md" "Criterios de aceptación" \
+  "agents/architect.md traza los criterios de aceptación del brief a tareas atómicas"
+assert_contains "$REPO_ROOT/agents/qa-backend.md" "Criterios de aceptación del brief" \
+  "agents/qa-backend.md referencia los criterios de aceptación del brief (no bloquea)"
+assert_contains "$REPO_ROOT/agents/qa-frontend.md" "Criterios de aceptación del brief" \
+  "agents/qa-frontend.md referencia los criterios de aceptación del brief (no bloquea)"
+
+echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"
 
 if command -v claude > /dev/null 2>&1; then
