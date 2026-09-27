@@ -3202,6 +3202,12 @@ assert_pmc_cwd_blocked_no_calls "[#73][M2] .cwd distinto del cwd del proceso, si
 assert_pmc_cwd_blocked_no_calls "[#73][M3] .cwd inexistente, sin --repo -> bloquea sin consultar" \
   "gh pr merge 45" "/nonexistent-pmc-cwd-$$" "--repo"
 
+# M4: .cwd distinto, pero con --repo explícito -> el check de cwd no aplica
+# (--repo YA es el remedio que el mensaje de M2/M3 sugiere), continúa
+# consultando el repo indicado.
+assert_pmc_cwd_continue "[#73][M4] .cwd distinto pero --repo explícito -> continúa, consulta ese repo" \
+  "gh pr merge 45 --repo o/r" "$PMC_OTHER_DIR" "o/r"
+
 rm -rf "$FAKE_GH_PMC_CWD_DIR" "$PMC_OTHER_DIR"
 
 echo ""

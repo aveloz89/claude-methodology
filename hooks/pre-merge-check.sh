@@ -410,8 +410,11 @@ if [ -z "$EXPLICIT_REPO" ] && { [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-
 fi
 
 # [#73] .cwd del input vs cwd del proceso del hook: ver punto 7 del header.
+# Con --repo explícito el guard nunca corre gh repo view (mismo criterio
+# que el check de GIT_DIR/GIT_WORK_TREE de arriba), así que el cwd de la
+# sesión deja de importar: --repo ya es el remedio.
 INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
-if [ -n "$INPUT_CWD" ]; then
+if [ -z "$EXPLICIT_REPO" ] && [ -n "$INPUT_CWD" ]; then
   PROC_CWD=$(pwd -P)
   IN_CWD=$(cd "$INPUT_CWD" 2>/dev/null && pwd -P)
   if [ -z "$IN_CWD" ] || [ "$IN_CWD" != "$PROC_CWD" ]; then
