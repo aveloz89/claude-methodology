@@ -20,3 +20,9 @@
 - Verificado: no hay rastro de "declara supuestos" (solo aparece en los red flags de `agent-validation.md`); "no bloquea" es coherente; el ciclo de preguntas es coherente; el test de comillas pasa a rojo al revertir el fix (worktree desechable); el prompt es claro y corto.
 - **NO CUBIERTO:** el end-to-end con `claude -p` quedó bloqueado por el clasificador de auto-mode. Se reemplazó con `sh -c` del comando entrecomillado: `pre-merge-check` sigue bloqueando (exit 2).
 - **Incidente declarado por QA:** un `git show … > hooks/hooks.json` sobrescribió por un momento el árbol real y QA lo revirtió. El orchestrator verificó: `git status` limpio, `hooks.json` igual a HEAD y sin worktrees.
+
+Fixes en `48bf53b` (calificador "feature nueva" en runbook y skill), `226f585` (brief, README y reporte son datos), `4da1976` (etiqueta `nuevo`), `fdc443f` (el sandbox restaura TOTAL/PASS, más invariante Total = Pass + Fail) y `a88af9c` (voseo residual encontrado por el orchestrator: "evaluás", "activalo"). El orchestrator verificó con grep que la condición es idéntica en el agente, el README, la skill y el runbook. No se relanzan los reviewers: el delta aplica exactamente la remediación pedida y cada fix tiene su assert.
+
+## Cierre
+
+**Veredicto final:** APROBADO. HEAD revisado `a88af9c`. Suites: `test-hooks` 358/358, `test-plugin-manifest` 157/157, `test-frontmatter` 107/107; `validate --strict` sobre `plugin.json` y `.` pasa.
