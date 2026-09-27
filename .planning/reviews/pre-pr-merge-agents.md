@@ -21,3 +21,19 @@
 - **[sugerencia]** Falta el template de reporte de fix de build. Bajo impacto: lo cubre el reporte de cierre de lote. → no se aplica.
 - **[sugerencia]** "El frontend-dev aplica su checklist": `frontend-dev.md` no usa esa palabra. → alinear el término con "lee `MASTER.md` y aplica sus constraints".
 - Verificado: flujo `db-complejo` coherente (architect lo marca, backend-dev + rulebook, orden garantizado por el plan); cero menciones colgando; el lint (g) falla si queda alguna; desviación de `qa-backend.md` §5 correcta. Suites 100/85/358.
+
+Fixes en `8a4e2f0`, `51b6850`, `f03f3ad` y `5caedaf`.
+
+## Ronda 2: delta `5f88e43...5caedaf`
+
+### security-reviewer (opus): APROBADO
+- Los 5 hallazgos de la ronda 1 están resueltos: guardas en `dev-common.md:61-63`, principios 9-10 de `db-migrations.md`, referencia corregida, excepción de hooks/permisos/auth en el salto de `docs` y voseo. No hay nada nuevo.
+
+### qa-backend: CAMBIOS NECESARIOS
+- Todos los fixes de la ronda 1 están resueltos. Rojo verificado en un worktree con la base: los 14 asserts nuevos fallan con el fix revertido.
+- **[BLOQUEANTE]** `assert_no_voseo` forzaba `LC_ALL=en_US.UTF-8`. Sin ese locale generado (probado en Docker Debian), glibc cae en silencio a `C` y aparecen decenas de falsos positivos sobre español correcto. → fix `0922c37`: lista explícita de 32 formas voseantes con delimitadores literales, sin `\b`, sin whitelist y sin forzar locale. El orchestrator verificó 98/98 con `LC_ALL=C` y con `LC_ALL=en_US.UTF-8`. No se relanza: el cambio aplica la remediación propuesta y el resultado es idéntico en los dos locales.
+- **[sugerencia]** Whitelist ad-hoc: la elimina el mismo fix.
+
+## Cierre
+
+**Veredicto final:** APROBADO. HEAD revisado `0922c37`. Suites: `test-hooks` 358/358, `test-plugin-manifest` 98/98 (con locale C y UTF-8), `test-frontmatter` 100/100; `validate --strict` pasa.
