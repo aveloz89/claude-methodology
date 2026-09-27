@@ -43,3 +43,9 @@ Fixes en `85b5930`, `c5ec807`, `8cc659c`, `1b07627` y `483cba1`.
 - Nota: `.claude/settings.local.json` de este repo pre-aprueba `Bash(bash:*)`, `Bash(gh api:*)`, `Bash(git push:*)`, etc., lo que contamina las pruebas de permisos hechas dentro del repo. Se reporta al usuario; no se toca.
 
 **Decisión del orchestrator** (security gana en seguridad): quitar `Bash` de `allowed-tools` en `orchestrator`, `pr-workflow` y `review-pr`, porque la pre-aprobación que dan equivale a cualquier comando; los devs siguen usando Bash con el flujo normal de permisos. El lint lo prohíbe en adelante.
+
+Fixes en `92d9b8d` (lint h: sin `Bash` en skills invocables por el modelo), `e87ea3b` (se quita `Bash` de las tres skills y se agrega `build-resolver`) y `28bc248` (test de manifest invertido; el enunciado de `8cc659c` queda corregido). Ambos tests se rompen al volver a poner `Bash(git *)`. No se relanzan los reviewers: el delta aplica al pie de la letra la remediación de security y el faltante de QA, y el orchestrator lo verificó con las suites.
+
+## Cierre
+
+**Veredicto final:** APROBADO. HEAD revisado `28bc248`. Suites: `test-hooks` 358/358, `test-plugin-manifest` 77/77, `test-frontmatter` 115/115; `validate --strict` sobre `plugin.json` y `.` pasa.
