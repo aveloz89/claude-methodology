@@ -1597,9 +1597,9 @@ assert_blocked_cmd "pre-commit-guard: mención de \"cd x\" dentro de un string v
   "pre-commit-guard.sh" 'echo "cd x" && git commit -am x' "$PATH" "$PSKIP_DIR"
 _pskip_assert_marker_tree "pre-commit-guard: mención de cd en string — el runner corrió en la sesión" "$PSKIP_DIR"
 
-# (#73, B.3) Contrato del mensaje de bloqueo: nombra las DOS formas
-# aceptadas ("git commit …", "cd /ruta/absoluta && git commit …") y el
-# escape ("hacé el cd en una llamada Bash previa"). Los tests con
+# Contrato del mensaje de bloqueo: nombra las DOS formas aceptadas ("git
+# commit …", "cd /ruta/absoluta && git commit …") y el escape ("haz el cd
+# en una llamada Bash previa"). Los tests con
 # _pskip_assert_blocked_forms de arriba solo verifican la presencia de
 # "Formas aceptadas" (contrato mínimo compartido); este test lee el
 # stderr completo para afirmar el contenido, no solo el encabezado.
@@ -1612,7 +1612,7 @@ TOTAL=$((TOTAL + 1))
 if [ "$PCG_MSG_EXIT" -eq 2 ] \
   && echo "$PCG_MSG_STDERR" | grep -qF "'git commit …' en el cwd de la sesión" \
   && echo "$PCG_MSG_STDERR" | grep -qF "'cd /ruta/absoluta && git commit …'" \
-  && echo "$PCG_MSG_STDERR" | grep -qF "hacé el cd en una llamada Bash previa"; then
+  && echo "$PCG_MSG_STDERR" | grep -qF "haz el cd en una llamada Bash previa"; then
   echo -e "${GREEN}PASS${NC}: pre-commit-guard: el mensaje de bloqueo nombra las dos formas y el escape"
   PASS=$((PASS + 1))
 else
@@ -2107,6 +2107,24 @@ if [ -f "$MULTIROOT_MARK/frontend.ran" ] && [ ! -f "$MULTIROOT_MARK/backend.ran"
   PASS=$((PASS + 1))
 else
   echo -e "${RED}FAIL${NC}: pre-commit-guard: G4 — corrió frontend, no backend (backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ))"
+  FAIL=$((FAIL + 1))
+fi
+_multiroot_cleanup
+
+# Archivo en la raíz (sin "/" en el path, sin segmento que derivar) +
+# frontend/a.js tocados → corre solo frontend, el archivo de la raíz se
+# descarta sin bloquear.
+_multiroot_setup
+echo "cambio" >> "$MULTIROOT_DIR/README.md"
+echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
+assert_allowed_cmd "pre-commit-guard: archivo en la raíz + frontend/ tocados → corre solo frontend" \
+  "pre-commit-guard.sh" "git commit -m x" "$MULTIROOT_FAKE_BIN:$PATH" "$MULTIROOT_DIR"
+TOTAL=$((TOTAL + 1))
+if [ -f "$MULTIROOT_MARK/frontend.ran" ] && [ ! -f "$MULTIROOT_MARK/backend.ran" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-commit-guard: archivo en la raíz + frontend/ tocados → corre solo frontend"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-commit-guard: archivo en la raíz + frontend/ tocados → corre solo frontend (backend.ran=$( [ -f "$MULTIROOT_MARK/backend.ran" ] && echo si || echo no ), frontend.ran=$( [ -f "$MULTIROOT_MARK/frontend.ran" ] && echo si || echo no ))"
   FAIL=$((FAIL + 1))
 fi
 _multiroot_cleanup
