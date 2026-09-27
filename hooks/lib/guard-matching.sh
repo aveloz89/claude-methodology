@@ -52,31 +52,15 @@
 # shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
 GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
 
-# Fragmento de regex ERE que consume, cero o más veces, una opción de árbol
-# de git ("-C <ruta>"/"-C=<ruta>", "--git-dir"/"--work-tree" con o sin "=")
-# seguida de su valor y un separador — usado entre "git" y el subcomando
-# vigilado (commit) para detectar "git -C <ruta> <subcomando>" como la
-# misma invocación. Antes vivía inline en GIT_COMMIT_RE
-# (pre-commit-guard.sh); un guard nuevo que necesite el mismo fragmento no
-# tiene que copiarlo a mano.
-#
-# Los guards de push/reset (block-force-push, block-hard-reset,
-# pre-push-guard) usan GUARD_GIT_OPTS en vez de este fragmento — ver abajo.
-# shellcheck disable=SC2034 # se usa en pre-commit-guard.sh
-GUARD_GIT_TREE_OPTS='((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?\s+)*'
-
 # Fragmento de regex ERE que consume, cero o más veces y EN CUALQUIER ORDEN,
 # las opciones de git que pueden aparecer entre "git" y el subcomando
-# vigilado (push, reset --hard): opciones de árbol ("-C <ruta>",
+# vigilado (push, reset --hard, commit): opciones de árbol ("-C <ruta>",
 # "--git-dir"/"--work-tree" con o sin "="), "-c <clave=valor>", "--no-pager"
-# y "-P". Una sola alternancia repetida en vez de dos fragmentos
-# concatenados (GUARD_GIT_TREE_OPTS + una versión anterior de esto, "global
-# opts"): la concatenación solo reconocía UN orden fijo entre ambos grupos
-# — "git -C /x -c a=b push --force" (árbol después de "-c") no matcheaba
-# ninguno de los dos fragmentos, y el force push real pasaba SIN EVALUAR.
-# git acepta estas opciones en cualquier orden antes del subcomando; el
-# regex ahora también.
-# shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh y pre-push-guard.sh
+# y "-P". Una sola alternancia repetida en vez de fragmentos concatenados en
+# un orden fijo: "git -C /x -c a=b push --force" (árbol después de "-c") no
+# matchearía un fragmento que solo tolerase un orden. git acepta estas
+# opciones en cualquier orden antes del subcomando; el regex también.
+# shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh, pre-push-guard.sh y pre-commit-guard.sh
 GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
 
 # Fragmento de regex ERE que reconoce "gh ... pr ... merge" tolerando hasta

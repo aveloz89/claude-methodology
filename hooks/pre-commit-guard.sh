@@ -78,42 +78,14 @@
 #     delimitador a medias) que borran el comando real antes de que este
 #     hook lo vea: #77, no de este archivo.
 #
-# Fail-closed sin jq (cierra #50 para este guard): sin jq, el parseo de
-# COMMAND más abajo devuelve vacío, el grep nunca matchea, y el guard
-# pasaba en silencio — un commit pasaba sin correr tests. CAMBIA el
-# contrato de este hook: antes, sin jq, pasaba.
-if ! command -v jq > /dev/null 2>&1; then
-  echo "BLOCKED: pre-commit-guard no operativo: falta jq" >&2
-  exit 2
-fi
-
-INPUT=$(cat)
-COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
-INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
-
-# Resolución del path del lib sin depender de un binario externo (dirname):
-# "${0%/*}" es el idioma de shell para dirname cuando $0 trae al menos un
-# "/" — siempre el caso dado cómo el harness invoca los hooks. Fail-closed si
-# el lib no existe o no es legible: un `source` fallido dejaría el resto
-# del script corriendo con guard_sanitize()/GUARD_ANCHOR indefinidos, y el
-# guard pasaría en silencio (mismo fail-open que #50). Mismo mecanismo de
-# bloqueo que usa este hook para tests fallando: stderr + exit 2.
+# Preámbulo común (guard_init, hooks/lib/guard-matching.sh): fail-closed sin
+# jq, lee INPUT/COMMAND/INPUT_CWD, bloquea ante un byte NUL y deja
+# SANITIZED_COMMAND saneado — mismo contrato que el resto de los guards.
 LIB="${0%/*}/lib/guard-matching.sh"
-if [ ! -r "$LIB" ]; then
-  echo "BLOCKED: pre-commit-guard no operativo: falta hooks/lib/guard-matching.sh" >&2
-  exit 2
-fi
+[ -r "$LIB" ] || { echo "BLOCKED: pre-commit-guard no operativo: falta hooks/lib/guard-matching.sh" >&2; exit 2; }
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
-
-# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
-# para por qué se detecta sobre $INPUT y no sobre $COMMAND.
-if guard_command_has_nul "$INPUT"; then
-  echo "BLOCKED: pre-commit-guard: el comando trae un byte NUL" >&2
-  exit 2
-fi
-
-SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
+guard_init "pre-commit-guard"
 
 # Solo interceptar comandos git commit. GIT_COMMIT_RE (#73) amplía el match
 # original ("git\s+commit" a secas) para que también detecte invocaciones
@@ -136,7 +108,7 @@ SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 # interceptar. El charset no agrega "-" ni letras, así que "commit-tree" y
 # "commit-graph" siguen sin matchear (ninguno de sus caracteres siguientes
 # cae en "\s|\$|[;&|)]").
-GIT_COMMIT_RE="${GUARD_ANCHOR}((GIT_DIR|GIT_WORK_TREE)=\S*\s+)*git\s+${GUARD_GIT_TREE_OPTS}commit(\s|\$|[;&|)])"
+GIT_COMMIT_RE="${GUARD_ANCHOR}((GIT_DIR|GIT_WORK_TREE)=\S*\s+)*git\s+${GUARD_GIT_OPTS}commit(\s|\$|[;&|)])"
 if ! echo "$SANITIZED_COMMAND" | grep -qE "$GIT_COMMIT_RE"; then
   exit 0
 fi
