@@ -1,205 +1,33 @@
 #!/bin/bash
 # Verifica que un PR no tenga threads de review sin resolver, reviews
 # bloqueantes, ni CI checks fallando antes de permitir el merge.
+# hooks.json filtra con "if": "Bash(gh *)" — no reemplaza la validación de
+# abajo. Contrato PreToolUse: bloquear = stderr + exit 2, permitir = exit
+# 0 sin stdout.
 #
-# hooks.json filtra la invocación con "if": "Bash(gh *)" — optimización de
-# latencia, no reemplaza la validación de abajo, que sigue mirando el
-# comando completo.
+# Forma aceptada, anclada de punta a punta sobre el texto CRUDO: "gh pr
+# merge <N> [flag ...]", sola en el comando y en una línea. <N> =
+# [1-9][0-9]* y cada flag uno de --merge/-m, --squash/-s, --rebase/-r,
+# --delete-branch/-d, --repo|--repo=|-R <owner/repo> (uno solo). Sin
+# --repo/-R resuelve con `gh repo view` en el cwd de la sesión — allowlist
+# total de la forma, no blocklist: nada antes, entre ni después.
 #
-# Contrato PreToolUse (auditoría best-practices): bloquear = stderr + exit
-# 2, permitir = exit 0 sin stdout — igual que pre-push-guard.sh y pre-
-# commit-guard.sh. Reemplaza el JSON {"decision":"block"}/{"continue":true}
-# que este hook usaba antes; el motivo de bloqueo sigue en el mensaje, ahora
-# por stderr.
+# Gramática única en vez de interpretar el comando: resolver un `cd`
+# inicial exige interpretar shell arbitrario — cada intento de parsear
+# separadores/comillas/envoltorios dejó un hueco distinto. Cortar el
+# parseo cierra la clase de bug entera.
 #
-# Endurecido 2026-08-11 tras el incidente de #821/#822:
-#   1. FAIL-CLOSED: si una llamada a gh falla (rate limit, red), el hook
-#      BLOQUEA explicando que no pudo verificar — antes fallaba abierto en
-#      silencio, y por eso #821 se mergeó sin que el guard actuara.
-#   2. PRECISIÓN: solo bloquean los threads de review SIN RESOLVER (inline,
-#      via GraphQL isResolved). Los comentarios generales del PR no tienen
-#      estado de resolución y son conversación legítima (resúmenes de ronda,
-#      contexto) — contarlos todos obligaba a borrarlos para poder mergear.
-#
-# Endurecido 2026-08-13 (matching quirúrgico + CI sin checks configurados):
-#   3. MATCHING: el gate ya no hace grep sobre el string crudo del comando.
-#      Antes, un git commit con un heredoc que mencionaba la frase de merge
-#      en su mensaje disparaba el gate como si fuera una invocación real
-#      (falso positivo bloqueante), y si esa mención traía un número, el
-#      guard terminaba validando un PR sin relación con el comando real
-#      (falso positivo con blast radius). En sentido contrario, un merge
-#      real dentro de un comando compuesto (cmd && gh pr merge N) pasaba
-#      sin validar porque el gate solo miraba el inicio del string completo
-#      (falso negativo). Ahora se sanean spans quoted ('...' y "...") y
-#      cuerpos de heredoc antes de matchear, y el match se ancla a posición
-#      de comando (inicio de string/línea, o justo después de &&, ||, ;, |,
-#      $(). Limitación aceptada: es saneo heurístico de texto, no un parser
-#      de shell real — un wrapper como bash -c "..." no se detecta porque
-#      el comando real queda dentro de una string que este hook sanitiza.
-#      Aceptable: el hook protege errores honestos del orchestrator, no
-#      evasión adversarial. El saneo + ancla vive en hooks/lib/guard-
-#      matching.sh — compartido con block-admin-merge.sh y pre-commit-
-#      guard.sh, que tenían el mismo matching frágil (#47).
-#   4. CI SIN CHECKS CONFIGURADOS: en un repo sin ningún check (gh pr checks
-#      no reporta nada para esa PR), el guard bloqueaba con el mismo mensaje
-#      que usa para un fallo real de la consulta. "Sin checks" es un pass
-#      legítimo (0 fallando, 0 pendientes); ahora se distingue por el texto
-#      que gh manda a stderr ("no checks reported"), el único indicador
-#      disponible — no hay una salida --json para este caso. Limitación
-#      aceptada: si gh cambia ese texto en una versión futura, este caso
-#      vuelve a fail-closed (bloquea) en vez de pasar — es el fallback
-#      seguro.
-#
-# Endurecido 2026-08-13 (fail-closed sin dependencias, #50):
-#   5. Todo lo anterior depende de perl (saneo del comando), jq (parseo del
-#      JSON de entrada y de las respuestas de gh) y grep (el gate del saneo
-#      degradado y el camino dominante que decide "esto es una invocación
-#      real"). Antes, si faltaba cualquiera de los dos primeros, la
-#      sustitución/parseo devolvía vacío, el grep no matcheaba, y el hook
-#      emitía {"continue":true} en silencio: cualquier gh pr merge pasaba
-#      sin verificar — justo lo contrario del diseño fail-closed que este
-#      header declara. grep se sumó al check en la retro del PR #60: sin
-#      él, "command not found" hace que el `if !` de las líneas de match
-#      de abajo se evalúe como éxito, con el mismo resultado de fail-open.
-#      Ahora los tres se verifican al inicio, antes de leer stdin, y se
-#      bloquea sin depender de jq (la propia herramienta que puede faltar).
+# Fuera de alcance (errores honestos, no evasión adversarial; detalle en
+# hooks/lib/guard-matching.sh): wrappers de intérprete o "gh" entre
+# comillas/backslash a mitad de palabra; funciones/alias `gh` previos o
+# con >2 tokens de separación; el saneo compartido borrando el merge junto
+# con su contexto; variables de entorno de archivos de arranque; y, sin
+# --repo, un `.cwd` que no coincide con el cwd del proceso.
+
 if ! command -v perl > /dev/null 2>&1 || ! command -v jq > /dev/null 2>&1 || ! command -v grep > /dev/null 2>&1; then
   echo "BLOCKED: pre-merge-check no operativo: falta perl, jq o grep" >&2
   exit 2
 fi
-
-# Endurecido 2026-09-16 (repo resuelto por el comando, no por el cwd de la
-# sesión, PR #75, y reemplazado en la ronda 3 del mismo follow-up):
-#   6. Sin --repo explícito, el guard SIEMPRE resolvía el repo con
-#      `gh repo view` corriendo en el cwd de la SESIÓN, sin mirar el resto
-#      del comando interceptado. Incidente real: un `cd claude-methodology
-#      && gh pr merge 75` lanzado con la sesión parada en easy-quotes
-#      resolvió easy-quotes#75 (un PR homónimo, mergeado en julio, con su
-#      check de CI en rojo) y bloqueó con un motivo que no aplicaba al PR
-#      real.
-#
-#      Dos rondas intentaron RESOLVER un `cd` inicial (extraer la ruta,
-#      correr `gh repo view` ahí) interpretando formas de comando sobre el
-#      texto saneado — cada ronda de review encontró una forma nueva que
-#      el parser no cubría (separadores sueltos, comillas/backslash a
-#      mitad de ruta, saltos de línea, envoltorios que no arrancan con la
-#      palabra "cd", -R/--repo intercalado, un segundo merge en otra
-#      línea, el valor de --repo truncado por el saneo — ver el historial
-#      de commits de este archivo y `.planning/reviews/` de ese PR para el
-#      detalle completo). Interpretar shell arbitrario es un problema
-#      abierto: cada capa nueva sobre la interpretación de la anterior
-#      dejaba un hueco distinto. Decisión del usuario: cortar el parseo.
-#
-#      Ahora el guard acepta UNA sola forma, anclada de punta a punta y
-#      validada sobre el texto CRUDO (tool_input.command tal cual, antes
-#      de guard_sanitize — el saneado solo se usa para decidir si el
-#      comando MENCIONA una invocación de merge, ver el gate más abajo, no
-#      para extraer nada de esta forma):
-#
-#        gh pr merge <N> [flag ...]
-#
-#      con <N> = [1-9][0-9]* (seguido de blank o fin) y cada flag EXACTA-
-#      MENTE uno de: --merge, -m, --squash, -s, --rebase, -r,
-#      --delete-branch, -d, --repo <owner/repo>, --repo=<owner/repo>,
-#      -R <owner/repo> — un solo flag de repo por comando, no "gana el
-#      último" como antes (repetirlo, aunque sea con el mismo valor,
-#      bloquea). --repo/-R ausente resuelve con `gh repo view` en el cwd
-#      de la SESIÓN (comportamiento previo a #75, intacto). Nada antes,
-#      entre ni después de esa forma: sin cd, sin prefijo de variable de
-#      entorno, sin &&/;/|, sin segunda línea. Cualquier otra cosa
-#      bloquea explicando la forma aceptada — allowlist total de la
-#      forma, no blocklist de construcciones: no hace falta enumerar qué
-#      prefijos/separadores están prohibidos, se exige que el comando
-#      completo sea exactamente esto. Ver el bloque bajo "Gramática única
-#      del merge" más abajo para el detalle de cada chequeo.
-#
-#      Fuera de alcance (mismo modelo de amenaza que hooks/lib/guard-
-#      matching.sh: errores honestos del orchestrator, no evasión
-#      adversarial). El gate sin ancla (más abajo) encuentra "gh"/"pr"/
-#      "merge" como substring en CUALQUIER posición del texto saneado, así
-#      que casi cualquier prefijo SÍ llega a la gramática y bloquea —
-#      verificado uno por uno contra el hook real, worktree limpio, sin
-#      mocks: `command gh`, `env gh`, `FOO=1 gh`, `\gh` (backslash pegado
-#      sin partir la palabra), una ruta absoluta al binario TODOS
-#      bloquean (el texto antes de la invocación real rompe "nada antes
-#      de gh pr merge"). Solo evaden de verdad los casos donde el saneo o
-#      la sintaxis rompen la palabra "gh" en el texto saneado, o donde
-#      "gh" queda separado de "pr"/"merge" por más tokens de los que
-#      GUARD_GH_PR_MERGE_RE tolera (2), y por lo tanto el gate sin ancla
-#      nunca la encuentra:
-#        - El nombre completo entre comillas: `"gh"`, `'gh'` — el span
-#          quoted se colapsa entero a un espacio, la palabra desaparece.
-#        - Un backslash A MITAD de la palabra: `g\h` (distinto de `\gh`,
-#          que bloquea — ahí la palabra "gh" sigue intacta).
-#        - Un wrapper de intérprete con el comando entero entre comillas:
-#          `zsh -c '...'`, `bash -c "..."`, `sh -c '...'` — el span
-#          quoted que contiene "gh pr merge" se colapsa entero.
-#        - Un comando ANTERIOR de la sesión que define una función/alias
-#          `gh` (ver el punto siguiente: el entorno previo no es visible).
-#        - Un wrapper o función definido en el MISMO comando que el merge,
-#          si la definición mete más de 2 tokens entre "gh" y la
-#          invocación real: `w() { gh "$@"; }; w pr merge 5` — verificado,
-#          continue, 0 llamadas a gh. El caso equivalente sin ese
-#          espaciado (la palabra "gh" pegada a "pr merge" en el texto
-#          saneado) sí bloquea, como cualquier otro prefijo de la lista de
-#          arriba.
-#        Dirección segura: el código bloquea MÁS de lo que este comentario
-#        admite, nunca menos.
-#      Aparte, el saneo COMPARTIDO de hooks/lib/guard-matching.sh (no se
-#      toca en este PR) puede borrar el merge real junto con el texto que
-#      lo rodea, dejando el comando sin ninguna mención de "gh"/"pr"/
-#      "merge" — verificado, 0 llamadas a gh, continue en HEAD y en dev
-#      por igual: un comentario con apóstrofo antes del merge en otra
-#      línea (`echo x # don't`⏎`gh pr merge 5`), un `echo` con comillas
-#      escapadas rodeando el merge (`echo \'; gh pr merge 5; echo \'`),
-#      quoting ANSI-C con apóstrofo (`echo $'it\'s' && gh pr merge 5 &&
-#      echo 'x'`), y un heredoc con el delimitador comillado a medias
-#      (`cat <<E"OF"`⏎`EOF`⏎`gh pr merge 5`⏎`E`). Es el mismo emparejamiento
-#      ciego de comillas documentado en guard-matching.sh:58-65 (un par de
-#      comillas de spans DISTINTOS se emparejan entre sí y se tragan el
-#      comando real de en medio) — no es un hueco nuevo de este archivo.
-#      Tampoco se ensancha GUARD_GH_PR_MERGE_RE (abajo) para tolerar más de 2
-#      tokens entre gh/pr/merge y así detectar flags de repo repetidos
-#      ANTES de "pr" o "merge" (ej. `gh pr -R o/a -R o/red merge 5`, que
-#      hoy pasa sin validar, 0 llamadas): ensanchar el tope genérico a 4
-#      tokens hace que `gh pr view 5 | grep merge` — un falso positivo que
-#      tiene que seguir pasando — empiece a matchear también (4 tokens
-#      arbitrarios entre "pr" y "merge", verificado con el hook real). Un
-#      patrón más específico (solo tokens con forma de flag de repo)
-#      evitaría ese choque puntual, pero es agregar una capa más de
-#      interpretación de forma sobre un regex cuyo único trabajo es
-#      decidir si vale la pena validar — exactamente el patrón que D-04
-#      abandonó para la gramática misma. Se documenta en vez de parchear.
-#        - El entorno inyectado por archivos de arranque del shell
-#          (`.zshenv`, el snapshot de la herramienta Bash) o por un
-#          comando previo de la sesión: el proceso de este hook solo ve
-#          el texto del comando interceptado y su propio entorno — el que
-#          sí se chequea explícitamente (GH_REPO/GH_HOST/GIT_DIR/
-#          GIT_WORK_TREE, ver el bloque de "Gramática única del merge").
-#
-# Endurecido 2026-09-27 (.cwd del input vs cwd del proceso, #73, cierra el
-# §4 de #77 para este hook):
-#   7. El punto 6 resuelve el repo con `gh repo view` corriendo en el cwd
-#      del PROCESO del hook, pero nunca había verificación explícita de
-#      que ese cwd fuera el mismo que el de la sesión que emitió el
-#      comando — #77 §4 lo dejó como hueco abierto. Verificado contra
-#      Claude Code 2.1.283 (mismo entorno que .planning/DESIGN.md de #73):
-#      el JSON de un PreToolUse/Bash trae `.cwd`, y ese valor es el mismo
-#      cwd con el que corre el proceso del hook (tres corridas, `pwd -P`
-#      del hook == `.cwd`; ver DESIGN.md preguntas a2/b). Ahora, sin
-#      --repo explícito, si `.cwd` no es un directorio o no coincide con
-#      `pwd -P` del proceso del hook, el guard bloquea sin consultar a gh
-#      y pide --repo owner/repo — no intenta resolver ni adivinar a qué
-#      repo correspondería. Con --repo explícito este check no aplica
-#      (mismo criterio que el chequeo de GIT_DIR/GIT_WORK_TREE del punto
-#      6: con --repo, el guard nunca corre gh repo view, así que el cwd de
-#      la sesión deja de importar). `.cwd` ausente del JSON (CLI que no lo
-#      manda, o los tests que no lo incluyen) deja el comportamiento
-#      intacto — este hook nunca falla abierto por falta de un campo
-#      opcional.
-
-INPUT=$(cat)
-COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
 # Resolución del path del lib sin depender de un binario externo (dirname):
 # "${0%/*}" es el idioma de shell para dirname cuando $0 trae al menos un
@@ -213,19 +41,7 @@ if [ ! -r "$LIB" ]; then
 fi
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
-
-# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
-# para por qué se detecta sobre $INPUT y no sobre $COMMAND. Se chequea antes
-# de cualquier otro gate de este archivo — con un NUL, ni el gate permisivo
-# de abajo ni la gramática única pueden confiar en que $COMMAND refleja el
-# comando completo que se ejecutaría.
-if guard_command_has_nul "$INPUT"; then
-  echo "BLOCKED: pre-merge-check: el comando trae un byte NUL" >&2
-  exit 2
-fi
-
-SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
-SANITIZE_STATUS=$?
+guard_init "pre-merge-check"
 
 # "perl falló en tiempo de ejecución" y "perl ausente" (chequeado arriba,
 # antes de leer stdin) son el mismo estado para este guard: bloquea. Los
@@ -239,10 +55,10 @@ SANITIZE_STATUS=$?
 # le gana la extracción a la invocación real y el guard termina
 # verificando el PR equivocado en vez de bloquear por "sin número
 # explícito", que es lo que correspondería. Ver guard_sanitize() en
-# hooks/lib/guard-matching.sh para el contrato de exit status. El status
-# se captura en SANITIZE_STATUS en la línea de arriba, inmediatamente
-# después de la asignación — no como un "$?" leído más abajo, que un
-# comando insertado entre medio podría pisar en silencio.
+# hooks/lib/guard-matching.sh para el contrato de exit status. guard_init
+# lo captura en GUARD_SANITIZE_STATUS inmediatamente después de la
+# asignación — no como un "$?" leído más abajo, que un comando insertado
+# entre medio podría pisar en silencio.
 #
 # Gate permisivo sobre el texto CRUDO (no el saneado, que no es confiable
 # acá) antes de bloquear: este guard corre sobre TODAS las llamadas Bash
@@ -260,7 +76,7 @@ SANITIZE_STATUS=$?
 # limitación ya existe hoy en el camino de fallback de abajo (el check de
 # "es una invocación real", más adelante en este archivo), así que acotar
 # no empeora nada.
-if [ "$SANITIZE_STATUS" -ne 0 ]; then
+if [ "$GUARD_SANITIZE_STATUS" -ne 0 ]; then
   if echo "$COMMAND" | grep -qi 'gh' && echo "$COMMAND" | grep -qi 'pr' && echo "$COMMAND" | grep -qi 'merge'; then
     echo "BLOCKED: pre-merge-check no operativo: el saneo del comando falló (perl abortó en tiempo de ejecución) — no se puede confiar en la extracción del número de PR sobre texto sin sanear" >&2
     exit 2
@@ -341,18 +157,6 @@ case "$COMMAND" in
     ;;
 esac
 
-# Caracteres de control (0x01-0x1F, 0x7F) fuera de \t: \n/\r ya bloquean
-# arriba. Defensa en profundidad, no el cierre de un bypass demostrado —
-# cada token de la gramática de abajo ya pasa por una allowlist de
-# charset que un carácter de control no calza, así que en la práctica ya
-# termina bloqueando por otra razón (verificado). El caso de un NUL ya se
-# bloqueó explícitamente más arriba, justo después de sourcear la lib (#77
-# §3, guard_command_has_nul) — antes de este punto, nunca sobre $COMMAND.
-CONTROL_CHARS_RE=$'[\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0C\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F]'
-if printf '%s' "$COMMAND" | LC_ALL=C grep -q "$CONTROL_CHARS_RE"; then
-  block "Blocked: el comando trae caracteres de control no imprimibles (fuera de tab). ${MERGE_FORM_HELP}"
-fi
-
 # read -ra sobre el crudo: seguro acá porque ya se descartó cualquier
 # \n/\r (el IFS por default — espacio, tab, salto de línea — separa por
 # blancos exactamente como [[:blank:]]+, sin que quede un salto de línea
@@ -430,7 +234,7 @@ fi
 # comando — eso ya lo rechaza la gramática de arriba, que no permite nada
 # antes de "gh"): "gh pr merge" los respeta, "gh repo view" —de donde
 # este guard resuelve el repo sin --repo explícito— no siempre coincide
-# (verificado contra gh real, ver ronda 2 de este follow-up). Bloquea
+# (verificado contra gh real). Bloquea
 # SIEMPRE, con o sin --repo explícito presente — a diferencia del check
 # de GIT_DIR/GIT_WORK_TREE de abajo, acá --repo NO es un remedio: "gh pr
 # merge" respeta GH_REPO/GH_HOST igual que "gh repo view" (verificado
@@ -454,7 +258,6 @@ fi
 # Con --repo explícito el guard nunca corre gh repo view (mismo criterio
 # que el check de GIT_DIR/GIT_WORK_TREE de arriba), así que el cwd de la
 # sesión deja de importar: --repo ya es el remedio.
-INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 if [ -z "$EXPLICIT_REPO" ] && [ -n "$INPUT_CWD" ]; then
   PROC_CWD=$(pwd -P)
   IN_CWD=$(cd "$INPUT_CWD" 2>/dev/null && pwd -P)

@@ -79,7 +79,7 @@ Mocks: no mockees la DB. Los tests corren contra una DB de test real (Postgres e
 - Naming explícito de constraints (`CONSTRAINT fk_orders_user_id`), para poder dropearlos individualmente después.
 - `CONCURRENTLY` para crear índices en tablas grandes en producción (Postgres); no se puede usar dentro de una transacción.
 
-Si encuentras un patrón antiguo en el codebase (índices sin naming explícito, migraciones sin transacción) y tu cambio no lo toca, no lo arregles — es scope del agente `refactor` o un PR aparte.
+Si encuentras un patrón antiguo en el codebase (índices sin naming explícito, migraciones sin transacción) y tu cambio no lo toca, no lo arregles — es scope de `code-sweep` (modo `smells`) o un PR aparte.
 
 ## Documentar para el lote siguiente
 

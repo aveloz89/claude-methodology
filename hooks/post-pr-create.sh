@@ -4,11 +4,9 @@
 # instruye lanzarlo por default — verifica evidencia en .planning/state.json:
 #   CASO A — PR del flujo, ya revisado. Tres señales obligatorias:
 #     phases.review=done, branch igual al actual, y review_sha (SHA de HEAD
-#     al cerrar la Fase 2.6 con veredictos limpios) ancestro de HEAD con
-#     delta posterior SOLO bajo .planning/ (los commits legítimos
-#     post-review son registro/reconciliación). Solo recuerda confirmar la
-#     reconciliación del registro (.planning/reviews/PR-<N>.md, Fase 2.7).
-#     No se relanzan reviewers.
+#     al cerrar la Fase 2.6 con veredictos limpios) ancestro de HEAD **sin
+#     delta posterior** (.planning/ no se versiona: cualquier commit después
+#     del review es código sin revisar). No se relanzan reviewers.
 #   CASO B — sin evidencia de review pre-push (todo lo demás, incluido un
 #     review_sha ausente/inválido o que no cubre los commits actuales): PR
 #     fuera del flujo — instruye lanzar el review dual (comportamiento v1
@@ -53,18 +51,16 @@ if [ -n "$PR_URL" ]; then
   if [ "$REVIEW_PHASE" = "done" ] && [ -n "$CURRENT_BRANCH" ] && [ "$STATE_BRANCH" = "$CURRENT_BRANCH" ]; then
     # Tercera señal (anclaje): review_sha debe ser hex plausible (state.json
     # es input no confiable — nunca se interpola sin validar), ancestro de
-    # HEAD, y el delta review_sha..HEAD debe tocar SOLO paths bajo
-    # .planning/ (registro/reconciliación legítimos post-review). Cualquier
-    # otro delta, o el campo ausente/inválido → CASO B.
+    # HEAD, y sin delta posterior (git diff --quiet): cualquier commit
+    # después de review_sha es código que el review nunca vio, o el campo
+    # ausente/inválido → CASO B.
     SHA_ANCHOR_OK=false
     case "$REVIEW_SHA" in
       *[!0-9a-f]* | '') : ;;
       *)
-        if git merge-base --is-ancestor "$REVIEW_SHA" HEAD 2>/dev/null; then
-          # grep -cv cuenta las líneas que NO empiezan con .planning/;
-          # con delta vacío o todo-.planning imprime 0 (exit 1, inocuo).
-          NON_PLANNING_DELTA=$(git diff --name-only "$REVIEW_SHA"..HEAD 2>/dev/null | grep -cv '^\.planning/')
-          [ "$NON_PLANNING_DELTA" = "0" ] && SHA_ANCHOR_OK=true
+        if git merge-base --is-ancestor "$REVIEW_SHA" HEAD 2>/dev/null \
+          && git diff --quiet "$REVIEW_SHA" HEAD 2>/dev/null; then
+          SHA_ANCHOR_OK=true
         fi
         ;;
     esac
@@ -91,13 +87,11 @@ if [ -n "$PR_URL" ]; then
       echo "PR creado: $PR_URL"
       echo ""
       echo "Review dual pre-push verificado (state.json: phases.review=done, branch $BRANCH_LABEL)."
-      echo "CHECKPOINT: confirma la reconciliación — .planning/reviews/PR-$PR_NUMBER.md debe existir"
-      echo "(renombrado desde pre-pr-$SLUG_LABEL.md). Si falta, ejecútala ahora (Fase 2.7)."
-      echo "No relances reviewers: el PR nació revisado. Re-review solo si CI obliga fixes"
-      echo "sobre código ya revisado (Fase 3)."
+      echo "PR #$PR_NUMBER ($SLUG_LABEL) nació revisado. No relances reviewers: re-review solo si CI"
+      echo "obliga fixes sobre código ya revisado (Fase 3)."
       exit 0
     fi
-    CASO_B_DIAG="La evidencia de review no cubre los commits actuales (review_sha ausente/inválido, no-ancestro de HEAD, o delta post-review fuera de .planning/) — se trata como PR fuera del flujo."
+    CASO_B_DIAG="La evidencia de review no cubre los commits actuales (review_sha ausente/inválido, no-ancestro de HEAD, o con delta posterior) — se trata como PR fuera del flujo."
   fi
   # CASO B: sin evidencia de review dual pre-push — PR fuera del flujo
   echo "PR creado: $PR_URL"

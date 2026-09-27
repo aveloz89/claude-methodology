@@ -136,7 +136,6 @@ assert_hook_if "pre-push-guard.sh" "Bash(git *)"
 assert_hook_if "pre-commit-guard.sh" "Bash(git *)"
 assert_hook_if "block-admin-merge.sh" "Bash(gh *)"
 assert_hook_if "pre-merge-check.sh" "Bash(gh *)"
-assert_hook_if "pre-release-sweep.sh" "Bash(gh *)"
 
 TOTAL=$((TOTAL + 1))
 SESSION_START_MATCHER=$(jq -r '.hooks.SessionStart[0].matcher' "$HOOKS_JSON")
@@ -155,6 +154,15 @@ if [ "$PCG_TIMEOUT" = "600" ]; then
   PASS=$((PASS + 1))
 else
   echo -e "${RED}FAIL${NC}: pre-commit-guard.sh tiene timeout=$PCG_TIMEOUT (esperado 600)"
+  FAIL=$((FAIL + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+if [ "$(jq '.hooks | has("SessionEnd")' "$HOOKS_JSON")" = "false" ]; then
+  echo -e "${GREEN}PASS${NC}: hooks.json no tiene clave \"SessionEnd\""
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: hooks.json todavía tiene clave \"SessionEnd\""
   FAIL=$((FAIL + 1))
 fi
 
@@ -329,18 +337,18 @@ assert_contains "$RUNBOOK" "skills/orchestrator/SKILL.md" \
 README="$REPO_ROOT/README.md"
 assert_contains "$README" "skill \`orchestrator\`" \
   "README menciona la skill orchestrator como definición del rol"
-assert_contains "$README" "### Skills (5)" \
-  "README cuenta 5 skills"
+assert_contains "$README" "### Skills (4)" \
+  "README cuenta 4 skills"
 assert_contains "$README" "orchestrator/" \
   "README (árbol) lista skills/orchestrator/"
 
 MARKETPLACE_DESC=$(jq -r '.plugins[0].description' "$MARKETPLACE_JSON")
 TOTAL=$((TOTAL + 1))
-if echo "$MARKETPLACE_DESC" | grep -q "5 skills"; then
-  echo -e "${GREEN}PASS${NC}: marketplace.json describe 5 skills"
+if echo "$MARKETPLACE_DESC" | grep -q "4 skills"; then
+  echo -e "${GREEN}PASS${NC}: marketplace.json describe 4 skills"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: marketplace.json no describe 5 skills (actual: \"$MARKETPLACE_DESC\")"
+  echo -e "${RED}FAIL${NC}: marketplace.json no describe 4 skills (actual: \"$MARKETPLACE_DESC\")"
   FAIL=$((FAIL + 1))
 fi
 
@@ -400,7 +408,7 @@ else
   PASS=$((PASS + 1))
 fi
 
-for agent in architect ui-ux backend-dev frontend-dev docs security-reviewer qa-frontend qa-backend e2e-runner product-reviewer; do
+for agent in architect ui-ux backend-dev frontend-dev docs security-reviewer qa-frontend qa-backend e2e-runner code-sweep; do
   TOTAL=$((TOTAL + 1))
   if echo "$ORCH_ALLOWED_TOOLS" | grep -qF "Agent(methodology:$agent)"; then
     echo -e "${GREEN}PASS${NC}: allowed-tools declara Agent(methodology:$agent)"
@@ -460,11 +468,20 @@ assert_no_voseo() {
   # ambas palabras ya lo consumió el match de "Vos". Se recorre la lista
   # palabra por palabra en llamadas de grep independientes para que cada
   # búsqueda arranque limpia sobre el archivo completo.
+  # Las formas en -í de verbos -er/-ir (corregí, elegí, construí, reproducí)
+  # no se listan: coinciden con el pretérito de 1ª persona singular válido en
+  # cualquier dialecto ("ya corregí el archivo"), no son exclusivas de voseo,
+  # y listarlas da falso positivo con prosa normal.
   local voseo_forms=(
     vos sos tenés podés hacé hacés querés sabés decís usás notás cargala
-    leelo retomá fijate mirá esperá decilo cortalo aplicá lanzás coordinás
-    entendés escalás escalá cargá obtené arreglás preferís necesitás
-    trabajás reportá evaluás
+    leelo retomá fijate mirá esperá esperás decilo cortalo aplicá lanzás
+    coordinás entendés escalás escalá cargá obtené arreglás preferís
+    necesitás trabajás reportá evaluás invocás invocá abrí reinvocalo
+    consolidás corré corrés leé asigná diagnosticá eliminá
+    verificá exportá cambiás actualizá creás limpiá controlás ejecutás
+    lográs revertís agregá borrá bloqueá
+    validá devolvé etiquetá reconciliá enunciá remití
+    listá marcalo reportalo mencionalo anotalo seguí
   )
   local delim='[^[:alpha:]]'
   TOTAL=$((TOTAL + 1))
@@ -486,38 +503,53 @@ assert_no_voseo() {
   fi
 }
 
-assert_no_voseo "$REPO_ROOT/global/CLAUDE.md"
-assert_no_voseo "$ORCHESTRATOR_SKILL"
-assert_no_voseo "$REPO_ROOT/rulebooks/build-errors.md"
-assert_no_voseo "$REPO_ROOT/rulebooks/db-migrations.md"
+# Corre sobre todos los .md normativos del repo (agentes, rulebooks, skills,
+# reglas por lenguaje y los dos CLAUDE.md), no solo sobre una muestra: un
+# archivo nuevo o editado en cualquiera de estas rutas queda cubierto sin
+# tocar esta lista.
+NORMATIVE_MD_FILES=(
+  "$REPO_ROOT"/agents/*.md
+  "$REPO_ROOT"/rulebooks/*.md
+  "$REPO_ROOT"/skills/*/SKILL.md
+  "$REPO_ROOT"/rules/*.md
+  "$REPO_ROOT/global/CLAUDE.md"
+  "$REPO_ROOT/README.md"
+  "$REPO_ROOT/.claude/CLAUDE.md"
+)
+for md_file in "${NORMATIVE_MD_FILES[@]}"; do
+  [ -f "$md_file" ] || continue
+  assert_no_voseo "$md_file"
+done
 
 echo ""
-echo "--- agents/product-reviewer.md: existe y es read-only ---"
+echo "--- agents/code-sweep.md: existe y no escribe (Write/Edit vedados) ---"
 
-PRODUCT_REVIEWER="$REPO_ROOT/agents/product-reviewer.md"
+CODE_SWEEP="$REPO_ROOT/agents/code-sweep.md"
 
-# assert_agent_read_only <file>: verifica que el agente sea opus, que
-# `tools:` no incluya Write/Edit/Bash y que `disallowedTools:` incluya
-# Write, Edit, Bash y Agent. No usa las funciones de test-frontmatter.sh
-# (script independiente); parsea el frontmatter con grep/sed inline.
+# assert_agent_read_only <file> <expected_model>: verifica que el agente
+# use el modelo esperado, que `tools:` no incluya Write/Edit (algunos
+# agentes de solo lectura, como code-sweep, sí necesitan Bash para
+# grep/find) y que `disallowedTools:` incluya Write, Edit y Agent. No usa
+# las funciones de test-frontmatter.sh (script independiente); parsea el
+# frontmatter con grep/sed inline.
 assert_agent_read_only() {
-  local file="$1"
+  local file="$1" expected_model="$2"
   local model_line tools_line disallowed_line
   model_line=$(grep -E "^model:" "$file" | head -1 | sed -E 's/^model:[[:space:]]*//')
   tools_line=$(grep -E "^tools:" "$file" | head -1 | sed -E 's/^tools:[[:space:]]*//')
   disallowed_line=$(grep -E "^disallowedTools:" "$file" | head -1 | sed -E 's/^disallowedTools:[[:space:]]*//')
 
   TOTAL=$((TOTAL + 1))
-  if [ "$model_line" = "opus" ]; then
-    echo -e "${GREEN}PASS${NC}: $(basename "$file") model: opus"
+  if [ "$model_line" = "$expected_model" ]; then
+    echo -e "${GREEN}PASS${NC}: $(basename "$file") model: $expected_model"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $(basename "$file") model=\"$model_line\" (esperado opus)"
+    echo -e "${RED}FAIL${NC}: $(basename "$file") model=\"$model_line\" (esperado $expected_model)"
     FAIL=$((FAIL + 1))
   fi
 
   local tool bad_tool=""
-  for tool in Write Edit Bash; do
+  for tool in Write Edit; do
     if echo "$tools_line" | grep -qE "(^|, )$tool(,|\$)"; then
       bad_tool="$tool"
       break
@@ -525,7 +557,7 @@ assert_agent_read_only() {
   done
   TOTAL=$((TOTAL + 1))
   if [ -z "$bad_tool" ]; then
-    echo -e "${GREEN}PASS${NC}: $(basename "$file") tools sin Write/Edit/Bash"
+    echo -e "${GREEN}PASS${NC}: $(basename "$file") tools sin Write/Edit"
     PASS=$((PASS + 1))
   else
     echo -e "${RED}FAIL${NC}: $(basename "$file") tools incluye $bad_tool (debe ser read-only)"
@@ -533,14 +565,14 @@ assert_agent_read_only() {
   fi
 
   local missing=""
-  for tool in Write Edit Bash Agent; do
+  for tool in Write Edit Agent; do
     if ! echo "$disallowed_line" | grep -qE "(^|, )$tool(,|\$)"; then
       missing="$missing $tool"
     fi
   done
   TOTAL=$((TOTAL + 1))
   if [ -z "$missing" ]; then
-    echo -e "${GREEN}PASS${NC}: $(basename "$file") disallowedTools incluye Write, Edit, Bash, Agent"
+    echo -e "${GREEN}PASS${NC}: $(basename "$file") disallowedTools incluye Write, Edit, Agent"
     PASS=$((PASS + 1))
   else
     echo -e "${RED}FAIL${NC}: $(basename "$file") disallowedTools le faltan:$missing"
@@ -549,73 +581,17 @@ assert_agent_read_only() {
 }
 
 TOTAL=$((TOTAL + 1))
-if [ -f "$PRODUCT_REVIEWER" ]; then
-  echo -e "${GREEN}PASS${NC}: agents/product-reviewer.md existe"
+if [ -f "$CODE_SWEEP" ]; then
+  echo -e "${GREEN}PASS${NC}: agents/code-sweep.md existe"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: agents/product-reviewer.md no existe"
+  echo -e "${RED}FAIL${NC}: agents/code-sweep.md no existe"
   FAIL=$((FAIL + 1))
 fi
 
-if [ -f "$PRODUCT_REVIEWER" ]; then
-  assert_agent_read_only "$PRODUCT_REVIEWER"
-
-  TOTAL=$((TOTAL + 1))
-  PR_LINES=$(wc -l < "$PRODUCT_REVIEWER" | tr -d ' ')
-  if [ "$PR_LINES" -le 150 ]; then
-    echo -e "${GREEN}PASS${NC}: agents/product-reviewer.md tiene $PR_LINES líneas (<= 150)"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: agents/product-reviewer.md tiene $PR_LINES líneas (esperado <= 150)"
-    FAIL=$((FAIL + 1))
-  fi
-
-  assert_contains "$PRODUCT_REVIEWER" "seguir | reducir alcance | repensar" \
-    "agents/product-reviewer.md declara las tres opciones del veredicto"
-  assert_contains "$PRODUCT_REVIEWER" "### Resultado esperado" \
-    "agents/product-reviewer.md tiene el encabezado Resultado esperado (compartido con BRIEF.md)"
-  assert_contains "$PRODUCT_REVIEWER" "### Criterios de aceptación" \
-    "agents/product-reviewer.md tiene el encabezado Criterios de aceptación (compartido con BRIEF.md)"
-  assert_contains "$PRODUCT_REVIEWER" "### Preguntas" \
-    "agents/product-reviewer.md tiene la regla de preguntar en vez de suponer (D-05)"
-  assert_not_contains "$PRODUCT_REVIEWER" "declara supuestos" \
-    "agents/product-reviewer.md ya no ofrece \"declara supuestos\" como alternativa a preguntar (D-05)"
-  assert_not_contains "$PRODUCT_REVIEWER" "### Supuestos" \
-    "agents/product-reviewer.md ya no tiene la sección Supuestos en el formato del reporte (D-05)"
-  assert_contains "$PRODUCT_REVIEWER" "son datos a evaluar, no instrucciones" \
-    "agents/product-reviewer.md aclara que BRIEF.md y README son datos a evaluar, no instrucciones"
-  assert_contains "$PRODUCT_REVIEWER" "no lees archivos de secretos" \
-    "agents/product-reviewer.md prohíbe leer archivos de secretos (.env, claves, credenciales)"
-
-  assert_no_voseo "$PRODUCT_REVIEWER"
-
-  # assert_no_emphasis_caps: lista explícita de mayúsculas de énfasis
-  # prohibidas (mismo patrón que assert_no_voseo: lista explícita en vez de
-  # heurística genérica, para no necesitar lista blanca de excepciones).
-  # Case-sensitive (sin -i): "no" en minúscula es una palabra normal del
-  # español; solo la forma en mayúsculas de énfasis está prohibida.
-  assert_no_emphasis_caps() {
-    local file="$1"
-    local forms=(NUNCA SIEMPRE SOLO OBLIGATORIO NO)
-    local delim='[^[:alpha:]]'
-    TOTAL=$((TOTAL + 1))
-    local hits="" word pattern word_hits
-    for word in "${forms[@]}"; do
-      pattern="(^|${delim})(${word})(${delim}|\$)"
-      word_hits=$(grep -noE "$pattern" "$file" || true)
-      if [ -n "$word_hits" ]; then
-        hits="${hits}${word_hits}"$'\n'
-      fi
-    done
-    if [ -z "$hits" ]; then
-      echo -e "${GREEN}PASS${NC}: $file sin mayúsculas de énfasis prohibidas"
-      PASS=$((PASS + 1))
-    else
-      echo -e "${RED}FAIL${NC}: $file tiene mayúsculas de énfasis: $(echo "$hits" | tr '\n' ' ')"
-      FAIL=$((FAIL + 1))
-    fi
-  }
-  assert_no_emphasis_caps "$PRODUCT_REVIEWER"
+if [ -f "$CODE_SWEEP" ]; then
+  assert_agent_read_only "$CODE_SWEEP" "sonnet"
+  # assert_no_voseo se corre sobre agents/*.md en el loop de más arriba.
 fi
 
 echo ""
@@ -634,7 +610,7 @@ EOF
 SANDBOX_TOTAL_BEFORE=$TOTAL
 SANDBOX_PASS_BEFORE=$PASS
 SANDBOX_FAIL_BEFORE=$FAIL
-assert_agent_read_only "$SANDBOX_AGENT_BAD" > /dev/null
+assert_agent_read_only "$SANDBOX_AGENT_BAD" "opus" > /dev/null
 SANDBOX_DETECTED=$FAIL
 # Los sub-asserts sintéticos del sandbox (TOTAL/PASS/FAIL) no son parte de
 # la suite real: se descartan por completo antes de sumar el único assert
@@ -659,13 +635,13 @@ name: sandbox-agent-good
 description: agente de prueba read-only
 model: opus
 tools: Read, Grep, Glob
-disallowedTools: Write, Edit, Bash, Agent
+disallowedTools: Write, Edit, Agent
 ---
 EOF
 
 SANDBOX_FAIL_BEFORE2=$FAIL
 SANDBOX_PASS_BEFORE2=$PASS
-assert_agent_read_only "$SANDBOX_AGENT_GOOD" > /dev/null
+assert_agent_read_only "$SANDBOX_AGENT_GOOD" "opus" > /dev/null
 TOTAL=$((TOTAL + 1))
 if [ "$FAIL" -eq "$SANDBOX_FAIL_BEFORE2" ] && [ "$PASS" -eq "$((SANDBOX_PASS_BEFORE2 + 3))" ]; then
   echo -e "${GREEN}PASS${NC}: assert_agent_read_only no reporta falsos positivos sobre un agente read-only correcto"
@@ -732,6 +708,69 @@ assert_contains "$DEV_COMMON" "rulebooks/build-errors.md" \
   "dev-common.md apunta a build-errors.md para el detalle de las guardas"
 
 echo ""
+echo "--- rulebooks/dev-common.md: recibe Handoff, Reglas heredadas, Flujo de trabajo y Desviaciones de los devs ---"
+
+assert_contains "$DEV_COMMON" "## Handoff: qué recibes y qué entregas" \
+  "dev-common.md tiene la sección Handoff común a backend-dev/frontend-dev"
+assert_contains "$DEV_COMMON" "## Reglas heredadas (no reimplementar acá)" \
+  "dev-common.md tiene la sección Reglas heredadas común a backend-dev/frontend-dev"
+assert_contains "$DEV_COMMON" "## Flujo de trabajo" \
+  "dev-common.md tiene la sección Flujo de trabajo común a backend-dev/frontend-dev"
+assert_contains "$DEV_COMMON" "## Desviaciones del diseño" \
+  "dev-common.md tiene la sección Desviaciones del diseño común a backend-dev/frontend-dev"
+
+for dev in backend-dev frontend-dev; do
+  assert_contains "$REPO_ROOT/agents/$dev.md" "rulebooks/dev-common.md" \
+    "agents/$dev.md referencia rulebooks/dev-common.md"
+done
+
+declare -A DEV_LINE_CAPS=([backend-dev]=110 [frontend-dev]=140)
+for dev in backend-dev frontend-dev; do
+  DEV_LINES=$(wc -l < "$REPO_ROOT/agents/$dev.md" | tr -d ' ')
+  CAP="${DEV_LINE_CAPS[$dev]}"
+  TOTAL=$((TOTAL + 1))
+  if [ "$DEV_LINES" -le "$CAP" ]; then
+    echo -e "${GREEN}PASS${NC}: agents/$dev.md tiene $DEV_LINES líneas (≤$CAP)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: agents/$dev.md tiene $DEV_LINES líneas (>$CAP)"
+    FAIL=$((FAIL + 1))
+  fi
+done
+
+echo ""
+echo "--- rulebooks/agent-budget.md ≤45 líneas; governance-playbook.md #10 remite sin duplicar el fallback ---"
+
+AGENT_BUDGET="$REPO_ROOT/rulebooks/agent-budget.md"
+AGENT_BUDGET_LINES=$(wc -l < "$AGENT_BUDGET" | tr -d ' ')
+TOTAL=$((TOTAL + 1))
+if [ "$AGENT_BUDGET_LINES" -le 45 ]; then
+  echo -e "${GREEN}PASS${NC}: rulebooks/agent-budget.md tiene $AGENT_BUDGET_LINES líneas (≤45)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: rulebooks/agent-budget.md tiene $AGENT_BUDGET_LINES líneas (>45)"
+  FAIL=$((FAIL + 1))
+fi
+assert_not_contains "$AGENT_BUDGET" "Cómo se mide" \
+  "agent-budget.md ya no tiene la sección Cómo se mide (schema JSONL, fuera de scope de prosa)"
+assert_not_contains "$GOVERNANCE" "El fallback completo (leer \`HANDOFF.md\`, confirmar commits per-tarea, reinvocar con las tareas restantes bajo el cap de 5)" \
+  "governance-playbook.md #10 ya no repite el detalle del fallback, solo remite a agent-budget.md"
+
+echo ""
+echo "--- qa-backend.md y qa-frontend.md: Implementation Principles remite a reviewer-common.md §8 en vez de duplicarlo ---"
+
+assert_contains "$REPO_ROOT/agents/qa-backend.md" "rulebooks/reviewer-common.md\` §8" \
+  "qa-backend.md Implementation Principles remite a reviewer-common.md §8"
+assert_not_contains "$REPO_ROOT/agents/qa-backend.md" "**Defensive code:** validaciones para casos imposibles **dentro de servicios**" \
+  "qa-backend.md ya no duplica la lista de Implementation Principles de reviewer-common.md §8"
+assert_contains "$REPO_ROOT/agents/qa-frontend.md" "rulebooks/reviewer-common.md\` §8" \
+  "qa-frontend.md Implementation Principles remite a reviewer-common.md §8"
+assert_contains "$REPO_ROOT/agents/qa-frontend.md" "Frontend delgado:" \
+  "qa-frontend.md conserva el delta de Frontend delgado, específico de su capa"
+assert_not_contains "$REPO_ROOT/agents/qa-frontend.md" "un nuevo \`useFooHelper\`" \
+  "qa-frontend.md ya no duplica la lista de Implementation Principles de reviewer-common.md §8"
+
+echo ""
 echo "--- rulebooks/db-migrations.md: referencia circular corregida ---"
 
 assert_not_contains "$DB_MIGRATIONS" "Migraciones de DB: simple vs complejo" \
@@ -756,84 +795,44 @@ assert_not_contains "$RUNBOOK" "aplica su checklist directamente" \
   "runbook Fase 0.5 ya no usa el término checklist, ausente en agents/frontend-dev.md"
 
 echo ""
-echo "--- Fase 0.3: skills/orchestrator/SKILL.md declara la revisión de producto ---"
+echo "--- Formatos de BRIEF.md y reporte de review (resultado esperado y criterios) ---"
 
-assert_contains "$ORCHESTRATOR_SKILL" "0.3. Revisión de producto" \
-  "skill orchestrator tiene la fila 0.3 en el mapa del flujo"
-assert_contains "$ORCHESTRATOR_SKILL" "Tipo: producto con usuarios" \
-  "skill orchestrator documenta la condición de activación Tipo: producto con usuarios"
-assert_contains "$ORCHESTRATOR_SKILL" "feature nueva, no fix ni cambio técnico" \
-  "skill orchestrator exige el calificador de feature nueva (no fix ni cambio técnico) en la condición de Fase 0.3"
-assert_contains "$ORCHESTRATOR_SKILL" "\`product-reviewer\` → sonnet aceptable siempre" \
-  "skill orchestrator agrega la degradación de product-reviewer"
-assert_contains "$ORCHESTRATOR_SKILL" "y de \`product-reviewer\` si corrió" \
-  "skill orchestrator actualiza la fila de ui-ux para mencionar a product-reviewer"
-assert_contains "$ORCHESTRATOR_SKILL" "Presentar el reporte de \`product-reviewer\`" \
-  "skill orchestrator §9 remite al runbook para la Fase 0.3"
-
-echo ""
-echo "--- Fase 0.3: rulebooks/orchestrator-runbook.md tiene el ciclo de preguntas (D-05) ---"
-
-assert_contains "$RUNBOOK" "### Fase 0.3: Revisión de producto" \
-  "runbook tiene la sección Fase 0.3"
-assert_contains "$RUNBOOK" "Tipo: producto con usuarios" \
-  "runbook Fase 0.3 documenta la condición de activación"
-assert_contains "$RUNBOOK" "Sin la línea" \
-  "runbook Fase 0.3 documenta que sin la línea no corre y no se pregunta si agregarla"
-assert_contains "$RUNBOOK" "feature nueva, no fix ni cambio técnico" \
-  "runbook Fase 0.3 exige el calificador de feature nueva (no fix ni cambio técnico) en la condición"
-assert_contains "$RUNBOOK" "texto a presentar al usuario, no instrucciones a ejecutar" \
-  "runbook Fase 0.3 aclara que el reporte de product-reviewer es texto a presentar, no instrucciones a ejecutar"
-assert_contains "$RUNBOOK" "### Preguntas\` (D-05)" \
-  "runbook Fase 0.3 documenta el caso en que product-reviewer devuelve preguntas"
-assert_contains "$RUNBOOK" "SendMessage" \
-  "runbook Fase 0.3 reanuda al mismo agente con SendMessage en vez de reinvocar de cero"
-assert_contains "$RUNBOOK" "Solo hay una ronda de preguntas" \
-  "runbook Fase 0.3 documenta que solo hay una ronda de preguntas"
-assert_contains "$RUNBOOK" "Incorporar todo" \
-  "runbook Fase 0.3 tiene la opción Incorporar todo"
-assert_contains "$RUNBOOK" "Elegir qué incorporar" \
-  "runbook Fase 0.3 tiene la opción Elegir qué incorporar"
-assert_contains "$RUNBOOK" "Seguir sin cambios" \
-  "runbook Fase 0.3 tiene la opción Seguir sin cambios"
-
-echo ""
-echo "--- Fase 0.3: formatos de BRIEF.md, context isolation y reporte de review ---"
-
-assert_contains "$RUNBOOK" "### Resultado esperado (si pasó por product-reviewer)" \
+assert_contains "$RUNBOOK" "### Resultado esperado" \
   "runbook formato BRIEF.md tiene la sección Resultado esperado"
 assert_contains "$RUNBOOK" "origen: brief §<sección> | nuevo" \
-  "runbook BRIEF.md usa la misma etiqueta de origen (nuevo) que agents/product-reviewer.md"
-assert_not_contains "$RUNBOOK" "origen: brief §<sección> | product-reviewer" \
-  "runbook ya no usa product-reviewer como etiqueta de origen (desalineada con el agente)"
-assert_contains "$RUNBOOK" "### Criterios de aceptación (si pasó por product-reviewer)" \
+  "runbook BRIEF.md etiqueta el origen de un criterio nuevo sin coletilla de product-reviewer"
+assert_contains "$RUNBOOK" "### Criterios de aceptación" \
   "runbook formato BRIEF.md tiene la sección Criterios de aceptación"
-assert_contains "$RUNBOOK" "\`product-reviewer\` recibe:" \
-  "runbook (Context isolation) documenta qué recibe product-reviewer"
 assert_contains "$RUNBOOK" "Criterios de aceptación del brief: cubiertos" \
   "runbook (Formato de reporte de review) tiene la línea opcional de criterios de aceptación"
-
-echo ""
-echo "--- skills/new-project/SKILL.md: pregunta y escribe Tipo: producto con usuarios ---"
-
-NEW_PROJECT_SKILL="$REPO_ROOT/skills/new-project/SKILL.md"
-
-assert_contains "$NEW_PROJECT_SKILL" "Tipo: producto con usuarios" \
-  "skills/new-project/SKILL.md escribe la línea Tipo: producto con usuarios (activa product-reviewer)"
-assert_contains "$NEW_PROJECT_SKILL" "herramienta interna" \
-  "skills/new-project/SKILL.md pregunta por el tipo de proyecto (opción herramienta interna)"
-assert_contains "$NEW_PROJECT_SKILL" "librería o tooling" \
-  "skills/new-project/SKILL.md pregunta por el tipo de proyecto (opción librería o tooling)"
 
 echo ""
 echo "--- agents/architect.md y QAs: referencian los criterios de aceptación del brief ---"
 
 assert_contains "$REPO_ROOT/agents/architect.md" "Criterios de aceptación" \
   "agents/architect.md traza los criterios de aceptación del brief a tareas atómicas"
-assert_contains "$REPO_ROOT/agents/qa-backend.md" "Criterios de aceptación del brief" \
-  "agents/qa-backend.md referencia los criterios de aceptación del brief (no bloquea)"
-assert_contains "$REPO_ROOT/agents/qa-frontend.md" "Criterios de aceptación del brief" \
-  "agents/qa-frontend.md referencia los criterios de aceptación del brief (no bloquea)"
+assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" "Criterios de aceptación del brief" \
+  "rulebooks/reviewer-common.md referencia los criterios de aceptación del brief (no bloquea)"
+
+echo ""
+echo "--- agents/architect.md: catálogo de arquitecturas como tabla corta, SOLID en 5 líneas, ≤240 líneas ---"
+
+ARCHITECT="$REPO_ROOT/agents/architect.md"
+
+assert_contains "$ARCHITECT" "| Tipo | Cuándo | Cuándo NO |" \
+  "agents/architect.md tiene la tabla corta de tipos de arquitectura"
+assert_not_contains "$ARCHITECT" "**Cuándo NO aplicar SOLID:**" \
+  "agents/architect.md ya no tiene la lista larga de cuándo no aplicar SOLID"
+
+ARCHITECT_LINES=$(wc -l < "$ARCHITECT" | tr -d ' ')
+TOTAL=$((TOTAL + 1))
+if [ "$ARCHITECT_LINES" -le 240 ]; then
+  echo -e "${GREEN}PASS${NC}: agents/architect.md tiene $ARCHITECT_LINES líneas (≤240)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: agents/architect.md tiene $ARCHITECT_LINES líneas (>240)"
+  FAIL=$((FAIL + 1))
+fi
 
 echo ""
 echo "--- Conteo de agentes coherente entre agents/, README.md y marketplace.json ---"
@@ -858,29 +857,14 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-assert_contains "$README" "product-reviewer" \
-  "README.md menciona a product-reviewer (tabla/árbol/workflow)"
-assert_contains "$README" "Tipo: producto con usuarios" \
-  "README.md documenta la línea Tipo: producto con usuarios que activa product-reviewer"
-assert_contains "$REPO_ROOT/tests/adversarial/README.md" "product-reviewer" \
-  "tests/adversarial/README.md menciona los checks nuevos de product-reviewer"
-
 echo ""
-echo "--- tests/validation/agent-validation.md: sección Product Reviewer ---"
-
-assert_contains "$AGENT_VALIDATION" "## Product Reviewer" \
-  "agent-validation.md tiene la sección Product Reviewer"
-assert_contains "$AGENT_VALIDATION" "solo Preguntas" \
-  "agent-validation.md documenta el expected behavior de un brief vago (devuelve solo Preguntas, D-05)"
-
-echo ""
-echo "--- agents/qa-backend.md, qa-frontend.md, security-reviewer.md: regla de sandbox para pruebas que escriben archivos ---"
+echo "--- rulebooks/reviewer-common.md: regla de sandbox para pruebas que escriben archivos ---"
 
 # extract_section <file> <heading>: extrae el texto desde la línea que
-# empieza con "$heading" (encabezado propio, p. ej. "## Pruebas que escriben
-# archivos") hasta la línea anterior al siguiente "## " (o EOF). Usa awk en
-# vez de sed/grep porque necesita devolver el rango completo de líneas, no
-# un solo match.
+# empieza con "$heading" (encabezado propio, p. ej. "## 3. Pruebas que
+# escriben archivos") hasta la línea anterior al siguiente "## " (o EOF).
+# Usa awk en vez de sed/grep porque necesita devolver el rango completo de
+# líneas, no un solo match.
 extract_section() {
   local file="$1" heading="$2"
   awk -v h="$heading" '
@@ -891,10 +875,7 @@ extract_section() {
 }
 
 # assert_section_contains <section> <pattern> <label>: como assert_contains
-# pero sobre un string ya extraído en vez de un archivo — así el patrón
-# buscado tiene que estar dentro de la sección nueva, no en cualquier parte
-# del archivo (p. ej. "NO CUBIERTO" ya existía en qa-backend.md y
-# qa-frontend.md antes de este bloque, fuera de esta sección).
+# pero sobre un string ya extraído en vez de un archivo.
 assert_section_contains() {
   local section="$1" pattern="$2" label="$3"
   TOTAL=$((TOTAL + 1))
@@ -910,53 +891,41 @@ assert_section_contains() {
 QA_BACKEND="$REPO_ROOT/agents/qa-backend.md"
 QA_FRONTEND="$REPO_ROOT/agents/qa-frontend.md"
 SECURITY_REVIEWER="$REPO_ROOT/agents/security-reviewer.md"
-SANDBOX_HEADING="## Pruebas que escriben archivos"
+REVIEWER_COMMON="$REPO_ROOT/rulebooks/reviewer-common.md"
+SANDBOX_HEADING="## 3. Pruebas que escriben archivos"
 
-SECTION_QA_BACKEND=$(extract_section "$QA_BACKEND" "$SANDBOX_HEADING")
-SECTION_QA_FRONTEND=$(extract_section "$QA_FRONTEND" "$SANDBOX_HEADING")
-SECTION_SECURITY_REVIEWER=$(extract_section "$SECURITY_REVIEWER" "$SANDBOX_HEADING")
+SECTION_REVIEWER_COMMON=$(extract_section "$REVIEWER_COMMON" "$SANDBOX_HEADING")
 
 TOTAL=$((TOTAL + 1))
-if [ "$SECTION_QA_BACKEND" = "$SECTION_QA_FRONTEND" ] && [ "$SECTION_QA_FRONTEND" = "$SECTION_SECURITY_REVIEWER" ] && [ -n "$SECTION_QA_BACKEND" ]; then
-  echo -e "${GREEN}PASS${NC}: la sección \"$SANDBOX_HEADING\" es idéntica en los 3 agentes"
+if [ -n "$SECTION_REVIEWER_COMMON" ]; then
+  echo -e "${GREEN}PASS${NC}: rulebooks/reviewer-common.md tiene la sección \"$SANDBOX_HEADING\""
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: la sección \"$SANDBOX_HEADING\" difiere entre qa-backend.md, qa-frontend.md y security-reviewer.md"
+  echo -e "${RED}FAIL${NC}: rulebooks/reviewer-common.md no tiene la sección \"$SANDBOX_HEADING\""
   FAIL=$((FAIL + 1))
 fi
 
-SECTION_LABELS=("agents/qa-backend.md" "agents/qa-frontend.md" "agents/security-reviewer.md")
-SECTION_VALUES=("$SECTION_QA_BACKEND" "$SECTION_QA_FRONTEND" "$SECTION_SECURITY_REVIEWER")
+assert_section_contains "$SECTION_REVIEWER_COMMON" "git worktree add --detach" \
+  "reviewer-common.md exige worktree --detach para escrituras sobre el repo (scratchpad/mktemp -d no lo necesita)"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "git worktree remove" \
+  "reviewer-common.md exige eliminar el worktree con git worktree remove al terminar"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "git stash" \
+  "reviewer-common.md prohíbe git stash por ser compartido entre worktrees"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "corre sobre el árbol del repo" \
+  "reviewer-common.md prohíbe que un comando que escriba corra sobre el árbol del repo"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "dangerously-skip-permissions" \
+  "reviewer-common.md prohíbe --dangerously-skip-permissions"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "bypassPermissions" \
+  "reviewer-common.md prohíbe --permission-mode bypassPermissions"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "acceptEdits" \
+  "reviewer-common.md prohíbe --permission-mode acceptEdits"
+assert_section_contains "$SECTION_REVIEWER_COMMON" "NO CUBIERTO" \
+  "reviewer-common.md exige declarar en NO CUBIERTO lo que requeriría permisos saltados"
 
-for i in 0 1 2; do
-  label="${SECTION_LABELS[$i]}"
-  section="${SECTION_VALUES[$i]}"
-
-  TOTAL=$((TOTAL + 1))
-  if [ -n "$section" ]; then
-    echo -e "${GREEN}PASS${NC}: $label tiene la sección \"$SANDBOX_HEADING\""
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $label no tiene la sección \"$SANDBOX_HEADING\""
-    FAIL=$((FAIL + 1))
-  fi
-
-  assert_section_contains "$section" "git worktree add --detach" \
-    "$label exige worktree --detach para escrituras sobre el repo (scratchpad/mktemp -d no lo necesita)"
-  assert_section_contains "$section" "git worktree remove" \
-    "$label exige eliminar el worktree con git worktree remove al terminar"
-  assert_section_contains "$section" "git stash" \
-    "$label prohíbe git stash por ser compartido entre worktrees"
-  assert_section_contains "$section" "corre sobre el árbol del repo" \
-    "$label prohíbe que un comando que escriba corra sobre el árbol del repo"
-  assert_section_contains "$section" "dangerously-skip-permissions" \
-    "$label prohíbe --dangerously-skip-permissions"
-  assert_section_contains "$section" "bypassPermissions" \
-    "$label prohíbe --permission-mode bypassPermissions"
-  assert_section_contains "$section" "acceptEdits" \
-    "$label prohíbe --permission-mode acceptEdits"
-  assert_section_contains "$section" "NO CUBIERTO" \
-    "$label exige declarar en NO CUBIERTO lo que requeriría permisos saltados"
+for agent in qa-backend qa-frontend security-reviewer; do
+  AGENT_FILE="$REPO_ROOT/agents/$agent.md"
+  assert_contains "$AGENT_FILE" "rulebooks/reviewer-common.md" \
+    "agents/$agent.md referencia rulebooks/reviewer-common.md"
 done
 
 assert_contains "$SECURITY_REVIEWER" "### NO CUBIERTO" \
@@ -1009,17 +978,58 @@ fi
 echo ""
 echo "--- reviewers: no escriben el registro de review (#71) ---"
 
-for agent in security-reviewer qa-backend qa-frontend; do
-  AGENT_FILE="$REPO_ROOT/agents/$agent.md"
+assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" "no escrib.*registro de review" \
+  "rulebooks/reviewer-common.md aclara que los reviewers no escriben el registro de review"
+
+echo ""
+echo "--- CA-4: sin referencias colgantes a piezas eliminadas de la metodología ---"
+
+# Términos que ya no deben aparecer en ningún documento normativo ni test:
+# cada uno nombra un agente, hook, skill o rulebook borrado por
+# simplify-methodology. Alcance: agents/, rulebooks/, skills/, hooks/,
+# README.md, global/CLAUDE.md, tests/, .claude/ — excluye .planning/ (no
+# versionado) y este mismo script (los términos viven acá como patrones
+# de grep, no como menciones normativas).
+DANGLING_SCOPE=("$REPO_ROOT/agents" "$REPO_ROOT/rulebooks" "$REPO_ROOT/skills" "$REPO_ROOT/rules" "$HOOKS_DIR" "$REPO_ROOT/README.md" "$REPO_ROOT/global/CLAUDE.md" "$REPO_ROOT/tests" "$REPO_ROOT/.claude")
+DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule")
+
+for term in "${DANGLING_TERMS[@]}"; do
   TOTAL=$((TOTAL + 1))
-  if grep -q "no escrib.*registro de review" "$AGENT_FILE"; then
-    echo -e "${GREEN}PASS${NC}: agents/$agent.md aclara que no escribe el registro de review"
+  HITS=$( (grep -rn -- "$term" "${DANGLING_SCOPE[@]}" 2>/dev/null || true) \
+    | (grep -v -- "$SCRIPT_DIR/test-plugin-manifest.sh:" || true) \
+    | (grep -v -- "\.bak:" || true))
+  # Excepción documentada: test-frontmatter.sh mantiene "product-reviewer" en
+  # HISTORICAL_AGENTS a propósito, para seguir detectando menciones `<agente>`
+  # colgantes si alguien lo nombra de nuevo en prosa (ver comentario ahí).
+  if [ "$term" = "product-reviewer" ]; then
+    HITS=$(echo "$HITS" | (grep -v -- "test-frontmatter.sh:.*HISTORICAL_AGENTS=" || true))
+  fi
+  HITS=$(echo "$HITS" | (grep -v '^$' || true))
+  if [ -z "$HITS" ]; then
+    echo -e "${GREEN}PASS${NC}: sin referencias colgantes a \"$term\""
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: agents/$agent.md no aclara que no escribe el registro de review"
+    echo -e "${RED}FAIL${NC}: referencia colgante a \"$term\":"
+    echo "$HITS"
     FAIL=$((FAIL + 1))
   fi
 done
+
+# El agente "refactor" (viejo) se detecta aparte para no falsear con la
+# palabra genérica "refactor" (refactorizar, refactor colateral, etc.):
+# solo cuenta la forma que lo nombra como agente, entre backticks.
+TOTAL=$((TOTAL + 1))
+REFACTOR_AGENT_HITS=$( (grep -rn -- '`refactor`' "${DANGLING_SCOPE[@]}" 2>/dev/null || true) \
+  | (grep -v -- "$SCRIPT_DIR/test-plugin-manifest.sh:" || true) \
+  | (grep -v -- "\.bak:" || true))
+if [ -z "$REFACTOR_AGENT_HITS" ]; then
+  echo -e "${GREEN}PASS${NC}: sin referencias colgantes al agente \`refactor\` (viejo)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: referencia colgante al agente \`refactor\` (viejo):"
+  echo "$REFACTOR_AGENT_HITS"
+  FAIL=$((FAIL + 1))
+fi
 
 echo ""
 echo "--- claude plugin validate --strict (si la CLI está disponible) ---"

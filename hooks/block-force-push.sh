@@ -4,133 +4,91 @@
 # hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
 # latencia, no reemplaza la validación de abajo, que sigue mirando el
 # comando completo.
-#
-# Contrato PreToolUse (auditoría best-practices): bloquear = stderr + exit 2,
-# permitir = exit 0 sin stdout — la doc prescribe exit 2 para hooks de
-# policy, y ya es el mecanismo de pre-push-guard.sh/pre-commit-guard.sh.
-#
-# Ancla el match a posición de comando (mismo helper que pre-merge-check.sh,
-# block-admin-merge.sh y pre-commit-guard.sh) para detectar el push real
-# dentro de un comando compuesto, ej. "cd repo && git push --force" — antes
-# el match exigía "git" al INICIO del string y ese caso pasaba sin bloquear.
-# Ver hooks/lib/guard-matching.sh. Fail-closed si el lib no existe o no es
-# legible: un `source` fallido dejaría guard_sanitize()/GUARD_ANCHOR
-# indefinidos y el grep de abajo nunca matchearía — fail-open silencioso.
-#
-# Fail-closed sin jq (mismo cierre que #50 en block-admin-merge.sh y
-# pre-commit-guard.sh): sin jq, el parseo de COMMAND más abajo devuelve
-# vacío, el grep nunca matchea, y un "git push --force" real pasaba en
-# silencio. CAMBIA el contrato de este hook: antes, sin jq, pasaba.
-if ! command -v jq > /dev/null 2>&1; then
-  echo "BLOCKED: block-force-push no operativo: falta jq" >&2
-  exit 2
-fi
-
 LIB="${0%/*}/lib/guard-matching.sh"
-if [ ! -r "$LIB" ]; then
-  echo "BLOCKED: block-force-push no operativo: falta hooks/lib/guard-matching.sh" >&2
-  exit 2
-fi
+[ -r "$LIB" ] || { echo "BLOCKED: block-force-push no operativo: falta hooks/lib/guard-matching.sh" >&2; exit 2; }
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
+guard_init "block-force-push"
 
-INPUT=$(cat)
-COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
-
-# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
-# para por qué se detecta sobre $INPUT y no sobre $COMMAND.
-if guard_command_has_nul "$INPUT"; then
-  echo "BLOCKED: block-force-push: el comando trae un byte NUL" >&2
-  exit 2
-fi
-
-SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
-
-# #77 comentario 2: un refspec forzado (+<ref>, ej. "git push origin
-# +main") es equivalente a --force y antes pasaba sin bloquear, igual que
-# la flag -f dentro de un cluster corto (ej. "-fu", "-uf") y "git -C <ruta>
-# push" (GUARD_GIT_TREE_OPTS detecta el mismo push real con esa opción de
-# árbol entre "git" y "push").
+# Un refspec forzado (+<ref>, ej. "git push origin +main") equivale a
+# --force, igual que -f dentro de un cluster corto ("-fu", "-uf").
+# GUARD_GIT_OPTS (guard-matching.sh) tolera, en cualquier orden, las
+# opciones de git ("-c k=v", "--no-pager", "-P", "-C"/"--git-dir"/
+# "--work-tree") entre "git" y "push", para seguir detectando el mismo
+# push real con esas opciones de por medio.
 #
-# Borde izquierdo del cluster (review dual ronda 1, security LOW, falso
-# bloqueo): sin "(^|[[:space:]])" antes del "-", el cluster matchea la "f"
-# de un TOKEN que no es una flag, como el sufijo "-form"/"-flags" de un
-# nombre de branch ("fix/login-form", "feature/add-feature-flags") —
-# "push\s+" ya consumió el único espacio real antes del "-" de la flag,
-# así que "push\b" (en vez de "push\s+") deja ese espacio disponible para
-# que el propio cluster lo exija como borde.
+# El cluster corto exige "(^|espacio)" a su izquierda: sin ese borde,
+# matchea la "f" de un token que no es una flag, como el sufijo de
+# "fix/login-form" o "feature/add-feature-flags".
 #
-# GUARD_GIT_OPTS (D-07, review dual ronda 1 y 2): tolera, en cualquier
-# orden, "-c <k=v>" (una o varias), "--no-pager", "-P" y las opciones de
-# árbol ("-C <ruta>", "--git-dir"/"--work-tree") antes de "push" — sin
-# esto, "git -c user.name=x push --force" no matcheaba y el force push
-# real pasaba SIN EVALUAR. Ver hooks/lib/guard-matching.sh.
-#
-# El ".*" entre "push\b" y la flag NO cruza un separador de comando real
-# (&&, ;, |) — ronda 2, security LOW, falso bloqueo: antes, "git push
-# origin feature/fix-flaky && echo -f" (sin --force) bloqueaba igual,
-# porque el ".*" greedy se estiraba hasta la "-f" de "echo -f", un
-# comando DISTINTO después del "&&". La invocación real de "push" termina
-# en el primer separador de comando. Un salto de línea real no necesita
-# entrar al charset: grep procesa línea por línea por defecto, así que
-# ninguna de las dos partes del patrón puede cruzar uno sin ayuda extra.
+# El "[^&|;]*" entre "push\b" y la flag no cruza un separador de comando
+# real (&&, ;, |): sin esto, "git push origin x && echo -f" (sin
+# --force) bloquearía igual, porque el charset se estiraría hasta la
+# "-f" de un comando distinto después del separador.
 
-# Ronda 3 (regresión fail-open, security): el charset de arriba usaba
-# "[^&|;]*" para no cruzar un separador de comando real (&&, ;, |) — pero
-# ese mismo charset excluye el "&" de una redirección honesta (2>&1,
-# >&2, &>log), así que un push --force real seguido de esa redirección
-# ANTES de la flag ("git push origin x 2>&1 --force") no matcheaba y
-# pasaba SIN EVALUAR. Fix: el charset intercalado ahora también acepta,
-# repetidas veces, "<dígitos opcionales>>&" (2>&1, >&1) o "&>" (&>log) —
-# ninguna de las dos formas es un separador real de comando (&&, ;, |,
-# & de background), así que seguir aceptándolas no reabre el hueco que
-# cerró la ronda 2 (ver comentario de esa ronda, abajo del patrón). Mismo
-# trato para un ";" escapado (\;), literal para el shell y no un
-# separador real — ej. "git push -o a\;b --force origin x".
-FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b([^&|;]|[0-9]*>&|&>|\\\\;)*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
+# El branch se decide por el cwd DE LA SESIÓN (guard_session_dir), no por lo
+# que diga el propio comando: un "cd"/"git -C" junto al "git push" en el
+# mismo comando no lo redirige acá, lo bloquea pre-push-guard.sh (mismo
+# criterio que ese guard) antes de que este código corra.
+#
+# guard_force_with_lease_allowed: 0 (permitido) solo si el branch actual
+# (de guard_session_dir) NO es main/master/dev y el segmento del "git ...
+# push ..." real (anclado a posición de comando con GUARD_ANCHOR, hasta el
+# primer &&/;/|) no lleva --all/--mirror ni menciona main/master/dev como
+# token, refspec (x:main, main:x) o destino "refs/heads/(main|master|dev)".
+# Fuera de un repo git, o sin poder resolver el branch, bloquea
+# (fail-closed) — no hay forma segura de asumir "no es main".
+#
+# El segmento se toma del match ANCLADO de FORCE_PATTERN (mismo prefijo
+# "git\s+${GUARD_GIT_OPTS}push\b"), no del primer "push\b" suelto del
+# comando: un "git stash push" antes del push real, o un directorio/branch
+# que contiene la palabra "push" (ej. "push-service"), capturaban ese
+# "push\b" ajeno y dejaban el "main"/"dev" del git push real afuera del
+# segmento evaluado — coló un push a rama protegida (review ronda 1,
+# security MEDIUM).
+guard_force_with_lease_allowed() {
+  local dir branch push_segment raw_push_segment
+  dir=$(guard_session_dir) || return 1
+  branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2> /dev/null) || return 1
+  case "$branch" in
+    main | master | dev) return 1 ;;
+  esac
+  # El saneo (guard_sanitize) vacía los spans quoted antes de que
+  # SANITIZED_COMMAND llegue acá: "origin 'main'" queda como "origin " y el
+  # token "main" desaparece del segmento, así que el check de abajo (que
+  # busca "main"/"dev" como palabra suelta) no lo ve y la excepción de
+  # --force-with-lease se cuela. El segmento sobre $COMMAND crudo (sin
+  # sanear) SÍ conserva las comillas: si aparecen dentro del segmento del
+  # push real, no hay forma barata de saber qué token queda adentro sin
+  # parsear el shell de verdad — la excepción no aplica y bloquea
+  # fail-closed, en vez de confiar en un match que puede estar mirando un
+  # segmento vaciado por el saneo.
+  raw_push_segment=$(echo "$COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*" | head -1)
+  echo "$raw_push_segment" | grep -q "['\"]" && return 1
+  push_segment=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*" | head -1)
+  # --all y --mirror empujan TODOS los refs remotos (o los espejan) sin
+  # importar qué otro ref aparezca en el resto del comando: la excepción de
+  # --force-with-lease no los cubre, siempre bloquean.
+  echo "$push_segment" | grep -qE '(^|[[:space:]])--(all|mirror)([[:space:]]|$)' && return 1
+  ! echo "$push_segment" | grep -qE '(^|[[:space:]:])(main|master|dev)([[:space:]:]|$)|refs/heads/(main|master|dev)([[:space:]:]|$)'
+}
+
+FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
+
+# --force-with-lease no puede reescribir un ref que otro ya movió (falla si
+# el remoto no coincide con lo que el cliente esperaba) — a diferencia de
+# --force/-f, permitirlo fuera de main/master/dev no reabre el riesgo que
+# este guard existe para cortar. La excepción es angosta a propósito: si
+# quitar "--force-with-lease(=valor)?" del comando SIGUE matcheando
+# FORCE_PATTERN, hay una flag de force real e independiente (--force, -f,
+# refspec "+x") en el mismo comando y esa sigue bloqueando siempre.
+LEASE_STRIPPED_COMMAND=$(echo "$SANITIZED_COMMAND" | sed -E 's/--force-with-lease(=[^[:space:]]*)?//g')
 
 if echo "$SANITIZED_COMMAND" | grep -qE "$FORCE_PATTERN"; then
-  echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2
-  exit 2
-fi
-
-# Regresión (auditoría best-practices): guard_sanitize() borra el contenido
-# de CUALQUIER span quoted por diseño (#47) — pero un flag real que el
-# shell recibe igual con o sin comillas (ej. `git push origin "--force"`)
-# es una invocación real, no texto literal, y el saneo lo deja
-# indistinguible de una mención dentro de un mensaje de commit.
-#
-# Ronda 2 (revisión pre-push, security LOW): la versión anterior compensaba
-# grepeando el patrón COMPLETO (git push + flag SIN comillas) sobre el
-# comando sin sanear, con el mismo GUARD_ANCHOR de siempre — pero
-# GUARD_ANCHOR no sabe de comillas, así que cualquier separador real (";",
-# salto de línea) que aparezca DENTRO de un span quoted/heredoc lo ancla
-# igual. Reproducido en vivo: un heredoc que solo mencionaba "git push
-# --force" en su cuerpo (para escribir este mismo registro) quedaba
-# bloqueado, igual que un mensaje de commit con ";" antes de la mención o
-# un `gh pr create --body "..."` citándola.
-#
-# Fix: separar "hay una invocación real de git push" (ya resuelto arriba,
-# sobre el comando SANEADO — guard_sanitize() borra spans quoted y cuerpos
-# de heredoc enteros, así que una mención ahí dentro desaparece del texto
-# saneado por completo, sin dejar ningún "git push" para anclar) de "esa
-# invocación trae la flag entre comillas" (que solo puede verse en el
-# comando SIN sanear, porque el saneo es justo lo que la borra). Bloquear
-# solo si AMBAS condiciones se cumplen: el comando saneado tiene un "git
-# push" anclado en posición de comando (invocación real, no texto dentro de
-# un span borrado), y el comando sin sanear contiene la flag envuelta en
-# comillas en algún punto. Limitación aceptada, igual que el resto de
-# guard_sanitize(): heurística de texto, no un parser de shell real — una
-# coincidencia de `"--force"` citada tal cual dentro de un mensaje, junto a
-# un push real sin force en el mismo comando compuesto, bloquearía por esta
-# vía.
-PUSH_ANCHORED_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b"
-QUOTED_FORCE_PATTERN="[\"'](-f|--force(-with-lease(=[^\"']*)?)?)[\"']"
-
-if echo "$SANITIZED_COMMAND" | grep -qE "$PUSH_ANCHORED_PATTERN" \
-  && echo "$COMMAND" | grep -qE "$QUOTED_FORCE_PATTERN"; then
-  echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2
-  exit 2
+  if echo "$LEASE_STRIPPED_COMMAND" | grep -qE "$FORCE_PATTERN" || ! guard_force_with_lease_allowed; then
+    echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2
+    exit 2
+  fi
 fi
 
 exit 0
