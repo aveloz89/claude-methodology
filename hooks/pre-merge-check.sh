@@ -325,6 +325,10 @@ block() {
 # EXACTAMENTE uno de los conocidos.
 # ============================================================
 MERGE_FORM_HELP='Forma aceptada: gh pr merge <N> [--merge|--squash|--rebase] [--delete-branch] [--repo owner/repo], sola en el comando y en una línea. Para un PR de otro repo usa --repo; no uses cd.'
+# Misma forma aceptada, sin la recomendación de --repo: se usa en el
+# bloqueo de GH_REPO/GH_HOST (más abajo), donde --repo NO es remedio —
+# recomendarlo ahí sería contradictorio (#77 §3).
+MERGE_FORM_HELP_NO_REPO_ADVICE='Forma aceptada: gh pr merge <N> [--merge|--squash|--rebase] [--delete-branch] [--repo owner/repo], sola en el comando y en una línea.'
 
 # Una sola línea: un \n o \r en cualquier posición del crudo (incluida
 # una continuación con backslash, que guard_sanitize normalmente uniría
@@ -433,7 +437,7 @@ fi
 # contra gh real), así que un --repo explícito en el comando no evita
 # que gh termine resolviendo otro repo/host de todas formas.
 if [ -n "${GH_REPO:-}" ] || [ -n "${GH_HOST:-}" ]; then
-  block "Blocked: el entorno del proceso de este hook tiene GH_REPO o GH_HOST seteado — bloquea siempre, con o sin --repo explícito en el comando (gh pr merge respeta esas variables igual que gh repo view). Quita GH_REPO/GH_HOST del entorno del proceso. ${MERGE_FORM_HELP}"
+  block "Blocked: el entorno del proceso de este hook tiene GH_REPO o GH_HOST seteado — bloquea siempre, con o sin --repo explícito en el comando (gh pr merge respeta esas variables igual que gh repo view). Quita GH_REPO/GH_HOST del entorno del proceso. ${MERGE_FORM_HELP_NO_REPO_ADVICE}"
 fi
 
 # GIT_DIR/GIT_WORK_TREE en el entorno del proceso del hook: solo importan

@@ -3621,6 +3621,28 @@ assert_pre_merge_blocked_no_calls_env() {
   rm -f "$stderr_file"
 }
 
+# Igual que assert_pre_merge_blocked_no_calls_env, pero afirma que el
+# stderr NO contiene un substring (#77 §3: el mensaje de GH_REPO/GH_HOST no
+# debe recomendar --repo, porque acá --repo no es remedio).
+assert_pre_merge_blocked_no_calls_env_not_contains() {
+  local test_name="$1" cmd="$2" forbidden_substring="$3"; shift 3
+  TOTAL=$((TOTAL + 1))
+  : > "$FAKE_GH_D04_LOG"
+  local json exit_code=0 calls stderr_file
+  stderr_file=$(mktemp)
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  echo "$json" | PATH="$FAKE_GH_D04_LOG_DIR:$PATH" env "$@" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>"$stderr_file" || exit_code=$?
+  calls=$(wc -l < "$FAKE_GH_D04_LOG" | tr -d ' ')
+  if [ "$exit_code" -eq 2 ] && ! grep -qF -- "$forbidden_substring" "$stderr_file" && [ "$calls" = "0" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked, 0 consultas a gh, sin \"$forbidden_substring\")"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"), consultas: $calls)"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$stderr_file"
+}
+
 # --- El incidente original (PR #75): cd a otro repo bloquea, menciona --repo ---
 assert_pre_merge_blocked_no_calls "gh pr merge [D-04, incidente]: cd a otro repo bloquea (ya no se resuelve el cd) y el mensaje menciona --repo" \
   "cd /otro && gh pr merge 75" "--repo"
@@ -3765,6 +3787,10 @@ assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GH_HOST en 
   "gh pr merge 5" "GH_HOST" GH_HOST=evil.example.com
 assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GH_HOST en el entorno del hook bloquea CON --repo" \
   "gh pr merge 5 --repo aveloz89/easy-quotes" "GH_HOST" GH_HOST=evil.example.com
+assert_pre_merge_blocked_no_calls_env_not_contains "gh pr merge [#77 §3]: GH_REPO bloquea sin recomendar --repo (no es remedio)" \
+  "gh pr merge 5" "usa --repo" GH_REPO=evil/x
+assert_pre_merge_blocked_no_calls_env_not_contains "gh pr merge [#77 §3]: GH_HOST bloquea sin recomendar --repo (no es remedio)" \
+  "gh pr merge 5" "usa --repo" GH_HOST=evil.example.com
 assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GIT_DIR en el entorno del hook bloquea sin --repo" \
   "gh pr merge 5" "GIT_DIR" GIT_DIR=/tmp/otro/.git
 assert_pre_merge_blocked_no_calls_env "gh pr merge [D-04, env hook]: GIT_WORK_TREE en el entorno del hook bloquea sin --repo" \
