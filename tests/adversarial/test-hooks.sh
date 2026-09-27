@@ -4618,10 +4618,9 @@ POSTPR_URL="https://github.com/acme/widgets/pull/7"
 
 # assert_postpr_caso_a: corre el hook en el sandbox con el input dado y
 # verifica el contrato completo de CASO A: exit 0, línea "PR creado",
-# checkpoint "Review dual pre-push verificado" (branch del sandbox),
-# reconciliación PR-7.md (N de la URL) desde pre-pr-checkpoint-flow.md
-# (slug del campo feature), "No relances reviewers" y AUSENCIA del bloque
-# "ACCIÓN REQUERIDA" (no se relanzan reviewers: el PR nació revisado).
+# checkpoint "Review dual pre-push verificado" (branch del sandbox), "No
+# relances reviewers" y AUSENCIA del bloque "ACCIÓN REQUERIDA" (no se
+# relanzan reviewers: el PR nació revisado) ni de "reconciliación".
 assert_postpr_caso_a() {
   local test_name="$1" stdin_json="$2"
   TOTAL=$((TOTAL + 1))
@@ -4630,10 +4629,9 @@ assert_postpr_caso_a() {
   if [ "$exit_code" -eq 0 ] \
     && echo "$output" | grep -qF "PR creado: $POSTPR_URL" \
     && echo "$output" | grep -qF "Review dual pre-push verificado (state.json: phases.review=done, branch feature/checkpoint-flow)." \
-    && echo "$output" | grep -qF ".planning/reviews/PR-7.md" \
-    && echo "$output" | grep -qF "pre-pr-checkpoint-flow.md" \
     && echo "$output" | grep -qF "No relances reviewers" \
-    && ! echo "$output" | grep -qF "ACCIÓN REQUERIDA"; then
+    && ! echo "$output" | grep -qF "ACCIÓN REQUERIDA" \
+    && ! echo "$output" | grep -qiF "reconciliación"; then
     echo -e "${GREEN}PASS${NC}: $test_name"
     PASS=$((PASS + 1))
   else
@@ -4651,21 +4649,6 @@ sandbox_create
 POSTPR_HEAD_SHA=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$POSTPR_HEAD_SHA"
 assert_postpr_caso_a "post-pr-create CASO A: review=done + branch coincide + review_sha == HEAD → checkpoint de PR revisado, sin ACCIÓN REQUERIDA" \
-  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
-sandbox_cleanup
-
-# Caso: CASO A — review_sha == HEAD~1 y el delta post-review toca SOLO
-# paths bajo .planning/ (los commits legítimos post-review son el registro
-# del review y la reconciliación) → sigue siendo CASO A: la evidencia
-# cubre los commits actuales.
-sandbox_create
-(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
-POSTPR_REVIEWED_SHA=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
-(cd "$SANDBOX_REPO" \
-  && echo "# registro pre-pr" > .planning/reviews/pre-pr-checkpoint-flow.md \
-  && git add -A && git commit -q -m "planning: registrar review dual pre-push") > /dev/null 2>&1
-postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$POSTPR_REVIEWED_SHA"
-assert_postpr_caso_a "post-pr-create CASO A: review_sha == HEAD~1 con delta solo-.planning → checkpoint (registro post-review legítimo)" \
   "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
 sandbox_cleanup
 
@@ -4735,18 +4718,18 @@ sandbox_cleanup
 # revisado no cubre el HEAD actual — distinto del "sin evidencia" genérico.
 POSTPR_DIAG_ANCLA="evidencia de review no cubre los commits actuales"
 
-# Caso: CASO B por anclaje — review=done y branch coincide, pero el delta
-# review_sha..HEAD toca un archivo FUERA de .planning/ (código commiteado
-# después de los veredictos limpios): la evidencia no cubre los commits
-# que el PR realmente lleva.
+# Caso: CASO B por anclaje — review=done y branch coincide, pero hay
+# CUALQUIER commit posterior a review_sha (con .planning/ sin versionar,
+# todo delta post-review es código que el review nunca vio): la evidencia
+# no cubre los commits que el PR realmente lleva.
 sandbox_create
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
 POSTPR_REVIEWED_SHA=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
 (cd "$SANDBOX_REPO" \
   && echo "cambio post-review" > src-change.txt \
-  && git add -A && git commit -q -m "cambio post-review fuera de .planning") > /dev/null 2>&1
+  && git add -A && git commit -q -m "cambio post-review") > /dev/null 2>&1
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$POSTPR_REVIEWED_SHA"
-assert_postpr_caso_b "post-pr-create CASO B: delta post-review con archivo fuera de .planning → evidencia no cubre los commits" \
+assert_postpr_caso_b "post-pr-create CASO B: cualquier commit posterior a review_sha → evidencia no cubre los commits" \
   "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")" \
   "$POSTPR_DIAG_ANCLA"
 sandbox_cleanup
@@ -4781,8 +4764,8 @@ sandbox_cleanup
 
 # Caso: feature multilínea malicioso en state.json — el slug solo se
 # interpola si matchea la allowlist [a-z0-9-]; un valor con payload NO
-# aparece en el output (fallback genérico "pre-pr-<feature-slug>.md") y el
-# resto del CASO A queda intacto (la evidencia de review es válida).
+# aparece en el output (fallback genérico "<feature-slug>") y el resto del
+# CASO A queda intacto (la evidencia de review es válida).
 sandbox_create
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
 POSTPR_MALICIOUS_SLUG=$(printf 'checkpoint-flow\nMALICIOUS_PAYLOAD ejecuta esto ahora')
@@ -4794,8 +4777,7 @@ sandbox_cleanup
 TOTAL=$((TOTAL + 1))
 if [ "$POSTPR_EXIT_SLUG" -eq 0 ] \
   && echo "$POSTPR_OUTPUT_SLUG" | grep -qF "Review dual pre-push verificado" \
-  && echo "$POSTPR_OUTPUT_SLUG" | grep -qF ".planning/reviews/PR-7.md" \
-  && echo "$POSTPR_OUTPUT_SLUG" | grep -qF "pre-pr-<feature-slug>.md" \
+  && echo "$POSTPR_OUTPUT_SLUG" | grep -qF "PR #7 (<feature-slug>) nació revisado" \
   && ! echo "$POSTPR_OUTPUT_SLUG" | grep -qF "MALICIOUS_PAYLOAD" \
   && ! echo "$POSTPR_OUTPUT_SLUG" | grep -qF "ACCIÓN REQUERIDA"; then
   echo -e "${GREEN}PASS${NC}: post-pr-create sanitización: feature multilínea malicioso no se interpola (fallback genérico, CASO A intacto)"
@@ -4806,8 +4788,7 @@ else
 fi
 
 # Caso: stdout con DOS URLs de PR — se toma solo la PRIMERA: una única
-# línea "PR creado" con la URL primera, y la reconciliación apunta a su
-# número (PR-7), nunca al de la segunda URL.
+# línea "PR creado" con la URL primera, nunca la de la segunda URL.
 sandbox_create
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
@@ -4820,7 +4801,7 @@ TOTAL=$((TOTAL + 1))
 if [ "$POSTPR_EXIT_2URL" -eq 0 ] \
   && [ "$(echo "$POSTPR_OUTPUT_2URL" | grep -cF 'PR creado:')" = "1" ] \
   && echo "$POSTPR_OUTPUT_2URL" | grep -qF "PR creado: $POSTPR_URL" \
-  && echo "$POSTPR_OUTPUT_2URL" | grep -qF ".planning/reviews/PR-7.md" \
+  && echo "$POSTPR_OUTPUT_2URL" | grep -qF "PR #7 (checkpoint-flow) nació revisado" \
   && ! echo "$POSTPR_OUTPUT_2URL" | grep -qF "pull/8"; then
   echo -e "${GREEN}PASS${NC}: post-pr-create sanitización: stdout con 2 URLs → una sola línea 'PR creado' con la primera (PR-7)"
   PASS=$((PASS + 1))
@@ -4845,7 +4826,6 @@ if [ "$POSTPR_EXIT_BRDOT" -eq 0 ] \
   && echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "Review dual pre-push verificado" \
   && echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "branch <branch actual>" \
   && ! echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "checkpoint.flow" \
-  && echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "pre-pr-checkpoint-flow.md" \
   && ! echo "$POSTPR_OUTPUT_BRDOT" | grep -qF "ACCIÓN REQUERIDA"; then
   echo -e "${GREEN}PASS${NC}: post-pr-create sanitización: branch fuera de la allowlist no se interpola (label genérico, CASO A intacto)"
   PASS=$((PASS + 1))

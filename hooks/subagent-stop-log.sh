@@ -1,10 +1,9 @@
 #!/bin/bash
 # Subagent stop log: appendea una línea JSONL por cada invocación de
 # subagente que termina (evento SubagentStop), para medir el budget de
-# agent-budget.md en la retro de Fase 4. No bloqueante — observabilidad pura,
-# nunca interfiere con el evento. A diferencia de PreCompact/SessionEnd, no
-# exige repo git ni .planning/: loguea siempre, con repo/branch en null si no
-# hay repo (D2).
+# agent-budget.md. No bloqueante — observabilidad pura, nunca interfiere con
+# el evento. A diferencia de PreCompact, no exige repo git ni .planning/:
+# loguea siempre, con repo/branch en null si no hay repo (D2).
 
 # Los artefactos bajo ~/.claude/methodology/ contienen session ids: nunca
 # legibles por otros usuarios de la máquina.
