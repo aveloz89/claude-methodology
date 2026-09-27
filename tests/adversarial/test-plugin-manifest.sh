@@ -533,6 +533,29 @@ fi
 
 if [ -f "$PRODUCT_REVIEWER" ]; then
   assert_agent_read_only "$PRODUCT_REVIEWER"
+
+  TOTAL=$((TOTAL + 1))
+  PR_LINES=$(wc -l < "$PRODUCT_REVIEWER" | tr -d ' ')
+  if [ "$PR_LINES" -le 150 ]; then
+    echo -e "${GREEN}PASS${NC}: agents/product-reviewer.md tiene $PR_LINES líneas (<= 150)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: agents/product-reviewer.md tiene $PR_LINES líneas (esperado <= 150)"
+    FAIL=$((FAIL + 1))
+  fi
+
+  assert_contains "$PRODUCT_REVIEWER" "seguir | reducir alcance | repensar" \
+    "agents/product-reviewer.md declara las tres opciones del veredicto"
+  assert_contains "$PRODUCT_REVIEWER" "### Resultado esperado" \
+    "agents/product-reviewer.md tiene el encabezado Resultado esperado (compartido con BRIEF.md)"
+  assert_contains "$PRODUCT_REVIEWER" "### Criterios de aceptación" \
+    "agents/product-reviewer.md tiene el encabezado Criterios de aceptación (compartido con BRIEF.md)"
+  assert_contains "$PRODUCT_REVIEWER" "### Preguntas" \
+    "agents/product-reviewer.md tiene la regla de preguntar en vez de suponer (D-05)"
+  assert_not_contains "$PRODUCT_REVIEWER" "declara supuestos" \
+    "agents/product-reviewer.md ya no ofrece \"declara supuestos\" como alternativa a preguntar (D-05)"
+  assert_not_contains "$PRODUCT_REVIEWER" "### Supuestos" \
+    "agents/product-reviewer.md ya no tiene la sección Supuestos en el formato del reporte (D-05)"
 fi
 
 echo ""
