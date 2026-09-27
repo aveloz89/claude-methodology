@@ -131,6 +131,23 @@ _guard_resolve_dash_c() {
   printf '%s' "$candidate"
 }
 
+# _guard_resolve_cd: forma "cd <ruta> && git commit …" / "cd <ruta>; …"
+# (allowlist B3 de DESIGN.md). Devuelve por stdout la ruta candidata y sale
+# 0, o sale 1 (sin salida) si el comando no califica — el caller bloquea.
+# Se valida sobre el comando CRUDO ($COMMAND, no el saneado): el saneado
+# colapsa comillas y no preserva la forma que ejecuta el shell de verdad
+# (retro PR-76), así que la ruta que termina en `cd "$ruta"` sale del texto
+# real tal cual, nunca de un `eval`. El ancla `^cd[[:blank:]]+` exige "cd"
+# al INICIO del comando con al menos un espacio/tab de separación — así
+# "pushd …", "cd" no al inicio ("npm ci && cd …") y "cd" pelado sin
+# argumento (sin nada entre "cd" y el terminador) nunca matchean esta
+# regla y caen al bloqueo genérico (B5): no se adivina a qué apunta un
+# "cd" que no tiene esta forma exacta.
+_guard_resolve_cd() {
+  [[ "$COMMAND" =~ ^cd[[:blank:]]+([^[:space:]]+)[[:blank:]]*(\&\&|\;) ]] || return 1
+  printf '%s' "${BASH_REMATCH[1]}"
+}
+
 # "--git-dir"/"--work-tree"/"GIT_DIR="/"GIT_WORK_TREE=" nunca se resuelven
 # (fuera de alcance por diseño, documentado en TREE_FORM_HELP): a diferencia
 # de "-C", no hay forma de saber si valen para TODO el comando o solo para
@@ -151,16 +168,21 @@ if echo "$SANITIZED_COMMAND" | grep -qE "(^|\s|;|&&|\|)(GIT_DIR|GIT_WORK_TREE)="
   _guard_block_tree "GIT_DIR/GIT_WORK_TREE como prefijo de entorno en el comando no se resuelven"
 fi
 
-# Etapa B (resto): sin "-C" en el texto → camino rápido sobre BASE_DIR
-# (toplevel real o BASE_DIR tal cual). Con "-C" → se resuelve con
-# _guard_resolve_dash_c y se valida que la ruta exista y sea un repo git
-# real; cualquier falla bloquea SIN correr suites (a diferencia del camino
-# rápido, acá no hay "correr de más" posible: no se sabe en qué árbol
-# correr). "cd"/"pushd" quedan para un lote siguiente.
+# Etapa B (resto): sin "-C" ni "cd"/"pushd" en el texto → camino rápido
+# sobre BASE_DIR (toplevel real o BASE_DIR tal cual). Con "-C" → se
+# resuelve con _guard_resolve_dash_c; con "cd"/"pushd" (y ninguna mención
+# de "-C") → se resuelve con _guard_resolve_cd. Ambos casos validan que la
+# ruta exista y sea un repo git real; cualquier falla bloquea SIN correr
+# suites (a diferencia del camino rápido, acá no hay "correr de más"
+# posible: no se sabe en qué árbol correr).
 if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+-C\s"; then
   DASH_C_PATH=$(_guard_resolve_dash_c) || _guard_block_tree "no se pudo resolver una única ruta de 'git -C' en el comando"
   RESOLVED_DIR=$(cd "$BASE_DIR" 2>/dev/null && cd "$DASH_C_PATH" 2>/dev/null && pwd -P) || _guard_block_tree "la ruta '$DASH_C_PATH' no existe"
   TARGET_DIR=$(git -C "$RESOLVED_DIR" rev-parse --show-toplevel 2>/dev/null) || _guard_block_tree "'$DASH_C_PATH' no es un repo git"
+elif echo "$SANITIZED_COMMAND" | grep -qE "$CD_PUSHD_RE"; then
+  CD_PATH=$(_guard_resolve_cd) || _guard_block_tree "no se pudo resolver una única ruta de 'cd' al inicio del comando"
+  RESOLVED_DIR=$(cd "$BASE_DIR" 2>/dev/null && cd "$CD_PATH" 2>/dev/null && pwd -P) || _guard_block_tree "la ruta '$CD_PATH' no existe"
+  TARGET_DIR=$(git -C "$RESOLVED_DIR" rev-parse --show-toplevel 2>/dev/null) || _guard_block_tree "'$CD_PATH' no es un repo git"
 else
   TARGET_DIR=$(_guard_toplevel_or_base "$BASE_DIR")
 fi
@@ -239,38 +261,16 @@ _guard_planning_only_change() {
 
 # _guard_planning_only_change lee "git status" del cwd DEL HOOK — que a esta
 # altura ya es TARGET_DIR (la Etapa B de arriba resolvió el árbol real del
-# commit y ya hizo "cd" ahí), así que para las formas que ese resolver YA
-# entiende ("git -C <ruta>", camino rápido) esto evalúa el árbol correcto
-# sin necesidad de más chequeos. Sigue existiendo este bloqueo adicional
-# para las formas que el resolver TODAVÍA no resuelve ("cd"/"pushd" —
-# próximos lotes): ante esos patrones en el texto, no se toma el salto,
-# porque el hook no sabe (todavía) si TARGET_DIR es el árbol real del
-# commit (verificado con git worktree real: árbol principal sucio solo bajo
-# .planning/, worktree con código sucio, comando "cd $WT && git commit -am
-# x" → saltaba sin correr suites antes de este fix). #212 (este guard no
-# sigue al árbol real del commit en general) sigue fuera de alcance para
-# "cd"/"pushd" — esto solo evita que el salto lo agrave, de "gate corriendo
-# contra el árbol equivocado" a "sin gate", hasta que el próximo lote los
-# resuelva igual que a "-C" acá.
-#
-# "cd"/"pushd" se anclan a posición de comando con el mismo GUARD_ANCHOR
-# que el resto del hook (no matchean como parte de otra palabra, y
-# guard_sanitize ya quitó los spans quoted/heredoc antes de esto, así que
-# una mención dentro de un mensaje de commit no llega ni siquiera a este
-# punto). El terminador de la derecha acepta blanco (argumento: "cd
-# <ruta>", "pushd <ruta>") o ";"/"&&"/fin de línea sin blanco de por medio
-# ("cd" pelado sin argumento — target implícito $HOME — o "pushd" pelado
-# sobre el tope del stack): con solo "cd\s" y sin "pushd" en la lista,
-# "pushd $WT && git commit" y "cd; git commit" tomaban el salto en
-# silencio (ni "pushd" estaba cubierto, ni un "cd" pelado seguido de ";"
-# trae el espacio que "cd\s" exigía). "-C"/"--git-dir"/"--work-tree"/
-# "GIT_DIR="/"GIT_WORK_TREE=" ya no hace falta que estén en esta lista: la
-# Etapa B de arriba los resuelve (y hace "cd" al árbol real) o bloquea antes
-# de llegar acá — nunca siguen de largo con TARGET_DIR sin resolver.
-if echo "$SANITIZED_COMMAND" | grep -qE "$CD_PUSHD_RE"; then
-  : # comando redirige a otro árbol (sin resolver/bloquear todavía en Etapa
-    # B): camino normal, no se evalúa el salto
-elif _guard_planning_only_change; then
+# commit, para CUALQUIER forma de la allowlist — camino rápido, "-C" o
+# "cd"/"pushd" — y ya hizo "cd" ahí, o bloqueó antes de llegar a este
+# punto). Ya no hace falta un bypass especial para "cd"/"pushd": antes de
+# este fix (#73, Lote 2) el resolver no entendía esa forma, así que el
+# salto se evaluaba a ciegas sobre BASE_DIR mientras el comando en realidad
+# redirigía a otro árbol (verificado con git worktree real: árbol
+# principal sucio solo bajo .planning/, worktree con código sucio, "cd $WT
+# && git commit -am x" → saltaba sin correr suites). Ahora TARGET_DIR
+# siempre es el árbol real del commit cuando se llega hasta acá.
+if _guard_planning_only_change; then
   echo "Solo cambios en .planning/: sin suites." >&2
   exit 0
 fi
