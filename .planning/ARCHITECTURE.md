@@ -38,6 +38,16 @@ A diferencia de `DESIGN.md` (que vive solo durante una feature), este archivo pe
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-09-27] Guards de texto: fragmentos de detección compartidos, `if` best-effort y formas disfrazadas fuera de alcance
+
+**Contexto:** cada guard tenía su propio regex para "es una invocación de git/gh" y cada uno cubría un subconjunto distinto de las formas honestas (`git -C`, `gh -R`, cluster `-fu`, refspec `+ref`, `cd x && gh pr create`); dos guards no sourceaban la lib y fallaban abiertos sin jq. Verificado (doc oficial de hooks, tabla "Bash if matching"): el `if` de `hooks.json` compara cada subcomando por prefijo, solo descarta asignaciones `VAR=x` al frente, y corre el hook si no puede resolver el comando; `env git …` y `/usr/bin/git …` no lo disparan, y los scripts tampoco los matchean.
+
+**Decisión:** los fragmentos de detección viven en `hooks/lib/guard-matching.sh` (`GUARD_ANCHOR`, `GUARD_GIT_TREE_OPTS`, `GUARD_GH_PR_MERGE_RE`, `guard_command_has_nul`) y todo guard que intercepta comandos Bash la sourcea fail-closed y es fail-closed sin jq. `hooks.json` conserva el `if` con el nombre pelado del binario. Las formas disfrazadas (comillas partidas, variables, `eval`, `bash -c`, alias/funciones, binario por ruta o vía `env`/`command`) quedan fuera de alcance por decisión del usuario (D-05) y se listan en el README y en el header de la lib como inventario verificado, no como garantía.
+
+**Justificación:** el modelo de amenaza es el error honesto; una forma que solo aparece como evasión deliberada no justifica interpretar shell (retro PR-76). Un fragmento compartido evita que dos guards diverjan sobre la misma sintaxis y que un fix en uno deje al otro atrás.
+
+**Implicación:** un hallazgo de review sobre una forma disfrazada se cierra agregándola al inventario, no con un fix. Un fix a un regex de detección lleva en la misma tarea sus casos negativos y se valida contra la suite completa como corpus (retros PR-79, PR-87). Cuando un guard cambia el directorio donde actúa, la tabla de tests trae monorepo, worktree y subdirectorio. Toda verificación sobre el harness que no se pudo ejecutar se escribe como NO VERIFICADA con la razón.
+
 ### [2026-09-26] Guards que dependen del directorio: `cwd` del input + allowlist de redirecciones
 
 **Contexto:** `pre-commit-guard.sh` corría `git status` y el runner en el cwd del proceso del hook, y `pre-merge-check.sh` resolvía el repo con `gh repo view` ahí mismo, sin saber si ese directorio era el del comando interceptado (#73, #77 §4). Verificado con CLI 2.1.283 en modo de permisos default: el JSON de `PreToolUse` trae `cwd`, que refleja el `cd` persistido de llamadas Bash anteriores (incluido un directorio agregado con `--add-dir`), y el proceso del hook corre exactamente ahí; `CLAUDE_PROJECT_DIR` no sigue al `cd`. El `if: "Bash(git *)"` de `hooks.json` dispara también con `FOO=1 git …`, `cd X && git …` y `git -C X …`.

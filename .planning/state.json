@@ -7,8 +7,8 @@
   "updated": "2026-09-27T00:00:00Z",
   "phases": {
     "brainstorming": "skipped",
-    "design": "in_progress",
-    "implementation": "pending",
+    "design": "done",
+    "implementation": "in_progress",
     "docs": "pending",
     "review": "pending",
     "pr": "pending",
@@ -16,5 +16,74 @@
     "e2e": "pending",
     "merge": "pending"
   },
-  "batches": []
+  "batches": [
+    {
+      "id": "G1",
+      "name": "lib-heredoc-nul",
+      "agent": "backend-dev",
+      "status": "in_progress",
+      "tasks_done": 0,
+      "tasks_total": 5,
+      "current_task": null,
+      "commits": [],
+      "last_batch": false,
+      "depends_on": []
+    },
+    {
+      "id": "G2",
+      "name": "force-push-hard-reset-admin-merge",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 5,
+      "current_task": null,
+      "commits": [],
+      "last_batch": false,
+      "depends_on": [
+        "G1"
+      ]
+    },
+    {
+      "id": "G3",
+      "name": "pre-push-pre-release",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 5,
+      "current_task": null,
+      "commits": [],
+      "last_batch": false,
+      "depends_on": [
+        "G2"
+      ]
+    },
+    {
+      "id": "G4",
+      "name": "issue-86-runners-subdir",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 5,
+      "current_task": null,
+      "commits": [],
+      "last_batch": false,
+      "depends_on": [
+        "G3"
+      ]
+    },
+    {
+      "id": "G5",
+      "name": "docs-77",
+      "agent": "backend-dev",
+      "status": "pending",
+      "tasks_done": 0,
+      "tasks_total": 5,
+      "current_task": null,
+      "commits": [],
+      "last_batch": true,
+      "depends_on": [
+        "G4"
+      ]
+    }
+  ]
 }
