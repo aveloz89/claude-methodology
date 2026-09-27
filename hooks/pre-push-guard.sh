@@ -5,12 +5,38 @@
 # hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
 # latencia, no reemplaza la validación de abajo, que sigue mirando el
 # comando completo.
+#
+# Matching endurecido (D-07, #77): el match se sanea (spans quoted/heredoc)
+# y se ancla a posición de comando en vez de "^\s*git\s+push" sobre el
+# comando crudo — mismo helper que los demás guards de git. Ver
+# hooks/lib/guard-matching.sh. Antes, "git commit -m x && git push origin
+# main" o "npm test && git push" pasaban sin bloquear porque el match
+# exigía "git push" al INICIO del string.
+#
+# Fail-closed sin jq y sin lib (mismo cierre que #50 en los otros guards de
+# git): sin jq, COMMAND queda vacío y un push real a main pasaba en
+# silencio.
+if ! command -v jq > /dev/null 2>&1; then
+  echo "BLOCKED: pre-push-guard no operativo: falta jq" >&2
+  exit 2
+fi
+
+LIB="${0%/*}/lib/guard-matching.sh"
+if [ ! -r "$LIB" ]; then
+  echo "BLOCKED: pre-push-guard no operativo: falta hooks/lib/guard-matching.sh" >&2
+  exit 2
+fi
+# shellcheck source=lib/guard-matching.sh
+source "$LIB"
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-# Solo interceptar git push
-if ! echo "$COMMAND" | grep -qE '^\s*git\s+push'; then
+SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
+
+# Solo interceptar git push (una mención quoted no cuenta, E2).
+PUSH_RE="${GUARD_ANCHOR}git\s+push\b"
+if ! echo "$SANITIZED_COMMAND" | grep -qE "$PUSH_RE"; then
   exit 0
 fi
 

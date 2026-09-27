@@ -287,6 +287,36 @@ assert_allowed_cmd "Push from main with merge commit HEAD" "pre-push-guard.sh" "
 (cd "$SANDBOX_REPO" && git checkout -q -b master "$PUSH_INITIAL_COMMIT")
 assert_blocked_cmd "Push from master branch (non-merge commit)" "pre-push-guard.sh" "git push origin master" "$PATH" "$SANDBOX_REPO"
 
+# Matching endurecido (D-07, E1/E2): el match se sanea y se ancla a
+# posición de comando en vez de exigir "git push" al INICIO del string —
+# mismo helper que el resto de los guards de git.
+assert_blocked_cmd "pre-push-guard: 'git commit -m x && git push origin main' bloquea (E1)" \
+  "pre-push-guard.sh" "git commit -m x && git push origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: 'npm test && git push' bloquea (E1)" \
+  "pre-push-guard.sh" "npm test && git push" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: 'git push origin main;' bloquea (E1)" \
+  "pre-push-guard.sh" "git push origin main;" "$PATH" "$SANDBOX_REPO"
+
+# E2: una mención de "git push origin main" dentro de un span quoted (un
+# mensaje de commit, un --body) no es una invocación real — el saneo la
+# borra antes de anclar el match.
+assert_allowed_cmd "pre-push-guard: mención quoted en mensaje de commit pasa (E2)" \
+  "pre-push-guard.sh" "git commit -m \"git push origin main\"" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: mención quoted en --body de gh pr create pasa (E2)" \
+  "pre-push-guard.sh" "gh pr create --body \"git push origin main\"" "$PATH" "$SANDBOX_REPO"
+
+# E6: fail-closed sin jq en PATH (mismo cierre que #50 en los otros guards
+# de git) — sin jq, COMMAND queda vacío y un push real a main pasaba en
+# silencio.
+NO_JQ_PPG_BIN=$(mktemp -d)
+for cmd in bash cat perl grep git; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_PPG_BIN/$cmd"
+done
+assert_blocked_cmd "pre-push-guard: bloquea fail-closed sin jq en PATH (E6)" \
+  "pre-push-guard.sh" "git push origin main" "$NO_JQ_PPG_BIN" "$SANDBOX_REPO"
+rm -rf "$NO_JQ_PPG_BIN"
+
 sandbox_cleanup_pushrepo
 
 echo ""
