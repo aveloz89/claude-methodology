@@ -13,10 +13,14 @@
 # commit-guard.sh. Reemplaza el JSON {"decision":"block"}/{"continue":true}
 # que este hook usaba antes.
 
-# Fail-open si faltan dependencias: el hook no debe bloquear comandos cuando
-# no puede ejecutarse correctamente.
+# Fail-closed sin jq o sin gh (D-07, F4): antes este hook fallaba ABIERTO
+# (exit 0) si faltaba cualquiera de los dos, dejando pasar un "gh pr create
+# --base main" real sin evaluar los issues latent-bug del diff. Con "if":
+# "Bash(gh *)" en hooks.json, el costo es bloquear un "gh …" cualquiera sin
+# gh instalado — ese comando fallaría igual al ejecutarse.
 if ! command -v jq >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1; then
-  exit 0
+  echo "BLOCKED: pre-release-sweep no operativo: falta jq o gh" >&2
+  exit 2
 fi
 
 LIB="${0%/*}/lib/guard-matching.sh"
@@ -29,6 +33,13 @@ source "$LIB"
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+
+# NUL en el comando (#77 §3): ver guard_command_has_nul en guard-matching.sh
+# para por qué se detecta sobre $INPUT y no sobre $COMMAND.
+if guard_command_has_nul "$INPUT"; then
+  echo "BLOCKED: pre-release-sweep: el comando trae un byte NUL" >&2
+  exit 2
+fi
 
 SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 

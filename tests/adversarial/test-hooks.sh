@@ -2894,6 +2894,62 @@ assert_prs_allowed "pre-release-sweep: mención en mensaje de commit pasa (F3)" 
 assert_prs_allowed "pre-release-sweep: '--base dev' con '--base main' citado en --body pasa (F3)" \
   "gh pr create --base dev --body \"--base main\"" "critical"
 
+# F4: fail-closed sin jq/gh (D-07) — antes este hook fallaba ABIERTO (exit
+# 0) si faltaba cualquiera de los dos, dejando pasar un "gh pr create
+# --base main" real sin evaluar los issues latent-bug del diff.
+NO_JQ_PRS_BIN=$(mktemp -d)
+for cmd in bash cat perl grep git; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_PRS_BIN/$cmd"
+done
+ln -s "$PRS_FAKE_GH_DIR/gh" "$NO_JQ_PRS_BIN/gh"
+PRS_F4_EXIT=0
+(cd "$PRS_REPO" && echo '{"tool_input":{"command":"gh pr create --base main --title x --body y"}}' \
+  | PATH="$NO_JQ_PRS_BIN" PRS_FAKE_GH_MODE="critical" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>&1) || PRS_F4_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$PRS_F4_EXIT" -eq 2 ]; then
+  echo -e "${GREEN}PASS${NC}: pre-release-sweep: bloquea fail-closed sin jq en PATH (F4)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-release-sweep: bloquea fail-closed sin jq en PATH (F4) (exit code: $PRS_F4_EXIT, expected: 2)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$NO_JQ_PRS_BIN"
+
+NO_GH_PRS_BIN=$(mktemp -d)
+for cmd in bash cat perl grep git jq; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_GH_PRS_BIN/$cmd"
+done
+PRS_F4_NOGH_EXIT=0
+(cd "$PRS_REPO" && echo '{"tool_input":{"command":"gh pr create --base main --title x --body y"}}' \
+  | PATH="$NO_GH_PRS_BIN" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>&1) || PRS_F4_NOGH_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$PRS_F4_NOGH_EXIT" -eq 2 ]; then
+  echo -e "${GREEN}PASS${NC}: pre-release-sweep: bloquea fail-closed sin gh en PATH (F4)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-release-sweep: bloquea fail-closed sin gh en PATH (F4) (exit code: $PRS_F4_NOGH_EXIT, expected: 2)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$NO_GH_PRS_BIN"
+
+# B2: NUL en un comando inocuo ("git status[NUL]") — pre-release-sweep
+# entra a la lista de guards que sourcean guard-matching.sh en este lote.
+TOTAL=$((TOTAL + 1))
+PRS_NUL_STDERR_FILE=$(mktemp)
+PRS_NUL_EXIT=0
+(cd "$PRS_REPO" && jq -n '{tool_input: {command: "git status\u0000"}}' \
+  | PATH="$PRS_FAKE_GH_DIR:$PATH" PRS_FAKE_GH_MODE="none" bash "$HOOKS_DIR/pre-release-sweep.sh" > /dev/null 2>"$PRS_NUL_STDERR_FILE") || PRS_NUL_EXIT=$?
+if [ "$PRS_NUL_EXIT" -eq 2 ] && grep -qi 'NUL' "$PRS_NUL_STDERR_FILE"; then
+  echo -e "${GREEN}PASS${NC}: pre-release-sweep: bloquea NUL en el comando (B2)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-release-sweep: bloquea NUL en el comando (B2) (exit code: $PRS_NUL_EXIT, stderr: $(cat "$PRS_NUL_STDERR_FILE"))"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$PRS_NUL_STDERR_FILE"
+
 sandbox_cleanup_prs
 rm -rf "$PRS_FAKE_GH_DIR"
 
