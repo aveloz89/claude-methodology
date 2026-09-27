@@ -709,6 +709,24 @@ for dev in backend-dev frontend-dev; do
 done
 
 echo ""
+echo "--- rulebooks/agent-budget.md ≤45 líneas; governance-playbook.md #10 remite sin duplicar el fallback ---"
+
+AGENT_BUDGET="$REPO_ROOT/rulebooks/agent-budget.md"
+AGENT_BUDGET_LINES=$(wc -l < "$AGENT_BUDGET" | tr -d ' ')
+TOTAL=$((TOTAL + 1))
+if [ "$AGENT_BUDGET_LINES" -le 45 ]; then
+  echo -e "${GREEN}PASS${NC}: rulebooks/agent-budget.md tiene $AGENT_BUDGET_LINES líneas (≤45)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: rulebooks/agent-budget.md tiene $AGENT_BUDGET_LINES líneas (>45)"
+  FAIL=$((FAIL + 1))
+fi
+assert_not_contains "$AGENT_BUDGET" "Cómo se mide" \
+  "agent-budget.md ya no tiene la sección Cómo se mide (schema JSONL, fuera de scope de prosa)"
+assert_not_contains "$GOVERNANCE" "El fallback completo (leer \`HANDOFF.md\`, confirmar commits per-tarea, reinvocar con las tareas restantes bajo el cap de 5)" \
+  "governance-playbook.md #10 ya no repite el detalle del fallback, solo remite a agent-budget.md"
+
+echo ""
 echo "--- rulebooks/db-migrations.md: referencia circular corregida ---"
 
 assert_not_contains "$DB_MIGRATIONS" "Migraciones de DB: simple vs complejo" \

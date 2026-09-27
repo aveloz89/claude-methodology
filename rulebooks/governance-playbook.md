@@ -150,6 +150,6 @@ El context-monitor avisa que el contexto está en 25% (critical)
 
 ## 10. Budget agotado en una invocación de agente
 
-Distinto de #9 — acá el corte es del *sub-agente* (dev, qa, etc.), no de la sesión del usuario. Causa raíz típica: el orchestrator pasó demasiadas tareas en una invocación. El fallback completo (leer `HANDOFF.md`, confirmar commits per-tarea, reinvocar con las tareas restantes bajo el cap de 5) vive en `rulebooks/agent-budget.md`. Si el agente se cortó sin aplicar el fallback (sin commits, mensaje truncado): revisa el branch local; sin commits el trabajo se perdió y hay que re-invocar desde cero con el cap; con commits parciales, continúa desde la última tarea completada. Abrí un issue si el patrón se repite.
+Distinto de #9 — acá el corte es del *sub-agente* (dev, qa, etc.), no de la sesión del usuario. Causa raíz típica: el orchestrator pasó demasiadas tareas en una invocación.
 
-Prevención: aplicar `rulebooks/agent-budget.md` antes de delegar (cap de 5 tareas, commit por tarea).
+El fallback completo (leer `HANDOFF.md`, confirmar commits per-tarea, reinvocar bajo el cap de 5) y su prevención viven en `rulebooks/agent-budget.md` — no se duplican acá. Si el agente se cortó sin aplicarlo: sin commits, re-invoca desde cero con el cap; con commits parciales, continúa desde la última tarea completada. Abrí un issue si el patrón se repite.
