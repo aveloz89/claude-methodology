@@ -4,23 +4,27 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ## Estado actual
 
-- **Feature:** reviewer-sandbox-rule (PR #84 abierto, review dual aprobado, retro en `learnings/PR-84.md`; pendiente de aprobación de merge): regla en `qa-backend`, `qa-frontend` y `security-reviewer` para que toda prueba que escriba sobre el repo corra en un worktree desechable fuera del repo, y para que no lancen `claude` ni otro agente CLI con permisos ampliados. Origen: patrón potencial de `learnings/PR-82.md`.
+- **Feature:** cerrar issues abiertos, un PR cada uno: #78 → #71 → #73 → #77 (ver `BRIEF.md`). #78 cerrado (PR #83). En curso: #71 (`fix/review-registry-single-writer`).
 - **Última actualización:** 2026-09-26
 
 ## Decisiones
 
-- [D-01] Brainstorming y architect saltados: el pedido del usuario define texto, ubicación y test; no cambia contratos públicos ni agrega dependencias. Un solo lote.
-- [D-02] El test exige que el bloque de la regla sea idéntico en los tres prompts, no solo que exista (patrón de `learnings/PR-82.md`: una condición en N documentos se busca en los N y se compara).
-- [D-03] Docs (Fase 2.5) saltada: el README resume cada agente en una línea y la regla vive en los propios prompts, que son la documentación normativa.
-- [D-04] Sugerencias del review dual aplicadas antes del push: la regla cubre cualquier escritura (no una lista cerrada), prohíbe `git stash` por ser compartido entre worktrees y formula los permisos como invariante (el hijo no tiene más permisos que el reviewer), incluido `acceptEdits` y `--allowedTools`.
+- [D-01] (usuario) Los 4 issues, un PR cada uno, en ese orden.
+- [D-02] (usuario) #77 completo, incluidas las formas disfrazadas.
+- [D-03] (usuario) #78 autorizado a quitar el bloque `hooks` de `.claude/settings.json` después de verificar.
+- [D-04] (usuario) #71: aclarar y cerrar. Los reviewers no pueden escribir (`Write`/`Edit` prohibidos) y el orchestrator es el único que escribe el registro; se deja explícito en el runbook y en los prompts, con test.
 
-## Serie en paralelo: cerrar issues abiertos
+## Feature intercalada: reviewer-sandbox-rule (PR #84)
 
-Otra sesión trabaja la serie #78 → #71 → #73 → #77, un PR cada uno (`BRIEF-close-issues.md`). #78 mergeado en el PR #83 (`learnings/PR-83.md`). Decisiones del usuario: (D-01) un PR por issue en ese orden; (D-02) #77 completo, incluidas las formas disfrazadas; (D-03) #78 autorizado a quitar el bloque `hooks` de `.claude/settings.json`.
+Otra sesión, en paralelo a esta serie: regla "Pruebas que escriben archivos" en `qa-backend`, `qa-frontend` y `security-reviewer`. Las escrituras sobre el repo van en un worktree desechable fuera del repo, y ningún proceso hijo tiene más permisos que el reviewer. Decisiones y review en `reviews/PR-84.md`; retro en `learnings/PR-84.md`. No toca el estado de esta serie.
 
 ## Feature anterior
 
-`product-reviewer` (PR #82, mergeado): `BRIEF-product-reviewer.md`, `DESIGN-product-reviewer.md` y `learnings/PR-82.md`.
+`product-reviewer` (PR #82, mergeado): `BRIEF-product-reviewer.md`, `DESIGN-product-reviewer.md`, `learnings/PR-82.md`.
+
+## Feature previa
+
+`audit-best-practices` (PRs #79, #80, #81, mergeados): `BRIEF-audit-best-practices.md`, `DESIGN-audit-best-practices.md` y `learnings/PR-79.md` a `PR-81.md`. `global/CLAUDE.md` pasó de 6.436 a 2.593 tokens; quedan 11 agentes.
 
 ## Blockers
 

@@ -352,3 +352,4 @@ Archivos revisados: [lista de paths frontend del diff]
 5. **Pragmatismo** — No pidas tests para cada línea, enfocate en lo que puede romperse
 6. **Cobertura obligatoria** — Si coverage < 80% sobre archivos con lógica/interacción, es bloqueante
 7. **Veredicto vinculante** — Tu aprobación es requerida para mergear cuando hay cambios de frontend en el PR
+8. **No escribes el registro** — devuelves el reporte como respuesta a quien te invocó; no escribes el registro de review ni ningún otro archivo del repo, eso lo consolida el orchestrator

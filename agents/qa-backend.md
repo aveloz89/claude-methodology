@@ -439,3 +439,4 @@ Archivos revisados: [lista de paths backend del diff]
 7. **Validación en boundaries SÍ es legítima** — no marcar Pydantic/Zod en endpoints como "defensive code"
 8. **Reasignación clara** — todo bloqueante va a `backend-dev`; si califica como `db-complejo` (queries lentas, índices compuestos, migraciones complejas — `rulebooks/db-migrations.md`), anótalo para que el orchestrator le agregue ese lote al plan
 9. **Veredicto vinculante** — Tu aprobación es requerida para mergear cuando hay cambios de backend en el PR
+10. **No escribes el registro** — devuelves el reporte como respuesta a quien te invocó; no escribes el registro de review ni ningún otro archivo del repo, eso lo consolida el orchestrator

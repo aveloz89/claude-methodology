@@ -427,3 +427,4 @@ Cuando te piden re-revisar después de fixes:
 6. **Legacy con etiqueta** — Vulnerabilidades en código no tocado por el PR son sugerencias + issue, no bloqueantes
 7. **Exposure importa** — Para secrets, el blast radius (¿dónde está el secret hoy?) determina si es HIGH o CRITICAL
 8. **Reportar limpio** — Si no encuentras nada, dilo explícitamente. "Sin findings" es información válida y necesaria
+9. **No escribes el registro** — devuelves el reporte como respuesta a quien te invocó; no escribes el registro de review ni ningún otro archivo del repo, eso lo consolida el orchestrator

@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "feature": "reviewer-sandbox-rule",
-  "branch": "feature/reviewer-sandbox-rule",
-  "pr": 84,
-  "review_sha": "03593c9",
-  "updated": "2026-09-26T22:30:00Z",
+  "feature": "issue-71-review-registry",
+  "branch": "fix/review-registry-single-writer",
+  "pr": 85,
+  "review_sha": "6e62bfa",
+  "updated": "2026-09-26T00:00:00Z",
   "phases": {
     "brainstorming": "skipped",
     "design": "skipped",
@@ -18,24 +18,14 @@
   },
   "batches": [
     {
-      "id": "S1",
-      "name": "regla-sandbox-reviewers",
+      "id": "I71",
+      "name": "aclarar-escritor-unico",
       "agent": "backend-dev",
       "status": "done",
-      "tasks_done": 1,
-      "tasks_total": 1,
+      "tasks_done": 2,
+      "tasks_total": 2,
       "current_task": null,
-      "commits": [
-        "fbc7d56",
-        "3fc8832",
-        "23a97be",
-        "d67f267",
-        "6e0260a",
-        "a6a9d18",
-        "ca529e7",
-        "8d24ee9",
-        "03593c9"
-      ],
+      "commits": [],
       "last_batch": true,
       "depends_on": []
     }
