@@ -38,13 +38,17 @@ NC='\033[0m'
 # recorre el árbol completo sin asumir la forma exacta de cada evento, así
 # que sigue funcionando aunque un evento tenga varios matchers. `|| true`
 # neutraliza el exit code no-cero que `grep -c` da con 0 matches (grep sigue
-# imprimiendo "0"), necesario bajo `set -e`.
+# imprimiendo "0"), necesario bajo `set -e`. El segundo `sed` quita una
+# comilla doble literal de cierre: desde que los commands entrecomillan
+# ${CLAUDE_PLUGIN_ROOT} (`"${CLAUDE_PLUGIN_ROOT}/hooks/x.sh"`), el basename
+# extraído por el primer `sed` arrastra esa comilla de cierre.
 count_hook_registrations() {
   local hooks_json="$1"
   local script_name="$2"
   local n
   n=$(jq -r '.. | .command? // empty' "$hooks_json" 2>/dev/null \
     | sed 's#.*/##' \
+    | sed 's/"$//' \
     | grep -c -x -- "$script_name" || true)
   echo "$n"
 }
@@ -106,12 +110,15 @@ echo "--- hooks.json: if por handler, matcher de SessionStart, timeout de pre-co
 # "command" termina en <script_name> — optimización de latencia (verificación
 # e del diseño): cada script sigue validando el comando completo, "if" solo
 # evita invocar el hook cuando ni siquiera aparece el token de comando.
+# `endswith($name) or endswith($name + "\"")`: los commands entrecomillan
+# ${CLAUDE_PLUGIN_ROOT} (`"${CLAUDE_PLUGIN_ROOT}/hooks/x.sh"`), así que el
+# script name puede quedar seguido de una comilla doble de cierre.
 assert_hook_if() {
   local script_name="$1"
   local expected_if="$2"
   local actual
   actual=$(jq -r --arg name "$script_name" \
-    '.hooks.PreToolUse[].hooks[] | select(.command | endswith($name)) | .if // "MISSING"' \
+    '.hooks.PreToolUse[].hooks[] | select(.command | endswith($name) or endswith($name + "\"")) | .if // "MISSING"' \
     "$HOOKS_JSON")
   TOTAL=$((TOTAL + 1))
   if [ "$actual" = "$expected_if" ]; then
@@ -142,12 +149,31 @@ else
 fi
 
 TOTAL=$((TOTAL + 1))
-PCG_TIMEOUT=$(jq -r '.hooks.PreToolUse[].hooks[] | select(.command | endswith("pre-commit-guard.sh")) | .timeout' "$HOOKS_JSON")
+PCG_TIMEOUT=$(jq -r '.hooks.PreToolUse[].hooks[] | select(.command | endswith("pre-commit-guard.sh") or endswith("pre-commit-guard.sh\"")) | .timeout' "$HOOKS_JSON")
 if [ "$PCG_TIMEOUT" = "600" ]; then
   echo -e "${GREEN}PASS${NC}: pre-commit-guard.sh tiene timeout=600"
   PASS=$((PASS + 1))
 else
   echo -e "${RED}FAIL${NC}: pre-commit-guard.sh tiene timeout=$PCG_TIMEOUT (esperado 600)"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
+echo "--- hooks.json: CLAUDE_PLUGIN_ROOT entrecomillado en cada command ---"
+
+# assert_plugin_root_quoted: `claude plugin validate --strict` (CLI 2.1.283)
+# marca warning en cada entrada donde el placeholder ${CLAUDE_PLUGIN_ROOT} no
+# va entre comillas dobles literales en el comando de shell (puede partirse
+# en varias palabras si el path expandido tiene espacios). Un command
+# correctamente entrecomillado empieza con el caracter `"` seguido del
+# placeholder; uno sin comillas empieza directo con `${CLAUDE_PLUGIN_ROOT}`.
+UNQUOTED_ROOT=$(jq -r '.. | .command? // empty' "$HOOKS_JSON" | grep -c '^\${CLAUDE_PLUGIN_ROOT}' || true)
+TOTAL=$((TOTAL + 1))
+if [ "$UNQUOTED_ROOT" -eq 0 ]; then
+  echo -e "${GREEN}PASS${NC}: todos los commands entrecomillan \${CLAUDE_PLUGIN_ROOT}"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: $UNQUOTED_ROOT commands tienen \${CLAUDE_PLUGIN_ROOT} sin comillas"
   FAIL=$((FAIL + 1))
 fi
 
