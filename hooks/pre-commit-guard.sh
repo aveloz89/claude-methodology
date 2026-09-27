@@ -43,6 +43,31 @@
 #      hooks.json es una optimización de latencia, nunca reemplaza la
 #      validación de este archivo.
 #
+# Contrato de #86 (monorepo sin marcador de runner en la raíz — ni
+# package.json, ni pyproject.toml/setup.py/pytest.ini): ver
+# .planning/DESIGN.md "G. pre-commit-guard — #86" para la decisión completa
+# y la tabla de tests (G1-G11). Resumen de las cinco reglas:
+#   1. Si HAY marcador entre SESSION_DIR y TARGET_DIR (contrato de #73 más
+#      arriba), nada cambia: mismo camino de siempre, incluido
+#      workspace-scope.sh.
+#   2. Si NO hay marcador en ese camino, se deriva un runner por cada
+#      archivo con cambios locales, subiendo desde su directorio hasta
+#      TARGET_DIR — nunca al revés (no se adivina "todo el repo").
+#   3. Un archivo sin marcador en su camino se descarta, nunca bloquea: "no
+#      bloquear cuando no se encuentra ninguno" es la decisión de #86, no un
+#      hueco — bloquear rompería cualquier repo sin runner, incluido este
+#      mismo (sin package.json ni pyproject.toml en ningún lado).
+#   4. Con más de un directorio derivado, corren TODOS (nunca se corta en el
+#      primer fallo) y cualquier fallo bloquea nombrando el/los directorios.
+#   5. El presupuesto de tiempo (PRECOMMIT_TEST_BUDGET) se COMPARTE entre
+#      todas las corridas de una misma invocación del hook, no se resetea
+#      por directorio — ver GUARD_BUDGET_LEFT más abajo.
+#   Salvedad conocida (igual que hooks/lib/workspace-scope.sh, ver su
+#   comentario ~241-245): un path con espacios u otros caracteres especiales
+#   llega C-quoteado en `git status --porcelain` y no matchea ningún
+#   directorio real — esa suite en particular no corre, nunca peor que el
+#   comportamiento sin #86 (ningún archivo corría nada).
+#
 # Fuera de alcance (documentado, no parcheado — no confundir con un hueco
 # no advertido):
 #   - Evasión deliberada (wrappers "bash -c", funciones "git()", "\g\it"):
