@@ -22,7 +22,7 @@
 #      espacios/"-"), seguida directo de "&&" o ";" (nunca newline). El
 #      único caso de expansión permitido es el prefijo "~/" contra $HOME.
 #   3. "git -C <ruta> commit …": la misma ruta en cada "git" del comando.
-# Ver .planning/DESIGN.md "Contrato 1" para el detalle regla por regla
+# Ver .planning/DESIGN-pre-commit-target-tree.md "Contrato 1" para el detalle regla por regla
 # (B1-B6) y la tabla de tests (R1-R11, X1-X16) que fija cada forma.
 #
 # Verificaciones empíricas (hechas, no deducidas — Claude Code 2.1.283,
@@ -120,7 +120,7 @@ SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
 # con opciones de árbol entre "git" y "commit" ("git -C <ruta> commit",
 # "git --git-dir=... commit") y con prefijo de entorno ("GIT_DIR=... git
 # commit") — antes de esto, esas formas no llegaban ni a este punto y el
-# hook salía sin evaluar nada (ver DESIGN.md "Contrato 1, Etapa A"). Un
+# hook salía sin evaluar nada (ver DESIGN-pre-commit-target-tree.md "Contrato 1, Etapa A"). Un
 # "git log | grep commit" o "git log --grep commit" siguen sin matchear:
 # solo tokens con forma de opción de árbol ("-C", "--git-dir", "--work-tree")
 # o un commit real cuentan, no cualquier texto entre "git" y "commit". El
@@ -144,7 +144,7 @@ fi
 # Resolución del árbol objetivo del commit (#73): este guard evaluaba
 # siempre el cwd del PROCESO del hook, sin importar a qué árbol redirige el
 # comando interceptado ("cd <ruta> && git commit", "git -C <ruta> commit").
-# Ver .planning/DESIGN.md "Contrato 1" para el detalle completo del
+# Ver .planning/DESIGN-pre-commit-target-tree.md "Contrato 1" para el detalle completo del
 # resolver; este bloque resuelve el caso sin redirección en el texto del
 # comando (BASE_DIR = ".cwd" del input, o el cwd del proceso si el harness
 # no lo manda — comportamiento actual) y su toplevel real, para que un
@@ -180,7 +180,7 @@ _guard_toplevel_or_base() {
 }
 
 # _guard_resolve_dash_c: forma "git -C <ruta> commit" (allowlist B4 de
-# DESIGN.md). Devuelve por stdout la única ruta candidata y sale 0, o sale 1
+# DESIGN-pre-commit-target-tree.md). Devuelve por stdout la única ruta candidata y sale 0, o sale 1
 # (sin salida) si el comando no califica para esta regla — el caller
 # bloquea. Condiciones, todas exigidas (allowlist: lo que no calza, falla):
 #   - Ninguna mención de "cd"/"pushd" en el saneado (mezclar formas no se
@@ -214,7 +214,7 @@ _guard_resolve_dash_c() {
 }
 
 # _guard_resolve_cd: forma "cd <ruta> && git commit …" / "cd <ruta>; …"
-# (allowlist B3 de DESIGN.md). Devuelve por stdout la ruta candidata y sale
+# (allowlist B3 de DESIGN-pre-commit-target-tree.md). Devuelve por stdout la ruta candidata y sale
 # 0, o sale 1 (sin salida) si el comando no califica — el caller bloquea.
 # Se valida sobre el comando CRUDO ($COMMAND, no el saneado): el saneado
 # colapsa comillas y no preserva la forma que ejecuta el shell de verdad
