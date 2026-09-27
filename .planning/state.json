@@ -2,7 +2,7 @@
   "schema": 1,
   "feature": "issue-73-target-tree",
   "branch": "fix/pre-commit-target-tree",
-  "pr": null,
+  "pr": 87,
   "review_sha": "8907589",
   "updated": "2026-09-27T00:00:00Z",
   "phases": {
@@ -11,9 +11,9 @@
     "implementation": "done",
     "docs": "skipped",
     "review": "done",
-    "pr": "pending",
-    "ci": "pending",
-    "e2e": "pending",
+    "pr": "done",
+    "ci": "skipped",
+    "e2e": "skipped",
     "merge": "pending"
   },
   "batches": [
