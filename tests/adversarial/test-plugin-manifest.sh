@@ -464,7 +464,7 @@ assert_no_voseo() {
     vos sos tenés podés hacé hacés querés sabés decís usás notás cargala
     leelo retomá fijate mirá esperá decilo cortalo aplicá lanzás coordinás
     entendés escalás escalá cargá obtené arreglás preferís necesitás
-    trabajás reportá
+    trabajás reportá evaluás
   )
   local delim='[^[:alpha:]]'
   TOTAL=$((TOTAL + 1))

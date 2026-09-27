@@ -202,7 +202,7 @@ claude-methodology/
 
 ## Stack-agnóstico
 
-Si el `CLAUDE.md` del proyecto tiene la línea `Tipo: producto con usuarios`, el orchestrator invoca `product-reviewer` después del brainstorming de cada feature nueva. Sin la línea no corre; `/new-project` la escribe al preguntar el tipo de proyecto. En un proyecto ya existente, activalo agregando esa línea a mano en el `CLAUDE.md` del proyecto.
+Si el `CLAUDE.md` del proyecto tiene la línea `Tipo: producto con usuarios`, el orchestrator invoca `product-reviewer` después del brainstorming de cada feature nueva. Sin la línea no corre; `/new-project` la escribe al preguntar el tipo de proyecto. En un proyecto ya existente, actívalo agregando esa línea a mano en el `CLAUDE.md` del proyecto.
 
 Los agentes detectan el stack del proyecto leyendo CLAUDE.md. Funcionan con:
 - **Node.js** (pnpm/yarn/npm) + TypeScript/JavaScript
