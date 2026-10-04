@@ -2592,6 +2592,38 @@ fi
 _pyrun_report "pre-commit-guard: uv.lock + uv fuera del PATH + .venv/bin/pytest → corre el venv, no intenta uv ni bloquea (T9, pin)" "$PYRUN_T9_OK"
 _pyrun_cleanup
 
+# T6 / T7 (CA-6): una suite roja bloquea sea cual sea el runner resuelto — uv
+# (T6) o el pytest del venv (T7) con exit 1 → exit 2 y "Tests failed in:
+# <dir>". PINES DE REGRESIÓN: nacen verdes porque el rc del runner ya se
+# propaga a _guard_run_suite_in; se rompen si esa propagación se corta
+# (verificado reemplazando "[ "$rc" -ne 0 ] && return 1" por nada en
+# _guard_run_suite_in: ambos dan exit 0). El marcador del fake prueba que el
+# runner esperado fue el que corrió, no otro.
+_pyrun_setup
+touch "$PYRUN_DIR/uv.lock"
+_pyrun_make_uv 1
+_pyrun_run "$PYRUN_UV_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_T6_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [ -f "$PYRUN_MARK/uv.argv" ] \
+  && echo "$PYRUN_STDERR" | grep -qF "Tests failed in: $PYRUN_DIR"; then
+  PYRUN_T6_OK=0
+fi
+_pyrun_report "pre-commit-guard: suite roja vía uv (exit 1) → exit 2 con 'Tests failed in: <dir>' (T6, pin)" "$PYRUN_T6_OK"
+_pyrun_cleanup
+
+_pyrun_setup
+_pyrun_make_venv bin 1
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T7_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [ -f "$PYRUN_MARK/venv.ran" ] \
+  && echo "$PYRUN_STDERR" | grep -qF "Tests failed in: $PYRUN_DIR"; then
+  PYRUN_T7_OK=0
+fi
+_pyrun_report "pre-commit-guard: suite roja vía venv (exit 1) → exit 2 con 'Tests failed in: <dir>' (T7, pin)" "$PYRUN_T7_OK"
+_pyrun_cleanup
+
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 
