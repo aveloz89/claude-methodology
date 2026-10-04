@@ -295,7 +295,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ### Retomar (resume)
 
-Cuando `session-start-context.sh` detecta `HANDOFF.md` (ver "Pause / Resume" en la skill `orchestrator`): lee `HANDOFF.md` + `STATE.md` + `state.json` (corte, decisiones, fase/lote activos); corre el smoke test del proyecto ANTES de tocar código (misma detección de runner que `hooks/pre-commit-guard.sh` — Node/pytest según lockfile/config; sin runner, anótalo y sigue; rojo, diagnostica antes de retomar); recién con el estado confirmado, elimina `HANDOFF.md` y retoma la tarea de `current_task`.
+Cuando `session-start-context.sh` detecta `HANDOFF.md` (ver "Pause / Resume" en la skill `orchestrator`): lee `HANDOFF.md` + `STATE.md` + `state.json` (corte, decisiones, fase/lote activos); corre el smoke test del proyecto ANTES de tocar código (misma detección de runner que `hooks/pre-commit-guard.sh` — Node por lockfile; Python: uv (solo con `uv.lock`) → `.venv` → `pytest` del PATH, salvo que el proyecto declare entorno propio sin runner (`uv.lock` sin `uv`, `[tool.uv]` sin lock, `.venv` sin pytest); sin runner, anótalo y sigue — pero el hook sí bloqueará el commit de un directorio con marcador Python sin runner (con la razón específica si declara entorno propio) o con un `package.json` inutilizable (no es un único objeto JSON, o su `scripts.test` no es string ni `null`) y sin marcador Python, así que resuélvelo antes de retomar; rojo, diagnostica antes de retomar); recién con el estado confirmado, elimina `HANDOFF.md` y retoma la tarea de `current_task`.
 
 ---
 

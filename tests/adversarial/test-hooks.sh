@@ -955,9 +955,10 @@ assert_allowed_cmd "pre-commit-guard: git log --grep commit no se intercepta" \
 assert_allowed_cmd "pre-commit-guard: git show HEAD no se intercepta" \
   "pre-commit-guard.sh" "git show HEAD"
 
-# Nota: el test de commit bloqueado depende de que haya un test runner configurado
-# en el proyecto. En este repo (methodology) no hay package.json ni pytest,
-# así que el hook permite el commit (no encuentra test runner).
+# Nota: este repo (methodology) no tiene marcador de runner en la raíz
+# (package.json / pyproject.toml / setup.py / pytest.ini), así que el hook no
+# tiene qué correr y permite el commit. NO es "sin pytest": un marcador Python
+# sin runner bloquea (D-01, ver la sección "runner de pytest" más abajo).
 assert_allowed "Commit in repo without test runner passes through" "pre-commit-guard.sh" "git commit -m 'test'"
 
 # Regression #47: mismo matching frágil que pre-merge-check.sh tenía antes
@@ -2321,6 +2322,781 @@ else
   FAIL=$((FAIL + 1))
 fi
 _multiroot_budget_cleanup
+
+# --- pre-commit-guard.sh: runner de pytest (uv / .venv / PATH) ---
+echo "--- pre-commit-guard.sh: runner de pytest (uv / .venv / PATH) ---"
+
+# Hermeticidad (CA-8): ningún test de esta sección usa el $PATH real. El PATH
+# es siempre PYRUN_CLEAN_BIN (symlinks por NOMBRE a lo que el hook necesita,
+# nunca el directorio entero: "uv" real puede vivir junto a "jq") más los
+# directorios de fakes que el caso necesite — así el resultado no depende de
+# que la máquina tenga o no "uv"/"pytest" reales. Mismo patrón que NO_PERL_BIN
+# (guard-matching: modo degradado sin perl).
+#
+# Regla de precondición (S1): todo caso cuya expectativa es un BLOQUEO llama a
+# _pyrun_assert_clean_path tras _pyrun_setup. Ahí es donde un "pytest" o "uv"
+# reales en el PATH darían un falso verde (el bloqueo esperado no ocurre) o una
+# razón equivocada; en los casos que esperan que corra un fake, un binario real
+# se delataría solo porque el marcador del fake no aparecería.
+#
+# _pyrun_setup: repo git temporal con pyproject.toml vacío en la raíz y
+# src/a.py con un cambio local. PYRUN_MARK recibe los marcadores que dejan los
+# fakes; PYRUN_UV_BIN y PYRUN_PYTEST_BIN son los directorios de fakes (vacíos
+# hasta que un test los puebla).
+_pyrun_setup() {
+  PYRUN_DIR=$(mktemp -d)
+  PYRUN_DIR=$(cd "$PYRUN_DIR" && pwd -P)
+  PYRUN_MARK=$(mktemp -d)
+  PYRUN_UV_BIN=$(mktemp -d)
+  PYRUN_PYTEST_BIN=$(mktemp -d)
+  PYRUN_NPM_BIN=$(mktemp -d)
+  PYRUN_CLEAN_BIN=$(mktemp -d)
+  local cmd cmd_path
+  for cmd in bash git jq perl grep cut sort cat mktemp rm sleep; do
+    cmd_path=$(command -v "$cmd" 2>/dev/null) || true
+    if [ -n "$cmd_path" ]; then
+      ln -s "$cmd_path" "$PYRUN_CLEAN_BIN/$cmd"
+    fi
+  done
+  (
+    cd "$PYRUN_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p src
+    touch pyproject.toml
+    echo "print(1)" > src/a.py
+    git add -A
+    git commit -q -m init
+    echo "print(2)" >> src/a.py
+  ) > /dev/null 2>&1
+}
+
+_pyrun_cleanup() {
+  rm -rf "$PYRUN_DIR" "$PYRUN_MARK" "$PYRUN_UV_BIN" "$PYRUN_PYTEST_BIN" "$PYRUN_NPM_BIN" "$PYRUN_CLEAN_BIN"
+}
+
+# _pyrun_make_uv <rc>: "uv" fake en PYRUN_UV_BIN. Registra el argv (uno por
+# línea) y "pwd -P" — no solo que corrió — y sale con <rc>.
+_pyrun_make_uv() {
+  cat > "$PYRUN_UV_BIN/uv" <<UVEOF
+#!/bin/bash
+printf '%s\n' "\$@" > "$PYRUN_MARK/uv.argv"
+pwd -P > "$PYRUN_MARK/uv.cwd"
+exit $1
+UVEOF
+  chmod +x "$PYRUN_UV_BIN/uv"
+}
+
+# _pyrun_make_venv <bin|Scripts> <rc>: pytest fake de un venv local
+# (.venv/bin/pytest, o .venv/Scripts/pytest.exe en Windows / git-bash). Deja
+# "pwd -P" en venv.ran y sale con <rc>.
+_pyrun_make_venv() {
+  local sub="$1" name="pytest"
+  if [ "$sub" = "Scripts" ]; then
+    name="pytest.exe"
+  fi
+  mkdir -p "$PYRUN_DIR/.venv/$sub"
+  cat > "$PYRUN_DIR/.venv/$sub/$name" <<VENVEOF
+#!/bin/bash
+pwd -P > "$PYRUN_MARK/venv.ran"
+exit $2
+VENVEOF
+  chmod +x "$PYRUN_DIR/.venv/$sub/$name"
+}
+
+# _pyrun_make_path_pytest <rc>: "pytest" fake para el PATH; deja path.ran y
+# sale con <rc>.
+_pyrun_make_path_pytest() {
+  cat > "$PYRUN_PYTEST_BIN/pytest" <<PTEOF
+#!/bin/bash
+echo ran > "$PYRUN_MARK/path.ran"
+exit $1
+PTEOF
+  chmod +x "$PYRUN_PYTEST_BIN/pytest"
+}
+
+# _pyrun_make_npm <rc>: "npm" fake en PYRUN_NPM_BIN. Registra el argv (uno por
+# línea) en node.argv y "pwd -P" en node.ran, y sale con <rc>.
+_pyrun_make_npm() {
+  cat > "$PYRUN_NPM_BIN/npm" <<NPMEOF
+#!/bin/bash
+printf '%s\n' "\$@" > "$PYRUN_MARK/node.argv"
+pwd -P > "$PYRUN_MARK/node.ran"
+exit $1
+NPMEOF
+  chmod +x "$PYRUN_NPM_BIN/npm"
+}
+
+# _pyrun_make_package_json <none|placeholder|test|bool|false|object|number|array|null|invalid|empty|multi|trailing>:
+# package.json en la raíz del fixture, junto al pyproject.toml. none = sin
+# scripts; placeholder = el script "test" que deja "npm init"; test = un script
+# "test" usable (string); bool (true)/false/object/number/array = "scripts.test"
+# de un tipo que no es string (npm no lo puede correr); null = "scripts.test":
+# null; invalid = texto que no es JSON (objeto
+# cortado); empty = archivo de 0 bytes; multi = dos valores JSON válidos
+# ("[] {}": el último es un objeto); trailing = un objeto con script "test"
+# usable seguido de basura (jq emite el script antes de fallar).
+_pyrun_make_package_json() {
+  case "$1" in
+    none) jq -n '{name: "x"}' ;;
+    placeholder) jq -n --arg t 'echo "Error: no test specified" && exit 1' '{name: "x", scripts: {test: $t}}' ;;
+    test) jq -n '{name: "x", scripts: {test: "x"}}' ;;
+    bool) jq -n '{name: "x", scripts: {test: true}}' ;;
+    false) jq -n '{name: "x", scripts: {test: false}}' ;;
+    object) jq -n '{name: "x", scripts: {test: {cmd: "x"}}}' ;;
+    number) jq -n '{name: "x", scripts: {test: 1}}' ;;
+    array) jq -n '{name: "x", scripts: {test: ["x"]}}' ;;
+    null) jq -n '{name: "x", scripts: {test: null}}' ;;
+    invalid) printf '{ "name": "x", "scripts": ' ;;
+    empty) : ;;
+    multi) printf '[] {}' ;;
+    trailing) printf '{"scripts":{"test":"jest"}} garbage' ;;
+  esac > "$PYRUN_DIR/package.json"
+}
+
+# _pyrun_make_pyproject <tabla>: reemplaza el pyproject.toml vacío del
+# fixture por uno con [project] y la tabla dada como encabezado.
+_pyrun_make_pyproject() {
+  printf '[project]\nname = "x"\nversion = "0"\n\n%s\n' "$1" > "$PYRUN_DIR/pyproject.toml"
+}
+
+# _pyrun_run <PATH>: corre el hook con "git commit -m x" desde la raíz del
+# fixture. Deja el exit en PYRUN_EXIT y el stderr en PYRUN_STDERR (mismo
+# patrón de captura que G2 en "monorepo sin marcador en la raíz").
+_pyrun_run() {
+  local run_path="$1" json
+  json=$(jq -n --arg cmd "git commit -m x" '{tool_input: {command: $cmd}}')
+  PYRUN_EXIT=0
+  PYRUN_STDERR=$(cd "$PYRUN_DIR" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PYRUN_EXIT=$?
+}
+
+# _pyrun_report <nombre> <0|1>: registra el resultado de una aserción (0 = se
+# cumplió). En FAIL imprime exit y stderr para diagnosticar sin reproducir.
+_pyrun_report() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$2" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC}: $1"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $1 (exit=${PYRUN_EXIT:-?}, stderr=\"${PYRUN_STDERR:-}\")"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# _pyrun_assert_clean_path <caso>: precondición de los casos que esperan un
+# bloqueo (T0 / regla S1). Afirma, en un bash nuevo bajo el PATH curado (la
+# misma búsqueda que hace el hook), que ni "pytest" ni "uv" resuelven. Si
+# alguno resolviera, el resultado del caso sería un falso verde: pasaría
+# porque la máquina tiene el binario, no porque el hook lo encontró o no.
+# <caso> nombra el caso protegido para que un FAIL se pueda atribuir.
+_pyrun_assert_clean_path() {
+  local found=0
+  PATH="$PYRUN_CLEAN_BIN" bash -c 'command -v pytest' > /dev/null 2>&1 && found=1
+  PATH="$PYRUN_CLEAN_BIN" bash -c 'command -v uv' > /dev/null 2>&1 && found=1
+  _pyrun_report "pre-commit-guard: precondición — el PATH curado no resuelve pytest ni uv ($1)" "$found"
+}
+
+# T0 + T5 (CA-5, CA-8): marcador Python (pyproject.toml vacío) sin ningún
+# runner → exit 2 con un mensaje que nombra el directorio y las tres vías.
+# Antes de D-01 el hook fallaba abierto (exit 0) en este caso.
+_pyrun_setup
+_pyrun_assert_clean_path T0
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T5_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR" \
+  && echo "$PYRUN_STDERR" | grep -qF "(1) uv" \
+  && echo "$PYRUN_STDERR" | grep -qF "(2) venv local" \
+  && echo "$PYRUN_STDERR" | grep -qF "(3) 'pytest' en el PATH"; then
+  PYRUN_T5_OK=0
+fi
+_pyrun_report "pre-commit-guard: marcador Python sin runner → exit 2 nombrando el directorio y las tres vías (T5)" "$PYRUN_T5_OK"
+_pyrun_cleanup
+
+# T5b (contrato 0/1/127 de _guard_run_suite_in): un runner que SALE con 127
+# es una suite roja, no "sin runner". 127 es el centinela de "sin runner" y no
+# puede venir del runner: un pytest con "#!/usr/bin/env python" sin python en
+# el PATH sale con 127 (verificado en macOS), y sin colapsar el rc a 0/1 se
+# anunciaría como "no encontró un runner" en vez de "Tests failed".
+_pyrun_setup
+_pyrun_make_path_pytest 127
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_T5B_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [ -f "$PYRUN_MARK/path.ran" ] \
+  && echo "$PYRUN_STDERR" | grep -qF "Tests failed in: $PYRUN_DIR" \
+  && ! echo "$PYRUN_STDERR" | grep -qF "no encontró un runner"; then
+  PYRUN_T5B_OK=0
+fi
+_pyrun_report "pre-commit-guard: runner que sale con 127 → 'Tests failed', no 'sin runner' (T5b)" "$PYRUN_T5B_OK"
+_pyrun_cleanup
+
+# T1 (CA-1): uv.lock + "uv" en el PATH → el hook invoca EXACTAMENTE
+# "uv run --frozen pytest" (D-02: --frozen nunca reescribe uv.lock durante el
+# commit) con cwd = directorio del marcador. Hay un .venv/bin/pytest y ningún
+# pytest en el PATH: el venv NO debe correr (prioridad uv > venv; este
+# negativo cobra dientes cuando aterriza el paso del venv).
+_pyrun_setup
+touch "$PYRUN_DIR/uv.lock"
+_pyrun_make_venv bin 0
+_pyrun_make_uv 0
+_pyrun_run "$PYRUN_UV_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_T1_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] \
+  && [ "$(cat "$PYRUN_MARK/uv.argv" 2>/dev/null)" = "$(printf 'run\n--frozen\npytest')" ] \
+  && [ "$(cat "$PYRUN_MARK/uv.cwd" 2>/dev/null)" = "$PYRUN_DIR" ] \
+  && [ ! -f "$PYRUN_MARK/venv.ran" ]; then
+  PYRUN_T1_OK=0
+fi
+_pyrun_report "pre-commit-guard: uv.lock + uv en PATH → 'uv run --frozen pytest' en el directorio del marcador; el venv no corre (T1)" "$PYRUN_T1_OK"
+_pyrun_cleanup
+
+# T2 / T2b (D-05): [tool.uv] o [tool.uv.<sub>] SIN uv.lock no es trigger de
+# uv: "uv run --frozen" sin lock falla siempre (rc 1, "Unable to find
+# lockfile", verificado con uv 0.12.22) y crea .venv/ de paso. El proyecto
+# declara entorno propio y no hay runner → bloquea pidiendo "uv sync", sin
+# invocar uv y sin caer al pytest del PATH (D-04). Con PATH = UV:PYTEST:CLEAN
+# ambos fakes están al alcance: ninguno debe correr.
+for PYRUN_CASE in "T2|[tool.uv]" "T2b|[tool.uv.sources]"; do
+  _pyrun_setup
+  _pyrun_assert_clean_path "${PYRUN_CASE%%|*}"
+  _pyrun_make_pyproject "${PYRUN_CASE#*|}"
+  _pyrun_make_uv 0
+  _pyrun_make_path_pytest 0
+  _pyrun_run "$PYRUN_UV_BIN:$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 2 ] \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. uv declarado sin uv.lock: corre 'uv sync'" \
+    && [ ! -f "$PYRUN_MARK/uv.argv" ] \
+    && [ ! -f "$PYRUN_MARK/path.ran" ] \
+    && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: ${PYRUN_CASE#*|} en pyproject.toml sin uv.lock → bloquea pidiendo 'uv sync' sin invocar uv ni el pytest del PATH (${PYRUN_CASE%%|*})" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# T2d (D-05): [tool.uv] sin uv.lock pero con .venv/bin/pytest → corre el venv
+# (paso 2 del orden), sin invocar uv aunque esté en el PATH.
+_pyrun_setup
+_pyrun_make_pyproject "[tool.uv]"
+_pyrun_make_venv bin 0
+_pyrun_make_uv 0
+_pyrun_run "$PYRUN_UV_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_T2D_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] \
+  && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+  && [ ! -f "$PYRUN_MARK/uv.argv" ]; then
+  PYRUN_T2D_OK=0
+fi
+_pyrun_report "pre-commit-guard: [tool.uv] sin uv.lock + .venv/bin/pytest → corre el venv, no invoca uv (T2d)" "$PYRUN_T2D_OK"
+_pyrun_cleanup
+
+# T2c (CA-3, negativo del regex): [tool.uvicorn] NO es entorno declarado — el
+# regex pide "]" o "." tras "[tool.uv". Si el regex se relajara a
+# "\[tool\.uv" a secas, este proyecto contaría como "uv declarado sin uv.lock"
+# y bloquearía en vez de caer al pytest del PATH (se rompe con exit 2).
+_pyrun_setup
+_pyrun_make_pyproject "[tool.uvicorn]"
+_pyrun_make_uv 0
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_UV_BIN:$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_T2C_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] && [ -f "$PYRUN_MARK/path.ran" ] && [ ! -f "$PYRUN_MARK/uv.argv" ]; then
+  PYRUN_T2C_OK=0
+fi
+_pyrun_report "pre-commit-guard: [tool.uvicorn] no es entorno declarado → corre el pytest del PATH (T2c)" "$PYRUN_T2C_OK"
+_pyrun_cleanup
+
+# T3 (CA-2): .venv/bin/pytest sin uv (ni uv.lock ni "uv" en el PATH) y sin
+# pytest en el PATH → corre el pytest del venv, con cwd = directorio del
+# marcador, y el commit pasa.
+_pyrun_setup
+_pyrun_make_venv bin 0
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T3_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
+  PYRUN_T3_OK=0
+fi
+_pyrun_report "pre-commit-guard: .venv/bin/pytest sin uv → corre el del venv en el directorio del marcador (T3)" "$PYRUN_T3_OK"
+_pyrun_cleanup
+
+# T4 (CA-4): el venv local gana al "pytest" del PATH — un pytest global en un
+# proyecto con venv correría con el intérprete equivocado. PIN DE REGRESIÓN:
+# nace verde porque el paso del venv (tarea de T3) ya se ejecuta antes que el
+# del PATH; se rompe si se invierte ese orden (verificado invirtiéndolo).
+_pyrun_setup
+_pyrun_make_venv bin 0
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_T4_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] && [ -f "$PYRUN_MARK/venv.ran" ] && [ ! -f "$PYRUN_MARK/path.ran" ]; then
+  PYRUN_T4_OK=0
+fi
+_pyrun_report "pre-commit-guard: .venv/bin/pytest gana al pytest del PATH (T4, pin)" "$PYRUN_T4_OK"
+_pyrun_cleanup
+
+# T8: venv de Windows / git-bash — solo .venv/Scripts/pytest.exe (sin
+# .venv/bin/) y sin pytest en el PATH → corre ese ejecutable con cwd =
+# directorio del marcador y el commit pasa.
+_pyrun_setup
+_pyrun_make_venv Scripts 0
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T8_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
+  PYRUN_T8_OK=0
+fi
+_pyrun_report "pre-commit-guard: .venv/Scripts/pytest.exe sin .venv/bin → corre ese pytest en el directorio del marcador (T8)" "$PYRUN_T8_OK"
+_pyrun_cleanup
+
+# T9 (edge del brief): uv.lock declara uv pero "uv" no está en el PATH del
+# hook → no se intenta uv ni se bloquea: cae al venv local. PIN DE REGRESIÓN:
+# nace verde porque el trigger de uv ya exige "command -v uv"; se rompe si esa
+# exigencia se quita de _guard_resolve_python_runner (verificado quitándola:
+# el hook ejecuta "uv" inexistente, rc 127 → "Tests failed", exit 2).
+_pyrun_setup
+touch "$PYRUN_DIR/uv.lock"
+_pyrun_make_venv bin 0
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T9_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
+  PYRUN_T9_OK=0
+fi
+_pyrun_report "pre-commit-guard: uv.lock + uv fuera del PATH + .venv/bin/pytest → corre el venv, no intenta uv ni bloquea (T9, pin)" "$PYRUN_T9_OK"
+_pyrun_cleanup
+
+# TA (D-04 A): uv.lock declara uv, "uv" no está en el PATH del hook y el
+# proyecto no tiene .venv con pytest → bloquea con la razón específica; el
+# "pytest" del PATH (intérprete equivocado para un proyecto uv) NO corre. Antes
+# de D-04 el hook caía al pytest global y el commit pasaba. Sin "Tests failed":
+# el bloqueo es por runner ausente, no por suite roja.
+_pyrun_setup
+_pyrun_assert_clean_path TA
+touch "$PYRUN_DIR/uv.lock"
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TA_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. uv.lock presente pero 'uv' no está en el PATH del hook" \
+  && [ ! -f "$PYRUN_MARK/path.ran" ] \
+  && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
+  PYRUN_TA_OK=0
+fi
+_pyrun_report "pre-commit-guard: uv.lock + uv fuera del PATH + sin venv con pytest → bloquea con razón específica y no corre el pytest del PATH (TA)" "$PYRUN_TA_OK"
+_pyrun_cleanup
+
+# TB / TB2 (D-04 B): el proyecto tiene .venv/ pero sin pytest ejecutable → el
+# proyecto declara entorno propio y su runner no está: bloquea con razón
+# específica y NO cae al pytest del PATH (intérprete equivocado). TB: carpeta
+# .venv vacía. TB2 (S3): ".venv/bin/pytest" es un DIRECTORIO — "[ -x ]" lo da
+# por ejecutable (verificado: [ -x <dir> ] verdadero, [ -f <dir> ] falso) y el
+# exec de un directorio sale con 126, que se reportaría como "Tests failed":
+# el hook exige archivo regular Y ejecutable.
+for PYRUN_CASE in "TB|.venv|.venv/ vacío" "TB2|.venv/bin/pytest|.venv/bin/pytest es un directorio"; do
+  IFS='|' read -r PYRUN_ID PYRUN_SUBPATH PYRUN_DESC <<< "$PYRUN_CASE"
+  _pyrun_setup
+  _pyrun_assert_clean_path "$PYRUN_ID"
+  mkdir -p "$PYRUN_DIR/$PYRUN_SUBPATH"
+  _pyrun_make_path_pytest 0
+  _pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 2 ] \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. .venv/ existe sin pytest ejecutable" \
+    && [ ! -f "$PYRUN_MARK/path.ran" ] \
+    && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: $PYRUN_DESC → bloquea con razón específica y no corre el pytest del PATH ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TB3 (D-04 B, security LOW-1 de la ronda 2): ".venv" es un symlink ROTO (apunta
+# a una ruta que no existe). Sigue siendo un entorno declarado aunque no
+# resuelva: "[ -d ]" daba falso para él y el hook caía al pytest global. Mismo
+# bloqueo y misma razón que TB. Rojo: con "[ -d "$dir/.venv" ]" en el paso 3c de
+# _guard_resolve_python_runner este caso sale con exit 0 y path.ran (verificado).
+_pyrun_setup
+_pyrun_assert_clean_path TB3
+ln -s "$PYRUN_DIR/no-existe-venv-destino" "$PYRUN_DIR/.venv"
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TB3_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. .venv/ existe sin pytest ejecutable" \
+  && [ ! -f "$PYRUN_MARK/path.ran" ] \
+  && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
+  PYRUN_TB3_OK=0
+fi
+_pyrun_report "pre-commit-guard: .venv es un symlink roto → bloquea con razón específica y no corre el pytest del PATH (TB3)" "$PYRUN_TB3_OK"
+_pyrun_cleanup
+
+# TP1 / TP2 (precedencia de razones, QA S-r2-1; PINES: nacen verdes): con un
+# .venv/ vacío más una declaración que ya explica la falta de runner, la razón
+# que se muestra es la de la declaración, no la genérica de .venv/ (la más
+# débil del paso 3: a. uv.lock, b. [tool.uv…] sin lock, c. .venv/). TP1:
+# uv.lock + uv fuera del PATH → razón de uv. TP2: [tool.uv] sin uv.lock →
+# razón de "uv sync". Ambos excluyen la razón de .venv/ y que el pytest del
+# PATH corra. Mutaciones que los ponen en rojo (verificadas): MUT-A = mover el
+# bloque .venv del paso 3c a ANTES del de uv.lock (3a) → TP1 y TP2 rojos
+# (ambos reciben la razón de .venv/); MUT-B = moverlo a ENTRE 3a y 3b → solo
+# TP2 rojo.
+_pyrun_setup
+_pyrun_assert_clean_path TP1
+touch "$PYRUN_DIR/uv.lock"
+mkdir "$PYRUN_DIR/.venv"
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TP1_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. uv.lock presente pero 'uv' no está en el PATH" \
+  && ! echo "$PYRUN_STDERR" | grep -qF ".venv/ existe sin pytest ejecutable" \
+  && [ ! -f "$PYRUN_MARK/path.ran" ]; then
+  PYRUN_TP1_OK=0
+fi
+_pyrun_report "pre-commit-guard: uv.lock + .venv/ vacío + uv fuera del PATH → la razón es la de uv, no la de .venv/ (TP1, pin)" "$PYRUN_TP1_OK"
+_pyrun_cleanup
+
+_pyrun_setup
+_pyrun_assert_clean_path TP2
+_pyrun_make_pyproject "[tool.uv]"
+mkdir "$PYRUN_DIR/.venv"
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TP2_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. uv declarado sin uv.lock: corre 'uv sync'" \
+  && ! echo "$PYRUN_STDERR" | grep -qF ".venv/ existe sin pytest ejecutable" \
+  && [ ! -f "$PYRUN_MARK/path.ran" ]; then
+  PYRUN_TP2_OK=0
+fi
+_pyrun_report "pre-commit-guard: [tool.uv] sin uv.lock + .venv/ vacío → la razón es 'uv sync', no la de .venv/ (TP2, pin)" "$PYRUN_TP2_OK"
+_pyrun_cleanup
+
+# TB4 (QA S-r2-1, PIN: nace verde): ".venv/Scripts/pytest.exe" es un DIRECTORIO
+# y no hay .venv/bin → bloquea como TB2 pero por la ruta de Windows / git-bash.
+# TB2 cubre el directorio en .venv/bin/pytest; con el "for" del paso 2 ambas
+# rutas comparten el "[ -f ] && [ -x ]", así que quitar el "[ -f ]" del loop
+# pone en rojo TB2 y este. MUT-C (verificada, solo este en rojo) = desenrollar
+# el loop y dejar Scripts/pytest.exe con solo "[ -x ]": el directorio pasa -x,
+# el hook lo ejecuta (rc 126) y reporta "Tests failed" en vez de la razón.
+_pyrun_setup
+_pyrun_assert_clean_path TB4
+mkdir -p "$PYRUN_DIR/.venv/Scripts/pytest.exe"
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TB4_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. .venv/ existe sin pytest ejecutable" \
+  && [ ! -f "$PYRUN_MARK/path.ran" ] \
+  && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
+  PYRUN_TB4_OK=0
+fi
+_pyrun_report "pre-commit-guard: .venv/Scripts/pytest.exe es un directorio (sin .venv/bin) → bloquea con razón específica y no corre el pytest del PATH (TB4, pin)" "$PYRUN_TB4_OK"
+_pyrun_cleanup
+
+# TD6a / TD6a' (D-06): un package.json SIN script "test" usable (ausente, o el
+# placeholder de "npm init") no tapa el marcador Python del mismo directorio:
+# se usa la rama Python y corre el venv. Antes el package.json ganaba, no
+# corría nada y el commit pasaba sin tests.
+for PYRUN_CASE in "TD6a|none|sin scripts" "TD6a'|placeholder|con el placeholder de npm init"; do
+  IFS='|' read -r PYRUN_ID PYRUN_PKG PYRUN_DESC <<< "$PYRUN_CASE"
+  _pyrun_setup
+  _pyrun_make_package_json "$PYRUN_PKG"
+  _pyrun_make_venv bin 0
+  _pyrun_run "$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: package.json $PYRUN_DESC + pyproject.toml + .venv/bin/pytest → corre el venv ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TD6c (D-06, security ronda 2): un "scripts.test" que NO es string (true, un
+# objeto, un número) tampoco es un script usable: npm no lo corre ("Missing
+# script"), así que contarlo como usable bloqueaba con "Tests failed" y tapaba
+# el marcador Python. Con pyproject.toml + .venv/bin/pytest corre el venv y el
+# "npm" fake (en el PATH a propósito) no corre. Rojo: con '.scripts.test //
+# empty' sin filtrar por tipo, los tres casos corren "npm test" y venv.ran no
+# aparece (verificado).
+for PYRUN_CASE in "TD6c-bool|bool|true" "TD6c-object|object|un objeto" "TD6c-number|number|un número"; do
+  IFS='|' read -r PYRUN_ID PYRUN_PKG PYRUN_DESC <<< "$PYRUN_CASE"
+  _pyrun_setup
+  _pyrun_make_package_json "$PYRUN_PKG"
+  _pyrun_make_venv bin 0
+  _pyrun_make_npm 0
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+    && [ ! -f "$PYRUN_MARK/node.ran" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: package.json con scripts.test = $PYRUN_DESC (no string) + pyproject.toml + .venv/bin/pytest → corre el venv, no npm ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TD6d (D-06, legacy, QA S-r2-3; PIN: nace verde): un package.json que no es
+# JSON válido NO tapa el marcador Python del mismo directorio — igual que un
+# package.json sin script "test": se usa la rama Python y corre el venv. Con
+# marcador Python manda D-06, no el bloqueo por package.json ilegible de TJ.
+# Rojo (verificado): poner la rama "package.json ilegible → bloquea" ANTES de
+# la rama Python en _guard_run_suite_in bloquea este caso.
+_pyrun_setup
+_pyrun_make_package_json invalid
+_pyrun_make_venv bin 0
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_TD6D_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
+  PYRUN_TD6D_OK=0
+fi
+_pyrun_report "pre-commit-guard: package.json que no es JSON + pyproject.toml + .venv/bin/pytest → corre el venv (TD6d, pin)" "$PYRUN_TD6D_OK"
+_pyrun_cleanup
+
+# TJ (QA S-r2-3): un package.json que no es un objeto JSON válido, SIN marcador
+# Python, bloquea con razón propia: el hook no puede saber qué suite correr y
+# antes salía 0 sin correr nada (fail-open). "Objeto" = UN único valor JSON y
+# que sea un objeto ('jq -e -s length == 1 and (.[0] | type == "object")').
+# Cuatro casos: texto que no es JSON (TJ-texto), archivo vacío (TJ-vacío; jq lo
+# da por válido: "jq empty" sale 0 sin valores, y con "-s" da []), dos valores
+# JSON válidos (TJ-multi: "[] {}", un "jq -e" sin "-s" juzga el stream por su
+# último valor, un objeto) y un objeto con script "test" seguido de basura
+# (TJ-basura: jq emite "jest" antes de fallar, así que sin la condición dentro
+# de _guard_node_has_test_script llegaría a la rama Node y correría npm).
+# Ni "npm" ni "pytest" corren (fakes en el PATH a propósito); sin "Tests
+# failed": el bloqueo es por package.json que no es un objeto, no por suite
+# roja; y el eco por stderr no lo llama "ilegible" (QA S-r3-2: "[] {}" es JSON
+# válido). Mutaciones que los ponen en rojo (verificadas): quitar "-s" y
+# "length == 1" (volver a 'jq -e type == "object"') → solo TJ-multi (a TJ-basura
+# lo protege el parseo: jq falla al leer la basura); quitar la condición de
+# _guard_node_has_test_script → solo TJ-basura; volver al eco "ilegible" → los
+# cuatro.
+for PYRUN_CASE in "TJ-texto|invalid|texto que no es JSON" "TJ-vacío|empty|archivo vacío" "TJ-multi|multi|dos valores JSON ([] {})" "TJ-basura|trailing|un objeto con scripts.test seguido de basura"; do
+  IFS='|' read -r PYRUN_ID PYRUN_PKG PYRUN_DESC <<< "$PYRUN_CASE"
+  _pyrun_setup
+  _pyrun_assert_clean_path "$PYRUN_ID"
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_package_json "$PYRUN_PKG"
+  _pyrun_make_npm 0
+  _pyrun_make_path_pytest 0
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 2 ] \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. package.json no es un objeto JSON válido: el hook no puede saber qué suite correr" \
+    && [ ! -f "$PYRUN_MARK/node.ran" ] \
+    && [ ! -f "$PYRUN_MARK/path.ran" ] \
+    && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed" \
+    && ! echo "$PYRUN_STDERR" | grep -qF "ilegible"; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: package.json ($PYRUN_DESC) sin marcador Python → bloquea con razón propia, sin correr npm ni pytest ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TJ3 (security LOW-3, regresión del PR): un package.json objeto válido con
+# "scripts.test" de un tipo que no es string ni null (true, false, objeto,
+# número, array), SIN marcador Python, bloquea con razón propia. En origin/dev
+# bloqueaba por accidente (npm "Missing script" → "Tests failed", salvo false);
+# al exigir string para el script usable (TD6c) el hook dejó de correr npm y
+# salía 0 sin correr nada. Ni "npm" ni "pytest" corren (fakes en el PATH a
+# propósito): el hook decide por el tipo, no delega en npm. Con marcador Python
+# siguen mandando TD6c (rama Python). Rojo (verificado): sin la rama nueva los
+# cinco salen 0 sin bloquear.
+for PYRUN_CASE in "TJ3-true|bool|true" "TJ3-false|false|false" "TJ3-objeto|object|un objeto" "TJ3-número|number|un número" "TJ3-array|array|un array"; do
+  IFS='|' read -r PYRUN_ID PYRUN_PKG PYRUN_DESC <<< "$PYRUN_CASE"
+  _pyrun_setup
+  _pyrun_assert_clean_path "$PYRUN_ID"
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_package_json "$PYRUN_PKG"
+  _pyrun_make_npm 0
+  _pyrun_make_path_pytest 0
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 2 ] \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. package.json declara scripts.test que no es un string: el hook no puede saber qué suite correr" \
+    && [ ! -f "$PYRUN_MARK/node.ran" ] \
+    && [ ! -f "$PYRUN_MARK/path.ran" ] \
+    && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: package.json con scripts.test = $PYRUN_DESC (no string) sin marcador Python → bloquea con razón propia, sin correr npm ni pytest ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TJ3n (legacy aceptado, PINES: nacen verdes): "scripts.test" ausente o null,
+# sin marcador Python, sigue pasando sin correr nada — como en origin/dev. Un
+# package.json de solo tooling no declara suite y no es motivo de bloqueo. Se
+# rompen si la rama de TJ3 pasa a bloquear también null o la ausencia (p. ej.
+# comparando solo "type != string").
+for PYRUN_CASE in "TJ3n-ausente|none|ausente" "TJ3n-null|null|null"; do
+  IFS='|' read -r PYRUN_ID PYRUN_PKG PYRUN_DESC <<< "$PYRUN_CASE"
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_package_json "$PYRUN_PKG"
+  _pyrun_make_npm 0
+  _pyrun_make_path_pytest 0
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ ! -f "$PYRUN_MARK/node.ran" ] \
+    && [ ! -f "$PYRUN_MARK/path.ran" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: package.json con scripts.test $PYRUN_DESC sin marcador Python → pasa sin correr nada, como en origin/dev ($PYRUN_ID, pin)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TD6b (D-06, sin cambios en Node): package.json con script "test" usable +
+# pyproject.toml → corre SOLO el package manager ("npm test" en el directorio);
+# el venv no corre. PIN DE REGRESIÓN: nace verde; se rompe si la condición de
+# la rama Node deja de ganar cuando hay script de test.
+_pyrun_setup
+_pyrun_make_package_json test
+_pyrun_make_venv bin 0
+_pyrun_make_npm 0
+_pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TD6B_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] \
+  && [ "$(cat "$PYRUN_MARK/node.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+  && [ "$(cat "$PYRUN_MARK/node.argv" 2>/dev/null)" = "test" ] \
+  && [ ! -f "$PYRUN_MARK/venv.ran" ]; then
+  PYRUN_TD6B_OK=0
+fi
+_pyrun_report "pre-commit-guard: package.json con script test + pyproject.toml → corre solo el package manager (TD6b, pin)" "$PYRUN_TD6B_OK"
+_pyrun_cleanup
+
+# TG (D-07): "grep" ausente del PATH → el hook bloquea (exit 2, "falta grep")
+# desde guard_init, antes de evaluar nada. Antes el hook salía 0 en silencio:
+# "! echo ... | grep -qE" invierte el 127 de un grep inexistente y el commit
+# pasaba sin correr tests. PATH = CLEAN sin el symlink a grep (la lista de
+# symlinks del setup no se duplica); hay pyproject + venv para probar que no
+# se resolvió ni corrió nada (venv.ran ausente).
+_pyrun_setup
+rm "$PYRUN_CLEAN_BIN/grep"
+_pyrun_make_venv bin 0
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_TG_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "BLOCKED: pre-commit-guard no operativo: falta grep" \
+  && [ ! -f "$PYRUN_MARK/venv.ran" ]; then
+  PYRUN_TG_OK=0
+fi
+_pyrun_report "pre-commit-guard: sin grep en el PATH → bloquea con 'no operativo: falta grep' antes de resolver nada (TG)" "$PYRUN_TG_OK"
+_pyrun_cleanup
+
+# T6 / T7 (CA-6): una suite roja bloquea sea cual sea el runner resuelto — uv
+# (T6) o el pytest del venv (T7) con exit 1 → exit 2 y "Tests failed in:
+# <dir>". PINES DE REGRESIÓN: nacen verdes porque el rc del runner ya se
+# propaga a _guard_run_suite_in; se rompen si esa propagación se corta
+# (verificado reemplazando "[ "$rc" -ne 0 ] && return 1" por nada en
+# _guard_run_suite_in: ambos dan exit 0). El marcador del fake prueba que el
+# runner esperado fue el que corrió, no otro.
+_pyrun_setup
+touch "$PYRUN_DIR/uv.lock"
+_pyrun_make_uv 1
+_pyrun_run "$PYRUN_UV_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_T6_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [ -f "$PYRUN_MARK/uv.argv" ] \
+  && echo "$PYRUN_STDERR" | grep -qF "Tests failed in: $PYRUN_DIR"; then
+  PYRUN_T6_OK=0
+fi
+_pyrun_report "pre-commit-guard: suite roja vía uv (exit 1) → exit 2 con 'Tests failed in: <dir>' (T6, pin)" "$PYRUN_T6_OK"
+_pyrun_cleanup
+
+_pyrun_setup
+_pyrun_make_venv bin 1
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T7_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [ -f "$PYRUN_MARK/venv.ran" ] \
+  && echo "$PYRUN_STDERR" | grep -qF "Tests failed in: $PYRUN_DIR"; then
+  PYRUN_T7_OK=0
+fi
+_pyrun_report "pre-commit-guard: suite roja vía venv (exit 1) → exit 2 con 'Tests failed in: <dir>' (T7, pin)" "$PYRUN_T7_OK"
+_pyrun_cleanup
+
+# T10 (CA-5, #86): monorepo sin marcador en la raíz con dos directorios
+# tocados — alpha/ (pyproject.toml, sin runner) y beta/ (pyproject.toml +
+# .venv/bin/pytest). El loop corre TODOS antes de decidir: "sort -u" ordena
+# alpha primero, así que el marcador de beta (venv.ran == <raíz>/beta)
+# demuestra que "sin runner" en alpha no cortó la corrida. Resultado: exit 2 y
+# el mensaje de "sin runner" nombra alpha, no beta. Todo-Python a propósito:
+# con un package.json haría falta "npm" y volvería a entrar el PATH real.
+# PIN DE REGRESIÓN: nace verde porque _guard_run_suite_in devuelve 127 en vez
+# de salir; se rompe si la rama "sin runner" hace "exit 2" ahí (verificado
+# agregándolo: beta nunca corre).
+_pyrun_setup
+_pyrun_assert_clean_path T10
+rm "$PYRUN_DIR/pyproject.toml"
+mkdir "$PYRUN_DIR/alpha" "$PYRUN_DIR/beta"
+touch "$PYRUN_DIR/alpha/pyproject.toml" "$PYRUN_DIR/beta/pyproject.toml"
+echo "print(1)" > "$PYRUN_DIR/alpha/a.py"
+echo "print(1)" > "$PYRUN_DIR/beta/a.py"
+_pyrun_make_venv bin 0
+mv "$PYRUN_DIR/.venv" "$PYRUN_DIR/beta/.venv"
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T10_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR/beta" ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR/alpha. Resuélvelo" \
+  && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed in:"; then
+  PYRUN_T10_OK=0
+fi
+_pyrun_report "pre-commit-guard: monorepo con alpha/ sin runner y beta/ con venv → beta corre y exit 2 nombra solo alpha (T10, pin)" "$PYRUN_T10_OK"
+_pyrun_cleanup
+
+# T10b (razón por directorio): dos directorios sin runner por razones
+# distintas — alpha/ declara uv.lock (uv fuera del PATH), beta/ no declara
+# nada. Cada uno recibe SU razón en su propia línea BLOCKED: protege el
+# alineamiento de GUARD_NO_RUNNER_REASONS con GUARD_NO_RUNNER_DIRS (si el
+# mensaje usara siempre la razón del primero, beta recibiría la de alpha).
+_pyrun_setup
+_pyrun_assert_clean_path T10b
+rm "$PYRUN_DIR/pyproject.toml"
+mkdir "$PYRUN_DIR/alpha" "$PYRUN_DIR/beta"
+touch "$PYRUN_DIR/alpha/pyproject.toml" "$PYRUN_DIR/alpha/uv.lock" "$PYRUN_DIR/beta/pyproject.toml"
+echo "print(1)" > "$PYRUN_DIR/alpha/a.py"
+echo "print(1)" > "$PYRUN_DIR/beta/a.py"
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T10B_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "en: $PYRUN_DIR/alpha. uv.lock presente pero 'uv' no está en el PATH del hook" \
+  && echo "$PYRUN_STDERR" | grep -qF "en: $PYRUN_DIR/beta. Resuélvelo con una de:"; then
+  PYRUN_T10B_OK=0
+fi
+_pyrun_report "pre-commit-guard: dos directorios sin runner por razones distintas → cada uno recibe su propia razón (T10b)" "$PYRUN_T10B_OK"
+_pyrun_cleanup
+
+# T11: "uv run --frozen pytest" corre bajo el watchdog de
+# _guard_run_with_budget. Un "uv" fake que duerme 5s con
+# PRECOMMIT_TEST_BUDGET=1 → exit 2, stderr con "superó" y ningún proceso del
+# fake vivo 1s después (mismo patrón que la sección del watchdog). PIN DE
+# REGRESIÓN: nace verde porque todo runner Python pasa por
+# _guard_run_with_budget; se rompe si se invoca "${GUARD_PY_RUNNER[@]}" sin él
+# (verificado: el fake termina solo a los 5s y el hook sale con 0). La cláusula
+# de huérfanos también se rompe sola: sin los dos "kill" del grupo en el
+# watchdog el hook sigue saliendo con 2 y "superó", pero el fake queda vivo.
+_pyrun_setup
+touch "$PYRUN_DIR/uv.lock"
+cat > "$PYRUN_UV_BIN/uv" <<'UVSLEEPEOF'
+#!/bin/bash
+sleep 5
+exit 0
+UVSLEEPEOF
+chmod +x "$PYRUN_UV_BIN/uv"
+PRECOMMIT_TEST_BUDGET=1 _pyrun_run "$PYRUN_UV_BIN:$PYRUN_CLEAN_BIN"
+sleep 1
+PYRUN_T11_ORPHAN=$(pgrep -f "$PYRUN_UV_BIN/uv" || true)
+PYRUN_T11_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "superó" \
+  && [ -z "$PYRUN_T11_ORPHAN" ]; then
+  PYRUN_T11_OK=0
+fi
+_pyrun_report "pre-commit-guard: uv corre bajo el watchdog: PRECOMMIT_TEST_BUDGET=1 con uv de 5s bloquea sin proceso huérfano (T11, pin)" "$PYRUN_T11_OK"
+_pyrun_cleanup
 
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
@@ -3761,6 +4537,55 @@ else
   FAIL=$((FAIL + 1))
 fi
 rm -rf "$NO_JQ_GUARD_INIT_BIN" "$GUARD_INIT_NO_JQ_OUT"
+
+# guard_init sin grep en PATH (D-07, security LOW-2 de la ronda 2): la
+# dependencia vive en la lib, así que cada guard que la sourcea bloquea con
+# "no operativo: falta grep" ANTES de evaluar el comando. pre-commit-guard ya
+# lo cubre TG (sección "runner de pytest") y pre-merge-check tiene su propio
+# check de perl/jq/grep antes de guard_init; acá van los otros cuatro, cada uno
+# con un comando que ese guard intercepta de verdad. PATH curado = lo que
+# necesitan, jq presente y grep ausente: el bloqueo solo puede ser el de grep.
+# El mensaje se exige además del exit 2 para que un bloqueo por otra causa no
+# dé un verde falso. Rojo verificado quitando la línea de grep de guard_init:
+# los cuatro casos salen 0 (fail-open, "grep: command not found" en stderr).
+NO_GREP_GUARDS_BIN=$(mktemp -d)
+for cmd in bash cat perl jq git; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_GREP_GUARDS_BIN/$cmd"
+done
+NO_GREP_PRECOND=1
+if PATH="$NO_GREP_GUARDS_BIN" bash -c 'command -v jq' > /dev/null 2>&1 \
+  && ! PATH="$NO_GREP_GUARDS_BIN" bash -c 'command -v grep' > /dev/null 2>&1; then
+  NO_GREP_PRECOND=0
+fi
+TOTAL=$((TOTAL + 1))
+if [ "$NO_GREP_PRECOND" -eq 0 ]; then
+  echo -e "${GREEN}PASS${NC}: guards sin grep: precondición — el PATH curado resuelve jq y no resuelve grep"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guards sin grep: precondición — el PATH curado resuelve jq y no resuelve grep"
+  FAIL=$((FAIL + 1))
+fi
+for NO_GREP_CASE in \
+  "block-force-push.sh|git push --force" \
+  "block-hard-reset.sh|git reset --hard" \
+  "block-admin-merge.sh|gh pr merge 5 --admin" \
+  "pre-push-guard.sh|git push origin main"; do
+  NO_GREP_HOOK="${NO_GREP_CASE%%|*}"
+  NO_GREP_CMD="${NO_GREP_CASE#*|}"
+  NO_GREP_JSON=$(jq -n --arg cmd "$NO_GREP_CMD" '{tool_input: {command: $cmd}}')
+  NO_GREP_EXIT=0
+  NO_GREP_STDERR=$(echo "$NO_GREP_JSON" | PATH="$NO_GREP_GUARDS_BIN" bash "$HOOKS_DIR/$NO_GREP_HOOK" 2>&1 > /dev/null) || NO_GREP_EXIT=$?
+  TOTAL=$((TOTAL + 1))
+  if [ "$NO_GREP_EXIT" -eq 2 ] && echo "$NO_GREP_STDERR" | grep -qF "no operativo: falta grep"; then
+    echo -e "${GREEN}PASS${NC}: ${NO_GREP_HOOK%.sh}: sin grep en PATH bloquea con 'no operativo: falta grep' (D-07)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: ${NO_GREP_HOOK%.sh}: sin grep en PATH bloquea con 'no operativo: falta grep' (D-07) (exit=$NO_GREP_EXIT, stderr=\"$NO_GREP_STDERR\")"
+    FAIL=$((FAIL + 1))
+  fi
+done
+rm -rf "$NO_GREP_GUARDS_BIN"
 
 # guard_init con NUL en el comando: bloquea citando el byte NUL.
 TOTAL=$((TOTAL + 1))
