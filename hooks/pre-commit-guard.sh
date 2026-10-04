@@ -49,13 +49,13 @@
 # Un package.json sin script "test" usable (ausente, el placeholder de "npm
 # init" o un "scripts.test" que no es string) no tapa un marcador Python del
 # mismo directorio: se usa la rama Python (D-06). Con script "test" (string)
-# corre solo el package manager. Un package.json que no es un objeto JSON
-# (texto que no parsea, archivo vacío, null, array) y SIN marcador Python
-# bloquea con su propia razón —el hook no puede saber qué suite correr; antes
-# pasaba en silencio— por el mismo mecanismo de razón por directorio: el
-# prefijo del mensaje, "no encontró un runner de tests en: <dir>.", es neutro
-# a propósito (sirve a razones de Python y de Node). Con marcador Python manda
-# lo anterior (D-06): rama Python.
+# corre solo el package manager. Un package.json que no es UN único objeto JSON
+# (texto que no parsea, archivo vacío, null, array, varios valores, basura tras
+# el objeto) y SIN marcador Python bloquea con su propia razón —el hook no
+# puede saber qué suite correr; antes pasaba en silencio— por el mismo
+# mecanismo de razón por directorio: el prefijo del mensaje, "no encontró un
+# runner de tests en: <dir>.", es neutro a propósito (sirve a razones de
+# Python y de Node). Con marcador Python manda lo anterior (D-06): rama Python.
 #
 # Fuera de alcance (documentado, no parcheado — no confundir con un hueco
 # no advertido):
@@ -393,25 +393,29 @@ _guard_resolve_python_runner() {
   return 1
 }
 
+# _guard_package_json_is_object: el package.json del cwd es UN único valor JSON
+# y ese valor es un objeto. "jq -s" junta el stream en un array: texto que no
+# parsea sale != 0, un archivo vacío da [] (sin "-s" y sin "length == 1", jq lo
+# da por válido: no hay valores), y "[] {}" da length 2 (un "jq -e" sin "-s"
+# juzga el stream por su último valor, un objeto). En todos el hook no puede
+# saber qué suite correr.
+_guard_package_json_is_object() {
+  jq -e -s 'length == 1 and (.[0] | type == "object")' package.json > /dev/null 2>&1
+}
+
 # _guard_node_has_test_script: el package.json del cwd declara un script
 # "test" usable — un string, ni ausente/null, ni vacío, ni el placeholder de
 # "npm init". Un "scripts.test" que no es string (true, objeto, número) no es
 # usable: npm no lo corre. Sin script usable, el package.json no "tapa" un
 # marcador Python del mismo directorio (D-06: package.json de tooling +
-# pyproject.toml, legacy).
+# pyproject.toml, legacy). Exige primero que el package.json sea un único
+# objeto: con basura detrás ("{...} garbage") jq emite el script antes de
+# fallar y el hook correría npm sobre un archivo que no puede leer.
 _guard_node_has_test_script() {
   local test_cmd
+  _guard_package_json_is_object || return 1
   test_cmd=$(jq -r '.scripts.test | select(type == "string")' package.json 2>/dev/null)
   [ -n "$test_cmd" ] && [ "$test_cmd" != "echo \"Error: no test specified\" && exit 1" ]
-}
-
-# _guard_package_json_is_object: el package.json del cwd es un objeto JSON.
-# El "jq -e" de abajo sale != 0 con texto que no parsea, con un archivo vacío
-# (sin "-e" y sin el filtro, jq lo da por válido: no hay valores) y con un
-# valor que no es objeto (null, array…): en todos el hook no puede saber qué
-# suite correr.
-_guard_package_json_is_object() {
-  jq -e 'type == "object"' package.json > /dev/null 2>&1
 }
 
 # Centinela de "directorio sin runner" (marcador Python sin runner, o
@@ -462,10 +466,11 @@ _guard_run_suite_in() {
     fi
   elif [ -f "package.json" ] && ! _guard_package_json_is_object; then
     # Sin marcador Python (la rama de arriba ya lo tomó, D-06) y con un
-    # package.json que no se puede leer: no hay forma de saber qué suite
-    # correr, y pasar en silencio dejaba el commit sin tests (QA S-r2-3).
+    # package.json que no es UN único objeto JSON: no hay forma de saber qué
+    # suite correr, y pasar en silencio dejaba el commit sin tests (QA
+    # S-r2-3).
     GUARD_PY_RUNNER_REASON="package.json no es un objeto JSON válido: el hook no puede saber qué suite correr (corrige el package.json)"
-    echo "package.json ilegible [$dir]." >&2
+    echo "package.json no es un objeto JSON válido [$dir]." >&2
     no_runner=1
   fi
 

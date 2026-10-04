@@ -2428,12 +2428,14 @@ NPMEOF
   chmod +x "$PYRUN_NPM_BIN/npm"
 }
 
-# _pyrun_make_package_json <none|placeholder|test|bool|object|number|invalid|empty>:
+# _pyrun_make_package_json <none|placeholder|test|bool|object|number|invalid|empty|multi|trailing>:
 # package.json en la raíz del fixture, junto al pyproject.toml. none = sin
 # scripts; placeholder = el script "test" que deja "npm init"; test = un script
 # "test" usable (string); bool/object/number = "scripts.test" de un tipo que no
 # es string (npm no lo puede correr); invalid = texto que no es JSON (objeto
-# cortado); empty = archivo de 0 bytes.
+# cortado); empty = archivo de 0 bytes; multi = dos valores JSON válidos
+# ("[] {}": el último es un objeto); trailing = un objeto con script "test"
+# usable seguido de basura (jq emite el script antes de fallar).
 _pyrun_make_package_json() {
   case "$1" in
     none) jq -n '{name: "x"}' ;;
@@ -2444,6 +2446,8 @@ _pyrun_make_package_json() {
     number) jq -n '{name: "x", scripts: {test: 1}}' ;;
     invalid) printf '{ "name": "x", "scripts": ' ;;
     empty) : ;;
+    multi) printf '[] {}' ;;
+    trailing) printf '{"scripts":{"test":"jest"}} garbage' ;;
   esac > "$PYRUN_DIR/package.json"
 }
 
@@ -2848,13 +2852,23 @@ _pyrun_cleanup
 
 # TJ (QA S-r2-3): un package.json que no es un objeto JSON válido, SIN marcador
 # Python, bloquea con razón propia: el hook no puede saber qué suite correr y
-# antes salía 0 sin correr nada (fail-open). Dos casos: texto que no es JSON y
-# archivo vacío (jq lo da por válido: "jq empty" sale 0 sin valores, por eso el
-# chequeo es 'jq -e type == "object"'; verificado: con "jq empty" solo TJ-vacío
-# se pone en rojo). Ni "npm" ni "pytest" corren (fakes en el PATH a propósito);
-# sin "Tests failed": el bloqueo es por package.json ilegible, no por suite
-# roja.
-for PYRUN_CASE in "TJ-texto|invalid|texto que no es JSON" "TJ-vacío|empty|archivo vacío"; do
+# antes salía 0 sin correr nada (fail-open). "Objeto" = UN único valor JSON y
+# que sea un objeto ('jq -e -s length == 1 and (.[0] | type == "object")').
+# Cuatro casos: texto que no es JSON (TJ-texto), archivo vacío (TJ-vacío; jq lo
+# da por válido: "jq empty" sale 0 sin valores, y con "-s" da []), dos valores
+# JSON válidos (TJ-multi: "[] {}", un "jq -e" sin "-s" juzga el stream por su
+# último valor, un objeto) y un objeto con script "test" seguido de basura
+# (TJ-basura: jq emite "jest" antes de fallar, así que sin la condición dentro
+# de _guard_node_has_test_script llegaría a la rama Node y correría npm).
+# Ni "npm" ni "pytest" corren (fakes en el PATH a propósito); sin "Tests
+# failed": el bloqueo es por package.json que no es un objeto, no por suite
+# roja; y el eco por stderr no lo llama "ilegible" (QA S-r3-2: "[] {}" es JSON
+# válido). Mutaciones que los ponen en rojo (verificadas): quitar "-s" y
+# "length == 1" (volver a 'jq -e type == "object"') → solo TJ-multi (a TJ-basura
+# lo protege el parseo: jq falla al leer la basura); quitar la condición de
+# _guard_node_has_test_script → solo TJ-basura; volver al eco "ilegible" → los
+# cuatro.
+for PYRUN_CASE in "TJ-texto|invalid|texto que no es JSON" "TJ-vacío|empty|archivo vacío" "TJ-multi|multi|dos valores JSON ([] {})" "TJ-basura|trailing|un objeto con scripts.test seguido de basura"; do
   IFS='|' read -r PYRUN_ID PYRUN_PKG PYRUN_DESC <<< "$PYRUN_CASE"
   _pyrun_setup
   _pyrun_assert_clean_path "$PYRUN_ID"
@@ -2868,7 +2882,8 @@ for PYRUN_CASE in "TJ-texto|invalid|texto que no es JSON" "TJ-vacío|empty|archi
     && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. package.json no es un objeto JSON válido: el hook no puede saber qué suite correr" \
     && [ ! -f "$PYRUN_MARK/node.ran" ] \
     && [ ! -f "$PYRUN_MARK/path.ran" ] \
-    && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
+    && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed" \
+    && ! echo "$PYRUN_STDERR" | grep -qF "ilegible"; then
     PYRUN_CASE_OK=0
   fi
   _pyrun_report "pre-commit-guard: package.json ($PYRUN_DESC) sin marcador Python → bloquea con razón propia, sin correr npm ni pytest ($PYRUN_ID)" "$PYRUN_CASE_OK"
