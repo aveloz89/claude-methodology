@@ -321,19 +321,24 @@ _guard_project_uses_uv() {
 }
 
 # _guard_resolve_python_runner <dir>: deja en GUARD_PY_RUNNER (array, nunca
-# string — rules/bash.md) el comando a ejecutar con cwd=<dir>. Orden cerrado:
+# string — rules/bash.md) el comando a ejecutar con cwd=<dir>. Si devuelve 1
+# deja en GUARD_PY_RUNNER_REASON (una oración sin punto final) por qué no hay
+# runner; el loop final la anota junto al directorio. Orden cerrado:
 #   1. uv   — el proyecto lo declara (uv.lock o [tool.uv…]) Y "uv" está en el
 #             PATH del hook → "uv run --frozen pytest" (D-02: --frozen nunca
-#             reescribe uv.lock durante el commit). Declarado pero sin "uv" en
-#             PATH → sigue al siguiente paso, no bloquea aquí.
+#             reescribe uv.lock durante el commit).
 #   2. venv — <dir>/.venv/bin/pytest o <dir>/.venv/Scripts/pytest.exe
 #             (Windows / git-bash). Gana al pytest del PATH: un pytest global
 #             en un proyecto con venv corre con el intérprete equivocado.
-#   3. PATH — "pytest" del PATH.
-# Return 1 si ninguno aplica: el caller bloquea (D-01), nunca falla abierto.
+#   3. uv.lock sin "uv" en el PATH y sin venv con pytest → bloquea con razón
+#             específica; NUNCA cae al pytest del PATH (D-04): un proyecto que
+#             declara su entorno no se verifica con el intérprete global.
+#   4. PATH — "pytest" del PATH, solo para proyectos sin entorno declarado.
+#   5. nada → razón genérica con las tres vías (D-01).
 _guard_resolve_python_runner() {
   local dir="$1" venv_pytest
   GUARD_PY_RUNNER=()
+  GUARD_PY_RUNNER_REASON=""
   if _guard_project_uses_uv "$dir" && command -v uv > /dev/null 2>&1; then
     GUARD_PY_RUNNER=(uv run --frozen pytest)
     return 0
@@ -344,10 +349,15 @@ _guard_resolve_python_runner() {
       return 0
     fi
   done
+  if [ -f "$dir/uv.lock" ]; then
+    GUARD_PY_RUNNER_REASON="uv.lock presente pero 'uv' no está en el PATH del hook y .venv/ no tiene pytest: exporta uv al PATH (p. ej. ~/.local/bin o /opt/homebrew/bin) o crea el venv con 'uv sync'"
+    return 1
+  fi
   if command -v pytest > /dev/null 2>&1; then
     GUARD_PY_RUNNER=(pytest)
     return 0
   fi
+  GUARD_PY_RUNNER_REASON="Resuélvelo con una de: (1) uv — uv.lock ('uv sync') y 'uv' en el PATH del hook; (2) venv local — .venv/bin/pytest o .venv/Scripts/pytest.exe; (3) 'pytest' en el PATH"
   return 1
 }
 
@@ -398,7 +408,7 @@ _guard_run_suite_in() {
       rc=$?
       [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
     else
-      echo "No Python test runner [$dir]: sin uv aplicable (uv.lock o [tool.uv] + 'uv' en PATH), sin .venv/bin/pytest ni .venv/Scripts/pytest.exe, sin 'pytest' en PATH." >&2
+      echo "No Python test runner [$dir]." >&2
       no_runner=1
     fi
   fi
@@ -421,12 +431,15 @@ PRECOMMIT_DIR_BUDGET=$(( $(_guard_resolve_test_budget) / ${#GUARD_RUN_DIRS[@]} )
 # antes de decidir.
 GUARD_FAILED_DIRS=()
 GUARD_NO_RUNNER_DIRS=()
+GUARD_NO_RUNNER_REASONS=() # mismo índice que GUARD_NO_RUNNER_DIRS (bash 3.2: sin arrays asociativos)
 for _guard_dir in "${GUARD_RUN_DIRS[@]}"; do
   _guard_run_suite_in "$_guard_dir" "$PRECOMMIT_DIR_BUDGET"
   _guard_rc=$?
   case "$_guard_rc" in
     0) ;;
-    "$GUARD_RC_NO_RUNNER") GUARD_NO_RUNNER_DIRS+=("$_guard_dir") ;;
+    "$GUARD_RC_NO_RUNNER")
+      GUARD_NO_RUNNER_DIRS+=("$_guard_dir")
+      GUARD_NO_RUNNER_REASONS+=("$GUARD_PY_RUNNER_REASON") ;;
     *) GUARD_FAILED_DIRS+=("$_guard_dir") ;;
   esac
 done
@@ -434,9 +447,11 @@ done
 if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ]; then
   echo "BLOCKED: Tests failed in: ${GUARD_FAILED_DIRS[*]}. Fix tests before committing." >&2
 fi
-if [ "${#GUARD_NO_RUNNER_DIRS[@]}" -gt 0 ]; then
-  echo "BLOCKED: pre-commit-guard no encontró un runner de pytest en: ${GUARD_NO_RUNNER_DIRS[*]}. Resuélvelo con una de: (1) uv — uv.lock o [tool.uv] en pyproject.toml y 'uv' en el PATH del hook; (2) venv local — .venv/bin/pytest o .venv/Scripts/pytest.exe; (3) 'pytest' en el PATH. El hook no falla abierto." >&2
-fi
+_guard_i=0
+while [ "$_guard_i" -lt "${#GUARD_NO_RUNNER_DIRS[@]}" ]; do
+  echo "BLOCKED: pre-commit-guard no encontró un runner de pytest en: ${GUARD_NO_RUNNER_DIRS[$_guard_i]}. ${GUARD_NO_RUNNER_REASONS[$_guard_i]}. El hook no falla abierto." >&2
+  _guard_i=$((_guard_i + 1))
+done
 if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ] || [ "${#GUARD_NO_RUNNER_DIRS[@]}" -gt 0 ]; then
   exit 2
 fi

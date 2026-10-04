@@ -2333,6 +2333,12 @@ echo "--- pre-commit-guard.sh: runner de pytest (uv / .venv / PATH) ---"
 # que la máquina tenga o no "uv"/"pytest" reales. Mismo patrón que NO_PERL_BIN
 # (guard-matching: modo degradado sin perl).
 #
+# Regla de precondición (S1): todo caso cuya expectativa es un BLOQUEO llama a
+# _pyrun_assert_clean_path tras _pyrun_setup. Ahí es donde un "pytest" o "uv"
+# reales en el PATH darían un falso verde (el bloqueo esperado no ocurre) o una
+# razón equivocada; en los casos que esperan que corra un fake, un binario real
+# se delataría solo porque el marcador del fake no aparecería.
+#
 # _pyrun_setup: repo git temporal con pyproject.toml vacío en la raíz y
 # src/a.py con un cambio local. PYRUN_MARK recibe los marcadores que dejan los
 # fakes; PYRUN_UV_BIN y PYRUN_PYTEST_BIN son los directorios de fakes (vacíos
@@ -2438,23 +2444,24 @@ _pyrun_report() {
   fi
 }
 
-# _pyrun_assert_clean_path: precondición de los casos "sin runner" (T0).
-# Afirma, en un bash nuevo bajo el PATH curado (la misma búsqueda que hace el
-# hook), que ni "pytest" ni "uv" resuelven. Si alguno resolviera, el resultado
-# de T5 sería un falso verde: pasaría porque la máquina tiene el binario, no
-# porque el hook lo encontró o no.
+# _pyrun_assert_clean_path <caso>: precondición de los casos que esperan un
+# bloqueo (T0 / regla S1). Afirma, en un bash nuevo bajo el PATH curado (la
+# misma búsqueda que hace el hook), que ni "pytest" ni "uv" resuelven. Si
+# alguno resolviera, el resultado del caso sería un falso verde: pasaría
+# porque la máquina tiene el binario, no porque el hook lo encontró o no.
+# <caso> nombra el caso protegido para que un FAIL se pueda atribuir.
 _pyrun_assert_clean_path() {
   local found=0
   PATH="$PYRUN_CLEAN_BIN" bash -c 'command -v pytest' > /dev/null 2>&1 && found=1
   PATH="$PYRUN_CLEAN_BIN" bash -c 'command -v uv' > /dev/null 2>&1 && found=1
-  _pyrun_report "pre-commit-guard: precondición — el PATH curado no resuelve pytest ni uv (T0)" "$found"
+  _pyrun_report "pre-commit-guard: precondición — el PATH curado no resuelve pytest ni uv ($1)" "$found"
 }
 
 # T0 + T5 (CA-5, CA-8): marcador Python (pyproject.toml vacío) sin ningún
 # runner → exit 2 con un mensaje que nombra el directorio y las tres vías.
 # Antes de D-01 el hook fallaba abierto (exit 0) en este caso.
 _pyrun_setup
-_pyrun_assert_clean_path
+_pyrun_assert_clean_path T0
 _pyrun_run "$PYRUN_CLEAN_BIN"
 PYRUN_T5_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] \
@@ -2592,6 +2599,26 @@ fi
 _pyrun_report "pre-commit-guard: uv.lock + uv fuera del PATH + .venv/bin/pytest → corre el venv, no intenta uv ni bloquea (T9, pin)" "$PYRUN_T9_OK"
 _pyrun_cleanup
 
+# TA (D-04 A): uv.lock declara uv, "uv" no está en el PATH del hook y el
+# proyecto no tiene .venv con pytest → bloquea con la razón específica; el
+# "pytest" del PATH (intérprete equivocado para un proyecto uv) NO corre. Antes
+# de D-04 el hook caía al pytest global y el commit pasaba. Sin "Tests failed":
+# el bloqueo es por runner ausente, no por suite roja.
+_pyrun_setup
+_pyrun_assert_clean_path TA
+touch "$PYRUN_DIR/uv.lock"
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TA_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. uv.lock presente pero 'uv' no está en el PATH del hook" \
+  && [ ! -f "$PYRUN_MARK/path.ran" ] \
+  && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
+  PYRUN_TA_OK=0
+fi
+_pyrun_report "pre-commit-guard: uv.lock + uv fuera del PATH + sin venv con pytest → bloquea con razón específica y no corre el pytest del PATH (TA)" "$PYRUN_TA_OK"
+_pyrun_cleanup
+
 # T6 / T7 (CA-6): una suite roja bloquea sea cual sea el runner resuelto — uv
 # (T6) o el pytest del venv (T7) con exit 1 → exit 2 y "Tests failed in:
 # <dir>". PINES DE REGRESIÓN: nacen verdes porque el rc del runner ya se
@@ -2635,6 +2662,7 @@ _pyrun_cleanup
 # de salir; se rompe si la rama "sin runner" hace "exit 2" ahí (verificado
 # agregándolo: beta nunca corre).
 _pyrun_setup
+_pyrun_assert_clean_path T10
 rm "$PYRUN_DIR/pyproject.toml"
 mkdir "$PYRUN_DIR/alpha" "$PYRUN_DIR/beta"
 touch "$PYRUN_DIR/alpha/pyproject.toml" "$PYRUN_DIR/beta/pyproject.toml"
@@ -2651,6 +2679,28 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   PYRUN_T10_OK=0
 fi
 _pyrun_report "pre-commit-guard: monorepo con alpha/ sin runner y beta/ con venv → beta corre y exit 2 nombra solo alpha (T10, pin)" "$PYRUN_T10_OK"
+_pyrun_cleanup
+
+# T10b (razón por directorio): dos directorios sin runner por razones
+# distintas — alpha/ declara uv.lock (uv fuera del PATH), beta/ no declara
+# nada. Cada uno recibe SU razón en su propia línea BLOCKED: protege el
+# alineamiento de GUARD_NO_RUNNER_REASONS con GUARD_NO_RUNNER_DIRS (si el
+# mensaje usara siempre la razón del primero, beta recibiría la de alpha).
+_pyrun_setup
+_pyrun_assert_clean_path T10b
+rm "$PYRUN_DIR/pyproject.toml"
+mkdir "$PYRUN_DIR/alpha" "$PYRUN_DIR/beta"
+touch "$PYRUN_DIR/alpha/pyproject.toml" "$PYRUN_DIR/alpha/uv.lock" "$PYRUN_DIR/beta/pyproject.toml"
+echo "print(1)" > "$PYRUN_DIR/alpha/a.py"
+echo "print(1)" > "$PYRUN_DIR/beta/a.py"
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T10B_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "en: $PYRUN_DIR/alpha. uv.lock presente pero 'uv' no está en el PATH del hook" \
+  && echo "$PYRUN_STDERR" | grep -qF "en: $PYRUN_DIR/beta. Resuélvelo con una de:"; then
+  PYRUN_T10B_OK=0
+fi
+_pyrun_report "pre-commit-guard: dos directorios sin runner por razones distintas → cada uno recibe su propia razón (T10b)" "$PYRUN_T10B_OK"
 _pyrun_cleanup
 
 # T11: "uv run --frozen pytest" corre bajo el watchdog de
