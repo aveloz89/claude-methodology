@@ -30,8 +30,9 @@
 #   1. uv   — uv.lock o una tabla [tool.uv…] en pyproject.toml, Y "uv" en el
 #             PATH del hook → "uv run --frozen pytest" (D-02: --frozen nunca
 #             reescribe uv.lock durante el commit).
-#   2. venv — .venv/bin/pytest. Gana al "pytest" del PATH: un pytest global
-#             en un proyecto con venv corre con el intérprete equivocado.
+#   2. venv — .venv/bin/pytest o .venv/Scripts/pytest.exe (Windows /
+#             git-bash). Gana al "pytest" del PATH: un pytest global en un
+#             proyecto con venv corre con el intérprete equivocado.
 #   3. PATH — "pytest" del PATH.
 # Ninguno aplica → exit 2 nombrando el directorio y las tres vías (D-01:
 # fail-closed, el hook no pasa en silencio por no encontrar runner). Sin
@@ -325,20 +326,24 @@ _guard_project_uses_uv() {
 #             PATH del hook → "uv run --frozen pytest" (D-02: --frozen nunca
 #             reescribe uv.lock durante el commit). Declarado pero sin "uv" en
 #             PATH → sigue al siguiente paso, no bloquea aquí.
-#   2. venv — <dir>/.venv/bin/pytest.
+#   2. venv — <dir>/.venv/bin/pytest o <dir>/.venv/Scripts/pytest.exe
+#             (Windows / git-bash). Gana al pytest del PATH: un pytest global
+#             en un proyecto con venv corre con el intérprete equivocado.
 #   3. PATH — "pytest" del PATH.
 # Return 1 si ninguno aplica: el caller bloquea (D-01), nunca falla abierto.
 _guard_resolve_python_runner() {
-  local dir="$1"
+  local dir="$1" venv_pytest
   GUARD_PY_RUNNER=()
   if _guard_project_uses_uv "$dir" && command -v uv > /dev/null 2>&1; then
     GUARD_PY_RUNNER=(uv run --frozen pytest)
     return 0
   fi
-  if [ -x "$dir/.venv/bin/pytest" ]; then
-    GUARD_PY_RUNNER=("$dir/.venv/bin/pytest")
-    return 0
-  fi
+  for venv_pytest in "$dir/.venv/bin/pytest" "$dir/.venv/Scripts/pytest.exe"; do
+    if [ -x "$venv_pytest" ]; then
+      GUARD_PY_RUNNER=("$venv_pytest")
+      return 0
+    fi
+  done
   if command -v pytest > /dev/null 2>&1; then
     GUARD_PY_RUNNER=(pytest)
     return 0

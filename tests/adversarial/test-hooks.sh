@@ -2563,6 +2563,19 @@ fi
 _pyrun_report "pre-commit-guard: .venv/bin/pytest gana al pytest del PATH (T4, pin)" "$PYRUN_T4_OK"
 _pyrun_cleanup
 
+# T8: venv de Windows / git-bash — solo .venv/Scripts/pytest.exe (sin
+# .venv/bin/) y sin pytest en el PATH → corre ese ejecutable con cwd =
+# directorio del marcador y el commit pasa.
+_pyrun_setup
+_pyrun_make_venv Scripts 0
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T8_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
+  PYRUN_T8_OK=0
+fi
+_pyrun_report "pre-commit-guard: .venv/Scripts/pytest.exe sin .venv/bin → corre ese pytest en el directorio del marcador (T8)" "$PYRUN_T8_OK"
+_pyrun_cleanup
+
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 
