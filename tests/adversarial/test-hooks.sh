@@ -2349,6 +2349,7 @@ _pyrun_setup() {
   PYRUN_MARK=$(mktemp -d)
   PYRUN_UV_BIN=$(mktemp -d)
   PYRUN_PYTEST_BIN=$(mktemp -d)
+  PYRUN_NPM_BIN=$(mktemp -d)
   PYRUN_CLEAN_BIN=$(mktemp -d)
   local cmd cmd_path
   for cmd in bash git jq perl grep cut sort cat mktemp rm sleep; do
@@ -2372,7 +2373,7 @@ _pyrun_setup() {
 }
 
 _pyrun_cleanup() {
-  rm -rf "$PYRUN_DIR" "$PYRUN_MARK" "$PYRUN_UV_BIN" "$PYRUN_PYTEST_BIN" "$PYRUN_CLEAN_BIN"
+  rm -rf "$PYRUN_DIR" "$PYRUN_MARK" "$PYRUN_UV_BIN" "$PYRUN_PYTEST_BIN" "$PYRUN_NPM_BIN" "$PYRUN_CLEAN_BIN"
 }
 
 # _pyrun_make_uv <rc>: "uv" fake en PYRUN_UV_BIN. Registra el argv (uno por
@@ -2413,6 +2414,29 @@ echo ran > "$PYRUN_MARK/path.ran"
 exit $1
 PTEOF
   chmod +x "$PYRUN_PYTEST_BIN/pytest"
+}
+
+# _pyrun_make_npm <rc>: "npm" fake en PYRUN_NPM_BIN. Registra el argv (uno por
+# línea) en node.argv y "pwd -P" en node.ran, y sale con <rc>.
+_pyrun_make_npm() {
+  cat > "$PYRUN_NPM_BIN/npm" <<NPMEOF
+#!/bin/bash
+printf '%s\n' "\$@" > "$PYRUN_MARK/node.argv"
+pwd -P > "$PYRUN_MARK/node.ran"
+exit $1
+NPMEOF
+  chmod +x "$PYRUN_NPM_BIN/npm"
+}
+
+# _pyrun_make_package_json <none|placeholder|test>: package.json en la raíz del
+# fixture, junto al pyproject.toml. none = sin scripts; placeholder = el
+# script "test" que deja "npm init"; test = un script "test" usable.
+_pyrun_make_package_json() {
+  case "$1" in
+    none) jq -n '{name: "x"}' ;;
+    placeholder) jq -n --arg t 'echo "Error: no test specified" && exit 1' '{name: "x", scripts: {test: $t}}' ;;
+    test) jq -n '{name: "x", scripts: {test: "x"}}' ;;
+  esac > "$PYRUN_DIR/package.json"
 }
 
 # _pyrun_make_pyproject <tabla>: reemplaza el pyproject.toml vacío del
@@ -2670,6 +2694,43 @@ for PYRUN_CASE in "TB|.venv|.venv/ vacío" "TB2|.venv/bin/pytest|.venv/bin/pytes
   _pyrun_report "pre-commit-guard: $PYRUN_DESC → bloquea con razón específica y no corre el pytest del PATH ($PYRUN_ID)" "$PYRUN_CASE_OK"
   _pyrun_cleanup
 done
+
+# TD6a / TD6a' (D-06): un package.json SIN script "test" usable (ausente, o el
+# placeholder de "npm init") no tapa el marcador Python del mismo directorio:
+# se usa la rama Python y corre el venv. Antes el package.json ganaba, no
+# corría nada y el commit pasaba sin tests.
+for PYRUN_CASE in "TD6a|none|sin scripts" "TD6a'|placeholder|con el placeholder de npm init"; do
+  IFS='|' read -r PYRUN_ID PYRUN_PKG PYRUN_DESC <<< "$PYRUN_CASE"
+  _pyrun_setup
+  _pyrun_make_package_json "$PYRUN_PKG"
+  _pyrun_make_venv bin 0
+  _pyrun_run "$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: package.json $PYRUN_DESC + pyproject.toml + .venv/bin/pytest → corre el venv ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TD6b (D-06, sin cambios en Node): package.json con script "test" usable +
+# pyproject.toml → corre SOLO el package manager ("npm test" en el directorio);
+# el venv no corre. PIN DE REGRESIÓN: nace verde; se rompe si la condición de
+# la rama Node deja de ganar cuando hay script de test.
+_pyrun_setup
+_pyrun_make_package_json test
+_pyrun_make_venv bin 0
+_pyrun_make_npm 0
+_pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TD6B_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] \
+  && [ "$(cat "$PYRUN_MARK/node.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+  && [ "$(cat "$PYRUN_MARK/node.argv" 2>/dev/null)" = "test" ] \
+  && [ ! -f "$PYRUN_MARK/venv.ran" ]; then
+  PYRUN_TD6B_OK=0
+fi
+_pyrun_report "pre-commit-guard: package.json con script test + pyproject.toml → corre solo el package manager (TD6b, pin)" "$PYRUN_TD6B_OK"
+_pyrun_cleanup
 
 # T6 / T7 (CA-6): una suite roja bloquea sea cual sea el runner resuelto — uv
 # (T6) o el pytest del venv (T7) con exit 1 → exit 2 y "Tests failed in:

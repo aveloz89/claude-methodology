@@ -371,6 +371,16 @@ _guard_resolve_python_runner() {
   return 1
 }
 
+# _guard_node_has_test_script: el package.json del cwd declara un script
+# "test" usable — ni ausente/null, ni vacío, ni el placeholder de "npm init".
+# Sin script usable, el package.json no "tapa" un marcador Python del mismo
+# directorio (D-06: package.json de tooling + pyproject.toml, legacy).
+_guard_node_has_test_script() {
+  local test_cmd
+  test_cmd=$(jq -r '.scripts.test // empty' package.json 2>/dev/null)
+  [ -n "$test_cmd" ] && [ "$test_cmd" != "echo \"Error: no test specified\" && exit 1" ]
+}
+
 # Centinela de "marcador Python sin runner". 127 = convención "command not
 # found"; NUNCA viene del runner: el rc de la suite se colapsa a 0/1 en
 # _guard_run_suite_in. Verificado en macOS (bash 3.2): un script con
@@ -391,7 +401,7 @@ _guard_run_suite_in() {
   cd "$dir" || return 1
 
   local rc=0
-  if [ -f "package.json" ]; then
+  if [ -f "package.json" ] && _guard_node_has_test_script; then
     local pkg_mgr
     if [ -f "pnpm-lock.yaml" ]; then
       pkg_mgr="pnpm"
@@ -401,16 +411,10 @@ _guard_run_suite_in() {
       pkg_mgr="npm"
     fi
 
-    if jq -e '.scripts.test' package.json > /dev/null 2>&1; then
-      local test_cmd
-      test_cmd=$(jq -r '.scripts.test' package.json)
-      if [ "$test_cmd" != "null" ] && [ "$test_cmd" != "" ] && [ "$test_cmd" != "echo \"Error: no test specified\" && exit 1" ]; then
-        echo "Running tests before commit ($pkg_mgr) [$dir]..." >&2
-        _guard_run_with_budget "$budget" "$pkg_mgr" test
-        rc=$?
-        [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
-      fi
-    fi
+    echo "Running tests before commit ($pkg_mgr) [$dir]..." >&2
+    _guard_run_with_budget "$budget" "$pkg_mgr" test
+    rc=$?
+    [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
   elif [ -f "pytest.ini" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
     if _guard_resolve_python_runner "$dir"; then
       echo "Running ${GUARD_PY_RUNNER[*]} before commit [$dir]..." >&2
