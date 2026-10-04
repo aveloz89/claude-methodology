@@ -58,10 +58,11 @@
 # Python y de Node). Con marcador Python manda lo anterior (D-06): rama Python.
 # Lo mismo un "scripts.test" de un tipo que no es string ni null (true, false,
 # objeto, número, array) en un package.json objeto válido, sin marcador
-# Python: bloquea con su razón en vez de pasar en silencio (en origin/dev
-# bloqueaba vía npm "Missing script"). "scripts.test" ausente o null sin
-# marcador Python sigue pasando sin correr nada (legacy aceptado, como en
-# origin/dev).
+# Python: bloquea con su razón por el tipo, sin delegar en npm (en origin/dev,
+# salvo false, bloqueaba vía npm "Missing script"; verificado). "scripts.test"
+# ausente o null sin marcador Python sigue pasando sin correr nada, igual que
+# un "scripts" que no es un objeto (jq falla y no cuenta): legacy aceptado,
+# mismo comportamiento que origin/dev.
 #
 # Fuera de alcance (documentado, no parcheado — no confundir con un hueco
 # no advertido):
