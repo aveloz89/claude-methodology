@@ -325,13 +325,16 @@ _guard_pyproject_declares_uv() {
 #             falla siempre (rc 1, "Unable to find lockfile") y además crea
 #             .venv/ (D-05).
 #   2. venv — <dir>/.venv/bin/pytest o <dir>/.venv/Scripts/pytest.exe
-#             (Windows / git-bash). Gana al pytest del PATH: un pytest global
-#             en un proyecto con venv corre con el intérprete equivocado.
+#             (Windows / git-bash), archivo regular Y ejecutable ([ -f ] &&
+#             [ -x ]: un directorio con ese nombre pasa -x; verificado). Gana
+#             al pytest del PATH: un pytest global en un proyecto con venv
+#             corre con el intérprete equivocado.
 #   3. entorno propio declarado sin runner → bloquea con razón específica;
 #             NUNCA cae al pytest del PATH (D-04): un proyecto que declara su
 #             entorno no se verifica con el intérprete global. Precedencia de
 #             la razón: a. uv.lock presente (uv fuera del PATH, venv sin
-#             pytest); b. [tool.uv…] sin uv.lock (pide "uv sync", D-05).
+#             pytest); b. [tool.uv…] sin uv.lock (pide "uv sync", D-05);
+#             c. .venv/ existe sin pytest ejecutable.
 #   4. PATH — "pytest" del PATH, solo para proyectos sin entorno declarado.
 #   5. nada → razón genérica con las tres vías (D-01).
 _guard_resolve_python_runner() {
@@ -343,7 +346,7 @@ _guard_resolve_python_runner() {
     return 0
   fi
   for venv_pytest in "$dir/.venv/bin/pytest" "$dir/.venv/Scripts/pytest.exe"; do
-    if [ -x "$venv_pytest" ]; then
+    if [ -f "$venv_pytest" ] && [ -x "$venv_pytest" ]; then
       GUARD_PY_RUNNER=("$venv_pytest")
       return 0
     fi
@@ -354,6 +357,10 @@ _guard_resolve_python_runner() {
   fi
   if _guard_pyproject_declares_uv "$dir"; then
     GUARD_PY_RUNNER_REASON="uv declarado sin uv.lock: corre 'uv sync' para crear uv.lock y .venv/ (el hook no invoca uv sin lock; en un workspace, activa el venv de la raíz o crea un .venv local)"
+    return 1
+  fi
+  if [ -d "$dir/.venv" ]; then
+    GUARD_PY_RUNNER_REASON=".venv/ existe sin pytest ejecutable (.venv/bin/pytest o .venv/Scripts/pytest.exe): instala pytest en ese venv ('uv sync' o '.venv/bin/pip install pytest')"
     return 1
   fi
   if command -v pytest > /dev/null 2>&1; then

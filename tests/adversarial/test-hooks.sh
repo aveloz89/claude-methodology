@@ -2646,6 +2646,31 @@ fi
 _pyrun_report "pre-commit-guard: uv.lock + uv fuera del PATH + sin venv con pytest → bloquea con razón específica y no corre el pytest del PATH (TA)" "$PYRUN_TA_OK"
 _pyrun_cleanup
 
+# TB / TB2 (D-04 B): el proyecto tiene .venv/ pero sin pytest ejecutable → el
+# proyecto declara entorno propio y su runner no está: bloquea con razón
+# específica y NO cae al pytest del PATH (intérprete equivocado). TB: carpeta
+# .venv vacía. TB2 (S3): ".venv/bin/pytest" es un DIRECTORIO — "[ -x ]" lo da
+# por ejecutable (verificado: [ -x <dir> ] verdadero, [ -f <dir> ] falso) y el
+# exec de un directorio sale con 126, que se reportaría como "Tests failed":
+# el hook exige archivo regular Y ejecutable.
+for PYRUN_CASE in "TB|.venv|.venv/ vacío" "TB2|.venv/bin/pytest|.venv/bin/pytest es un directorio"; do
+  IFS='|' read -r PYRUN_ID PYRUN_SUBPATH PYRUN_DESC <<< "$PYRUN_CASE"
+  _pyrun_setup
+  _pyrun_assert_clean_path "$PYRUN_ID"
+  mkdir -p "$PYRUN_DIR/$PYRUN_SUBPATH"
+  _pyrun_make_path_pytest 0
+  _pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 2 ] \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. .venv/ existe sin pytest ejecutable" \
+    && [ ! -f "$PYRUN_MARK/path.ran" ] \
+    && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: $PYRUN_DESC → bloquea con razón específica y no corre el pytest del PATH ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
 # T6 / T7 (CA-6): una suite roja bloquea sea cual sea el runner resuelto — uv
 # (T6) o el pytest del venv (T7) con exit 1 → exit 2 y "Tests failed in:
 # <dir>". PINES DE REGRESIÓN: nacen verdes porque el rc del runner ya se
