@@ -315,31 +315,30 @@ _guard_pyproject_declares_uv() {
   [ -f "$1/pyproject.toml" ] && grep -qE '^[[:space:]]*\[tool\.uv(\]|\.)' "$1/pyproject.toml"
 }
 
-# _guard_project_uses_uv <dir>: el proyecto declara uv — uv.lock o [tool.uv…].
-_guard_project_uses_uv() {
-  [ -f "$1/uv.lock" ] || _guard_pyproject_declares_uv "$1"
-}
-
 # _guard_resolve_python_runner <dir>: deja en GUARD_PY_RUNNER (array, nunca
 # string — rules/bash.md) el comando a ejecutar con cwd=<dir>. Si devuelve 1
 # deja en GUARD_PY_RUNNER_REASON (una oración sin punto final) por qué no hay
 # runner; el loop final la anota junto al directorio. Orden cerrado:
-#   1. uv   — el proyecto lo declara (uv.lock o [tool.uv…]) Y "uv" está en el
-#             PATH del hook → "uv run --frozen pytest" (D-02: --frozen nunca
-#             reescribe uv.lock durante el commit).
+#   1. uv   — uv.lock presente Y "uv" en el PATH del hook → "uv run --frozen
+#             pytest" (D-02: --frozen nunca reescribe uv.lock durante el
+#             commit). [tool.uv…] sin uv.lock NO es trigger: "--frozen" sin lock
+#             falla siempre (rc 1, "Unable to find lockfile") y además crea
+#             .venv/ (D-05).
 #   2. venv — <dir>/.venv/bin/pytest o <dir>/.venv/Scripts/pytest.exe
 #             (Windows / git-bash). Gana al pytest del PATH: un pytest global
 #             en un proyecto con venv corre con el intérprete equivocado.
-#   3. uv.lock sin "uv" en el PATH y sin venv con pytest → bloquea con razón
-#             específica; NUNCA cae al pytest del PATH (D-04): un proyecto que
-#             declara su entorno no se verifica con el intérprete global.
+#   3. entorno propio declarado sin runner → bloquea con razón específica;
+#             NUNCA cae al pytest del PATH (D-04): un proyecto que declara su
+#             entorno no se verifica con el intérprete global. Precedencia de
+#             la razón: a. uv.lock presente (uv fuera del PATH, venv sin
+#             pytest); b. [tool.uv…] sin uv.lock (pide "uv sync", D-05).
 #   4. PATH — "pytest" del PATH, solo para proyectos sin entorno declarado.
 #   5. nada → razón genérica con las tres vías (D-01).
 _guard_resolve_python_runner() {
   local dir="$1" venv_pytest
   GUARD_PY_RUNNER=()
   GUARD_PY_RUNNER_REASON=""
-  if _guard_project_uses_uv "$dir" && command -v uv > /dev/null 2>&1; then
+  if [ -f "$dir/uv.lock" ] && command -v uv > /dev/null 2>&1; then
     GUARD_PY_RUNNER=(uv run --frozen pytest)
     return 0
   fi
@@ -351,6 +350,10 @@ _guard_resolve_python_runner() {
   done
   if [ -f "$dir/uv.lock" ]; then
     GUARD_PY_RUNNER_REASON="uv.lock presente pero 'uv' no está en el PATH del hook y .venv/ no tiene pytest: exporta uv al PATH (p. ej. ~/.local/bin o /opt/homebrew/bin) o crea el venv con 'uv sync'"
+    return 1
+  fi
+  if _guard_pyproject_declares_uv "$dir"; then
+    GUARD_PY_RUNNER_REASON="uv declarado sin uv.lock: corre 'uv sync' para crear uv.lock y .venv/ (el hook no invoca uv sin lock; en un workspace, activa el venv de la raíz o crea un .venv local)"
     return 1
   fi
   if command -v pytest > /dev/null 2>&1; then

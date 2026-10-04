@@ -2512,24 +2512,51 @@ fi
 _pyrun_report "pre-commit-guard: uv.lock + uv en PATH → 'uv run --frozen pytest' en el directorio del marcador; el venv no corre (T1)" "$PYRUN_T1_OK"
 _pyrun_cleanup
 
-# T2 / T2b (CA-3): [tool.uv] o [tool.uv.<sub>] en pyproject.toml activan uv
-# aunque no haya uv.lock.
+# T2 / T2b (D-05): [tool.uv] o [tool.uv.<sub>] SIN uv.lock no es trigger de
+# uv: "uv run --frozen" sin lock falla siempre (rc 1, "Unable to find
+# lockfile", verificado con uv 0.12.22) y crea .venv/ de paso. El proyecto
+# declara entorno propio y no hay runner → bloquea pidiendo "uv sync", sin
+# invocar uv y sin caer al pytest del PATH (D-04). Con PATH = UV:PYTEST:CLEAN
+# ambos fakes están al alcance: ninguno debe correr.
 for PYRUN_CASE in "T2|[tool.uv]" "T2b|[tool.uv.sources]"; do
   _pyrun_setup
+  _pyrun_assert_clean_path "${PYRUN_CASE%%|*}"
   _pyrun_make_pyproject "${PYRUN_CASE#*|}"
   _pyrun_make_uv 0
-  _pyrun_run "$PYRUN_UV_BIN:$PYRUN_CLEAN_BIN"
+  _pyrun_make_path_pytest 0
+  _pyrun_run "$PYRUN_UV_BIN:$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
   PYRUN_CASE_OK=1
-  if [ "$PYRUN_EXIT" -eq 0 ] && [ -f "$PYRUN_MARK/uv.argv" ]; then
+  if [ "$PYRUN_EXIT" -eq 2 ] \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. uv declarado sin uv.lock: corre 'uv sync'" \
+    && [ ! -f "$PYRUN_MARK/uv.argv" ] \
+    && [ ! -f "$PYRUN_MARK/path.ran" ] \
+    && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
     PYRUN_CASE_OK=0
   fi
-  _pyrun_report "pre-commit-guard: ${PYRUN_CASE#*|} en pyproject.toml sin uv.lock → invoca uv (${PYRUN_CASE%%|*})" "$PYRUN_CASE_OK"
+  _pyrun_report "pre-commit-guard: ${PYRUN_CASE#*|} en pyproject.toml sin uv.lock → bloquea pidiendo 'uv sync' sin invocar uv ni el pytest del PATH (${PYRUN_CASE%%|*})" "$PYRUN_CASE_OK"
   _pyrun_cleanup
 done
 
-# T2c (CA-3, negativo del regex): [tool.uvicorn] NO activa uv — el regex pide
-# "]" o "." tras "[tool.uv". Pin de regresión: nace verde (hoy solo uv.lock
-# activa uv) y se rompe si el regex se relaja a "\[tool\.uv" a secas.
+# T2d (D-05): [tool.uv] sin uv.lock pero con .venv/bin/pytest → corre el venv
+# (paso 2 del orden), sin invocar uv aunque esté en el PATH.
+_pyrun_setup
+_pyrun_make_pyproject "[tool.uv]"
+_pyrun_make_venv bin 0
+_pyrun_make_uv 0
+_pyrun_run "$PYRUN_UV_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_T2D_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] \
+  && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+  && [ ! -f "$PYRUN_MARK/uv.argv" ]; then
+  PYRUN_T2D_OK=0
+fi
+_pyrun_report "pre-commit-guard: [tool.uv] sin uv.lock + .venv/bin/pytest → corre el venv, no invoca uv (T2d)" "$PYRUN_T2D_OK"
+_pyrun_cleanup
+
+# T2c (CA-3, negativo del regex): [tool.uvicorn] NO es entorno declarado — el
+# regex pide "]" o "." tras "[tool.uv". Si el regex se relajara a
+# "\[tool\.uv" a secas, este proyecto contaría como "uv declarado sin uv.lock"
+# y bloquearía en vez de caer al pytest del PATH (se rompe con exit 2).
 _pyrun_setup
 _pyrun_make_pyproject "[tool.uvicorn]"
 _pyrun_make_uv 0
@@ -2539,7 +2566,7 @@ PYRUN_T2C_OK=1
 if [ "$PYRUN_EXIT" -eq 0 ] && [ -f "$PYRUN_MARK/path.ran" ] && [ ! -f "$PYRUN_MARK/uv.argv" ]; then
   PYRUN_T2C_OK=0
 fi
-_pyrun_report "pre-commit-guard: [tool.uvicorn] no activa uv → corre el pytest del PATH (T2c)" "$PYRUN_T2C_OK"
+_pyrun_report "pre-commit-guard: [tool.uvicorn] no es entorno declarado → corre el pytest del PATH (T2c)" "$PYRUN_T2C_OK"
 _pyrun_cleanup
 
 # T3 (CA-2): .venv/bin/pytest sin uv (ni uv.lock ni "uv" en el PATH) y sin
