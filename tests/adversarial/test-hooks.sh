@@ -2653,6 +2653,35 @@ fi
 _pyrun_report "pre-commit-guard: monorepo con alpha/ sin runner y beta/ con venv → beta corre y exit 2 nombra solo alpha (T10, pin)" "$PYRUN_T10_OK"
 _pyrun_cleanup
 
+# T11: "uv run --frozen pytest" corre bajo el watchdog de
+# _guard_run_with_budget. Un "uv" fake que duerme 5s con
+# PRECOMMIT_TEST_BUDGET=1 → exit 2, stderr con "superó" y ningún proceso del
+# fake vivo 1s después (mismo patrón que la sección del watchdog). PIN DE
+# REGRESIÓN: nace verde porque todo runner Python pasa por
+# _guard_run_with_budget; se rompe si se invoca "${GUARD_PY_RUNNER[@]}" sin él
+# (verificado: el fake termina solo a los 5s y el hook sale con 0). La cláusula
+# de huérfanos también se rompe sola: sin los dos "kill" del grupo en el
+# watchdog el hook sigue saliendo con 2 y "superó", pero el fake queda vivo.
+_pyrun_setup
+touch "$PYRUN_DIR/uv.lock"
+cat > "$PYRUN_UV_BIN/uv" <<'UVSLEEPEOF'
+#!/bin/bash
+sleep 5
+exit 0
+UVSLEEPEOF
+chmod +x "$PYRUN_UV_BIN/uv"
+PRECOMMIT_TEST_BUDGET=1 _pyrun_run "$PYRUN_UV_BIN:$PYRUN_CLEAN_BIN"
+sleep 1
+PYRUN_T11_ORPHAN=$(pgrep -f "$PYRUN_UV_BIN/uv" || true)
+PYRUN_T11_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "superó" \
+  && [ -z "$PYRUN_T11_ORPHAN" ]; then
+  PYRUN_T11_OK=0
+fi
+_pyrun_report "pre-commit-guard: uv corre bajo el watchdog: PRECOMMIT_TEST_BUDGET=1 con uv de 5s bloquea sin proceso huérfano (T11, pin)" "$PYRUN_T11_OK"
+_pyrun_cleanup
+
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 
