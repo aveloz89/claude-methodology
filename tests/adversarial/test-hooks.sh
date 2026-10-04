@@ -2428,11 +2428,12 @@ NPMEOF
   chmod +x "$PYRUN_NPM_BIN/npm"
 }
 
-# _pyrun_make_package_json <none|placeholder|test|bool|object|number>:
+# _pyrun_make_package_json <none|placeholder|test|bool|object|number|invalid|empty>:
 # package.json en la raíz del fixture, junto al pyproject.toml. none = sin
 # scripts; placeholder = el script "test" que deja "npm init"; test = un script
 # "test" usable (string); bool/object/number = "scripts.test" de un tipo que no
-# es string (npm no lo puede correr).
+# es string (npm no lo puede correr); invalid = texto que no es JSON (objeto
+# cortado); empty = archivo de 0 bytes.
 _pyrun_make_package_json() {
   case "$1" in
     none) jq -n '{name: "x"}' ;;
@@ -2441,6 +2442,8 @@ _pyrun_make_package_json() {
     bool) jq -n '{name: "x", scripts: {test: true}}' ;;
     object) jq -n '{name: "x", scripts: {test: {cmd: "x"}}}' ;;
     number) jq -n '{name: "x", scripts: {test: 1}}' ;;
+    invalid) printf '{ "name": "x", "scripts": ' ;;
+    empty) : ;;
   esac > "$PYRUN_DIR/package.json"
 }
 
@@ -2823,6 +2826,52 @@ for PYRUN_CASE in "TD6c-bool|bool|true" "TD6c-object|object|un objeto" "TD6c-num
     PYRUN_CASE_OK=0
   fi
   _pyrun_report "pre-commit-guard: package.json con scripts.test = $PYRUN_DESC (no string) + pyproject.toml + .venv/bin/pytest → corre el venv, no npm ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TD6d (D-06, legacy, QA S-r2-3; PIN: nace verde): un package.json que no es
+# JSON válido NO tapa el marcador Python del mismo directorio — igual que un
+# package.json sin script "test": se usa la rama Python y corre el venv. Con
+# marcador Python manda D-06, no el bloqueo por package.json ilegible de TJ.
+# Rojo (verificado): poner la rama "package.json ilegible → bloquea" ANTES de
+# la rama Python en _guard_run_suite_in bloquea este caso.
+_pyrun_setup
+_pyrun_make_package_json invalid
+_pyrun_make_venv bin 0
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_TD6D_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
+  PYRUN_TD6D_OK=0
+fi
+_pyrun_report "pre-commit-guard: package.json que no es JSON + pyproject.toml + .venv/bin/pytest → corre el venv (TD6d, pin)" "$PYRUN_TD6D_OK"
+_pyrun_cleanup
+
+# TJ (QA S-r2-3): un package.json que no es un objeto JSON válido, SIN marcador
+# Python, bloquea con razón propia: el hook no puede saber qué suite correr y
+# antes salía 0 sin correr nada (fail-open). Dos casos: texto que no es JSON y
+# archivo vacío (jq lo da por válido: "jq empty" sale 0 sin valores, por eso el
+# chequeo es 'jq -e type == "object"'; verificado: con "jq empty" solo TJ-vacío
+# se pone en rojo). Ni "npm" ni "pytest" corren (fakes en el PATH a propósito);
+# sin "Tests failed": el bloqueo es por package.json ilegible, no por suite
+# roja.
+for PYRUN_CASE in "TJ-texto|invalid|texto que no es JSON" "TJ-vacío|empty|archivo vacío"; do
+  IFS='|' read -r PYRUN_ID PYRUN_PKG PYRUN_DESC <<< "$PYRUN_CASE"
+  _pyrun_setup
+  _pyrun_assert_clean_path "$PYRUN_ID"
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_package_json "$PYRUN_PKG"
+  _pyrun_make_npm 0
+  _pyrun_make_path_pytest 0
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 2 ] \
+    && echo "$PYRUN_STDERR" | grep -qF "en: $PYRUN_DIR. package.json no es un objeto JSON válido: el hook no puede saber qué suite correr" \
+    && [ ! -f "$PYRUN_MARK/node.ran" ] \
+    && [ ! -f "$PYRUN_MARK/path.ran" ] \
+    && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: package.json ($PYRUN_DESC) sin marcador Python → bloquea con razón propia, sin correr npm ni pytest ($PYRUN_ID)" "$PYRUN_CASE_OK"
   _pyrun_cleanup
 done
 

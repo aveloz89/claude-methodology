@@ -21,8 +21,9 @@
 # entre SESSION_DIR y TARGET_DIR: se deriva un candidato por el PRIMER
 # SEGMENTO de cada path con cambios locales que sí tenga marcador (nunca se
 # adivina "todo el repo"); corren TODOS antes de decidir y cualquier fallo
-# (suite roja, o marcador Python sin runner) bloquea nombrando los
-# directorios; sin candidatos —ningún marcador— pasa sin correr nada.
+# (suite roja, marcador Python sin runner, o package.json ilegible) bloquea
+# nombrando los directorios; sin candidatos —ningún marcador— pasa sin correr
+# nada.
 #
 # Runner Python (rama pytest.ini/pyproject.toml/setup.py): orden cerrado, el
 # primero que aplica corre con cwd = directorio del marcador y bajo el mismo
@@ -48,7 +49,12 @@
 # Un package.json sin script "test" usable (ausente, el placeholder de "npm
 # init" o un "scripts.test" que no es string) no tapa un marcador Python del
 # mismo directorio: se usa la rama Python (D-06). Con script "test" (string)
-# corre solo el package manager.
+# corre solo el package manager. Un package.json que no es un objeto JSON
+# (texto que no parsea, archivo vacío, null, array) y SIN marcador Python
+# bloquea con su propia razón —el hook no puede saber qué suite correr; antes
+# pasaba en silencio— por el mismo mecanismo de razón por directorio, así que
+# el mensaje reutiliza el prefijo "no encontró un runner de pytest en: <dir>.".
+# Con marcador Python manda lo anterior (D-06): rama Python.
 #
 # Fuera de alcance (documentado, no parcheado — no confundir con un hueco
 # no advertido):
@@ -398,7 +404,17 @@ _guard_node_has_test_script() {
   [ -n "$test_cmd" ] && [ "$test_cmd" != "echo \"Error: no test specified\" && exit 1" ]
 }
 
-# Centinela de "marcador Python sin runner". 127 = convención "command not
+# _guard_package_json_is_object: el package.json del cwd es un objeto JSON.
+# El "jq -e" de abajo sale != 0 con texto que no parsea, con un archivo vacío
+# (sin "-e" y sin el filtro, jq lo da por válido: no hay valores) y con un
+# valor que no es objeto (null, array…): en todos el hook no puede saber qué
+# suite correr.
+_guard_package_json_is_object() {
+  jq -e 'type == "object"' package.json > /dev/null 2>&1
+}
+
+# Centinela de "directorio sin runner" (marcador Python sin runner, o
+# package.json ilegible sin marcador Python). 127 = convención "command not
 # found"; NUNCA viene del runner: el rc de la suite se colapsa a 0/1 en
 # _guard_run_suite_in. Verificado en macOS (bash 3.2): un script con
 # "#!/usr/bin/env python" sin python en el PATH sale con 127 y, sin la
@@ -408,9 +424,10 @@ GUARD_RC_NO_RUNNER=127
 # _guard_run_suite_in <dir> <budget>: detecta y corre el runner de UN
 # directorio con el budget que le tocó. Devuelve 0 (nada que correr, o corrió
 # y pasó), 1 (la suite falló: cualquier rc != 0 del runner) o
-# GUARD_RC_NO_RUNNER (marcador Python sin runner). Nunca hace "exit" salvo el
-# watchdog de _guard_run_with_budget: con más de un directorio el resto corre
-# igual antes de decidir.
+# GUARD_RC_NO_RUNNER (marcador Python sin runner, o package.json ilegible sin
+# marcador Python; en ambos deja la razón en GUARD_PY_RUNNER_REASON). Nunca
+# hace "exit" salvo el watchdog de _guard_run_with_budget: con más de un
+# directorio el resto corre igual antes de decidir.
 _guard_run_suite_in() {
   local dir="$1" budget="$2"
   local prev_pwd no_runner=0
@@ -442,6 +459,13 @@ _guard_run_suite_in() {
       echo "No Python test runner [$dir]." >&2
       no_runner=1
     fi
+  elif [ -f "package.json" ] && ! _guard_package_json_is_object; then
+    # Sin marcador Python (la rama de arriba ya lo tomó, D-06) y con un
+    # package.json que no se puede leer: no hay forma de saber qué suite
+    # correr, y pasar en silencio dejaba el commit sin tests (QA S-r2-3).
+    GUARD_PY_RUNNER_REASON="package.json no es un objeto JSON válido: el hook no puede saber qué suite correr (corrige el package.json)"
+    echo "package.json ilegible [$dir]." >&2
+    no_runner=1
   fi
 
   cd "$prev_pwd" || true
