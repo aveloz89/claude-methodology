@@ -2535,6 +2535,19 @@ fi
 _pyrun_report "pre-commit-guard: [tool.uvicorn] no activa uv → corre el pytest del PATH (T2c)" "$PYRUN_T2C_OK"
 _pyrun_cleanup
 
+# T3 (CA-2): .venv/bin/pytest sin uv (ni uv.lock ni "uv" en el PATH) y sin
+# pytest en el PATH → corre el pytest del venv, con cwd = directorio del
+# marcador, y el commit pasa.
+_pyrun_setup
+_pyrun_make_venv bin 0
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T3_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
+  PYRUN_T3_OK=0
+fi
+_pyrun_report "pre-commit-guard: .venv/bin/pytest sin uv → corre el del venv en el directorio del marcador (T3)" "$PYRUN_T3_OK"
+_pyrun_cleanup
+
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 

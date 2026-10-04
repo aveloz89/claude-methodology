@@ -298,13 +298,18 @@ _guard_project_uses_uv() {
 #             PATH del hook → "uv run --frozen pytest" (D-02: --frozen nunca
 #             reescribe uv.lock durante el commit). Declarado pero sin "uv" en
 #             PATH → sigue al siguiente paso, no bloquea aquí.
-#   2. PATH — "pytest" del PATH.
+#   2. venv — <dir>/.venv/bin/pytest.
+#   3. PATH — "pytest" del PATH.
 # Return 1 si ninguno aplica: el caller bloquea (D-01), nunca falla abierto.
 _guard_resolve_python_runner() {
   local dir="$1"
   GUARD_PY_RUNNER=()
   if _guard_project_uses_uv "$dir" && command -v uv > /dev/null 2>&1; then
     GUARD_PY_RUNNER=(uv run --frozen pytest)
+    return 0
+  fi
+  if [ -x "$dir/.venv/bin/pytest" ]; then
+    GUARD_PY_RUNNER=("$dir/.venv/bin/pytest")
     return 0
   fi
   if command -v pytest > /dev/null 2>&1; then
