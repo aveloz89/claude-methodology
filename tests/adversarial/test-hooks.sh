@@ -2576,6 +2576,22 @@ fi
 _pyrun_report "pre-commit-guard: .venv/Scripts/pytest.exe sin .venv/bin → corre ese pytest en el directorio del marcador (T8)" "$PYRUN_T8_OK"
 _pyrun_cleanup
 
+# T9 (edge del brief): uv.lock declara uv pero "uv" no está en el PATH del
+# hook → no se intenta uv ni se bloquea: cae al venv local. PIN DE REGRESIÓN:
+# nace verde porque el trigger de uv ya exige "command -v uv"; se rompe si esa
+# exigencia se quita de _guard_resolve_python_runner (verificado quitándola:
+# el hook ejecuta "uv" inexistente, rc 127 → "Tests failed", exit 2).
+_pyrun_setup
+touch "$PYRUN_DIR/uv.lock"
+_pyrun_make_venv bin 0
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T9_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
+  PYRUN_T9_OK=0
+fi
+_pyrun_report "pre-commit-guard: uv.lock + uv fuera del PATH + .venv/bin/pytest → corre el venv, no intenta uv ni bloquea (T9, pin)" "$PYRUN_T9_OK"
+_pyrun_cleanup
+
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 
