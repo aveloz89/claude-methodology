@@ -52,9 +52,10 @@
 # corre solo el package manager. Un package.json que no es un objeto JSON
 # (texto que no parsea, archivo vacío, null, array) y SIN marcador Python
 # bloquea con su propia razón —el hook no puede saber qué suite correr; antes
-# pasaba en silencio— por el mismo mecanismo de razón por directorio, así que
-# el mensaje reutiliza el prefijo "no encontró un runner de pytest en: <dir>.".
-# Con marcador Python manda lo anterior (D-06): rama Python.
+# pasaba en silencio— por el mismo mecanismo de razón por directorio: el
+# prefijo del mensaje, "no encontró un runner de tests en: <dir>.", es neutro
+# a propósito (sirve a razones de Python y de Node). Con marcador Python manda
+# lo anterior (D-06): rama Python.
 #
 # Fuera de alcance (documentado, no parcheado — no confundir con un hueco
 # no advertido):
@@ -504,7 +505,7 @@ if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ]; then
 fi
 _guard_i=0
 while [ "$_guard_i" -lt "${#GUARD_NO_RUNNER_DIRS[@]}" ]; do
-  echo "BLOCKED: pre-commit-guard no encontró un runner de pytest en: ${GUARD_NO_RUNNER_DIRS[$_guard_i]}. ${GUARD_NO_RUNNER_REASONS[$_guard_i]}. El hook no falla abierto." >&2
+  echo "BLOCKED: pre-commit-guard no encontró un runner de tests en: ${GUARD_NO_RUNNER_DIRS[$_guard_i]}. ${GUARD_NO_RUNNER_REASONS[$_guard_i]}. El hook no falla abierto." >&2
   _guard_i=$((_guard_i + 1))
 done
 if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ] || [ "${#GUARD_NO_RUNNER_DIRS[@]}" -gt 0 ]; then

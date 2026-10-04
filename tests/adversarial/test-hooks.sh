@@ -2497,7 +2497,7 @@ _pyrun_assert_clean_path T0
 _pyrun_run "$PYRUN_CLEAN_BIN"
 PYRUN_T5_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] \
-  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR" \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR" \
   && echo "$PYRUN_STDERR" | grep -qF "(1) uv" \
   && echo "$PYRUN_STDERR" | grep -qF "(2) venv local" \
   && echo "$PYRUN_STDERR" | grep -qF "(3) 'pytest' en el PATH"; then
@@ -2559,7 +2559,7 @@ for PYRUN_CASE in "T2|[tool.uv]" "T2b|[tool.uv.sources]"; do
   _pyrun_run "$PYRUN_UV_BIN:$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
   PYRUN_CASE_OK=1
   if [ "$PYRUN_EXIT" -eq 2 ] \
-    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. uv declarado sin uv.lock: corre 'uv sync'" \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. uv declarado sin uv.lock: corre 'uv sync'" \
     && [ ! -f "$PYRUN_MARK/uv.argv" ] \
     && [ ! -f "$PYRUN_MARK/path.ran" ] \
     && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
@@ -2670,7 +2670,7 @@ _pyrun_make_path_pytest 0
 _pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
 PYRUN_TA_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] \
-  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. uv.lock presente pero 'uv' no está en el PATH del hook" \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. uv.lock presente pero 'uv' no está en el PATH del hook" \
   && [ ! -f "$PYRUN_MARK/path.ran" ] \
   && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
   PYRUN_TA_OK=0
@@ -2694,7 +2694,7 @@ for PYRUN_CASE in "TB|.venv|.venv/ vacío" "TB2|.venv/bin/pytest|.venv/bin/pytes
   _pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
   PYRUN_CASE_OK=1
   if [ "$PYRUN_EXIT" -eq 2 ] \
-    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. .venv/ existe sin pytest ejecutable" \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. .venv/ existe sin pytest ejecutable" \
     && [ ! -f "$PYRUN_MARK/path.ran" ] \
     && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
     PYRUN_CASE_OK=0
@@ -2715,7 +2715,7 @@ _pyrun_make_path_pytest 0
 _pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
 PYRUN_TB3_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] \
-  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. .venv/ existe sin pytest ejecutable" \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. .venv/ existe sin pytest ejecutable" \
   && [ ! -f "$PYRUN_MARK/path.ran" ] \
   && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
   PYRUN_TB3_OK=0
@@ -2741,7 +2741,7 @@ _pyrun_make_path_pytest 0
 _pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
 PYRUN_TP1_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] \
-  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. uv.lock presente pero 'uv' no está en el PATH" \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. uv.lock presente pero 'uv' no está en el PATH" \
   && ! echo "$PYRUN_STDERR" | grep -qF ".venv/ existe sin pytest ejecutable" \
   && [ ! -f "$PYRUN_MARK/path.ran" ]; then
   PYRUN_TP1_OK=0
@@ -2757,7 +2757,7 @@ _pyrun_make_path_pytest 0
 _pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
 PYRUN_TP2_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] \
-  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. uv declarado sin uv.lock: corre 'uv sync'" \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. uv declarado sin uv.lock: corre 'uv sync'" \
   && ! echo "$PYRUN_STDERR" | grep -qF ".venv/ existe sin pytest ejecutable" \
   && [ ! -f "$PYRUN_MARK/path.ran" ]; then
   PYRUN_TP2_OK=0
@@ -2779,7 +2779,7 @@ _pyrun_make_path_pytest 0
 _pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
 PYRUN_TB4_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] \
-  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. .venv/ existe sin pytest ejecutable" \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. .venv/ existe sin pytest ejecutable" \
   && [ ! -f "$PYRUN_MARK/path.ran" ] \
   && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
   PYRUN_TB4_OK=0
@@ -2865,7 +2865,7 @@ for PYRUN_CASE in "TJ-texto|invalid|texto que no es JSON" "TJ-vacío|empty|archi
   _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
   PYRUN_CASE_OK=1
   if [ "$PYRUN_EXIT" -eq 2 ] \
-    && echo "$PYRUN_STDERR" | grep -qF "en: $PYRUN_DIR. package.json no es un objeto JSON válido: el hook no puede saber qué suite correr" \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. package.json no es un objeto JSON válido: el hook no puede saber qué suite correr" \
     && [ ! -f "$PYRUN_MARK/node.ran" ] \
     && [ ! -f "$PYRUN_MARK/path.ran" ] \
     && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
@@ -2968,7 +2968,7 @@ _pyrun_run "$PYRUN_CLEAN_BIN"
 PYRUN_T10_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] \
   && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR/beta" ] \
-  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR/alpha. Resuélvelo" \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR/alpha. Resuélvelo" \
   && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed in:"; then
   PYRUN_T10_OK=0
 fi
