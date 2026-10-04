@@ -279,17 +279,25 @@ _guard_run_with_budget() {
   return "$rc"
 }
 
-# _guard_project_uses_uv <dir>: el proyecto declara uv — por ahora, uv.lock.
+# _guard_pyproject_declares_uv <dir>: true si <dir>/pyproject.toml tiene una
+# tabla [tool.uv] o [tool.uv.<sub>] al inicio de línea. "(\]|\.)" evita que
+# [tool.uvicorn] cuente como uv. Fuera de alcance (documentado): "[ tool.uv ]"
+# con espacios dentro de los corchetes y claves entre comillas.
+_guard_pyproject_declares_uv() {
+  [ -f "$1/pyproject.toml" ] && grep -qE '^[[:space:]]*\[tool\.uv(\]|\.)' "$1/pyproject.toml"
+}
+
+# _guard_project_uses_uv <dir>: el proyecto declara uv — uv.lock o [tool.uv…].
 _guard_project_uses_uv() {
-  [ -f "$1/uv.lock" ]
+  [ -f "$1/uv.lock" ] || _guard_pyproject_declares_uv "$1"
 }
 
 # _guard_resolve_python_runner <dir>: deja en GUARD_PY_RUNNER (array, nunca
 # string — rules/bash.md) el comando a ejecutar con cwd=<dir>. Orden cerrado:
-#   1. uv   — el proyecto lo declara Y "uv" está en el PATH del hook →
-#             "uv run --frozen pytest" (D-02: --frozen nunca reescribe uv.lock
-#             durante el commit). Declarado pero sin "uv" en PATH → sigue al
-#             siguiente paso, no bloquea aquí.
+#   1. uv   — el proyecto lo declara (uv.lock o [tool.uv…]) Y "uv" está en el
+#             PATH del hook → "uv run --frozen pytest" (D-02: --frozen nunca
+#             reescribe uv.lock durante el commit). Declarado pero sin "uv" en
+#             PATH → sigue al siguiente paso, no bloquea aquí.
 #   2. PATH — "pytest" del PATH.
 # Return 1 si ninguno aplica: el caller bloquea (D-01), nunca falla abierto.
 _guard_resolve_python_runner() {

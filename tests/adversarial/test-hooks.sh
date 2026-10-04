@@ -2409,6 +2409,12 @@ PTEOF
   chmod +x "$PYRUN_PYTEST_BIN/pytest"
 }
 
+# _pyrun_make_pyproject <tabla>: reemplaza el pyproject.toml vacío del
+# fixture por uno con [project] y la tabla dada como encabezado.
+_pyrun_make_pyproject() {
+  printf '[project]\nname = "x"\nversion = "0"\n\n%s\n' "$1" > "$PYRUN_DIR/pyproject.toml"
+}
+
 # _pyrun_run <PATH>: corre el hook con "git commit -m x" desde la raíz del
 # fixture. Deja el exit en PYRUN_EXIT y el stderr en PYRUN_STDERR (mismo
 # patrón de captura que G2 en "monorepo sin marcador en la raíz").
@@ -2497,6 +2503,36 @@ if [ "$PYRUN_EXIT" -eq 0 ] \
   PYRUN_T1_OK=0
 fi
 _pyrun_report "pre-commit-guard: uv.lock + uv en PATH → 'uv run --frozen pytest' en el directorio del marcador; el venv no corre (T1)" "$PYRUN_T1_OK"
+_pyrun_cleanup
+
+# T2 / T2b (CA-3): [tool.uv] o [tool.uv.<sub>] en pyproject.toml activan uv
+# aunque no haya uv.lock.
+for PYRUN_CASE in "T2|[tool.uv]" "T2b|[tool.uv.sources]"; do
+  _pyrun_setup
+  _pyrun_make_pyproject "${PYRUN_CASE#*|}"
+  _pyrun_make_uv 0
+  _pyrun_run "$PYRUN_UV_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] && [ -f "$PYRUN_MARK/uv.argv" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: ${PYRUN_CASE#*|} en pyproject.toml sin uv.lock → invoca uv (${PYRUN_CASE%%|*})" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# T2c (CA-3, negativo del regex): [tool.uvicorn] NO activa uv — el regex pide
+# "]" o "." tras "[tool.uv". Pin de regresión: nace verde (hoy solo uv.lock
+# activa uv) y se rompe si el regex se relaja a "\[tool\.uv" a secas.
+_pyrun_setup
+_pyrun_make_pyproject "[tool.uvicorn]"
+_pyrun_make_uv 0
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_UV_BIN:$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_T2C_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] && [ -f "$PYRUN_MARK/path.ran" ] && [ ! -f "$PYRUN_MARK/uv.argv" ]; then
+  PYRUN_T2C_OK=0
+fi
+_pyrun_report "pre-commit-guard: [tool.uvicorn] no activa uv → corre el pytest del PATH (T2c)" "$PYRUN_T2C_OK"
 _pyrun_cleanup
 
 # --- pre-merge-check.sh ---
