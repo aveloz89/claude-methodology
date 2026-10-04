@@ -279,14 +279,34 @@ _guard_run_with_budget() {
   return "$rc"
 }
 
+# _guard_resolve_python_runner <dir>: deja en GUARD_PY_RUNNER (array, nunca
+# string — rules/bash.md) el comando a ejecutar con cwd=<dir>. Return 1 si no
+# hay ninguno: el caller bloquea (D-01), nunca falla abierto.
+_guard_resolve_python_runner() {
+  GUARD_PY_RUNNER=()
+  if command -v pytest > /dev/null 2>&1; then
+    GUARD_PY_RUNNER=(pytest)
+    return 0
+  fi
+  return 1
+}
+
+# Centinela de "marcador Python sin runner". 127 = convención "command not
+# found"; NUNCA viene del runner: el rc de la suite se colapsa a 0/1 en
+# _guard_run_suite_in. Verificado en macOS (bash 3.2): un script con
+# "#!/usr/bin/env python" sin python en el PATH sale con 127 y, sin la
+# normalización, se reportaría como "sin runner" en vez de "suite roja".
+GUARD_RC_NO_RUNNER=127
+
 # _guard_run_suite_in <dir> <budget>: detecta y corre el runner de UN
-# directorio con el budget que le tocó. Devuelve 0/1 (nada que correr o
-# corrió y pasó / corrió y falló) — nunca hace "exit" salvo el watchdog de
-# _guard_run_with_budget: con más de un directorio el resto corre igual
-# antes de decidir.
+# directorio con el budget que le tocó. Devuelve 0 (nada que correr, o corrió
+# y pasó), 1 (la suite falló: cualquier rc != 0 del runner) o
+# GUARD_RC_NO_RUNNER (marcador Python sin runner). Nunca hace "exit" salvo el
+# watchdog de _guard_run_with_budget: con más de un directorio el resto corre
+# igual antes de decidir.
 _guard_run_suite_in() {
   local dir="$1" budget="$2"
-  local prev_pwd
+  local prev_pwd no_runner=0
   prev_pwd=$(pwd)
   cd "$dir" || return 1
 
@@ -312,16 +332,21 @@ _guard_run_suite_in() {
       fi
     fi
   elif [ -f "pytest.ini" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
-    if command -v pytest > /dev/null 2>&1; then
-      echo "Running pytest before commit [$dir]..." >&2
-      _guard_run_with_budget "$budget" pytest
+    if _guard_resolve_python_runner "$dir"; then
+      echo "Running ${GUARD_PY_RUNNER[*]} before commit [$dir]..." >&2
+      _guard_run_with_budget "$budget" "${GUARD_PY_RUNNER[@]}"
       rc=$?
       [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
+    else
+      echo "No Python test runner [$dir]: sin uv aplicable (uv.lock o [tool.uv] + 'uv' en PATH), sin .venv/bin/pytest ni .venv/Scripts/pytest.exe, sin 'pytest' en PATH." >&2
+      no_runner=1
     fi
   fi
 
   cd "$prev_pwd" || true
-  return "$rc"
+  [ "$no_runner" -eq 1 ] && return "$GUARD_RC_NO_RUNNER"
+  [ "$rc" -ne 0 ] && return 1
+  return 0
 }
 
 # Presupuesto por directorio: se divide en partes iguales entre los
@@ -331,15 +356,28 @@ PRECOMMIT_DIR_BUDGET=$(( $(_guard_resolve_test_budget) / ${#GUARD_RUN_DIRS[@]} )
 [ "$PRECOMMIT_DIR_BUDGET" -lt 1 ] && PRECOMMIT_DIR_BUDGET=1
 
 # Corre cada directorio resuelto arriba (uno solo, o varios derivados por
-# segmento sin marcador arriba). Cualquier fallo bloquea nombrando el/los
-# directorio(s) — se corren TODOS antes de decidir.
+# segmento sin marcador arriba). Cualquier fallo —suite roja o marcador
+# Python sin runner— bloquea nombrando el/los directorio(s); se corren TODOS
+# antes de decidir.
 GUARD_FAILED_DIRS=()
+GUARD_NO_RUNNER_DIRS=()
 for _guard_dir in "${GUARD_RUN_DIRS[@]}"; do
-  _guard_run_suite_in "$_guard_dir" "$PRECOMMIT_DIR_BUDGET" || GUARD_FAILED_DIRS+=("$_guard_dir")
+  _guard_run_suite_in "$_guard_dir" "$PRECOMMIT_DIR_BUDGET"
+  _guard_rc=$?
+  case "$_guard_rc" in
+    0) ;;
+    "$GUARD_RC_NO_RUNNER") GUARD_NO_RUNNER_DIRS+=("$_guard_dir") ;;
+    *) GUARD_FAILED_DIRS+=("$_guard_dir") ;;
+  esac
 done
 
 if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ]; then
   echo "BLOCKED: Tests failed in: ${GUARD_FAILED_DIRS[*]}. Fix tests before committing." >&2
+fi
+if [ "${#GUARD_NO_RUNNER_DIRS[@]}" -gt 0 ]; then
+  echo "BLOCKED: pre-commit-guard no encontró un runner de pytest en: ${GUARD_NO_RUNNER_DIRS[*]}. Resuélvelo con una de: (1) uv — uv.lock o [tool.uv] en pyproject.toml y 'uv' en el PATH del hook; (2) venv local — .venv/bin/pytest o .venv/Scripts/pytest.exe; (3) 'pytest' en el PATH. El hook no falla abierto." >&2
+fi
+if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ] || [ "${#GUARD_NO_RUNNER_DIRS[@]}" -gt 0 ]; then
   exit 2
 fi
 

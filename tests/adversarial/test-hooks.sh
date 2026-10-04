@@ -955,9 +955,10 @@ assert_allowed_cmd "pre-commit-guard: git log --grep commit no se intercepta" \
 assert_allowed_cmd "pre-commit-guard: git show HEAD no se intercepta" \
   "pre-commit-guard.sh" "git show HEAD"
 
-# Nota: el test de commit bloqueado depende de que haya un test runner configurado
-# en el proyecto. En este repo (methodology) no hay package.json ni pytest,
-# así que el hook permite el commit (no encuentra test runner).
+# Nota: este repo (methodology) no tiene marcador de runner en la raíz
+# (package.json / pyproject.toml / setup.py / pytest.ini), así que el hook no
+# tiene qué correr y permite el commit. NO es "sin pytest": un marcador Python
+# sin runner bloquea (D-01, ver la sección "runner de pytest" más abajo).
 assert_allowed "Commit in repo without test runner passes through" "pre-commit-guard.sh" "git commit -m 'test'"
 
 # Regression #47: mismo matching frágil que pre-merge-check.sh tenía antes
@@ -2321,6 +2322,133 @@ else
   FAIL=$((FAIL + 1))
 fi
 _multiroot_budget_cleanup
+
+# --- pre-commit-guard.sh: runner de pytest (uv / .venv / PATH) ---
+echo "--- pre-commit-guard.sh: runner de pytest (uv / .venv / PATH) ---"
+
+# Hermeticidad (CA-8): ningún test de esta sección usa el $PATH real. El PATH
+# es siempre PYRUN_CLEAN_BIN (symlinks por NOMBRE a lo que el hook necesita,
+# nunca el directorio entero: "uv" real puede vivir junto a "jq") más los
+# directorios de fakes que el caso necesite — así el resultado no depende de
+# que la máquina tenga o no "uv"/"pytest" reales. Mismo patrón que NO_PERL_BIN
+# (guard-matching: modo degradado sin perl).
+#
+# _pyrun_setup: repo git temporal con pyproject.toml vacío en la raíz y
+# src/a.py con un cambio local. PYRUN_MARK recibe los marcadores que dejan los
+# fakes; PYRUN_UV_BIN y PYRUN_PYTEST_BIN son los directorios de fakes (vacíos
+# hasta que un test los puebla).
+_pyrun_setup() {
+  PYRUN_DIR=$(mktemp -d)
+  PYRUN_DIR=$(cd "$PYRUN_DIR" && pwd -P)
+  PYRUN_MARK=$(mktemp -d)
+  PYRUN_UV_BIN=$(mktemp -d)
+  PYRUN_PYTEST_BIN=$(mktemp -d)
+  PYRUN_CLEAN_BIN=$(mktemp -d)
+  local cmd cmd_path
+  for cmd in bash git jq perl grep cut sort cat mktemp rm sleep; do
+    cmd_path=$(command -v "$cmd" 2>/dev/null) || true
+    if [ -n "$cmd_path" ]; then
+      ln -s "$cmd_path" "$PYRUN_CLEAN_BIN/$cmd"
+    fi
+  done
+  (
+    cd "$PYRUN_DIR" || exit 1
+    git init -q
+    git config user.email "sandbox@example.com"
+    git config user.name "Sandbox"
+    mkdir -p src
+    touch pyproject.toml
+    echo "print(1)" > src/a.py
+    git add -A
+    git commit -q -m init
+    echo "print(2)" >> src/a.py
+  ) > /dev/null 2>&1
+}
+
+_pyrun_cleanup() {
+  rm -rf "$PYRUN_DIR" "$PYRUN_MARK" "$PYRUN_UV_BIN" "$PYRUN_PYTEST_BIN" "$PYRUN_CLEAN_BIN"
+}
+
+# _pyrun_make_path_pytest <rc>: "pytest" fake para el PATH; deja path.ran y
+# sale con <rc>.
+_pyrun_make_path_pytest() {
+  cat > "$PYRUN_PYTEST_BIN/pytest" <<PTEOF
+#!/bin/bash
+echo ran > "$PYRUN_MARK/path.ran"
+exit $1
+PTEOF
+  chmod +x "$PYRUN_PYTEST_BIN/pytest"
+}
+
+# _pyrun_run <PATH>: corre el hook con "git commit -m x" desde la raíz del
+# fixture. Deja el exit en PYRUN_EXIT y el stderr en PYRUN_STDERR (mismo
+# patrón de captura que G2 en "monorepo sin marcador en la raíz").
+_pyrun_run() {
+  local run_path="$1" json
+  json=$(jq -n --arg cmd "git commit -m x" '{tool_input: {command: $cmd}}')
+  PYRUN_EXIT=0
+  PYRUN_STDERR=$(cd "$PYRUN_DIR" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PYRUN_EXIT=$?
+}
+
+# _pyrun_report <nombre> <0|1>: registra el resultado de una aserción (0 = se
+# cumplió). En FAIL imprime exit y stderr para diagnosticar sin reproducir.
+_pyrun_report() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$2" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC}: $1"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $1 (exit=${PYRUN_EXIT:-?}, stderr=\"${PYRUN_STDERR:-}\")"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# _pyrun_assert_clean_path: precondición de los casos "sin runner" (T0).
+# Afirma, en un bash nuevo bajo el PATH curado (la misma búsqueda que hace el
+# hook), que ni "pytest" ni "uv" resuelven. Si alguno resolviera, el resultado
+# de T5 sería un falso verde: pasaría porque la máquina tiene el binario, no
+# porque el hook lo encontró o no.
+_pyrun_assert_clean_path() {
+  local found=0
+  PATH="$PYRUN_CLEAN_BIN" bash -c 'command -v pytest' > /dev/null 2>&1 && found=1
+  PATH="$PYRUN_CLEAN_BIN" bash -c 'command -v uv' > /dev/null 2>&1 && found=1
+  _pyrun_report "pre-commit-guard: precondición — el PATH curado no resuelve pytest ni uv (T0)" "$found"
+}
+
+# T0 + T5 (CA-5, CA-8): marcador Python (pyproject.toml vacío) sin ningún
+# runner → exit 2 con un mensaje que nombra el directorio y las tres vías.
+# Antes de D-01 el hook fallaba abierto (exit 0) en este caso.
+_pyrun_setup
+_pyrun_assert_clean_path
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T5_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR" \
+  && echo "$PYRUN_STDERR" | grep -qF "(1) uv" \
+  && echo "$PYRUN_STDERR" | grep -qF "(2) venv local" \
+  && echo "$PYRUN_STDERR" | grep -qF "(3) 'pytest' en el PATH"; then
+  PYRUN_T5_OK=0
+fi
+_pyrun_report "pre-commit-guard: marcador Python sin runner → exit 2 nombrando el directorio y las tres vías (T5)" "$PYRUN_T5_OK"
+_pyrun_cleanup
+
+# T5b (contrato 0/1/127 de _guard_run_suite_in): un runner que SALE con 127
+# es una suite roja, no "sin runner". 127 es el centinela de "sin runner" y no
+# puede venir del runner: un pytest con "#!/usr/bin/env python" sin python en
+# el PATH sale con 127 (verificado en macOS), y sin colapsar el rc a 0/1 se
+# anunciaría como "no encontró un runner" en vez de "Tests failed".
+_pyrun_setup
+_pyrun_make_path_pytest 127
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_T5B_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [ -f "$PYRUN_MARK/path.ran" ] \
+  && echo "$PYRUN_STDERR" | grep -qF "Tests failed in: $PYRUN_DIR" \
+  && ! echo "$PYRUN_STDERR" | grep -qF "no encontró un runner"; then
+  PYRUN_T5B_OK=0
+fi
+_pyrun_report "pre-commit-guard: runner que sale con 127 → 'Tests failed', no 'sin runner' (T5b)" "$PYRUN_T5B_OK"
+_pyrun_cleanup
 
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
