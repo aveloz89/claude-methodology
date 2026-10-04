@@ -2428,11 +2428,12 @@ NPMEOF
   chmod +x "$PYRUN_NPM_BIN/npm"
 }
 
-# _pyrun_make_package_json <none|placeholder|test|bool|object|number|invalid|empty|multi|trailing>:
+# _pyrun_make_package_json <none|placeholder|test|bool|false|object|number|array|null|invalid|empty|multi|trailing>:
 # package.json en la raíz del fixture, junto al pyproject.toml. none = sin
 # scripts; placeholder = el script "test" que deja "npm init"; test = un script
-# "test" usable (string); bool/object/number = "scripts.test" de un tipo que no
-# es string (npm no lo puede correr); invalid = texto que no es JSON (objeto
+# "test" usable (string); bool (true)/false/object/number/array = "scripts.test"
+# de un tipo que no es string (npm no lo puede correr); null = "scripts.test":
+# null; invalid = texto que no es JSON (objeto
 # cortado); empty = archivo de 0 bytes; multi = dos valores JSON válidos
 # ("[] {}": el último es un objeto); trailing = un objeto con script "test"
 # usable seguido de basura (jq emite el script antes de fallar).
@@ -2442,8 +2443,11 @@ _pyrun_make_package_json() {
     placeholder) jq -n --arg t 'echo "Error: no test specified" && exit 1' '{name: "x", scripts: {test: $t}}' ;;
     test) jq -n '{name: "x", scripts: {test: "x"}}' ;;
     bool) jq -n '{name: "x", scripts: {test: true}}' ;;
+    false) jq -n '{name: "x", scripts: {test: false}}' ;;
     object) jq -n '{name: "x", scripts: {test: {cmd: "x"}}}' ;;
     number) jq -n '{name: "x", scripts: {test: 1}}' ;;
+    array) jq -n '{name: "x", scripts: {test: ["x"]}}' ;;
+    null) jq -n '{name: "x", scripts: {test: null}}' ;;
     invalid) printf '{ "name": "x", "scripts": ' ;;
     empty) : ;;
     multi) printf '[] {}' ;;
@@ -2887,6 +2891,59 @@ for PYRUN_CASE in "TJ-texto|invalid|texto que no es JSON" "TJ-vacío|empty|archi
     PYRUN_CASE_OK=0
   fi
   _pyrun_report "pre-commit-guard: package.json ($PYRUN_DESC) sin marcador Python → bloquea con razón propia, sin correr npm ni pytest ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TJ3 (security LOW-3, regresión del PR): un package.json objeto válido con
+# "scripts.test" de un tipo que no es string ni null (true, false, objeto,
+# número, array), SIN marcador Python, bloquea con razón propia. En origin/dev
+# bloqueaba por accidente (npm "Missing script" → "Tests failed", salvo false);
+# al exigir string para el script usable (TD6c) el hook dejó de correr npm y
+# salía 0 sin correr nada. Ni "npm" ni "pytest" corren (fakes en el PATH a
+# propósito): el hook decide por el tipo, no delega en npm. Con marcador Python
+# siguen mandando TD6c (rama Python). Rojo (verificado): sin la rama nueva los
+# cinco salen 0 sin bloquear.
+for PYRUN_CASE in "TJ3-true|bool|true" "TJ3-false|false|false" "TJ3-objeto|object|un objeto" "TJ3-número|number|un número" "TJ3-array|array|un array"; do
+  IFS='|' read -r PYRUN_ID PYRUN_PKG PYRUN_DESC <<< "$PYRUN_CASE"
+  _pyrun_setup
+  _pyrun_assert_clean_path "$PYRUN_ID"
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_package_json "$PYRUN_PKG"
+  _pyrun_make_npm 0
+  _pyrun_make_path_pytest 0
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 2 ] \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. package.json declara scripts.test que no es un string: el hook no puede saber qué suite correr" \
+    && [ ! -f "$PYRUN_MARK/node.ran" ] \
+    && [ ! -f "$PYRUN_MARK/path.ran" ] \
+    && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: package.json con scripts.test = $PYRUN_DESC (no string) sin marcador Python → bloquea con razón propia, sin correr npm ni pytest ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TJ3n (legacy aceptado, PINES: nacen verdes): "scripts.test" ausente o null,
+# sin marcador Python, sigue pasando sin correr nada — como en origin/dev. Un
+# package.json de solo tooling no declara suite y no es motivo de bloqueo. Se
+# rompen si la rama de TJ3 pasa a bloquear también null o la ausencia (p. ej.
+# comparando solo "type != string").
+for PYRUN_CASE in "TJ3n-ausente|none|ausente" "TJ3n-null|null|null"; do
+  IFS='|' read -r PYRUN_ID PYRUN_PKG PYRUN_DESC <<< "$PYRUN_CASE"
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_package_json "$PYRUN_PKG"
+  _pyrun_make_npm 0
+  _pyrun_make_path_pytest 0
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ ! -f "$PYRUN_MARK/node.ran" ] \
+    && [ ! -f "$PYRUN_MARK/path.ran" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: package.json con scripts.test $PYRUN_DESC sin marcador Python → pasa sin correr nada, como en origin/dev ($PYRUN_ID, pin)" "$PYRUN_CASE_OK"
   _pyrun_cleanup
 done
 

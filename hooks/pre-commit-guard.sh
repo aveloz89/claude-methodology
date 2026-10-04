@@ -21,9 +21,9 @@
 # entre SESSION_DIR y TARGET_DIR: se deriva un candidato por el PRIMER
 # SEGMENTO de cada path con cambios locales que sí tenga marcador (nunca se
 # adivina "todo el repo"); corren TODOS antes de decidir y cualquier fallo
-# (suite roja, marcador Python sin runner, o package.json ilegible) bloquea
-# nombrando los directorios; sin candidatos —ningún marcador— pasa sin correr
-# nada.
+# (suite roja, marcador Python sin runner, o package.json inutilizable sin
+# marcador Python) bloquea nombrando los directorios; sin candidatos —ningún
+# marcador— pasa sin correr nada.
 #
 # Runner Python (rama pytest.ini/pyproject.toml/setup.py): orden cerrado, el
 # primero que aplica corre con cwd = directorio del marcador y bajo el mismo
@@ -56,6 +56,12 @@
 # mecanismo de razón por directorio: el prefijo del mensaje, "no encontró un
 # runner de tests en: <dir>.", es neutro a propósito (sirve a razones de
 # Python y de Node). Con marcador Python manda lo anterior (D-06): rama Python.
+# Lo mismo un "scripts.test" de un tipo que no es string ni null (true, false,
+# objeto, número, array) en un package.json objeto válido, sin marcador
+# Python: bloquea con su razón en vez de pasar en silencio (en origin/dev
+# bloqueaba vía npm "Missing script"). "scripts.test" ausente o null sin
+# marcador Python sigue pasando sin correr nada (legacy aceptado, como en
+# origin/dev).
 #
 # Fuera de alcance (documentado, no parcheado — no confundir con un hueco
 # no advertido):
@@ -418,8 +424,17 @@ _guard_node_has_test_script() {
   [ -n "$test_cmd" ] && [ "$test_cmd" != "echo \"Error: no test specified\" && exit 1" ]
 }
 
+# _guard_node_test_script_wrong_type: el package.json del cwd declara
+# "scripts.test" con un tipo que no es string ni null (true, false, objeto,
+# número, array). Ausente o null cuenta como "sin script" (legacy aceptado,
+# igual que en origin/dev); si "scripts" no es un objeto, jq falla y tampoco
+# cuenta. Solo se evalúa sin marcador Python: con marcador manda D-06.
+_guard_node_test_script_wrong_type() {
+  jq -e '.scripts.test | type | . != "string" and . != "null"' package.json > /dev/null 2>&1
+}
+
 # Centinela de "directorio sin runner" (marcador Python sin runner, o
-# package.json ilegible sin marcador Python). 127 = convención "command not
+# package.json inutilizable sin marcador Python). 127 = convención "command not
 # found"; NUNCA viene del runner: el rc de la suite se colapsa a 0/1 en
 # _guard_run_suite_in. Verificado en macOS (bash 3.2): un script con
 # "#!/usr/bin/env python" sin python en el PATH sale con 127 y, sin la
@@ -429,8 +444,9 @@ GUARD_RC_NO_RUNNER=127
 # _guard_run_suite_in <dir> <budget>: detecta y corre el runner de UN
 # directorio con el budget que le tocó. Devuelve 0 (nada que correr, o corrió
 # y pasó), 1 (la suite falló: cualquier rc != 0 del runner) o
-# GUARD_RC_NO_RUNNER (marcador Python sin runner, o package.json ilegible sin
-# marcador Python; en ambos deja la razón en GUARD_PY_RUNNER_REASON). Nunca
+# GUARD_RC_NO_RUNNER (marcador Python sin runner, o package.json inutilizable
+# sin marcador Python: no es un único objeto JSON, o scripts.test de un tipo
+# que npm no corre; en ambos deja la razón en GUARD_PY_RUNNER_REASON). Nunca
 # hace "exit" salvo el watchdog de _guard_run_with_budget: con más de un
 # directorio el resto corre igual antes de decidir.
 _guard_run_suite_in() {
@@ -471,6 +487,15 @@ _guard_run_suite_in() {
     # S-r2-3).
     GUARD_PY_RUNNER_REASON="package.json no es un objeto JSON válido: el hook no puede saber qué suite correr (corrige el package.json)"
     echo "package.json no es un objeto JSON válido [$dir]." >&2
+    no_runner=1
+  elif [ -f "package.json" ] && _guard_node_test_script_wrong_type; then
+    # Sin marcador Python y con scripts.test de un tipo que npm no puede
+    # correr: en origin/dev bloqueaba por accidente (npm "Missing script" →
+    # "Tests failed"); al exigir string para el script usable dejó de
+    # correr npm y pasaba en silencio (security LOW-3). Se decide por el tipo,
+    # sin delegar en npm.
+    GUARD_PY_RUNNER_REASON="package.json declara scripts.test que no es un string: el hook no puede saber qué suite correr (corrige el package.json)"
+    echo "package.json con scripts.test que no es un string [$dir]." >&2
     no_runner=1
   fi
 
