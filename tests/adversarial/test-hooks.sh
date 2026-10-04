@@ -2428,14 +2428,19 @@ NPMEOF
   chmod +x "$PYRUN_NPM_BIN/npm"
 }
 
-# _pyrun_make_package_json <none|placeholder|test>: package.json en la raíz del
-# fixture, junto al pyproject.toml. none = sin scripts; placeholder = el
-# script "test" que deja "npm init"; test = un script "test" usable.
+# _pyrun_make_package_json <none|placeholder|test|bool|object|number>:
+# package.json en la raíz del fixture, junto al pyproject.toml. none = sin
+# scripts; placeholder = el script "test" que deja "npm init"; test = un script
+# "test" usable (string); bool/object/number = "scripts.test" de un tipo que no
+# es string (npm no lo puede correr).
 _pyrun_make_package_json() {
   case "$1" in
     none) jq -n '{name: "x"}' ;;
     placeholder) jq -n --arg t 'echo "Error: no test specified" && exit 1' '{name: "x", scripts: {test: $t}}' ;;
     test) jq -n '{name: "x", scripts: {test: "x"}}' ;;
+    bool) jq -n '{name: "x", scripts: {test: true}}' ;;
+    object) jq -n '{name: "x", scripts: {test: {cmd: "x"}}}' ;;
+    number) jq -n '{name: "x", scripts: {test: 1}}' ;;
   esac > "$PYRUN_DIR/package.json"
 }
 
@@ -2730,6 +2735,30 @@ for PYRUN_CASE in "TD6a|none|sin scripts" "TD6a'|placeholder|con el placeholder 
     PYRUN_CASE_OK=0
   fi
   _pyrun_report "pre-commit-guard: package.json $PYRUN_DESC + pyproject.toml + .venv/bin/pytest → corre el venv ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TD6c (D-06, security ronda 2): un "scripts.test" que NO es string (true, un
+# objeto, un número) tampoco es un script usable: npm no lo corre ("Missing
+# script"), así que contarlo como usable bloqueaba con "Tests failed" y tapaba
+# el marcador Python. Con pyproject.toml + .venv/bin/pytest corre el venv y el
+# "npm" fake (en el PATH a propósito) no corre. Rojo: con '.scripts.test //
+# empty' sin filtrar por tipo, los tres casos corren "npm test" y venv.ran no
+# aparece (verificado).
+for PYRUN_CASE in "TD6c-bool|bool|true" "TD6c-object|object|un objeto" "TD6c-number|number|un número"; do
+  IFS='|' read -r PYRUN_ID PYRUN_PKG PYRUN_DESC <<< "$PYRUN_CASE"
+  _pyrun_setup
+  _pyrun_make_package_json "$PYRUN_PKG"
+  _pyrun_make_venv bin 0
+  _pyrun_make_npm 0
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+    && [ ! -f "$PYRUN_MARK/node.ran" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-commit-guard: package.json con scripts.test = $PYRUN_DESC (no string) + pyproject.toml + .venv/bin/pytest → corre el venv, no npm ($PYRUN_ID)" "$PYRUN_CASE_OK"
   _pyrun_cleanup
 done
 

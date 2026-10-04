@@ -45,9 +45,10 @@
 # fail-closed, el hook no pasa en silencio por no encontrar runner). Sin
 # NINGÚN marcador sigue pasando: "sin marcador" no es "marcador sin runner".
 #
-# Un package.json sin script "test" usable (ausente o el placeholder de "npm
-# init") no tapa un marcador Python del mismo directorio: se usa la rama
-# Python (D-06). Con script "test" corre solo el package manager.
+# Un package.json sin script "test" usable (ausente, el placeholder de "npm
+# init" o un "scripts.test" que no es string) no tapa un marcador Python del
+# mismo directorio: se usa la rama Python (D-06). Con script "test" (string)
+# corre solo el package manager.
 #
 # Fuera de alcance (documentado, no parcheado — no confundir con un hueco
 # no advertido):
@@ -386,12 +387,14 @@ _guard_resolve_python_runner() {
 }
 
 # _guard_node_has_test_script: el package.json del cwd declara un script
-# "test" usable — ni ausente/null, ni vacío, ni el placeholder de "npm init".
-# Sin script usable, el package.json no "tapa" un marcador Python del mismo
-# directorio (D-06: package.json de tooling + pyproject.toml, legacy).
+# "test" usable — un string, ni ausente/null, ni vacío, ni el placeholder de
+# "npm init". Un "scripts.test" que no es string (true, objeto, número) no es
+# usable: npm no lo corre. Sin script usable, el package.json no "tapa" un
+# marcador Python del mismo directorio (D-06: package.json de tooling +
+# pyproject.toml, legacy).
 _guard_node_has_test_script() {
   local test_cmd
-  test_cmd=$(jq -r '.scripts.test // empty' package.json 2>/dev/null)
+  test_cmd=$(jq -r '.scripts.test | select(type == "string")' package.json 2>/dev/null)
   [ -n "$test_cmd" ] && [ "$test_cmd" != "echo \"Error: no test specified\" && exit 1" ]
 }
 
