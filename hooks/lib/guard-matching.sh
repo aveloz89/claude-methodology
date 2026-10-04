@@ -196,11 +196,15 @@ guard_block() {
 # guard_init <nombre-del-guard>: preámbulo común de los guards PreToolUse.
 # Se llama DESPUÉS de sourcear esta lib (el caller ya verificó que la lib
 # existe; sin lib no hay guard_init que llamar — ese check queda en el
-# guard). Deja definidas GUARD_NAME, INPUT, COMMAND, INPUT_CWD,
+# guard). Fail-closed sin jq ni grep (las dependencias de binarios del
+# preámbulo y de los fragmentos que cada guard consume con "grep -qE": un grep
+# ausente haría que "! … | grep -qE" invirtiera el 127 y el guard saliera 0
+# sin evaluar nada). Deja definidas GUARD_NAME, INPUT, COMMAND, INPUT_CWD,
 # SANITIZED_COMMAND, GUARD_SANITIZE_STATUS. Nunca imprime en stdout.
 guard_init() {
   GUARD_NAME="$1"
   command -v jq > /dev/null 2>&1 || { echo "BLOCKED: ${GUARD_NAME} no operativo: falta jq" >&2; exit 2; }
+  command -v grep > /dev/null 2>&1 || { echo "BLOCKED: ${GUARD_NAME} no operativo: falta grep" >&2; exit 2; }
   INPUT=$(cat)
   COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
   INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')

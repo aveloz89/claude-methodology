@@ -27,18 +27,27 @@
 # Runner Python (rama pytest.ini/pyproject.toml/setup.py): orden cerrado, el
 # primero que aplica corre con cwd = directorio del marcador y bajo el mismo
 # watchdog/budget que el runner Node:
-#   1. uv   — uv.lock o una tabla [tool.uv…] en pyproject.toml, Y "uv" en el
-#             PATH del hook → "uv run --frozen pytest" (D-02: --frozen nunca
-#             reescribe uv.lock durante el commit).
+#   1. uv   — uv.lock Y "uv" en el PATH del hook → "uv run --frozen pytest"
+#             (D-02: --frozen nunca reescribe uv.lock durante el commit).
+#             [tool.uv…] sin uv.lock NO activa uv: "--frozen" sin lock falla
+#             siempre y crea .venv/ (D-05).
 #   2. venv — .venv/bin/pytest o .venv/Scripts/pytest.exe (Windows /
-#             git-bash). Gana al "pytest" del PATH: un pytest global en un
-#             proyecto con venv corre con el intérprete equivocado.
-#   3. PATH — "pytest" del PATH.
-# Ninguno aplica → exit 2 nombrando el directorio y las tres vías (D-01:
+#             git-bash), archivo regular y ejecutable. Gana al "pytest" del
+#             PATH: un pytest global en un proyecto con venv corre con el
+#             intérprete equivocado.
+#   3. entorno propio declarado (uv.lock, [tool.uv…] o carpeta .venv/) sin
+#             runner → exit 2 con la razón específica (uv fuera del PATH,
+#             "uv sync" pendiente, venv sin pytest). NUNCA cae al "pytest"
+#             global: un proyecto que declara su entorno no se verifica con
+#             el intérprete equivocado (D-04).
+#   4. PATH — "pytest" del PATH, solo en proyectos sin entorno declarado.
+# Nada de lo anterior → exit 2 nombrando el directorio y las tres vías (D-01:
 # fail-closed, el hook no pasa en silencio por no encontrar runner). Sin
 # NINGÚN marcador sigue pasando: "sin marcador" no es "marcador sin runner".
-# uv declarado pero "uv" fuera del PATH del hook no bloquea por sí solo: cae
-# a los pasos 2 y 3.
+#
+# Un package.json sin script "test" usable (ausente o el placeholder de "npm
+# init") no tapa un marcador Python del mismo directorio: se usa la rama
+# Python (D-06). Con script "test" corre solo el package manager.
 #
 # Fuera de alcance (documentado, no parcheado — no confundir con un hueco
 # no advertido):
@@ -63,15 +72,17 @@
 #   1. Workspace uv: uv.lock, [tool.uv…] y .venv se buscan SOLO en el
 #      directorio del marcador, no suben hasta el toplevel (un directorio =
 #      un proyecto = un runner, como el lockfile junto al package.json en
-#      Node). Un miembro de workspace sin [tool.uv…] propio ni .venv local
-#      bloquea con el mensaje de las tres vías; sin tocar el hook se
-#      resuelve declarando [tool.uv] en su pyproject.toml, activando el venv
-#      del workspace (así "pytest" queda en el PATH) o con un .venv local.
+#      Node). Un miembro sin uv.lock ni .venv propios: sin [tool.uv…] en su
+#      pyproject.toml resuelve por "pytest" en el PATH (venv de la raíz
+#      activado); con [tool.uv…] (típico: [tool.uv.sources]) bloquea pidiendo
+#      "uv sync", pero en un workspace "uv sync" deja uv.lock y .venv/ en la
+#      raíz y no en el miembro (verificado con uv 0.12.22), así que la salida
+#      es un .venv local con pytest en el directorio del miembro.
 #   2. "[ tool.uv ]" con espacios dentro de los corchetes y claves entre
 #      comillas no se detectan como uv.
 #
 # Preámbulo común (guard_init, hooks/lib/guard-matching.sh): fail-closed sin
-# jq, lee INPUT/COMMAND/INPUT_CWD, bloquea ante un byte NUL y deja
+# jq ni grep, lee INPUT/COMMAND/INPUT_CWD, bloquea ante un byte NUL y deja
 # SANITIZED_COMMAND saneado — mismo contrato que el resto de los guards.
 LIB="${0%/*}/lib/guard-matching.sh"
 [ -r "$LIB" ] || { echo "BLOCKED: pre-commit-guard no operativo: falta hooks/lib/guard-matching.sh" >&2; exit 2; }
@@ -352,15 +363,15 @@ _guard_resolve_python_runner() {
     fi
   done
   if [ -f "$dir/uv.lock" ]; then
-    GUARD_PY_RUNNER_REASON="uv.lock presente pero 'uv' no está en el PATH del hook y .venv/ no tiene pytest: exporta uv al PATH (p. ej. ~/.local/bin o /opt/homebrew/bin) o crea el venv con 'uv sync'"
+    GUARD_PY_RUNNER_REASON="uv.lock presente pero 'uv' no está en el PATH del hook y .venv/ no tiene pytest: exporta uv al PATH (p. ej. ~/.local/bin o /opt/homebrew/bin) o crea el venv con 'uv sync' (con pytest entre las dependencias)"
     return 1
   fi
   if _guard_pyproject_declares_uv "$dir"; then
-    GUARD_PY_RUNNER_REASON="uv declarado sin uv.lock: corre 'uv sync' para crear uv.lock y .venv/ (el hook no invoca uv sin lock; en un workspace, activa el venv de la raíz o crea un .venv local)"
+    GUARD_PY_RUNNER_REASON="uv declarado sin uv.lock: corre 'uv sync' para crear uv.lock y .venv/ (el hook no invoca uv sin lock; en un workspace uv sync los deja en la raíz y no en este directorio: ahí hace falta un .venv local con pytest)"
     return 1
   fi
   if [ -d "$dir/.venv" ]; then
-    GUARD_PY_RUNNER_REASON=".venv/ existe sin pytest ejecutable (.venv/bin/pytest o .venv/Scripts/pytest.exe): instala pytest en ese venv ('uv sync' o '.venv/bin/pip install pytest')"
+    GUARD_PY_RUNNER_REASON=".venv/ existe sin pytest ejecutable (.venv/bin/pytest o .venv/Scripts/pytest.exe): instala pytest en ese venv"
     return 1
   fi
   if command -v pytest > /dev/null 2>&1; then

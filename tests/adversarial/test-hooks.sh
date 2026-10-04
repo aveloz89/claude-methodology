@@ -2732,6 +2732,25 @@ fi
 _pyrun_report "pre-commit-guard: package.json con script test + pyproject.toml → corre solo el package manager (TD6b, pin)" "$PYRUN_TD6B_OK"
 _pyrun_cleanup
 
+# TG (D-07): "grep" ausente del PATH → el hook bloquea (exit 2, "falta grep")
+# desde guard_init, antes de evaluar nada. Antes el hook salía 0 en silencio:
+# "! echo ... | grep -qE" invierte el 127 de un grep inexistente y el commit
+# pasaba sin correr tests. PATH = CLEAN sin el symlink a grep (la lista de
+# symlinks del setup no se duplica); hay pyproject + venv para probar que no
+# se resolvió ni corrió nada (venv.ran ausente).
+_pyrun_setup
+rm "$PYRUN_CLEAN_BIN/grep"
+_pyrun_make_venv bin 0
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_TG_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "BLOCKED: pre-commit-guard no operativo: falta grep" \
+  && [ ! -f "$PYRUN_MARK/venv.ran" ]; then
+  PYRUN_TG_OK=0
+fi
+_pyrun_report "pre-commit-guard: sin grep en el PATH → bloquea con 'no operativo: falta grep' antes de resolver nada (TG)" "$PYRUN_TG_OK"
+_pyrun_cleanup
+
 # T6 / T7 (CA-6): una suite roja bloquea sea cual sea el runner resuelto — uv
 # (T6) o el pytest del venv (T7) con exit 1 → exit 2 y "Tests failed in:
 # <dir>". PINES DE REGRESIÓN: nacen verdes porque el rc del runner ya se
