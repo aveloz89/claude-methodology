@@ -21,7 +21,23 @@
 # entre SESSION_DIR y TARGET_DIR: se deriva un candidato por el PRIMER
 # SEGMENTO de cada path con cambios locales que sí tenga marcador (nunca se
 # adivina "todo el repo"); corren TODOS antes de decidir y cualquier fallo
-# bloquea nombrándolos; sin candidatos, pasa sin correr nada.
+# (suite roja, o marcador Python sin runner) bloquea nombrando los
+# directorios; sin candidatos —ningún marcador— pasa sin correr nada.
+#
+# Runner Python (rama pytest.ini/pyproject.toml/setup.py): orden cerrado, el
+# primero que aplica corre con cwd = directorio del marcador y bajo el mismo
+# watchdog/budget que el runner Node:
+#   1. uv   — uv.lock o una tabla [tool.uv…] en pyproject.toml, Y "uv" en el
+#             PATH del hook → "uv run --frozen pytest" (D-02: --frozen nunca
+#             reescribe uv.lock durante el commit).
+#   2. venv — .venv/bin/pytest. Gana al "pytest" del PATH: un pytest global
+#             en un proyecto con venv corre con el intérprete equivocado.
+#   3. PATH — "pytest" del PATH.
+# Ninguno aplica → exit 2 nombrando el directorio y las tres vías (D-01:
+# fail-closed, el hook no pasa en silencio por no encontrar runner). Sin
+# NINGÚN marcador sigue pasando: "sin marcador" no es "marcador sin runner".
+# uv declarado pero "uv" fuera del PATH del hook no bloquea por sí solo: cae
+# a los pasos 2 y 3.
 #
 # Fuera de alcance (documentado, no parcheado — no confundir con un hueco
 # no advertido):
@@ -41,6 +57,17 @@
 #   3. Un path con caracteres especiales llega C-quoteado en `git status
 #      --porcelain` y no matchea ningún segmento real — esa suite en
 #      particular no corre, nunca bloquea por eso.
+#
+# Limitaciones aceptadas del runner Python:
+#   1. Workspace uv: uv.lock, [tool.uv…] y .venv se buscan SOLO en el
+#      directorio del marcador, no suben hasta el toplevel (un directorio =
+#      un proyecto = un runner, como el lockfile junto al package.json en
+#      Node). Un miembro de workspace sin [tool.uv…] propio ni .venv local
+#      bloquea con el mensaje de las tres vías; sin tocar el hook se
+#      resuelve declarando [tool.uv] en su pyproject.toml, activando el venv
+#      del workspace (así "pytest" queda en el PATH) o con un .venv local.
+#   2. "[ tool.uv ]" con espacios dentro de los corchetes y claves entre
+#      comillas no se detectan como uv.
 #
 # Preámbulo común (guard_init, hooks/lib/guard-matching.sh): fail-closed sin
 # jq, lee INPUT/COMMAND/INPUT_CWD, bloquea ante un byte NUL y deja

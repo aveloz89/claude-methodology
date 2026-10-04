@@ -2548,6 +2548,21 @@ fi
 _pyrun_report "pre-commit-guard: .venv/bin/pytest sin uv → corre el del venv en el directorio del marcador (T3)" "$PYRUN_T3_OK"
 _pyrun_cleanup
 
+# T4 (CA-4): el venv local gana al "pytest" del PATH — un pytest global en un
+# proyecto con venv correría con el intérprete equivocado. PIN DE REGRESIÓN:
+# nace verde porque el paso del venv (tarea de T3) ya se ejecuta antes que el
+# del PATH; se rompe si se invierte ese orden (verificado invirtiéndolo).
+_pyrun_setup
+_pyrun_make_venv bin 0
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_T4_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] && [ -f "$PYRUN_MARK/venv.ran" ] && [ ! -f "$PYRUN_MARK/path.ran" ]; then
+  PYRUN_T4_OK=0
+fi
+_pyrun_report "pre-commit-guard: .venv/bin/pytest gana al pytest del PATH (T4, pin)" "$PYRUN_T4_OK"
+_pyrun_cleanup
+
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 
