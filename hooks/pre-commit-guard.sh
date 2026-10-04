@@ -279,11 +279,26 @@ _guard_run_with_budget() {
   return "$rc"
 }
 
+# _guard_project_uses_uv <dir>: el proyecto declara uv — por ahora, uv.lock.
+_guard_project_uses_uv() {
+  [ -f "$1/uv.lock" ]
+}
+
 # _guard_resolve_python_runner <dir>: deja en GUARD_PY_RUNNER (array, nunca
-# string — rules/bash.md) el comando a ejecutar con cwd=<dir>. Return 1 si no
-# hay ninguno: el caller bloquea (D-01), nunca falla abierto.
+# string — rules/bash.md) el comando a ejecutar con cwd=<dir>. Orden cerrado:
+#   1. uv   — el proyecto lo declara Y "uv" está en el PATH del hook →
+#             "uv run --frozen pytest" (D-02: --frozen nunca reescribe uv.lock
+#             durante el commit). Declarado pero sin "uv" en PATH → sigue al
+#             siguiente paso, no bloquea aquí.
+#   2. PATH — "pytest" del PATH.
+# Return 1 si ninguno aplica: el caller bloquea (D-01), nunca falla abierto.
 _guard_resolve_python_runner() {
+  local dir="$1"
   GUARD_PY_RUNNER=()
+  if _guard_project_uses_uv "$dir" && command -v uv > /dev/null 2>&1; then
+    GUARD_PY_RUNNER=(uv run --frozen pytest)
+    return 0
+  fi
   if command -v pytest > /dev/null 2>&1; then
     GUARD_PY_RUNNER=(pytest)
     return 0

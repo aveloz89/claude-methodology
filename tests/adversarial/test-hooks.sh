@@ -2369,6 +2369,35 @@ _pyrun_cleanup() {
   rm -rf "$PYRUN_DIR" "$PYRUN_MARK" "$PYRUN_UV_BIN" "$PYRUN_PYTEST_BIN" "$PYRUN_CLEAN_BIN"
 }
 
+# _pyrun_make_uv <rc>: "uv" fake en PYRUN_UV_BIN. Registra el argv (uno por
+# línea) y "pwd -P" — no solo que corrió — y sale con <rc>.
+_pyrun_make_uv() {
+  cat > "$PYRUN_UV_BIN/uv" <<UVEOF
+#!/bin/bash
+printf '%s\n' "\$@" > "$PYRUN_MARK/uv.argv"
+pwd -P > "$PYRUN_MARK/uv.cwd"
+exit $1
+UVEOF
+  chmod +x "$PYRUN_UV_BIN/uv"
+}
+
+# _pyrun_make_venv <bin|Scripts> <rc>: pytest fake de un venv local
+# (.venv/bin/pytest, o .venv/Scripts/pytest.exe en Windows / git-bash). Deja
+# "pwd -P" en venv.ran y sale con <rc>.
+_pyrun_make_venv() {
+  local sub="$1" name="pytest"
+  if [ "$sub" = "Scripts" ]; then
+    name="pytest.exe"
+  fi
+  mkdir -p "$PYRUN_DIR/.venv/$sub"
+  cat > "$PYRUN_DIR/.venv/$sub/$name" <<VENVEOF
+#!/bin/bash
+pwd -P > "$PYRUN_MARK/venv.ran"
+exit $2
+VENVEOF
+  chmod +x "$PYRUN_DIR/.venv/$sub/$name"
+}
+
 # _pyrun_make_path_pytest <rc>: "pytest" fake para el PATH; deja path.ran y
 # sale con <rc>.
 _pyrun_make_path_pytest() {
@@ -2448,6 +2477,26 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   PYRUN_T5B_OK=0
 fi
 _pyrun_report "pre-commit-guard: runner que sale con 127 → 'Tests failed', no 'sin runner' (T5b)" "$PYRUN_T5B_OK"
+_pyrun_cleanup
+
+# T1 (CA-1): uv.lock + "uv" en el PATH → el hook invoca EXACTAMENTE
+# "uv run --frozen pytest" (D-02: --frozen nunca reescribe uv.lock durante el
+# commit) con cwd = directorio del marcador. Hay un .venv/bin/pytest y ningún
+# pytest en el PATH: el venv NO debe correr (prioridad uv > venv; este
+# negativo cobra dientes cuando aterriza el paso del venv).
+_pyrun_setup
+touch "$PYRUN_DIR/uv.lock"
+_pyrun_make_venv bin 0
+_pyrun_make_uv 0
+_pyrun_run "$PYRUN_UV_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_T1_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] \
+  && [ "$(cat "$PYRUN_MARK/uv.argv" 2>/dev/null)" = "$(printf 'run\n--frozen\npytest')" ] \
+  && [ "$(cat "$PYRUN_MARK/uv.cwd" 2>/dev/null)" = "$PYRUN_DIR" ] \
+  && [ ! -f "$PYRUN_MARK/venv.ran" ]; then
+  PYRUN_T1_OK=0
+fi
+_pyrun_report "pre-commit-guard: uv.lock + uv en PATH → 'uv run --frozen pytest' en el directorio del marcador; el venv no corre (T1)" "$PYRUN_T1_OK"
 _pyrun_cleanup
 
 # --- pre-merge-check.sh ---
