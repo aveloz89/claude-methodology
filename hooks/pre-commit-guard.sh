@@ -345,7 +345,8 @@ _guard_pyproject_declares_uv() {
 #             entorno no se verifica con el intérprete global. Precedencia de
 #             la razón: a. uv.lock presente (uv fuera del PATH, venv sin
 #             pytest); b. [tool.uv…] sin uv.lock (pide "uv sync", D-05);
-#             c. .venv/ existe sin pytest ejecutable.
+#             c. .venv existe sin pytest ejecutable (carpeta, o symlink,
+#             incluso roto: sigue siendo un entorno declarado).
 #   4. PATH — "pytest" del PATH, solo para proyectos sin entorno declarado.
 #   5. nada → razón genérica con las tres vías (D-01).
 _guard_resolve_python_runner() {
@@ -370,7 +371,9 @@ _guard_resolve_python_runner() {
     GUARD_PY_RUNNER_REASON="uv declarado sin uv.lock: corre 'uv sync' para crear uv.lock y .venv/ (el hook no invoca uv sin lock; en un workspace uv sync los deja en la raíz y no en este directorio: ahí hace falta un .venv local con pytest)"
     return 1
   fi
-  if [ -d "$dir/.venv" ]; then
+  # "-L" además de "-e": un symlink roto da falso en "-e" y sigue siendo un
+  # entorno declarado (security LOW-1, ronda 2).
+  if [ -e "$dir/.venv" ] || [ -L "$dir/.venv" ]; then
     GUARD_PY_RUNNER_REASON=".venv/ existe sin pytest ejecutable (.venv/bin/pytest o .venv/Scripts/pytest.exe): instala pytest en ese venv"
     return 1
   fi

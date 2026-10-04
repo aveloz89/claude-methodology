@@ -2695,6 +2695,26 @@ for PYRUN_CASE in "TB|.venv|.venv/ vacío" "TB2|.venv/bin/pytest|.venv/bin/pytes
   _pyrun_cleanup
 done
 
+# TB3 (D-04 B, security LOW-1 de la ronda 2): ".venv" es un symlink ROTO (apunta
+# a una ruta que no existe). Sigue siendo un entorno declarado aunque no
+# resuelva: "[ -d ]" daba falso para él y el hook caía al pytest global. Mismo
+# bloqueo y misma razón que TB. Rojo: con "[ -d "$dir/.venv" ]" en el paso 3c de
+# _guard_resolve_python_runner este caso sale con exit 0 y path.ran (verificado).
+_pyrun_setup
+_pyrun_assert_clean_path TB3
+ln -s "$PYRUN_DIR/no-existe-venv-destino" "$PYRUN_DIR/.venv"
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TB3_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. .venv/ existe sin pytest ejecutable" \
+  && [ ! -f "$PYRUN_MARK/path.ran" ] \
+  && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
+  PYRUN_TB3_OK=0
+fi
+_pyrun_report "pre-commit-guard: .venv es un symlink roto → bloquea con razón específica y no corre el pytest del PATH (TB3)" "$PYRUN_TB3_OK"
+_pyrun_cleanup
+
 # TD6a / TD6a' (D-06): un package.json SIN script "test" usable (ausente, o el
 # placeholder de "npm init") no tapa el marcador Python del mismo directorio:
 # se usa la rama Python y corre el venv. Antes el package.json ganaba, no
