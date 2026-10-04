@@ -2720,6 +2720,70 @@ fi
 _pyrun_report "pre-commit-guard: .venv es un symlink roto → bloquea con razón específica y no corre el pytest del PATH (TB3)" "$PYRUN_TB3_OK"
 _pyrun_cleanup
 
+# TP1 / TP2 (precedencia de razones, QA S-r2-1; PINES: nacen verdes): con un
+# .venv/ vacío más una declaración que ya explica la falta de runner, la razón
+# que se muestra es la de la declaración, no la genérica de .venv/ (la más
+# débil del paso 3: a. uv.lock, b. [tool.uv…] sin lock, c. .venv/). TP1:
+# uv.lock + uv fuera del PATH → razón de uv. TP2: [tool.uv] sin uv.lock →
+# razón de "uv sync". Ambos excluyen la razón de .venv/ y que el pytest del
+# PATH corra. Mutaciones que los ponen en rojo (verificadas): MUT-A = mover el
+# bloque .venv del paso 3c a ANTES del de uv.lock (3a) → TP1 y TP2 rojos
+# (ambos reciben la razón de .venv/); MUT-B = moverlo a ENTRE 3a y 3b → solo
+# TP2 rojo.
+_pyrun_setup
+_pyrun_assert_clean_path TP1
+touch "$PYRUN_DIR/uv.lock"
+mkdir "$PYRUN_DIR/.venv"
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TP1_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. uv.lock presente pero 'uv' no está en el PATH" \
+  && ! echo "$PYRUN_STDERR" | grep -qF ".venv/ existe sin pytest ejecutable" \
+  && [ ! -f "$PYRUN_MARK/path.ran" ]; then
+  PYRUN_TP1_OK=0
+fi
+_pyrun_report "pre-commit-guard: uv.lock + .venv/ vacío + uv fuera del PATH → la razón es la de uv, no la de .venv/ (TP1, pin)" "$PYRUN_TP1_OK"
+_pyrun_cleanup
+
+_pyrun_setup
+_pyrun_assert_clean_path TP2
+_pyrun_make_pyproject "[tool.uv]"
+mkdir "$PYRUN_DIR/.venv"
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TP2_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. uv declarado sin uv.lock: corre 'uv sync'" \
+  && ! echo "$PYRUN_STDERR" | grep -qF ".venv/ existe sin pytest ejecutable" \
+  && [ ! -f "$PYRUN_MARK/path.ran" ]; then
+  PYRUN_TP2_OK=0
+fi
+_pyrun_report "pre-commit-guard: [tool.uv] sin uv.lock + .venv/ vacío → la razón es 'uv sync', no la de .venv/ (TP2, pin)" "$PYRUN_TP2_OK"
+_pyrun_cleanup
+
+# TB4 (QA S-r2-1, PIN: nace verde): ".venv/Scripts/pytest.exe" es un DIRECTORIO
+# y no hay .venv/bin → bloquea como TB2 pero por la ruta de Windows / git-bash.
+# TB2 cubre el directorio en .venv/bin/pytest; con el "for" del paso 2 ambas
+# rutas comparten el "[ -f ] && [ -x ]", así que quitar el "[ -f ]" del loop
+# pone en rojo TB2 y este. MUT-C (verificada, solo este en rojo) = desenrollar
+# el loop y dejar Scripts/pytest.exe con solo "[ -x ]": el directorio pasa -x,
+# el hook lo ejecuta (rc 126) y reporta "Tests failed" en vez de la razón.
+_pyrun_setup
+_pyrun_assert_clean_path TB4
+mkdir -p "$PYRUN_DIR/.venv/Scripts/pytest.exe"
+_pyrun_make_path_pytest 0
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TB4_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR. .venv/ existe sin pytest ejecutable" \
+  && [ ! -f "$PYRUN_MARK/path.ran" ] \
+  && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
+  PYRUN_TB4_OK=0
+fi
+_pyrun_report "pre-commit-guard: .venv/Scripts/pytest.exe es un directorio (sin .venv/bin) → bloquea con razón específica y no corre el pytest del PATH (TB4, pin)" "$PYRUN_TB4_OK"
+_pyrun_cleanup
+
 # TD6a / TD6a' (D-06): un package.json SIN script "test" usable (ausente, o el
 # placeholder de "npm init") no tapa el marcador Python del mismo directorio:
 # se usa la rama Python y corre el venv. Antes el package.json ganaba, no
