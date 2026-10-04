@@ -4324,6 +4324,55 @@ else
 fi
 rm -rf "$NO_JQ_GUARD_INIT_BIN" "$GUARD_INIT_NO_JQ_OUT"
 
+# guard_init sin grep en PATH (D-07, security LOW-2 de la ronda 2): la
+# dependencia vive en la lib, así que cada guard que la sourcea bloquea con
+# "no operativo: falta grep" ANTES de evaluar el comando. pre-commit-guard ya
+# lo cubre TG (sección "runner de pytest") y pre-merge-check tiene su propio
+# check de perl/jq/grep antes de guard_init; acá van los otros cuatro, cada uno
+# con un comando que ese guard intercepta de verdad. PATH curado = lo que
+# necesitan, jq presente y grep ausente: el bloqueo solo puede ser el de grep.
+# El mensaje se exige además del exit 2 para que un bloqueo por otra causa no
+# dé un verde falso. Rojo verificado quitando la línea de grep de guard_init:
+# los cuatro casos salen 0 (fail-open, "grep: command not found" en stderr).
+NO_GREP_GUARDS_BIN=$(mktemp -d)
+for cmd in bash cat perl jq git; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_GREP_GUARDS_BIN/$cmd"
+done
+NO_GREP_PRECOND=1
+if PATH="$NO_GREP_GUARDS_BIN" bash -c 'command -v jq' > /dev/null 2>&1 \
+  && ! PATH="$NO_GREP_GUARDS_BIN" bash -c 'command -v grep' > /dev/null 2>&1; then
+  NO_GREP_PRECOND=0
+fi
+TOTAL=$((TOTAL + 1))
+if [ "$NO_GREP_PRECOND" -eq 0 ]; then
+  echo -e "${GREEN}PASS${NC}: guards sin grep: precondición — el PATH curado resuelve jq y no resuelve grep"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: guards sin grep: precondición — el PATH curado resuelve jq y no resuelve grep"
+  FAIL=$((FAIL + 1))
+fi
+for NO_GREP_CASE in \
+  "block-force-push.sh|git push --force" \
+  "block-hard-reset.sh|git reset --hard" \
+  "block-admin-merge.sh|gh pr merge 5 --admin" \
+  "pre-push-guard.sh|git push origin main"; do
+  NO_GREP_HOOK="${NO_GREP_CASE%%|*}"
+  NO_GREP_CMD="${NO_GREP_CASE#*|}"
+  NO_GREP_JSON=$(jq -n --arg cmd "$NO_GREP_CMD" '{tool_input: {command: $cmd}}')
+  NO_GREP_EXIT=0
+  NO_GREP_STDERR=$(echo "$NO_GREP_JSON" | PATH="$NO_GREP_GUARDS_BIN" bash "$HOOKS_DIR/$NO_GREP_HOOK" 2>&1 > /dev/null) || NO_GREP_EXIT=$?
+  TOTAL=$((TOTAL + 1))
+  if [ "$NO_GREP_EXIT" -eq 2 ] && echo "$NO_GREP_STDERR" | grep -qF "no operativo: falta grep"; then
+    echo -e "${GREEN}PASS${NC}: ${NO_GREP_HOOK%.sh}: sin grep en PATH bloquea con 'no operativo: falta grep' (D-07)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: ${NO_GREP_HOOK%.sh}: sin grep en PATH bloquea con 'no operativo: falta grep' (D-07) (exit=$NO_GREP_EXIT, stderr=\"$NO_GREP_STDERR\")"
+    FAIL=$((FAIL + 1))
+  fi
+done
+rm -rf "$NO_GREP_GUARDS_BIN"
+
 # guard_init con NUL en el comando: bloquea citando el byte NUL.
 TOTAL=$((TOTAL + 1))
 GUARD_INIT_NUL_OUT=$(mktemp)
