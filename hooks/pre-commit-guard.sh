@@ -36,11 +36,11 @@
 #             git-bash), archivo regular y ejecutable. Gana al "pytest" del
 #             PATH: un pytest global en un proyecto con venv corre con el
 #             intérprete equivocado.
-#   3. entorno propio declarado (uv.lock, [tool.uv…] o carpeta .venv/) sin
-#             runner → exit 2 con la razón específica (uv fuera del PATH,
-#             "uv sync" pendiente, venv sin pytest). NUNCA cae al "pytest"
-#             global: un proyecto que declara su entorno no se verifica con
-#             el intérprete equivocado (D-04).
+#   3. entorno propio declarado (uv.lock, [tool.uv…] o .venv: carpeta o
+#             symlink, aunque esté roto) sin runner → exit 2 con la razón
+#             específica (uv fuera del PATH, "uv sync" pendiente, venv sin
+#             pytest). NUNCA cae al "pytest" global: un proyecto que declara
+#             su entorno no se verifica con el intérprete equivocado (D-04).
 #   4. PATH — "pytest" del PATH, solo en proyectos sin entorno declarado.
 # Nada de lo anterior → exit 2 nombrando el directorio y las tres vías (D-01:
 # fail-closed, el hook no pasa en silencio por no encontrar runner). Sin
