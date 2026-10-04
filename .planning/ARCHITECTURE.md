@@ -38,6 +38,16 @@ A diferencia de `DESIGN.md` (que vive solo durante una feature), este archivo pe
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-10-03] Guards que ejecutan una herramienta del proyecto: la del proyecto antes que la global; declarada pero ausente → bloquear
+
+**Contexto:** `pre-commit-guard` corría `pytest` del PATH o nada (fail-open) en proyectos uv / `.venv` cuyo pytest no está en el PATH del hook (vector: `uv.lock` + `.venv/bin/pytest`, `uv` en `/opt/homebrew/bin`). D-01/D-02 del brief `pre-commit-guard-uv-pytest`.
+
+**Decisión:** por cada directorio con marcador, el runner se resuelve en orden cerrado: (1) la herramienta del gestor que el proyecto declara (uv: `uv.lock` o `[tool.uv…]` en `pyproject.toml` **y** el binario en el PATH del hook → `uv run --frozen pytest`, nunca reescribe el lock), (2) el venv local del mismo directorio (`.venv/bin/pytest`, `.venv/Scripts/pytest.exe`), (3) el binario del PATH; nada → bloquea nombrando el directorio y las vías. La búsqueda de lockfile/venv no sube del directorio del marcador (un directorio = un proyecto = un runner, mismo invariante que el lockfile junto a `package.json`). En el loop multi-directorio, "sin runner" es un código de retorno dedicado (`127`) y el rc del runner se normaliza a 0/1 (verificado: un venv con intérprete roto devuelve 127 en bash y colisionaría).
+
+**Justificación:** un pytest global en un proyecto con venv corre con el intérprete equivocado (verde falso o rojo espurio); "no pude verificar" no es "verde" (`rules/bash.md`, fail-closed). Subir hasta el toplevel atribuiría el `.venv` de otro paquete del monorepo al directorio equivocado. Alternativas descartadas: escape hatch por env (usuario), `uv run --locked` / sin flags (usuario), búsqueda hasta `TARGET_DIR` (más loop, mismo fail-closed, atribución errónea posible).
+
+**Implicación:** un guard que invoque una herramienta del proyecto sigue este orden y nunca pasa en silencio cuando el marcador existe y la herramienta no. Agregar un gestor (poetry/pdm/hatch) es un paso más en `_guard_resolve_python_runner` con su positivo, su negativo de regex y su caso "declarado pero ausente del PATH". Los tests de esa resolución corren con PATH curado (symlinks solo a lo que el hook necesita, sin el binario real) y afirman la precondición antes de afirmar el resultado; un fake registra argv y `pwd -P`, no solo presencia.
+
 ### [2026-09-27] Simplificación: `.planning/` fuera de git, `guard_init`, forma única de commit, escáner read-only
 
 **Contexto:** la auditoría del 2026-09-27 encontró ceremonia que existía solo porque `.planning/` viajaba en git (sellado anticipado, commits de registro/vinculación/retro, check 4 de pre-merge, salto de suites solo-`.planning/`), tres hooks y una lib con más líneas que protección demostrada (`pre-release-sweep`, `session-end-check`, `workspace-scope`), agentes divididos por tipo de problema (`refactor`/`latent-bugs-sweep`/`product-reviewer`) y catálogos de manual en los prompts. Decisiones del usuario D-01…D-06 en `BRIEF.md`.
