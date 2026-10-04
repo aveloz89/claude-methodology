@@ -2624,6 +2624,35 @@ fi
 _pyrun_report "pre-commit-guard: suite roja vía venv (exit 1) → exit 2 con 'Tests failed in: <dir>' (T7, pin)" "$PYRUN_T7_OK"
 _pyrun_cleanup
 
+# T10 (CA-5, #86): monorepo sin marcador en la raíz con dos directorios
+# tocados — alpha/ (pyproject.toml, sin runner) y beta/ (pyproject.toml +
+# .venv/bin/pytest). El loop corre TODOS antes de decidir: "sort -u" ordena
+# alpha primero, así que el marcador de beta (venv.ran == <raíz>/beta)
+# demuestra que "sin runner" en alpha no cortó la corrida. Resultado: exit 2 y
+# el mensaje de "sin runner" nombra alpha, no beta. Todo-Python a propósito:
+# con un package.json haría falta "npm" y volvería a entrar el PATH real.
+# PIN DE REGRESIÓN: nace verde porque _guard_run_suite_in devuelve 127 en vez
+# de salir; se rompe si la rama "sin runner" hace "exit 2" ahí (verificado
+# agregándolo: beta nunca corre).
+_pyrun_setup
+rm "$PYRUN_DIR/pyproject.toml"
+mkdir "$PYRUN_DIR/alpha" "$PYRUN_DIR/beta"
+touch "$PYRUN_DIR/alpha/pyproject.toml" "$PYRUN_DIR/beta/pyproject.toml"
+echo "print(1)" > "$PYRUN_DIR/alpha/a.py"
+echo "print(1)" > "$PYRUN_DIR/beta/a.py"
+_pyrun_make_venv bin 0
+mv "$PYRUN_DIR/.venv" "$PYRUN_DIR/beta/.venv"
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_T10_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR/beta" ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de pytest en: $PYRUN_DIR/alpha. Resuélvelo" \
+  && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed in:"; then
+  PYRUN_T10_OK=0
+fi
+_pyrun_report "pre-commit-guard: monorepo con alpha/ sin runner y beta/ con venv → beta corre y exit 2 nombra solo alpha (T10, pin)" "$PYRUN_T10_OK"
+_pyrun_cleanup
+
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 
