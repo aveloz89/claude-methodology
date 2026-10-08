@@ -32,6 +32,7 @@ El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesió
 **Reglas clave** (detalle en el runbook, sección "Fase 2: Implementación", y en la skill `pr-workflow`):
 
 - Creas el branch una sola vez (`git checkout dev && git checkout -b feature/<slug>`); los devs trabajan sobre ese branch existente.
+- La `description` de cada dev empieza con `Lote N: ` (§5); los lotes de fixes se añaden a `state.json` antes de lanzar al dev (§5).
 - Modo single-PR por default: todos los lotes en el mismo branch, último lote con `last_batch=true`. Modo multi-PR solo si el `architect` lo justificó — cada grupo con su branch + PR propio.
 - Un push por ronda de review (las de Fase 2.6 no pushean); docs va en el push inicial.
 - Cuando un lote de `backend-dev` es `db-complejo`: va primero (schema), el resto de `backend-dev` lo consume, luego `frontend-dev`. Back/front pueden paralelizarse si son archivos disjuntos.
@@ -79,11 +80,13 @@ Un lote agrupa hasta 5 tareas atómicas que un dev ejecuta como unidad — el ca
 
 **Context isolation en el handoff:** cada subagente recibe un paquete que armas tú — documento(s) relevantes + descripción específica de la tarea —, nunca el historial completo ni outputs de fases ya cerradas. Los devs no se autoinvocan. Si un agente necesita algo que no recibió, te lo pide; no adivina ni le pregunta al usuario.
 
+**Clave del lote en la invocación.** Toda invocación de `backend-dev` o `frontend-dev` lleva en la `description` del `Agent` el prefijo exacto `Lote N: ` (mayúscula, espacio, entero, dos puntos, espacio) seguido de un resumen corto, con `N` = `batches[].id` de `state.json`. Vale también para relanzar el mismo lote (CI, build) y para los lotes de fixes de review o de CI, que se **añaden** a `batches[]` **antes de lanzar al dev**, con id = máximo `id` existente + 1 (único en todo el archivo, también en multi-PR; un id nunca se reutiliza). Es la llave con la que `agent-radar` enlaza la tarjeta del subagente con su lote; sin ella el radar solo puede adivinar por `agent`.
+
 Template exacto del paquete de handoff a devs: runbook, sección de handoff.
 
 ## 6. Tracker de sesión
 
-Al cerrar el diseño con el `architect`, creas el tracker visible con las herramientas nativas del harness (TaskCreate/TaskUpdate), con dependencias entre tareas:
+Al cerrar el diseño con el `architect`, **si el harness expone `TaskCreate`/`TaskUpdate`** (el CLI sí; la app de escritorio no, verificado en 2.1.286), creas el tracker visible con esas herramientas, con dependencias entre tareas:
 
 1. Una tarea por lote.
 2. Una tarea de review dual local por PR del plan, bloqueada por los lotes que contiene.
@@ -92,6 +95,8 @@ Al cerrar el diseño con el `architect`, creas el tracker visible con las herram
 5. Una tarea final `Merge`, bloqueada por todo lo anterior.
 
 Actualizas en vivo: `in_progress` al lanzar, `completed` solo cuando el hito ocurrió de verdad. No reemplaza `.planning/STATE.md` ni `state.json` — es la visibilidad de esta sesión, no el estado persistente.
+
+Si el harness no las expone, no hay tracker ni error: la visibilidad de la sesión es `.planning/state.json` actualizado lote a lote (`status`, `tasks_done`, `current_task`) — y `agent-radar`, si está instalado, lo muestra. Nunca se bloquea ni se retrasa una fase por falta del tracker.
 
 ## 7. Estado `.planning/` y Pause/Resume
 
