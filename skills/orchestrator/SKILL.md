@@ -32,7 +32,7 @@ El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesió
 **Reglas clave** (detalle en el runbook, sección "Fase 2: Implementación", y en la skill `pr-workflow`):
 
 - Creas el branch una sola vez (`git checkout dev && git checkout -b feature/<slug>`); los devs trabajan sobre ese branch existente.
-- La `description` de cada dev empieza con `Lote N: ` (§5); los lotes de fixes se añaden a `state.json` con el id siguiente.
+- La `description` de cada dev empieza con `Lote N: ` (§5); los lotes de fixes se añaden a `state.json` antes de lanzar al dev (§5).
 - Modo single-PR por default: todos los lotes en el mismo branch, último lote con `last_batch=true`. Modo multi-PR solo si el `architect` lo justificó — cada grupo con su branch + PR propio.
 - Un push por ronda de review (las de Fase 2.6 no pushean); docs va en el push inicial.
 - Cuando un lote de `backend-dev` es `db-complejo`: va primero (schema), el resto de `backend-dev` lo consume, luego `frontend-dev`. Back/front pueden paralelizarse si son archivos disjuntos.
@@ -80,7 +80,7 @@ Un lote agrupa hasta 5 tareas atómicas que un dev ejecuta como unidad — el ca
 
 **Context isolation en el handoff:** cada subagente recibe un paquete que armas tú — documento(s) relevantes + descripción específica de la tarea —, nunca el historial completo ni outputs de fases ya cerradas. Los devs no se autoinvocan. Si un agente necesita algo que no recibió, te lo pide; no adivina ni le pregunta al usuario.
 
-**Clave del lote en la invocación.** Toda invocación de `backend-dev` o `frontend-dev` lleva en la `description` del `Agent` el prefijo exacto `Lote N: ` (mayúscula, espacio, entero, dos puntos, espacio) seguido de un resumen corto, con `N` = `batches[].id` de `state.json`. Vale también para relanzar el mismo lote (CI, build) y para los lotes de fixes de review o de CI, que se **añaden** a `batches[]` con el id siguiente (un id nunca se reutiliza). Es la llave con la que `agent-radar` enlaza la tarjeta del subagente con su lote; sin ella el radar solo puede adivinar por `agent`.
+**Clave del lote en la invocación.** Toda invocación de `backend-dev` o `frontend-dev` lleva en la `description` del `Agent` el prefijo exacto `Lote N: ` (mayúscula, espacio, entero, dos puntos, espacio) seguido de un resumen corto, con `N` = `batches[].id` de `state.json`. Vale también para relanzar el mismo lote (CI, build) y para los lotes de fixes de review o de CI, que se **añaden** a `batches[]` **antes de lanzar al dev**, con id = máximo `id` existente + 1 (único en todo el archivo, también en multi-PR; un id nunca se reutiliza). Es la llave con la que `agent-radar` enlaza la tarjeta del subagente con su lote; sin ella el radar solo puede adivinar por `agent`.
 
 Template exacto del paquete de handoff a devs: runbook, sección de handoff.
 

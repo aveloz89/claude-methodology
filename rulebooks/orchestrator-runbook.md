@@ -50,7 +50,7 @@ Setup del branch (una sola vez): `git checkout dev && git pull origin dev && git
 
 **Modo multi-PR** (solo si el architect lo justificó): cada grupo de lotes corre sobre branch + PR propio — branch desde dev, lotes del grupo (último `last_batch=true`), Fase 2.5 → 2.6 → 2.7 → 2.8 → 3 → 5, y al siguiente grupo.
 
-Cada invocación de dev lleva `description` `Lote N: …` (ver "Template del prompt de handoff a devs"); al abrir lotes de fixes (review, CI) se añaden a `batches[]` con el id siguiente, nunca se reutiliza un id.
+Cada invocación de dev lleva `description` `Lote N: …` (ver "Template del prompt de handoff a devs"); los lotes de fixes (review, CI) se añaden a `batches[]` antes de lanzar al dev (contrato en "`STATE.md` + `state.json`").
 
 **Si un dev reporta `BUDGET LIMIT`**: lee `.planning/HANDOFF.md`, reinvócalo con solo las tareas restantes, y abre un issue si el patrón se repite.
 
@@ -68,7 +68,7 @@ El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` r
 2. Lanza en paralelo: `security-reviewer` siempre, `qa-frontend`/`qa-backend` según la capa (single message, multiple Agent calls). Paquete de contexto: base + branch + diff + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida — sin número de PR, no existe todavía. Si el diff introduce una regla nueva, dilo (el reviewer la aplica al propio diff). Si corre suites desde un worktree, que use su propia base de test
 3. **Consolida y registra**: el orchestrator es el único escritor del registro — ningún reviewer lo toca (tienen `Write`/`Edit` prohibidos). Consolidas los reportes **después de que vuelvan todos**, con el "Formato de reporte de review", guardado local (sin commit) en `.planning/reviews/<feature-slug>.md`
 4. **Mientras haya un reviewer corriendo, el árbol no se mueve.** Espera a que vuelvan todos antes de aplicar nada. Vale igual para un dev en paralelo: si un lote y un review tocan los mismos archivos, no van juntos
-5. **Si hay bloqueantes**: fixes por el dev correspondiente, sin push (schema/migración va a `backend-dev` con `rulebooks/db-migrations.md`). Re-lanza solo los reviewers que marcaron issues, acotados al delta local. Sugerencias baratas: aplicadas antes del push (skill `pr-workflow`, §2)
+5. **Si hay bloqueantes**: fixes por el dev correspondiente en un lote de fixes nuevo (ver "Fase 2"), sin push (schema/migración va a `backend-dev` con `rulebooks/db-migrations.md`). Re-lanza solo los reviewers que marcaron issues, acotados al delta local. Sugerencias baratas: aplicadas antes del push (skill `pr-workflow`, §2)
 6. **Veredictos limpios**: `phases.review = done` y `review_sha` al SHA de HEAD, avanza a Fase 2.7. Fixes, sugerencias y registro viajan en el push inicial: **el PR nace revisado**
 
 ### Fase 2.7: Push + PR
@@ -136,7 +136,7 @@ Cada subagente recibe un paquete de contexto armado por ti, **no el historial co
 
 Aplica para `backend-dev`, `frontend-dev`.
 
-Parámetros del `Agent`: `subagent_type` = `methodology:backend-dev` | `methodology:frontend-dev`; `description` = `Lote N: <resumen corto>` — prefijo exacto, `N` = `batches[].id`; igual en relanzamientos y en lotes de fixes de review/CI. Ejemplo: `description: "Lote 3: reglas de estado"`.
+Parámetros del `Agent`: `subagent_type` = `methodology:backend-dev` | `methodology:frontend-dev`; `description` = `Lote N: <resumen corto>` — prefijo exacto, `N` = `batches[].id`; igual en relanzamientos y en lotes de fixes de review/CI. Ejemplo: `description: "Lote 3: reglas de estado"`. En el template, `Lote: <N> de <M>` usa ese mismo `N` (`batches[].id`) y `M` = total de lotes del plan original; un lote de fixes puede ser `Lote: 8 de 7`.
 
 El formato del prompt:
 
@@ -273,10 +273,10 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 - **Enum de status** (`phases.*` y `batches[].status`): `pending | in_progress | done | failed | skipped`. Ningún otro valor.
 - `phases` tiene **claves fijas** — siempre las 9 de arriba, `skipped` para las que no aplican (p. ej. `e2e` sin UI).
 - `batches` refleja el plan del architect: `id`/`name`/`agent` los siembra el orchestrator; `status`/`tasks_done`/`current_task` mutan durante la ejecución.
-- `batches[].id` es un **entero único** en todo el `state.json` (nunca string como `"2a"`, nunca la clave `n`); el nombre va en `name` (nunca `slug`); `agent` es el nombre corto del agente (`backend-dev`, `frontend-dev`). Los lotes de fixes de review o CI se añaden al final con el id siguiente. Estos tipos son contrato: `agent-radar` los lee tal cual.
+- `batches[].id` es un **entero único** en todo el `state.json` (nunca string como `"2a"`, nunca la clave `n`); el nombre va en `name` (nunca `slug`); `agent` es el nombre corto del agente (`backend-dev`, `frontend-dev`). Los lotes de fixes de review o CI se añaden al final, antes de lanzar a su dev, con id = máximo `id` existente + 1 (único en todo el archivo, también en multi-PR). Estos tipos son contrato: `agent-radar` los lee tal cual.
 - **Orden de transiciones**: `review` pasa a `done` antes que `pr`/`ci` — el review dual ocurre pre-push. `review_sha` ancla el checkpoint de `post-pr-create.sh`.
 
-**Quién escribe qué:** archivo completo y `phases.*` los escribe el orchestrator en cada transición de fase (`phases.review`/`review_sha` en Fase 2.6, al cerrar veredictos limpios; `pr` en Fase 2.7; `phases.merge` en Fase 5, post-merge) — todo local, sin commit (`.planning/` no se versiona). `batches[].tasks_done`/`current_task` de su batch los escribe el dev que ejecuta el lote, antes de cada tarea atómica. `updated` lo toca quien haga la escritura.
+**Quién escribe qué:** archivo completo y `phases.*` los escribe el orchestrator en cada transición de fase (`phases.review`/`review_sha` en Fase 2.6, al cerrar veredictos limpios; `pr` en Fase 2.7; `phases.merge` en Fase 5, post-merge) — todo local, sin commit (`.planning/` no se versiona). `batches[].tasks_done`/`current_task` de su batch los escribe el dev que ejecuta el lote, antes de cada tarea atómica. `batches[].status` lo escribe el orchestrator: `in_progress` al lanzar al dev, `done` o `failed` al recibir su reporte. `updated` lo toca quien haga la escritura.
 
 **`STATE.md`** se actualiza al tomar una decisión (`[D-NN]`), al encontrar/resolver un blocker, o al pausar/retomar.
 
@@ -435,7 +435,7 @@ Antes de la verificación pre-merge: `docker compose up -d && docker compose ps`
 | Architect entrega plan con un lote consumidor antes que el lote `db-complejo` | Devolver al architect: "el orden es incorrecto, el lote `db-complejo` va primero porque los lotes siguientes consumen su schema" |
 | Dev (cualquiera) reporta `BUDGET LIMIT` | Leer `HANDOFF.md`, reinvocar al mismo dev con tareas restantes |
 | Dev reporta error de build/CI | Reinvocar al mismo dev con `rulebooks/build-errors.md`. Max 3 fixes automáticos |
-| Reviewer reporta bloqueante | Asignar fix al dev del lote correspondiente en mismo branch. Re-lanzar solo el reviewer que reportó. Repetir hasta aprobación |
+| Reviewer reporta bloqueante | Asignar fix al dev correspondiente en un lote de fixes nuevo (id siguiente), mismo branch. Re-lanzar solo el reviewer que reportó. Repetir hasta aprobación |
 | PR creado sin review pre-push (el checkpoint del hook `post-pr-create` lo señala) | Tratarlo como PR fuera del flujo: skill `review-pr` sobre `gh pr diff` |
 | `gh pr merge` falla | Verificar las 3 condiciones de pre-merge. Reportar cuál bloquea |
 | Healthcheck Docker falla antes de E2E pre-release | Escalar al dev del servicio fallando antes de lanzar `e2e-runner` Modo B |
