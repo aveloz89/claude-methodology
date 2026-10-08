@@ -50,6 +50,8 @@ Setup del branch (una sola vez): `git checkout dev && git pull origin dev && git
 
 **Modo multi-PR** (solo si el architect lo justificó): cada grupo de lotes corre sobre branch + PR propio — branch desde dev, lotes del grupo (último `last_batch=true`), Fase 2.5 → 2.6 → 2.7 → 2.8 → 3 → 5, y al siguiente grupo.
 
+Cada invocación de dev lleva `description` `Lote N: …` (ver "Template del prompt de handoff a devs"); al abrir lotes de fixes (review, CI) se añaden a `batches[]` con el id siguiente, nunca se reutiliza un id.
+
 **Si un dev reporta `BUDGET LIMIT`**: lee `.planning/HANDOFF.md`, reinvócalo con solo las tareas restantes, y abre un issue si el patrón se repite.
 
 **Si un dev reporta error de build/CI que no resuelve**: reinvócalo con `rulebooks/build-errors.md`, en el mismo branch.
@@ -132,7 +134,11 @@ El review dual ya ocurrió en Fase 2.6: **el PR nació revisado**. Esta fase cub
 
 Cada subagente recibe un paquete de contexto armado por ti, **no el historial completo ni tareas de otros lotes**: `architect` recibe `BRIEF.md` completo; `backend-dev`/`frontend-dev` reciben solo las tareas y la sección de `DESIGN.md` de su lote + path al schema/contratos + branch + `last_batch` + `rules/<lenguaje>.md` (y en `db-complejo`, además schema actual + `rulebooks/db-migrations.md`); si no es el primer lote, instrucción de leer `git log`/`STATE.md`/`state.json`; `security-reviewer`/`qa-*` reciben la fuente del diff (local o `gh pr diff`, según la fase) + `DESIGN.md` + `BRIEF.md`.
 
-Aplica para `backend-dev`, `frontend-dev`. El formato del prompt:
+Aplica para `backend-dev`, `frontend-dev`.
+
+Parámetros del `Agent`: `subagent_type` = `methodology:backend-dev` | `methodology:frontend-dev`; `description` = `Lote N: <resumen corto>` — prefijo exacto, `N` = `batches[].id`; igual en relanzamientos y en lotes de fixes de review/CI. Ejemplo: `description: "Lote 3: reglas de estado"`.
+
+El formato del prompt:
 
 ```
 Branch: <feature-branch>
@@ -267,6 +273,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 - **Enum de status** (`phases.*` y `batches[].status`): `pending | in_progress | done | failed | skipped`. Ningún otro valor.
 - `phases` tiene **claves fijas** — siempre las 9 de arriba, `skipped` para las que no aplican (p. ej. `e2e` sin UI).
 - `batches` refleja el plan del architect: `id`/`name`/`agent` los siembra el orchestrator; `status`/`tasks_done`/`current_task` mutan durante la ejecución.
+- `batches[].id` es un **entero único** en todo el `state.json` (nunca string como `"2a"`, nunca la clave `n`); el nombre va en `name` (nunca `slug`); `agent` es el nombre corto del agente (`backend-dev`, `frontend-dev`). Los lotes de fixes de review o CI se añaden al final con el id siguiente. Estos tipos son contrato: `agent-radar` los lee tal cual.
 - **Orden de transiciones**: `review` pasa a `done` antes que `pr`/`ci` — el review dual ocurre pre-push. `review_sha` ancla el checkpoint de `post-pr-create.sh`.
 
 **Quién escribe qué:** archivo completo y `phases.*` los escribe el orchestrator en cada transición de fase (`phases.review`/`review_sha` en Fase 2.6, al cerrar veredictos limpios; `pr` en Fase 2.7; `phases.merge` en Fase 5, post-merge) — todo local, sin commit (`.planning/` no se versiona). `batches[].tasks_done`/`current_task` de su batch los escribe el dev que ejecuta el lote, antes de cada tarea atómica. `updated` lo toca quien haga la escritura.
