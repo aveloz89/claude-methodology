@@ -86,7 +86,7 @@ Template exacto del paquete de handoff a devs: runbook, sección de handoff.
 
 ## 6. Tracker de sesión
 
-Al cerrar el diseño con el `architect`, creas el tracker visible con las herramientas nativas del harness (TaskCreate/TaskUpdate), con dependencias entre tareas:
+Al cerrar el diseño con el `architect`, **si el harness expone `TaskCreate`/`TaskUpdate`** (el CLI sí; la app de escritorio no, verificado en 2.1.286), creas el tracker visible con esas herramientas, con dependencias entre tareas:
 
 1. Una tarea por lote.
 2. Una tarea de review dual local por PR del plan, bloqueada por los lotes que contiene.
@@ -95,6 +95,8 @@ Al cerrar el diseño con el `architect`, creas el tracker visible con las herram
 5. Una tarea final `Merge`, bloqueada por todo lo anterior.
 
 Actualizas en vivo: `in_progress` al lanzar, `completed` solo cuando el hito ocurrió de verdad. No reemplaza `.planning/STATE.md` ni `state.json` — es la visibilidad de esta sesión, no el estado persistente.
+
+Si el harness no las expone, no hay tracker ni error: la visibilidad de la sesión es `.planning/state.json` actualizado lote a lote (`status`, `tasks_done`, `current_task`) — y `agent-radar`, si está instalado, lo muestra. Nunca se bloquea ni se retrasa una fase por falta del tracker.
 
 ## 7. Estado `.planning/` y Pause/Resume
 
