@@ -3543,7 +3543,11 @@ _pyrun_cleanup
 # 3.2): sin el recorte previo 8.4 s (perl Time::HiRes; este caso lo registra
 # como 9 s por la resolución de $SECONDS), con él 1.1 s, lo mismo que una
 # salida trivial. Umbral de 4 s: rojo sin el recorte con más del doble de
-# margen, verde con él con más de tres veces de margen.
+# margen, verde con él con más de tres veces de margen. Este caso detecta la
+# regresión SOLO por tiempo: quitando únicamente `.[0:($w * 4)]` del helper,
+# el contenido del bloque que afirma no cambia. La detección determinista, por
+# contenido, vive en E18 (\x01 x1600 + "TAIL": "| …" con el recorte previo,
+# "| TAIL…" sin él).
 _pyrun_setup
 { head -c 65536 /dev/zero | tr '\0' '\001'; echo; printf '%s\n' "FAILED tests/test_x.py::test_a - assert 1 == 2"; } > "$PYRUN_MARK/payload.txt"
 _pyrun_make_venv_chatty 1
@@ -3567,10 +3571,11 @@ _pyrun_cleanup
 # gsub) también se marca con "…". Si la línea se corta ahí y lo que queda se
 # sanea a <= 400 caracteres, sin la marca el lector no se entera de que se
 # perdió el resto. Tres líneas del runner, en este orden: \x01 x1600 + "TAIL"
-# (el recorte corta y tras el saneo no queda nada → "| …"; sin el recorte
-# saldría "| TAIL", con el recorte pero sin la marca "| "), \x01 x1600 exactos
-# (no corta → "| ", sin "…": frontera) y \x01 x1601 (corta por uno → "| …").
-# Es el pin DETERMINISTA del recorte previo: E17 lo detecta solo por tiempo.
+# (el recorte corta y tras el saneo no queda nada → "| …"; sin la marca
+# saldría "| ", sin el recorte pero con la marca "| TAIL…", sin ninguno de los
+# dos "| TAIL"), \x01 x1600 exactos (no corta → "| ", sin "…": frontera) y
+# \x01 x1601 (corta por uno → "| …"). Es el pin DETERMINISTA del recorte
+# previo: E17 lo detecta solo por tiempo.
 _pyrun_setup
 {
   head -c 1600 /dev/zero | tr '\0' '\001'; printf 'TAIL\n'
