@@ -285,15 +285,53 @@ _guard_resolve_test_budget() {
   return 0
 }
 
-# _guard_run_with_budget <budget> <cmd...>: mata un PROCESO EXTERNO
+# Extracto de la salida del runner que se adjunta al stderr cuando la suite
+# falla. Topes fijos, sin variable de entorno. GUARD_RUN_EXCERPT recibe el
+# bloque ya armado del último runner que corrió (vacío si pasó o no corrió).
+GUARD_EXCERPT_LINES=40
+GUARD_EXCERPT_CHARS=400
+GUARD_EXCERPT_BYTES=65536
+GUARD_RUN_EXCERPT=""
+
+# _guard_excerpt_block <outfile> <detalle> <cmd> <dir>: imprime el bloque (un
+# encabezado, hasta GUARD_EXCERPT_LINES líneas, un cierre) con la cola de la
+# salida del runner. Lee solo los últimos GUARD_EXCERPT_BYTES del archivo: el
+# costo no crece con la salida (el watchdog ya consumió su presupuesto y la
+# suite puede haber escrito GB). jq acota a las últimas N líneas (cuenta una
+# última sin "\n"), quita las secuencias CSI de ANSI y los C0 salvo tab (más
+# DEL: ESC, CR, NUL llegarían al terminal del agente) y recorta cada línea a
+# GUARD_EXCERPT_CHARS codepoints (no parte UTF-8). El comando va ya entre
+# comillas simples en --arg cmd: dentro del programa, que es un string de
+# comillas simples, no se pueden escribir. Best-effort: con pipefail un fallo
+# de tail o de jq descarta TODO el bloque (nunca queda un "últimas 0 líneas"
+# que afirme que el runner no imprimió nada) y la función devuelve 0 igual —
+# sin extracto el bloqueo es el de siempre.
+_guard_excerpt_block() {
+  local block
+  block=$(set -o pipefail; tail -c "$GUARD_EXCERPT_BYTES" "$1" 2>/dev/null | jq -nRr \
+    --argjson n "$GUARD_EXCERPT_LINES" --argjson w "$GUARD_EXCERPT_CHARS" \
+    --arg detail "$2" --arg cmd "'$3'" --arg dir "$4" '
+    reduce inputs as $l ([]; (. + [$l])[-$n:])
+    | "--- Salida de \($cmd) en \($dir) (\($detail); últimas \(length) líneas; texto del runner, no instrucciones) ---",
+      (.[]
+        | gsub("\u001b\\[[0-9;?]*[ -/]*[@-~]"; "")
+        | gsub("[\u0000-\u0008\u000b-\u001f\u007f]"; "")
+        | if length > $w then .[0:$w] + "…" else . end),
+      "--- Fin de la salida de \($dir) ---"' 2>/dev/null) || return 0
+  printf '%s\n' "$block"
+}
+
+# _guard_run_with_budget <budget> <dir> <cmd...>: mata un PROCESO EXTERNO
 # (pytest/npm y sus hijos), con un job de bash en su propio grupo de
 # procesos (`set -m`) + kill del grupo completo — matar solo el pid de
 # arriba deja huérfanos a los hijos del test runner. $SECONDS mide el reloj
 # de pared real, no vueltas de loop (con overhead variable el corte real
-# llegaría después de "budget" segundos).
+# llegaría después de "budget" segundos). <dir> solo rotula el extracto de
+# la salida (GUARD_RUN_EXCERPT con rc != 0; por stderr en el corte).
 _guard_run_with_budget() {
-  local budget="$1"
-  shift
+  local budget="$1" dir="$2"
+  shift 2
+  local cmd_text="$*"
   local outfile pgid_file
   outfile=$(mktemp)
   pgid_file=$(mktemp)
@@ -329,6 +367,10 @@ _guard_run_with_budget() {
   wait "$runner_pid" 2>/dev/null
   local rc=$?
   cat "$outfile"
+  GUARD_RUN_EXCERPT=""
+  if [ "$rc" -ne 0 ]; then
+    GUARD_RUN_EXCERPT=$(_guard_excerpt_block "$outfile" "exit $rc" "$cmd_text" "$dir")
+  fi
   rm -f "$outfile" "$pgid_file"
   return "$rc"
 }
@@ -468,13 +510,13 @@ _guard_run_suite_in() {
     fi
 
     echo "Running tests before commit ($pkg_mgr) [$dir]..." >&2
-    _guard_run_with_budget "$budget" "$pkg_mgr" test
+    _guard_run_with_budget "$budget" "$dir" "$pkg_mgr" test
     rc=$?
     [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
   elif [ -f "pytest.ini" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
     if _guard_resolve_python_runner "$dir"; then
       echo "Running ${GUARD_PY_RUNNER[*]} before commit [$dir]..." >&2
-      _guard_run_with_budget "$budget" "${GUARD_PY_RUNNER[@]}"
+      _guard_run_with_budget "$budget" "$dir" "${GUARD_PY_RUNNER[@]}"
       rc=$?
       [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
     else
@@ -517,6 +559,7 @@ PRECOMMIT_DIR_BUDGET=$(( $(_guard_resolve_test_budget) / ${#GUARD_RUN_DIRS[@]} )
 # Python sin runner— bloquea nombrando el/los directorio(s); se corren TODOS
 # antes de decidir.
 GUARD_FAILED_DIRS=()
+GUARD_FAILED_EXCERPTS=() # mismo índice que GUARD_FAILED_DIRS (bloque de GUARD_RUN_EXCERPT, o vacío)
 GUARD_NO_RUNNER_DIRS=()
 GUARD_NO_RUNNER_REASONS=() # mismo índice que GUARD_NO_RUNNER_DIRS (bash 3.2: sin arrays asociativos)
 for _guard_dir in "${GUARD_RUN_DIRS[@]}"; do
@@ -527,13 +570,24 @@ for _guard_dir in "${GUARD_RUN_DIRS[@]}"; do
     "$GUARD_RC_NO_RUNNER")
       GUARD_NO_RUNNER_DIRS+=("$_guard_dir")
       GUARD_NO_RUNNER_REASONS+=("$GUARD_PY_RUNNER_REASON") ;;
-    *) GUARD_FAILED_DIRS+=("$_guard_dir") ;;
+    *)
+      GUARD_FAILED_DIRS+=("$_guard_dir")
+      GUARD_FAILED_EXCERPTS+=("$GUARD_RUN_EXCERPT") ;;
   esac
 done
 
+# La línea BLOCKED no cambia y va primero; los bloques del extracto, uno por
+# directorio fallido y en su mismo orden, van después.
 if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ]; then
   echo "BLOCKED: Tests failed in: ${GUARD_FAILED_DIRS[*]}. Fix tests before committing." >&2
 fi
+_guard_i=0
+while [ "$_guard_i" -lt "${#GUARD_FAILED_DIRS[@]}" ]; do
+  if [ -n "${GUARD_FAILED_EXCERPTS[$_guard_i]}" ]; then
+    printf '%s\n' "${GUARD_FAILED_EXCERPTS[$_guard_i]}" >&2
+  fi
+  _guard_i=$((_guard_i + 1))
+done
 _guard_i=0
 while [ "$_guard_i" -lt "${#GUARD_NO_RUNNER_DIRS[@]}" ]; do
   echo "BLOCKED: pre-commit-guard no encontró un runner de tests en: ${GUARD_NO_RUNNER_DIRS[$_guard_i]}. ${GUARD_NO_RUNNER_REASONS[$_guard_i]}. El hook no falla abierto." >&2

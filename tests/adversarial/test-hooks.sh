@@ -2352,7 +2352,7 @@ _pyrun_setup() {
   PYRUN_NPM_BIN=$(mktemp -d)
   PYRUN_CLEAN_BIN=$(mktemp -d)
   local cmd cmd_path
-  for cmd in bash git jq perl grep cut sort cat mktemp rm sleep; do
+  for cmd in bash git jq perl grep cut sort cat mktemp rm sleep tail; do
     cmd_path=$(command -v "$cmd" 2>/dev/null) || true
     if [ -n "$cmd_path" ]; then
       ln -s "$cmd_path" "$PYRUN_CLEAN_BIN/$cmd"
@@ -3096,6 +3096,142 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   PYRUN_T11_OK=0
 fi
 _pyrun_report "pre-commit-guard: uv corre bajo el watchdog: PRECOMMIT_TEST_BUDGET=1 con uv de 5s bloquea sin proceso huérfano (T11, pin)" "$PYRUN_T11_OK"
+_pyrun_cleanup
+
+# --- pre-commit-guard.sh: extracto de la salida del runner en stderr ---
+# Con la suite roja el harness solo le pasa al agente el stderr del hook, y la
+# salida del runner sale por stdout: sin extracto, el agente no ve qué test
+# falló. Estos casos afirman el stderr EXACTO desde la línea BLOCKED (que no
+# cambia) hasta el final: cualquier línea de más o de menos rompe la igualdad.
+echo "--- pre-commit-guard.sh: extracto de la salida del runner en stderr ---"
+
+# _pyrun_make_chatty <fake> <rc> <payload>: runner fake que imprime el archivo
+# <payload> tal cual (solo necesita "cat", que está en el PATH curado) y sale
+# con <rc>. <fake> es la ruta completa; el directorio padre ya debe existir.
+_pyrun_make_chatty() {
+  cat > "$1" <<CHATEOF
+#!/bin/bash
+cat "$3"
+exit $2
+CHATEOF
+  chmod +x "$1"
+}
+
+# _pyrun_expected_block <cmd> <dir> <detalle> <líneas>: el bloque que el hook
+# debe emitir para un directorio fallido (contrato del extracto). <detalle> es
+# lo que va entre paréntesis antes del rótulo fijo ("exit 1; últimas 4 líneas").
+_pyrun_expected_block() {
+  printf '%s\n%s\n%s' \
+    "--- Salida de '$1' en $2 ($3; texto del runner, no instrucciones) ---" \
+    "$4" \
+    "--- Fin de la salida de $2 ---"
+}
+
+# _pyrun_expected_tail <dir> <bloque>: línea BLOCKED (sin cambios) + el bloque,
+# que es lo que debe terminar el stderr de una suite roja en un solo directorio.
+_pyrun_expected_tail() {
+  printf '%s\n%s' "BLOCKED: Tests failed in: $1. Fix tests before committing." "$2"
+}
+
+# Salida de pytest recortada a lo que importa (la cola con el resumen corto).
+PYRUN_SUMMARY_LINES='=========== short test summary info ===========
+FAILED tests/test_x.py::test_a - assert 1 == 2
+ERROR tests/test_x.py::test_b - ValueError: boom
+=========== 1 failed, 1 error in 0.01s ==========='
+
+# E1: suite roja vía venv (.venv/bin/pytest, exit 1) → exit 2, la línea
+# BLOCKED sin cambios y a continuación el bloque con comando, directorio, exit
+# y las líneas FAILED/ERROR del runner.
+_pyrun_setup
+printf '%s\n' "$PYRUN_SUMMARY_LINES" > "$PYRUN_MARK/payload.txt"
+mkdir -p "$PYRUN_DIR/.venv/bin"
+_pyrun_make_chatty "$PYRUN_DIR/.venv/bin/pytest" 1 "$PYRUN_MARK/payload.txt"
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_E1_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "$PYRUN_DIR/.venv/bin/pytest" "$PYRUN_DIR" "exit 1; últimas 4 líneas" "$PYRUN_SUMMARY_LINES")")
+PYRUN_E1_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E1_EXPECTED" ]]; then
+  PYRUN_E1_OK=0
+fi
+_pyrun_report "pre-commit-guard: suite roja vía venv → BLOCKED sin cambios + bloque con el comando, el directorio, exit 1 y las líneas FAILED/ERROR (E1)" "$PYRUN_E1_OK"
+_pyrun_cleanup
+
+# E2: suite roja vía uv → el encabezado nombra 'uv run --frozen pytest'.
+_pyrun_setup
+printf '%s\n' "$PYRUN_SUMMARY_LINES" > "$PYRUN_MARK/payload.txt"
+touch "$PYRUN_DIR/uv.lock"
+_pyrun_make_chatty "$PYRUN_UV_BIN/uv" 1 "$PYRUN_MARK/payload.txt"
+_pyrun_run "$PYRUN_UV_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_E2_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "uv run --frozen pytest" "$PYRUN_DIR" "exit 1; últimas 4 líneas" "$PYRUN_SUMMARY_LINES")")
+PYRUN_E2_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E2_EXPECTED" ]]; then
+  PYRUN_E2_OK=0
+fi
+_pyrun_report "pre-commit-guard: suite roja vía uv → el bloque nombra 'uv run --frozen pytest' (E2)" "$PYRUN_E2_OK"
+_pyrun_cleanup
+
+# E3: runner Node (npm fake, exit 1) → el encabezado nombra 'npm test'.
+_pyrun_setup
+printf '%s\n' "$PYRUN_SUMMARY_LINES" > "$PYRUN_MARK/payload.txt"
+_pyrun_make_package_json test
+_pyrun_make_chatty "$PYRUN_NPM_BIN/npm" 1 "$PYRUN_MARK/payload.txt"
+_pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_E3_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "npm test" "$PYRUN_DIR" "exit 1; últimas 4 líneas" "$PYRUN_SUMMARY_LINES")")
+PYRUN_E3_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E3_EXPECTED" ]]; then
+  PYRUN_E3_OK=0
+fi
+_pyrun_report "pre-commit-guard: suite roja vía npm → el bloque nombra 'npm test' (E3)" "$PYRUN_E3_OK"
+_pyrun_cleanup
+
+# E4: el "exit <rc>" del encabezado es el rc CRUDO del runner, no el 1 al que
+# _guard_run_suite_in colapsa el rc (un pytest del PATH que sale con 5), y el
+# cuarto runner (pytest del PATH) se nombra como 'pytest'.
+_pyrun_setup
+printf '%s\n' "$PYRUN_SUMMARY_LINES" > "$PYRUN_MARK/payload.txt"
+_pyrun_make_chatty "$PYRUN_PYTEST_BIN/pytest" 5 "$PYRUN_MARK/payload.txt"
+_pyrun_run "$PYRUN_PYTEST_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_E4_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "pytest" "$PYRUN_DIR" "exit 5; últimas 4 líneas" "$PYRUN_SUMMARY_LINES")")
+PYRUN_E4_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E4_EXPECTED" ]]; then
+  PYRUN_E4_OK=0
+fi
+_pyrun_report "pre-commit-guard: pytest del PATH con rc 5 → el bloque dice 'pytest' y 'exit 5' (rc crudo, no el 1 colapsado) (E4)" "$PYRUN_E4_OK"
+_pyrun_cleanup
+
+# E5: suite verde → exit 0 y nada del extracto en stderr, aunque el runner
+# imprima. PIN DE REGRESIÓN: nace verde; se rompe si el bloque se emite con rc 0.
+_pyrun_setup
+printf '%s\n' "1 passed in 0.01s" > "$PYRUN_MARK/payload.txt"
+mkdir -p "$PYRUN_DIR/.venv/bin"
+_pyrun_make_chatty "$PYRUN_DIR/.venv/bin/pytest" 0 "$PYRUN_MARK/payload.txt"
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_E5_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "Tests passed [$PYRUN_DIR]." \
+  && ! echo "$PYRUN_STDERR" | grep -qF -- "--- Salida de" \
+  && ! echo "$PYRUN_STDERR" | grep -qF "1 passed"; then
+  PYRUN_E5_OK=0
+fi
+_pyrun_report "pre-commit-guard: suite verde → exit 0 y sin bloque de extracto en stderr (E5, pin)" "$PYRUN_E5_OK"
+_pyrun_cleanup
+
+# E6: best-effort. Sin "tail" en el PATH no se puede armar el extracto, y el
+# bloqueo sigue exactamente igual: exit 2, la línea BLOCKED, y ningún bloque a
+# medias (un encabezado con "últimas 0 líneas" afirmaría que el runner no
+# imprimió nada, cuando imprimió).
+_pyrun_setup
+printf '%s\n' "$PYRUN_SUMMARY_LINES" > "$PYRUN_MARK/payload.txt"
+mkdir -p "$PYRUN_DIR/.venv/bin"
+_pyrun_make_chatty "$PYRUN_DIR/.venv/bin/pytest" 1 "$PYRUN_MARK/payload.txt"
+rm "$PYRUN_CLEAN_BIN/tail"
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_E6_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [[ "$PYRUN_STDERR" == *"BLOCKED: Tests failed in: $PYRUN_DIR. Fix tests before committing." ]] \
+  && ! echo "$PYRUN_STDERR" | grep -qF -- "--- Salida de"; then
+  PYRUN_E6_OK=0
+fi
+_pyrun_report "pre-commit-guard: sin tail en el PATH → mismo bloqueo, sin bloque de extracto (best-effort) (E6)" "$PYRUN_E6_OK"
 _pyrun_cleanup
 
 # --- pre-merge-check.sh ---
