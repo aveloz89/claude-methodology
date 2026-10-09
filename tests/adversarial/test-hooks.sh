@@ -3442,6 +3442,35 @@ fi
 _pyrun_report "pre-commit-guard: un directorio cuyo cd falla no hereda el extracto del anterior (E14)" "$PYRUN_E14_OK"
 _pyrun_cleanup
 
+# E15: corte por watchdog. Un runner que imprime una marca y se queda dormido,
+# con PRECOMMIT_TEST_BUDGET=1: la línea "BLOCKED: la suite superó…" sale
+# intacta y, a continuación, el bloque con la marca dentro y "cortada a los 1s"
+# en vez de "exit <rc>" (el runner no terminó: no hay rc). Sin proceso
+# huérfano 1s después (mismo patrón que T11): el extracto no puede dejar vivo
+# al grupo del runner. Sin "Tests failed in:": el watchdog sale antes del loop.
+_pyrun_setup
+mkdir -p "$PYRUN_DIR/.venv/bin"
+cat > "$PYRUN_DIR/.venv/bin/pytest" <<'WDEOF'
+#!/bin/bash
+echo "MARCA-WATCHDOG test_lento arrancó"
+sleep 5
+exit 0
+WDEOF
+chmod +x "$PYRUN_DIR/.venv/bin/pytest"
+PRECOMMIT_TEST_BUDGET=1 _pyrun_run "$PYRUN_CLEAN_BIN"
+sleep 1
+PYRUN_E15_ORPHAN=$(pgrep -f "$PYRUN_DIR/.venv/bin/pytest" || true)
+PYRUN_E15_EXPECTED=$(printf '%s\n%s' "BLOCKED: la suite superó 1s; el hook no falla abierto. Acota la suite o sube PRECOMMIT_TEST_BUDGET." "$(_pyrun_expected_block "$PYRUN_DIR/.venv/bin/pytest" "$PYRUN_DIR" "cortada a los 1s; últimas 1 líneas" "MARCA-WATCHDOG test_lento arrancó")")
+PYRUN_E15_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [[ "$PYRUN_STDERR" == *"$PYRUN_E15_EXPECTED" ]] \
+  && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed in:" \
+  && [ -z "$PYRUN_E15_ORPHAN" ]; then
+  PYRUN_E15_OK=0
+fi
+_pyrun_report "pre-commit-guard: corte por watchdog → 'superó' sin cambios + bloque 'cortada a los 1s' con la marca del runner, sin huérfanos (E15)" "$PYRUN_E15_OK"
+_pyrun_cleanup
+
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 
