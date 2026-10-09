@@ -3203,7 +3203,12 @@ _pyrun_report "pre-commit-guard: pytest del PATH con rc 5 → el bloque dice 'py
 _pyrun_cleanup
 
 # E5: suite verde → exit 0 y nada del extracto en stderr, aunque el runner
-# imprima. PIN DE REGRESIÓN: nace verde; se rompe si el bloque se emite con rc 0.
+# imprima. PIN DE REGRESIÓN: nace verde; protege que un runner verde no deje
+# bloque ni salida suya en el stderr. Se rompe si el hook IMPRIME el bloque de
+# un directorio verde (verificado: armarlo con rc 0 y que el loop final lo
+# imprima ponen en rojo E5 y E13). NO se rompe si el bloque solo se ARMA con rc
+# 0: el loop imprime únicamente los de GUARD_FAILED_DIRS (verificado: esa
+# mutación sola deja la suite verde).
 _pyrun_setup
 printf '%s\n' "1 passed in 0.01s" > "$PYRUN_MARK/payload.txt"
 mkdir -p "$PYRUN_DIR/.venv/bin"
