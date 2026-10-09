@@ -3515,6 +3515,37 @@ fi
 _pyrun_report "pre-commit-guard: un cierre falso y un BLOCKED falso del runner salen con el prefijo '| '; en columna cero solo queda el hook (E16)" "$PYRUN_E16_OK"
 _pyrun_cleanup
 
+# E17: costo acotado por línea. Los gsub de jq son cuadráticos en el largo de
+# la línea; una sola línea de 64 KiB de bytes de control (la ventana entera)
+# costaba segundos DESPUÉS del watchdog, tiempo que se suma al presupuesto y
+# acerca el hook al timeout de hooks.json (que deja pasar el commit). Con el
+# recorte previo a 4 * GUARD_EXCERPT_CHARS codepoints antes de los gsub, el
+# costo no depende del largo de la línea. Línea de ~64 KiB de \x01 seguida de
+# una FAILED real: el bloque conserva ambas (la primera sale vacía, "| ").
+# Medido sobre el hook completo (jq-1.7.1-apple, M5 Pro, macOS 26.6.2, bash
+# 3.2): sin el recorte previo 8.4 s (perl Time::HiRes; este caso lo registra
+# como 9 s por la resolución de $SECONDS), con él 1.1 s, lo mismo que una
+# salida trivial. Umbral de 4 s: rojo sin el recorte con más del doble de
+# margen, verde con él con más de tres veces de margen.
+_pyrun_setup
+{ head -c 65536 /dev/zero | tr '\0' '\001'; echo; printf '%s\n' "FAILED tests/test_x.py::test_a - assert 1 == 2"; } > "$PYRUN_MARK/payload.txt"
+_pyrun_make_venv_chatty 1
+PYRUN_E17_T0=$SECONDS
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_E17_ELAPSED=$((SECONDS - PYRUN_E17_T0))
+PYRUN_E17_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "$PYRUN_DIR/.venv/bin/pytest" "$PYRUN_DIR" "exit 1; últimas 2 líneas" "
+FAILED tests/test_x.py::test_a - assert 1 == 2")")
+PYRUN_E17_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [[ "$PYRUN_STDERR" == *"$PYRUN_E17_EXPECTED" ]] \
+  && [ "$PYRUN_E17_ELAPSED" -lt 4 ]; then
+  PYRUN_E17_OK=0
+else
+  PYRUN_STDERR="[tardó ${PYRUN_E17_ELAPSED}s; umbral 4s] $PYRUN_STDERR"
+fi
+_pyrun_report "pre-commit-guard: una línea de 64 KiB de bytes de control no hace crecer el costo del extracto (< 4 s) (E17)" "$PYRUN_E17_OK"
+_pyrun_cleanup
+
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 
