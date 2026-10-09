@@ -3310,9 +3310,13 @@ _pyrun_report "pre-commit-guard: líneas de 1000/401/500 caracteres → 400 + '�
 _pyrun_cleanup
 
 # E9: ningún byte de control llega al stderr. La salida trae ANSI (color,
-# cursor), un CR de barra de progreso, BEL, BS, NUL, DEL y un ESC suelto; el
-# tab se conserva. Se afirma sobre los bytes crudos (stderr.bin): que ni un
-# solo byte de 0-8, 11-31 o 127 sobreviva, y además el texto exacto que queda.
+# cursor), un CR de barra de progreso, BEL, BS, NUL, DEL y un ESC suelto, más
+# los controles C1 (U+0080-U+009F, con el CSI de 8 bits U+009B y NEL U+0085) y
+# los separadores U+2028/U+2029, que un terminal o un visor también tratan
+# como control; el tab se conserva. Se afirma sobre los bytes crudos
+# (stderr.bin): que ni un solo byte de 0-8, 11-31 o 127 sobreviva, que no
+# quede ninguna secuencia UTF-8 de C1 (C2 80-9F) ni de U+2028/U+2029 (E2 80
+# A8/A9), y además el texto exacto que queda.
 _pyrun_setup
 {
   printf 'FAILED \033[1;31mtest_a\033[0m - boom\n'
@@ -3320,6 +3324,8 @@ _pyrun_setup
   printf 'campana\a retroceso\b nul\000 del\177 esc\033 fin\n'
   printf 'col1\tcol2\n'
   printf '\033[?25h\033[2K\033[1Gcursor\n'
+  printf 'c1 \302\23331m rojo\302\205 nel \302\200\302\237 bordes\n'
+  printf 'sep\342\200\250 ls\342\200\251 ps \342\200\246 puntos\n'
 } > "$PYRUN_MARK/payload.txt"
 _pyrun_make_venv_chatty 1
 _pyrun_run_raw "$PYRUN_CLEAN_BIN"
@@ -3328,17 +3334,22 @@ PYRUN_E9_LINES="FAILED test_a - boom
 progreso 50%progreso 100%
 campana retroceso nul del esc fin
 col1${PYRUN_TAB}col2
-cursor"
-PYRUN_E9_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "$PYRUN_DIR/.venv/bin/pytest" "$PYRUN_DIR" "exit 1; últimas 5 líneas" "$PYRUN_E9_LINES")")
+cursor
+c1 31m rojo nel  bordes
+sep ls ps … puntos"
+PYRUN_E9_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "$PYRUN_DIR/.venv/bin/pytest" "$PYRUN_DIR" "exit 1; últimas 7 líneas" "$PYRUN_E9_LINES")")
 PYRUN_E9_TOTAL=$(wc -c < "$PYRUN_MARK/stderr.bin")
 PYRUN_E9_CLEAN=$(LC_ALL=C tr -d '\000-\010\013-\037\177' < "$PYRUN_MARK/stderr.bin" | wc -c)
+PYRUN_E9_UNICODE_CTRL=0
+LC_ALL=C grep -aqE $'\xc2[\x80-\x9f]|\xe2\x80[\xa8\xa9]' "$PYRUN_MARK/stderr.bin" && PYRUN_E9_UNICODE_CTRL=1
 PYRUN_E9_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] \
   && [ "$PYRUN_E9_TOTAL" -eq "$PYRUN_E9_CLEAN" ] \
+  && [ "$PYRUN_E9_UNICODE_CTRL" -eq 0 ] \
   && [[ "$PYRUN_STDERR" == *"$PYRUN_E9_EXPECTED" ]]; then
   PYRUN_E9_OK=0
 fi
-_pyrun_report "pre-commit-guard: ANSI, CR, BEL, BS, NUL, DEL y ESC no llegan al stderr; el tab sí (E9)" "$PYRUN_E9_OK"
+_pyrun_report "pre-commit-guard: ANSI, CR, BEL, BS, NUL, DEL, ESC, C1 y U+2028/U+2029 no llegan al stderr; el tab y el '…' sí (E9)" "$PYRUN_E9_OK"
 _pyrun_cleanup
 
 # E10: lectura acotada a los últimos 64 KiB. Una sola línea de 200000 bytes
