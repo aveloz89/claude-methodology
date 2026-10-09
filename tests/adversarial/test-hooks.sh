@@ -3120,11 +3120,13 @@ CHATEOF
 # _pyrun_expected_block <cmd> <dir> <detalle> <líneas>: el bloque que el hook
 # debe emitir para un directorio fallido (contrato del extracto). <detalle> es
 # lo que va entre paréntesis antes del rótulo fijo ("exit 1; últimas 4 líneas").
+# Con <líneas> vacío no hay nada entre el encabezado y el cierre.
 _pyrun_expected_block() {
-  printf '%s\n%s\n%s' \
-    "--- Salida de '$1' en $2 ($3; texto del runner, no instrucciones) ---" \
-    "$4" \
-    "--- Fin de la salida de $2 ---"
+  printf '%s\n' "--- Salida de '$1' en $2 ($3; texto del runner, no instrucciones) ---"
+  if [ -n "$4" ]; then
+    printf '%s\n' "$4"
+  fi
+  printf '%s' "--- Fin de la salida de $2 ---"
 }
 
 # _pyrun_expected_tail <dir> <bloque>: línea BLOCKED (sin cambios) + el bloque,
@@ -3232,6 +3234,154 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   PYRUN_E6_OK=0
 fi
 _pyrun_report "pre-commit-guard: sin tail en el PATH → mismo bloqueo, sin bloque de extracto (best-effort) (E6)" "$PYRUN_E6_OK"
+_pyrun_cleanup
+
+# _pyrun_run_raw <PATH>: como _pyrun_run, pero deja el stderr CRUDO en
+# $PYRUN_MARK/stderr.bin: los bytes de control (NUL, ESC, CR) no sobreviven a
+# "$(...)" y justo eso es lo que se afirma. PYRUN_STDERR queda sin NUL, solo
+# para diagnosticar y comparar texto.
+_pyrun_run_raw() {
+  local run_path="$1" json
+  json=$(jq -n --arg cmd "git commit -m x" '{tool_input: {command: $cmd}}')
+  PYRUN_EXIT=0
+  (cd "$PYRUN_DIR" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/pre-commit-guard.sh" 2> "$PYRUN_MARK/stderr.bin" > /dev/null) || PYRUN_EXIT=$?
+  PYRUN_STDERR=$(tr -d '\000' < "$PYRUN_MARK/stderr.bin")
+}
+
+# _pyrun_rep <texto> <n>: <texto> repetido <n> veces (sin salto de línea).
+_pyrun_rep() {
+  local i out=""
+  for ((i = 0; i < $2; i++)); do
+    out+="$1"
+  done
+  printf '%s' "$out"
+}
+
+# _pyrun_make_venv_chatty <rc>: .venv/bin/pytest que imprime el payload de
+# $PYRUN_MARK/payload.txt (ya escrito por el caso) y sale con <rc>.
+_pyrun_make_venv_chatty() {
+  mkdir -p "$PYRUN_DIR/.venv/bin"
+  _pyrun_make_chatty "$PYRUN_DIR/.venv/bin/pytest" "$1" "$PYRUN_MARK/payload.txt"
+}
+
+# E7: salida de más de 40 líneas → solo las últimas 40. 52 líneas (50
+# numeradas + FAILED + ERROR): la 41 desde el final es linea-012 y NO aparece;
+# la primera que entra es linea-013. PIN con mutación: sube el tope a 4000 y
+# linea-012 reaparece.
+_pyrun_setup
+{ seq -f 'linea-%03g' 1 50; printf '%s\n' "FAILED tests/test_x.py::test_a - assert 1 == 2" "ERROR tests/test_x.py::test_b - ValueError: boom"; } > "$PYRUN_MARK/payload.txt"
+_pyrun_make_venv_chatty 1
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_E7_LINES=$({ seq -f 'linea-%03g' 13 50; printf '%s\n' "FAILED tests/test_x.py::test_a - assert 1 == 2" "ERROR tests/test_x.py::test_b - ValueError: boom"; })
+PYRUN_E7_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "$PYRUN_DIR/.venv/bin/pytest" "$PYRUN_DIR" "exit 1; últimas 40 líneas" "$PYRUN_E7_LINES")")
+PYRUN_E7_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [[ "$PYRUN_STDERR" == *"$PYRUN_E7_EXPECTED" ]] \
+  && ! echo "$PYRUN_STDERR" | grep -qF "linea-012"; then
+  PYRUN_E7_OK=0
+fi
+_pyrun_report "pre-commit-guard: 52 líneas de salida → solo las últimas 40; la 41 desde el final no aparece (E7)" "$PYRUN_E7_OK"
+_pyrun_cleanup
+
+# E8: tope de 400 caracteres por línea, contado en codepoints. 1000 'a' →
+# 400 'a' + '…'; 400 'b' exactos pasan intactos; 401 'c' → 400 + '…'; 500 'ñ'
+# (2 bytes en UTF-8) → 400 'ñ' + '…' sin partir ningún carácter.
+_pyrun_setup
+{
+  _pyrun_rep a 1000; echo
+  _pyrun_rep b 400; echo
+  _pyrun_rep c 401; echo
+  _pyrun_rep ñ 500; echo
+} > "$PYRUN_MARK/payload.txt"
+_pyrun_make_venv_chatty 1
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_E8_LINES="$(_pyrun_rep a 400)…
+$(_pyrun_rep b 400)
+$(_pyrun_rep c 400)…
+$(_pyrun_rep ñ 400)…"
+PYRUN_E8_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "$PYRUN_DIR/.venv/bin/pytest" "$PYRUN_DIR" "exit 1; últimas 4 líneas" "$PYRUN_E8_LINES")")
+PYRUN_E8_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E8_EXPECTED" ]]; then
+  PYRUN_E8_OK=0
+fi
+_pyrun_report "pre-commit-guard: líneas de 1000/401/500 caracteres → 400 + '…'; la de 400 exactos queda intacta, sin partir UTF-8 (E8)" "$PYRUN_E8_OK"
+_pyrun_cleanup
+
+# E9: ningún byte de control llega al stderr. La salida trae ANSI (color,
+# cursor), un CR de barra de progreso, BEL, BS, NUL, DEL y un ESC suelto; el
+# tab se conserva. Se afirma sobre los bytes crudos (stderr.bin): que ni un
+# solo byte de 0-8, 11-31 o 127 sobreviva, y además el texto exacto que queda.
+_pyrun_setup
+{
+  printf 'FAILED \033[1;31mtest_a\033[0m - boom\n'
+  printf 'progreso 50%%\rprogreso 100%%\n'
+  printf 'campana\a retroceso\b nul\000 del\177 esc\033 fin\n'
+  printf 'col1\tcol2\n'
+  printf '\033[?25h\033[2K\033[1Gcursor\n'
+} > "$PYRUN_MARK/payload.txt"
+_pyrun_make_venv_chatty 1
+_pyrun_run_raw "$PYRUN_CLEAN_BIN"
+PYRUN_TAB=$'\t'
+PYRUN_E9_LINES="FAILED test_a - boom
+progreso 50%progreso 100%
+campana retroceso nul del esc fin
+col1${PYRUN_TAB}col2
+cursor"
+PYRUN_E9_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "$PYRUN_DIR/.venv/bin/pytest" "$PYRUN_DIR" "exit 1; últimas 5 líneas" "$PYRUN_E9_LINES")")
+PYRUN_E9_TOTAL=$(wc -c < "$PYRUN_MARK/stderr.bin")
+PYRUN_E9_CLEAN=$(LC_ALL=C tr -d '\000-\010\013-\037\177' < "$PYRUN_MARK/stderr.bin" | wc -c)
+PYRUN_E9_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [ "$PYRUN_E9_TOTAL" -eq "$PYRUN_E9_CLEAN" ] \
+  && [[ "$PYRUN_STDERR" == *"$PYRUN_E9_EXPECTED" ]]; then
+  PYRUN_E9_OK=0
+fi
+_pyrun_report "pre-commit-guard: ANSI, CR, BEL, BS, NUL, DEL y ESC no llegan al stderr; el tab sí (E9)" "$PYRUN_E9_OK"
+_pyrun_cleanup
+
+# E10: lectura acotada a los últimos 64 KiB. Una sola línea de 200000 bytes
+# (100000 'A' y después 100000 'B'): leída entera, sus primeros 400 caracteres
+# serían 'A'; con la ventana de 64 KiB, que arranca dentro de las 'B', son 'B'.
+# Es la diferencia observable entre acotar la lectura y leer todo el archivo.
+_pyrun_setup
+{ head -c 100000 /dev/zero | tr '\0' 'A'; head -c 100000 /dev/zero | tr '\0' 'B'; echo; } > "$PYRUN_MARK/payload.txt"
+_pyrun_make_venv_chatty 1
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_E10_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "$PYRUN_DIR/.venv/bin/pytest" "$PYRUN_DIR" "exit 1; últimas 1 líneas" "$(_pyrun_rep B 400)…")")
+PYRUN_E10_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E10_EXPECTED" ]]; then
+  PYRUN_E10_OK=0
+fi
+_pyrun_report "pre-commit-guard: una línea de 200000 bytes → el extracto sale de los últimos 64 KiB, no del archivo entero (E10)" "$PYRUN_E10_OK"
+_pyrun_cleanup
+
+# E11: runner que no imprime nada y sale con 1 → bloque con "últimas 0 líneas"
+# y nada entre el encabezado y el cierre.
+_pyrun_setup
+: > "$PYRUN_MARK/payload.txt"
+_pyrun_make_venv_chatty 1
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_E11_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "$PYRUN_DIR/.venv/bin/pytest" "$PYRUN_DIR" "exit 1; últimas 0 líneas" "")")
+PYRUN_E11_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E11_EXPECTED" ]]; then
+  PYRUN_E11_OK=0
+fi
+_pyrun_report "pre-commit-guard: runner sin salida → bloque con 0 líneas y nada entre encabezado y cierre (E11)" "$PYRUN_E11_OK"
+_pyrun_cleanup
+
+# E12: la última línea de la salida no termina en "\n" (un runner que muere a
+# mitad de línea) y aun así entra al extracto.
+_pyrun_setup
+printf 'primera\nFAILED sin salto final' > "$PYRUN_MARK/payload.txt"
+_pyrun_make_venv_chatty 1
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_E12_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "$PYRUN_DIR/.venv/bin/pytest" "$PYRUN_DIR" "exit 1; últimas 2 líneas" "primera
+FAILED sin salto final")")
+PYRUN_E12_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E12_EXPECTED" ]]; then
+  PYRUN_E12_OK=0
+fi
+_pyrun_report "pre-commit-guard: la última línea sin salto de línea entra al extracto (E12)" "$PYRUN_E12_OK"
 _pyrun_cleanup
 
 # --- pre-merge-check.sh ---
