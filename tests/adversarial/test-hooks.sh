@@ -3384,6 +3384,64 @@ fi
 _pyrun_report "pre-commit-guard: la última línea sin salto de línea entra al extracto (E12)" "$PYRUN_E12_OK"
 _pyrun_cleanup
 
+# _pyrun_add_project <nombre> <rc> <salida>: subdirectorio <nombre>/ del
+# fixture con pyproject.toml, un archivo sin commitear (así el hook lo deriva
+# como candidato) y un .venv/bin/pytest que imprime <salida> y sale con <rc>.
+_pyrun_add_project() {
+  mkdir -p "$PYRUN_DIR/$1/.venv/bin"
+  touch "$PYRUN_DIR/$1/pyproject.toml"
+  echo "print(1)" > "$PYRUN_DIR/$1/a.py"
+  printf '%s\n' "$3" > "$PYRUN_MARK/$1.txt"
+  _pyrun_make_chatty "$PYRUN_DIR/$1/.venv/bin/pytest" "$2" "$PYRUN_MARK/$1.txt"
+}
+
+# E13: varios directorios. alpha (rojo), beta (verde, imprime igual) y gamma
+# (rojo, otro rc) en un monorepo sin marcador en la raíz. Cada salida va bajo
+# el encabezado de SU directorio, en el orden de "Tests failed in:", y beta no
+# aporta bloque. Protege la alineación de GUARD_FAILED_EXCERPTS con
+# GUARD_FAILED_DIRS: el índice cuenta directorios fallidos, no corridos.
+_pyrun_setup
+rm "$PYRUN_DIR/pyproject.toml"
+_pyrun_add_project alpha 1 "ALPHA-ROJO FAILED alpha/test_a.py::test_x"
+_pyrun_add_project beta 0 "BETA-VERDE 1 passed"
+_pyrun_add_project gamma 3 "GAMMA-ROJO ERROR gamma/test_g.py::test_y"
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_E13_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR/alpha $PYRUN_DIR/gamma" "$(_pyrun_expected_block "$PYRUN_DIR/alpha/.venv/bin/pytest" "$PYRUN_DIR/alpha" "exit 1; últimas 1 líneas" "ALPHA-ROJO FAILED alpha/test_a.py::test_x")
+$(_pyrun_expected_block "$PYRUN_DIR/gamma/.venv/bin/pytest" "$PYRUN_DIR/gamma" "exit 3; últimas 1 líneas" "GAMMA-ROJO ERROR gamma/test_g.py::test_y")")
+PYRUN_E13_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && [[ "$PYRUN_STDERR" == *"$PYRUN_E13_EXPECTED" ]] \
+  && ! echo "$PYRUN_STDERR" | grep -qF "BETA-VERDE"; then
+  PYRUN_E13_OK=0
+fi
+_pyrun_report "pre-commit-guard: dos directorios rojos y uno verde → cada salida bajo el encabezado de su directorio, sin bloque para el verde (E13)" "$PYRUN_E13_OK"
+_pyrun_cleanup
+
+# E14: un directorio que falla sin llegar a correr el runner (su "cd" falla)
+# no hereda el extracto del anterior. El runner de alpha (rojo) borra beta/
+# mientras corre —beta ya estaba en la lista de directorios a correr—, así
+# que el "cd" de beta falla: beta figura en "Tests failed in:" y el único
+# bloque es el de alpha. Sin el reinicio de GUARD_RUN_EXCERPT al empezar
+# _guard_run_suite_in, beta imprimiría una segunda copia del bloque de alpha.
+_pyrun_setup
+rm "$PYRUN_DIR/pyproject.toml"
+_pyrun_add_project alpha 1 "ALPHA-ROJO FAILED alpha/test_a.py::test_x"
+_pyrun_add_project beta 0 "BETA-NO-CORRE"
+cat > "$PYRUN_DIR/alpha/.venv/bin/pytest" <<EOF
+#!/bin/bash
+cat "$PYRUN_MARK/alpha.txt"
+rm -rf "$PYRUN_DIR/beta"
+exit 1
+EOF
+_pyrun_run "$PYRUN_CLEAN_BIN"
+PYRUN_E14_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR/alpha $PYRUN_DIR/beta" "$(_pyrun_expected_block "$PYRUN_DIR/alpha/.venv/bin/pytest" "$PYRUN_DIR/alpha" "exit 1; últimas 1 líneas" "ALPHA-ROJO FAILED alpha/test_a.py::test_x")")
+PYRUN_E14_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E14_EXPECTED" ]]; then
+  PYRUN_E14_OK=0
+fi
+_pyrun_report "pre-commit-guard: un directorio cuyo cd falla no hereda el extracto del anterior (E14)" "$PYRUN_E14_OK"
+_pyrun_cleanup
+
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 

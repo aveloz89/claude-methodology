@@ -495,6 +495,9 @@ GUARD_RC_NO_RUNNER=127
 _guard_run_suite_in() {
   local dir="$1" budget="$2"
   local prev_pwd no_runner=0
+  # Un directorio que falla sin llegar a correr el runner (cd fallido) no
+  # debe heredar el extracto del anterior.
+  GUARD_RUN_EXCERPT=""
   prev_pwd=$(pwd)
   cd "$dir" || return 1
 
