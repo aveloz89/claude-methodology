@@ -78,7 +78,13 @@ if [ -d ".planning" ]; then
       .phases as $p |
       ($order | map(select($p[.] != "done" and $p[.] != "skipped")) | .[0]) // "ninguna"
     ' .planning/state.json 2>/dev/null)
-    ACTIVE_STATUS=$(jq -r --arg ph "$ACTIVE_PHASE" '.phases[$ph] // "n/a"' .planning/state.json 2>/dev/null)
+    # ACTIVE_PHASE sale del allowlist de arriba; su estado, en cambio, viene
+    # del archivo: mismo contrato de enum que el status de los batches
+    # (ausente -> "n/a", cualquier otro valor fuera del enum -> "?").
+    ACTIVE_STATUS=$(jq -r --arg ph "$ACTIVE_PHASE" '
+      .phases[$ph] | if . == null then "n/a"
+        elif type == "string" and IN("pending","in_progress","done","failed","skipped") then .
+        else "?" end' .planning/state.json 2>/dev/null)
     echo "Fase activa: $ACTIVE_PHASE ($ACTIVE_STATUS)"
     # name es texto libre (lo escribe el architect/orchestrator): cada batch
     # se pasa completo en base64 (una línea, sin saltos, por construcción de
