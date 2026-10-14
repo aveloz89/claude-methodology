@@ -84,16 +84,23 @@ if [ -d ".planning" ]; then
     # se pasa completo en base64 (una línea, sin saltos, por construcción de
     # la codificación) para poder leer línea a línea aunque name traiga un
     # salto de línea crudo; recién al decodificar se sanitiza antes de
-    # armar la línea impresa.
+    # armar la línea impresa. status, id, tasks_done y tasks_total tienen
+    # contrato de tipo, no de texto libre: se validan con jq al extraerlos
+    # (status: string del enum pending|in_progress|done|failed|skipped; el
+    # resto: entero >= 0) y cualquier otro valor se degrada a "?".
     while IFS= read -r B64; do
       [ -n "$B64" ] || continue
       B_JSON=$(printf '%s' "$B64" | base64 -d 2>/dev/null)
       [ -n "$B_JSON" ] || continue
-      B_STATUS=$(printf '%s' "$B_JSON" | jq -r '.status')
-      B_ID=$(printf '%s' "$B_JSON" | jq -r '.id')
+      B_STATUS=$(printf '%s' "$B_JSON" | jq -r '
+        .status | if type == "string" and IN("pending","in_progress","done","failed","skipped") then . else "?" end')
+      B_ID=$(printf '%s' "$B_JSON" | jq -r '
+        .id | if type == "number" and . == floor and . >= 0 then . else "?" end')
       B_NAME=$(sanitize_text "$(printf '%s' "$B_JSON" | jq -r '.name')")
-      B_DONE=$(printf '%s' "$B_JSON" | jq -r '.tasks_done')
-      B_TOTAL=$(printf '%s' "$B_JSON" | jq -r '.tasks_total')
+      B_DONE=$(printf '%s' "$B_JSON" | jq -r '
+        .tasks_done | if type == "number" and . == floor and . >= 0 then . else "?" end')
+      B_TOTAL=$(printf '%s' "$B_JSON" | jq -r '
+        .tasks_total | if type == "number" and . == floor and . >= 0 then . else "?" end')
       printf '[%s] %s %s — %s/%s\n' "$B_STATUS" "$B_ID" "$B_NAME" "$B_DONE" "$B_TOTAL"
     done < <(jq -r '.batches[]? | @base64' .planning/state.json 2>/dev/null)
   fi
