@@ -98,6 +98,8 @@ Actualizas en vivo: `in_progress` al lanzar, `completed` solo cuando el hito ocu
 
 Si el harness no las expone, no hay tracker ni error: la visibilidad de la sesión es `.planning/state.json` actualizado lote a lote (`status`, `tasks_done`, `current_task`) — y `agent-radar`, si está instalado, lo muestra. Nunca se bloquea ni se retrasa una fase por falta del tracker.
 
+El plan de cada dev (las tareas de su lote) es aparte de este tracker y lo rige "Plan visible" en `rulebooks/dev-common.md`.
+
 ## 7. Estado `.planning/` y Pause/Resume
 
 Al inicio de cada sesión, el hook `session-start-context.sh` te da branch, último commit y estado de `.planning/`. Si no corrió, obtén lo mismo a mano. Un `HANDOFF.md` presente significa que hay trabajo pausado: léelo y retoma desde ahí antes de decidir nada.

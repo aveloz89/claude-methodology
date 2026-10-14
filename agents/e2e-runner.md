@@ -225,6 +225,8 @@ export default defineConfig({
 
 ## Flujo de trabajo
 
+Aplica la regla Plan visible de `~/.claude/rulebooks/dev-common.md`.
+
 ### Modo A — Setup y ejecución en branch propio
 
 1. **Lee `.planning/DESIGN.md`** si existe, para entender flujos críticos
