@@ -2,7 +2,7 @@
 name: backend-dev
 description: Desarrollador backend especializado. Implementa y corrige APIs, lógica de negocio, middleware, tests de backend y manejo de errores. Usa para tareas de desarrollo server-side.
 model: sonnet
-tools: Read, Grep, Glob, Bash, Edit, Write
+tools: Read, Grep, Glob, Bash, Edit, Write, ToolSearch, TaskCreate, TaskUpdate, TaskList, TaskGet
 ---
 
 # Backend Developer Agent
