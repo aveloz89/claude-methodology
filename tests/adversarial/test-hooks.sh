@@ -5428,6 +5428,40 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Caso: campos ausentes, booleanos y arrays en batches (guardas de #98: la
+# validación de tipo ya los degrada a "?"; este caso fija ese comportamiento
+# y que no se rompa si alguien afloja el filtro). 1e400 (fuera del rango de
+# double) es un número para jq: sale tal cual, es inofensivo (solo dígitos,
+# 'e', '+', '.'); se acepta tanto la forma literal (jq 1.7) como la
+# saturada (jq 1.6) y se exige que NO sea "?" para fijar ese comportamiento.
+sandbox_create
+jq -n '{
+    schema: 1, feature: "x", branch: "x", pr: null, updated: "2026-08-13T00:00:00Z",
+    phases: {brainstorming:"done",design:"done",implementation:"in_progress",docs:"pending",pr:"pending",ci:"pending",review:"pending",e2e:"skipped",merge:"pending"},
+    batches: [
+      {id: 1, name: "absent", agent: "backend-dev", status: "done"},
+      {id: true, name: "bools", agent: "backend-dev", status: false, tasks_done: true, tasks_total: false},
+      {id: [1], name: "arrays", agent: "backend-dev", status: ["done"], tasks_done: [2], tasks_total: [3]},
+      {id: 1e400, name: "huge", agent: "backend-dev", status: "done", tasks_done: 1e400, tasks_total: 1e400}
+    ]
+  }' > "$SANDBOX_REPO/.planning/state.json"
+OUTPUT_EDGE_FIELDS=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+LINES_EDGE_FIELDS=$(echo "$OUTPUT_EDGE_FIELDS" | wc -l | tr -d ' ')
+sandbox_cleanup
+
+TOTAL=$((TOTAL + 1))
+if [ "$LINES_EDGE_FIELDS" = "$LINES_GOOD_FIELDS" ] \
+  && echo "$OUTPUT_EDGE_FIELDS" | grep -qxF "[done] 1 absent — ?/?" \
+  && echo "$OUTPUT_EDGE_FIELDS" | grep -qxF "[?] ? bools — ?/?" \
+  && echo "$OUTPUT_EDGE_FIELDS" | grep -qxF "[?] ? arrays — ?/?" \
+  && echo "$OUTPUT_EDGE_FIELDS" | grep -qE '^\[done\] [0-9.eE+]+ huge — [0-9.eE+]+/[0-9.eE+]+$'; then
+  echo -e "${GREEN}PASS${NC}: SessionStart degrada a ? campos ausentes, booleanos y arrays de batches; 1e400 sale como número (#98)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart degrada a ? campos ausentes, booleanos y arrays de batches; 1e400 sale como número (#98)"
+  FAIL=$((FAIL + 1))
+fi
+
 # Caso: con valores válidos la línea del batch conserva el formato exacto.
 sandbox_create
 jq -n '{
