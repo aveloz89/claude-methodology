@@ -4665,11 +4665,13 @@ assert_guard_sanitize_bounded() {
 # assert_guard_sanitize_bounded llama en su rama de timeout: se reproduce
 # con un guard_sanitize mockeado que invoca perl real con un sleep largo
 # — determinístico, no depende de resucitar el ReDoS del regex (que ya no
-# cuelga tras el fix). El marcador "watchdog-leak-test-marker" en argv
-# evita falsos positivos/negativos por otros procesos perl del sistema o
-# de otros tests de esta misma suite.
+# cuelga tras el fix). El marcador en argv evita falsos positivos/negativos
+# por otros procesos perl del sistema, de otros tests de esta misma suite o
+# de OTRA corrida concurrente de la suite: lleva el PID de esta corrida ($$)
+# porque el pgrep/pkill -f son globales (D-02). El sufijo ".run" delimita el
+# id para que el PID 123 no matchee como prefijo de 1234.
 WATCHDOG_LEAK_TEST_SECONDS=1
-WATCHDOG_LEAK_MARKER="watchdog-leak-test-marker"
+WATCHDOG_LEAK_MARKER="watchdog-leak-test-marker-$$.run"
 
 assert_watchdog_no_orphan_perl() {
   local test_name="$1"
@@ -4712,6 +4714,56 @@ assert_watchdog_no_orphan_perl() {
 }
 
 assert_watchdog_no_orphan_perl "assert_guard_sanitize_bounded: matar el pid del subshell también mata al perl hijo del pipe (no deja huérfanos)"
+
+# Regresión de aislamiento entre corridas concurrentes: con el marcador
+# fijo, un perl de OTRA corrida de la suite (mismo prefijo) hacía que el
+# pgrep global viera un "huérfano" ajeno (falso FAIL) y que el pkill -9 -f
+# de la rama FAIL lo matara (2026-10-08). El señuelo lleva el prefijo
+# base + un id (0) que ninguna corrida real tiene como $$; con el marcador
+# fijo el prefijo solo ya lo matchea, con el marcador por corrida no. Se
+# mide el delta de PASS/FAIL del assert real y que el señuelo siga vivo; el
+# señuelo se mata siempre al final.
+assert_watchdog_ignores_foreign_marker() {
+  local test_name="$1"
+  TOTAL=$((TOTAL + 1))
+
+  local decoy_marker="watchdog-leak-test-marker-0.run" decoy pass_before fail_before total_before ok=1
+  perl -e 'sleep 30' "$decoy_marker" > /dev/null 2>&1 &
+  decoy=$!
+  sleep 0.3
+
+  pass_before=$PASS; fail_before=$FAIL; total_before=$TOTAL
+  # Su salida se descarta: solo importa si contó PASS o FAIL.
+  assert_watchdog_no_orphan_perl "inner: aserción con señuelo ajeno vivo" > /dev/null
+  # El assert interno suma su propio TOTAL; se revierte para contar solo este.
+  TOTAL=$total_before
+  local inner_pass=$((PASS - pass_before)) inner_fail=$((FAIL - fail_before))
+  PASS=$pass_before; FAIL=$fail_before
+
+  local inner_ok=1 decoy_alive=1
+  [ "$inner_pass" -eq 1 ] && [ "$inner_fail" -eq 0 ] || inner_ok=0
+  kill -0 "$decoy" 2>/dev/null || decoy_alive=0
+  [ "$inner_ok" -eq 1 ] && [ "$decoy_alive" -eq 1 ] || ok=0
+
+  kill -9 "$decoy" 2>/dev/null || true
+  wait "$decoy" 2>/dev/null || true
+
+  if [ "$ok" -eq 1 ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (pasa y el perl de otra corrida sigue vivo)"
+    PASS=$((PASS + 1))
+  else
+    local why
+    if [ "$decoy_alive" -eq 0 ]; then
+      why="el señuelo ajeno murió: el watchdog mató un perl de otra corrida"
+    else
+      why="el assert interno falló: perl propio huérfano o falso FAIL por el señuelo"
+    fi
+    echo -e "${RED}FAIL${NC}: $test_name (inner pass=$inner_pass fail=$inner_fail; $why)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_watchdog_ignores_foreign_marker "assert_watchdog_no_orphan_perl: ignora (y no mata) el perl con marcador de otra corrida"
 
 # (a) Heredoc sin terminador: nunca cierra — el saneo tiene que devolver
 # igual dentro del bound (regex en tiempo lineal), no colgarse esperando
