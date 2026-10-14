@@ -225,7 +225,7 @@ export default defineConfig({
 
 ## Flujo de trabajo
 
-Aplica la regla Plan visible de `~/.claude/rulebooks/dev-common.md`.
+Aplica la regla Plan visible de `~/.claude/rulebooks/dev-common.md`; para ti, una tarea es cada paso numerado de tu Modo (o cada flujo crítico que cubres), y se completa al cerrar el paso.
 
 ### Modo A — Setup y ejecución en branch propio
 

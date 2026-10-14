@@ -104,9 +104,10 @@ Si un cambio tuyo rompe algo, revierte a estado limpio y vuelve a aplicarlo en e
 
 Al empezar el lote, **si el harness expone `TaskCreate`** (si no la ves, búscala con `ToolSearch` query `select:TaskCreate,TaskUpdate,TaskList`), publica tu plan con ella:
 
-- Una tarea por tarea atómica del lote. `subject` = nombre corto de la tarea; si el handoff las numera (`T1.1`), úsalo como prefijo.
-- Exactamente una `in_progress` a la vez.
-- `completed` cuando su commit está hecho.
+- Una tarea por tarea atómica del lote. `subject` = nombre corto de la tarea; si el handoff las numera (`T1.1`), úsalo como prefijo. Si retomas un lote cortado, crea solo las tareas que faltan según `tasks_done`/`current_task`.
+- Exactamente una `in_progress` a la vez: al completar una, pasa la siguiente a `in_progress` en el mismo momento en que actualizas `state.json`.
+- `completed` cuando su commit está hecho (o, si tu flujo no hace un commit por tarea, al cerrar la tarea).
+- Toca solo las tareas que creaste tú (guarda los ids que devuelve `TaskCreate`): la lista es compartida con el tracker del orchestrator y con otros devs.
 
 Si el harness no la expone, no hagas nada y no es un error: nunca bloquees ni retrases trabajo por esto. No reemplaza `.planning/state.json`: se actualizan los dos, y `state.json` (`tasks_done`/`current_task`) sigue siendo la fuente. Esto existe porque `agent-radar` muestra el plan de cada agente leyendo los resultados de esas tools.
 
