@@ -87,7 +87,9 @@ if [ -d ".planning" ]; then
     # armar la línea impresa. status, id, tasks_done y tasks_total tienen
     # contrato de tipo, no de texto libre: se validan con jq al extraerlos
     # (status: string del enum pending|in_progress|done|failed|skipped; el
-    # resto: entero >= 0) y cualquier otro valor se degrada a "?".
+    # resto: entero >= 0) y cualquier otro valor se degrada a "?". Los
+    # elementos de batches[] que no son objetos se descartan (`objects`): un
+    # string con varios documentos JSON partiría la línea del batch.
     while IFS= read -r B64; do
       [ -n "$B64" ] || continue
       B_JSON=$(printf '%s' "$B64" | base64 -d 2>/dev/null)
@@ -102,7 +104,7 @@ if [ -d ".planning" ]; then
       B_TOTAL=$(printf '%s' "$B_JSON" | jq -r '
         .tasks_total | if type == "number" and . == floor and . >= 0 then . else "?" end')
       printf '[%s] %s %s — %s/%s\n' "$B_STATUS" "$B_ID" "$B_NAME" "$B_DONE" "$B_TOTAL"
-    done < <(jq -r '.batches[]? | @base64' .planning/state.json 2>/dev/null)
+    done < <(jq -r '.batches[]? | objects | @base64' .planning/state.json 2>/dev/null)
   fi
 
   if [ -f ".planning/HANDOFF.md" ]; then

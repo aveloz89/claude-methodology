@@ -5447,6 +5447,53 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Caso: elementos de batches[] que no son objetos (string con dos documentos
+# JSON, número, array). Un string se codificaba en base64 con su contenido
+# crudo y, al decodificarlo, cada `jq -r` emitía un valor por documento: la
+# línea del batch se partía. Los no-objeto no deben generar línea alguna: mismo
+# número de líneas que el state.json limpio con los mismos dos batches
+# objeto, sin el texto del string ni salida de error de jq.
+sandbox_create
+jq -n '{
+    schema: 1, feature: "x", branch: "x", pr: null, updated: "2026-08-13T00:00:00Z",
+    phases: {brainstorming:"done",design:"done",implementation:"in_progress",docs:"pending",pr:"pending",ci:"pending",review:"pending",e2e:"skipped",merge:"pending"},
+    batches: [
+      {id: 1, name: "first", agent: "backend-dev", status: "done", tasks_done: 1, tasks_total: 2, current_task: null},
+      "{\"id\":5,\"name\":\"INJ_DOC_ONE\",\"status\":\"done\"}\n{\"id\":6,\"name\":\"INJ_DOC_TWO\",\"status\":\"failed\"}",
+      42,
+      ["INJ_ARRAY"],
+      {id: 2, name: "second", agent: "backend-dev", status: "in_progress", tasks_done: 1, tasks_total: 2, current_task: null}
+    ]
+  }' > "$SANDBOX_REPO/.planning/state.json"
+OUTPUT_NON_OBJECT=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+LINES_NON_OBJECT=$(echo "$OUTPUT_NON_OBJECT" | wc -l | tr -d ' ')
+sandbox_cleanup
+
+sandbox_create
+jq -n '{
+    schema: 1, feature: "x", branch: "x", pr: null, updated: "2026-08-13T00:00:00Z",
+    phases: {brainstorming:"done",design:"done",implementation:"in_progress",docs:"pending",pr:"pending",ci:"pending",review:"pending",e2e:"skipped",merge:"pending"},
+    batches: [
+      {id: 1, name: "first", agent: "backend-dev", status: "done", tasks_done: 1, tasks_total: 2, current_task: null},
+      {id: 2, name: "second", agent: "backend-dev", status: "in_progress", tasks_done: 1, tasks_total: 2, current_task: null}
+    ]
+  }' > "$SANDBOX_REPO/.planning/state.json"
+OUTPUT_OBJECTS_ONLY=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+LINES_OBJECTS_ONLY=$(echo "$OUTPUT_OBJECTS_ONLY" | wc -l | tr -d ' ')
+sandbox_cleanup
+
+TOTAL=$((TOTAL + 1))
+if [ "$LINES_NON_OBJECT" = "$LINES_OBJECTS_ONLY" ] \
+  && ! echo "$OUTPUT_NON_OBJECT" | grep -qE 'INJ_|jq:' \
+  && echo "$OUTPUT_NON_OBJECT" | grep -qxF "[done] 1 first — 1/2" \
+  && echo "$OUTPUT_NON_OBJECT" | grep -qxF "[in_progress] 2 second — 1/2"; then
+  echo -e "${GREEN}PASS${NC}: SessionStart ignora batches que no son objetos (string multi-documento, número, array)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: SessionStart ignora batches que no son objetos (string multi-documento, número, array)"
+  FAIL=$((FAIL + 1))
+fi
+
 # Caso: sanitización de títulos de "gh issue list" (#51) — un título de
 # issue de terceros con caracteres de control, un salto de línea embebido
 # (que podría confundirse con el límite entre dos issues) y una instrucción
