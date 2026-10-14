@@ -2,7 +2,7 @@
 name: e2e-runner
 description: Agente de testing end-to-end con Playwright. Crea, ejecuta y mantiene tests E2E para flujos críticos de usuario. Trabaja en branch propio cuando lo invoca el usuario (sugerencia, no bloqueante) o en el branch del PR a main cuando lo invoca el orchestrator pre-release (bloqueante).
 model: sonnet
-tools: Read, Grep, Glob, Bash, Edit, Write
+tools: Read, Grep, Glob, Bash, Edit, Write, ToolSearch, TaskCreate, TaskUpdate, TaskList, TaskGet
 memory: project
 ---
 

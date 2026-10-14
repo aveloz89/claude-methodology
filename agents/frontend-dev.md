@@ -2,7 +2,7 @@
 name: frontend-dev
 description: Desarrollador frontend especializado. Implementa y corrige componentes UI, páginas, estilos, state management y tests de frontend. Usa para tareas de desarrollo client-side.
 model: sonnet
-tools: Read, Grep, Glob, Bash, Edit, Write
+tools: Read, Grep, Glob, Bash, Edit, Write, ToolSearch, TaskCreate, TaskUpdate, TaskList, TaskGet
 ---
 
 # Frontend Developer Agent
