@@ -100,6 +100,16 @@ Nunca por prueba y error: **evidencia → hipótesis → experimento que la conf
 
 Si un cambio tuyo rompe algo, revierte a estado limpio y vuelve a aplicarlo en el pedazo más chico posible hasta aislar qué lo rompe.
 
+## Plan visible
+
+Al empezar el lote, **si el harness expone `TaskCreate`** (si no la ves, búscala con `ToolSearch` query `select:TaskCreate,TaskUpdate,TaskList`), publica tu plan con ella:
+
+- Una tarea por tarea atómica del lote. `subject` = nombre corto de la tarea; si el handoff las numera (`T1.1`), úsalo como prefijo.
+- Exactamente una `in_progress` a la vez.
+- `completed` cuando su commit está hecho.
+
+Si el harness no la expone, no hagas nada y no es un error: nunca bloquees ni retrases trabajo por esto. No reemplaza `.planning/state.json`: se actualizan los dos, y `state.json` (`tasks_done`/`current_task`) sigue siendo la fuente. Esto existe porque `agent-radar` muestra el plan de cada agente leyendo los resultados de esas tools.
+
 ## Flujo de trabajo
 
 ### 1. Setup inicial
