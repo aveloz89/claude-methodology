@@ -4740,8 +4740,10 @@ assert_watchdog_ignores_foreign_marker() {
   local inner_pass=$((PASS - pass_before)) inner_fail=$((FAIL - fail_before))
   PASS=$pass_before; FAIL=$fail_before
 
-  [ "$inner_pass" -eq 1 ] && [ "$inner_fail" -eq 0 ] || ok=0
-  kill -0 "$decoy" 2>/dev/null || ok=0
+  local inner_ok=1 decoy_alive=1
+  [ "$inner_pass" -eq 1 ] && [ "$inner_fail" -eq 0 ] || inner_ok=0
+  kill -0 "$decoy" 2>/dev/null || decoy_alive=0
+  [ "$inner_ok" -eq 1 ] && [ "$decoy_alive" -eq 1 ] || ok=0
 
   kill -9 "$decoy" 2>/dev/null || true
   wait "$decoy" 2>/dev/null || true
@@ -4750,7 +4752,13 @@ assert_watchdog_ignores_foreign_marker() {
     echo -e "${GREEN}PASS${NC}: $test_name (pasa y el perl de otra corrida sigue vivo)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (inner pass=$inner_pass fail=$inner_fail; el señuelo ajeno murió o causó un falso FAIL)"
+    local why
+    if [ "$decoy_alive" -eq 0 ]; then
+      why="el señuelo ajeno murió: el watchdog mató un perl de otra corrida"
+    else
+      why="el assert interno falló: perl propio huérfano o falso FAIL por el señuelo"
+    fi
+    echo -e "${RED}FAIL${NC}: $test_name (inner pass=$inner_pass fail=$inner_fail; $why)"
     FAIL=$((FAIL + 1))
   fi
 }
