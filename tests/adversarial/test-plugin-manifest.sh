@@ -1215,6 +1215,17 @@ echo "--- governance-playbook #9: sin context-monitor, con pre-compact-snapshot 
 assert_not_contains "$GOVERNANCE" "context-monitor" "governance-playbook ya no menciona context-monitor"
 assert_contains "$GOVERNANCE" "pre-compact-snapshot" "governance-playbook #9 apunta a pre-compact-snapshot"
 
+echo ""
+echo "--- Lote 4: tier del flujo en el runbook ---"
+
+# El bloque JSON del schema de state.json (primer ```json tras "Schema de `state.json`") declara "tier".
+RUNBOOK_STATE_JSON_BLOCK=$(awk '/^\*\*Schema de `state.json`/ {f=1} f && /^```json/ {b=1; next} b && /^```/ {exit} b {print}' "$RUNBOOK")
+assert_section_contains "$RUNBOOK_STATE_JSON_BLOCK" '"tier"' "runbook: el bloque JSON del schema de state.json contiene \"tier\""
+assert_contains "$RUNBOOK" "Tier del flujo" "runbook tiene la sección Tier del flujo"
+assert_contains "$RUNBOOK" "liviano" "runbook describe el tier liviano"
+assert_contains "$RUNBOOK" "escalada" "runbook describe la escalada a completo"
+assert_contains "$RUNBOOK" "sexto archivo" "runbook fija el límite de edición directa (sexto archivo)"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---

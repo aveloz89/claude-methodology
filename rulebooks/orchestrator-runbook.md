@@ -7,14 +7,15 @@ Detalle operativo del flujo de orchestration. **Lectura bajo demanda**: las inva
 ## Contenido
 
 1. [Detalle de cada fase del flujo](#detalle-de-cada-fase-del-flujo)
-2. [Cuándo un lote es DB complejo](#cuándo-un-lote-es-db-complejo)
-3. [Template del prompt de handoff a devs](#template-del-prompt-de-handoff-a-devs)
-4. [Formatos de archivos en `.planning/`](#formatos-de-archivos-en-planning)
-5. [Clasificación del diff por capa (frontend / backend)](#clasificación-del-diff-por-capa)
-6. [Comandos `gh` específicos](#comandos-gh-específicos)
-7. [Formato de reporte de review](#formato-de-reporte-de-review)
-8. [Pre-release E2E (Modo B del e2e-runner)](#pre-release-e2e-modo-b-del-e2e-runner)
-9. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
+2. [Tier del flujo](#tier-del-flujo)
+3. [Cuándo un lote es DB complejo](#cuándo-un-lote-es-db-complejo)
+4. [Template del prompt de handoff a devs](#template-del-prompt-de-handoff-a-devs)
+5. [Formatos de archivos en `.planning/`](#formatos-de-archivos-en-planning)
+6. [Clasificación del diff por capa (frontend / backend)](#clasificación-del-diff-por-capa)
+7. [Comandos `gh` específicos](#comandos-gh-específicos)
+8. [Formato de reporte de review](#formato-de-reporte-de-review)
+9. [Pre-release E2E (Modo B del e2e-runner)](#pre-release-e2e-modo-b-del-e2e-runner)
+10. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
 
 ---
 
@@ -113,6 +114,30 @@ El review dual ya ocurrió en Fase 2.6: **el PR nació revisado**. Esta fase cub
    - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `CLAUDE.md`)
 3. Si era hotfix (PR a main), después del merge integra a dev (procedimiento más abajo)
 4. Después del merge: `.planning/state.json` con `phases.merge` en `done` (local — `.planning/` no se versiona, no hay commit que hacer)
+
+---
+
+## Tier del flujo
+
+El orchestrator propone el tier al cerrar Fase 0 (o como primera pregunta, si se saltó el brainstorming). Siempre con `AskUserQuestion`: la recomendada primero y la consecuencia de cada opción en una línea (`liviano`: sin architect ni `DESIGN.md`, sin `docs`, review simple; `completo`: fases 0 a 5). Propone `liviano` solo si se cumple **todo** lo de abajo; en duda, `completo`. Al confirmar, escribe `tier` en `state.json` antes de crear el branch (en `liviano`: `phases.design` y `phases.docs` en `skipped`).
+
+**Tamaño (las tres):** ≤10 archivos tocados, ≤300 líneas estimadas (sumando altas y bajas) y cabe en un solo lote de ≤5 tareas.
+
+**Señales de riesgo (cualquiera → `completo`):**
+
+1. Toca auth, crypto, secrets o pagos.
+2. Migración o cambio de schema de DB.
+3. Cambia un contrato público: endpoint, schema exportado, props de componente exportado, flags de CLI, o el formato de un archivo que otro proceso lee.
+4. Toca hooks, permisos, CI/CD, branch protection o settings del harness.
+5. Dependencia nueva, cambio de major o downgrade.
+6. Lógica de negocio nueva (regla, cálculo o validación de dominio que no existía); ajustar una existente no cuenta.
+7. Scripts que tocan datos (backfill, fixes de datos en producción).
+
+**Edición directa en `liviano`:** el orchestrator edita hasta 5 archivos acumulados por PR, sin lógica de negocio nueva ni migración. Corre la suite y el lint de lo que tocó antes de commitear. Al sexto archivo delega un único lote a un dev (`last_batch=true`). Si haría falta un segundo lote, ya no es `liviano`.
+
+**Escalada a `completo`** (en cualquier momento): el cambio supera el tamaño, aparece una señal de riesgo o el usuario lo pide. El orchestrator lo dice, registra `[D-NN] escalada: <motivo>` en `STATE.md`, pone `tier = "completo"` y `phases.design = "pending"`, y sigue desde Fase 1 con lo ya commiteado como insumo del `architect`. Si el usuario eligió `liviano` pese a una señal de riesgo, queda registrado en `STATE.md`, y `security-reviewer` corre si el diff toca auth, crypto, secrets o pagos.
+
+Fase 0 no cambia. En `liviano`, `BRIEF.md` puede ser corto (objetivo, alcance, criterios).
 
 ---
 
@@ -240,6 +265,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 ```json
 {
   "schema": 1,
+  "tier": "completo",
   "feature": "slug-corto-de-la-feature",
   "branch": "feature/slug",
   "pr": null,
@@ -270,6 +296,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 }
 ```
 
+- **`tier`** (opcional): enum cerrado `"liviano" | "completo"`; ausente = `completo` (archivos previos al campo; `schema` sigue en 1, agregar una clave es aditivo). Lo escribe el orchestrator al confirmar el tier, antes de crear el branch, y en una escalada; nunca vuelve de `completo` a `liviano`. En `liviano`, `phases.design` y `phases.docs` son `skipped` y `batches` puede quedar vacío o con un solo lote. Criterio y escalada: "Tier del flujo".
 - **Enum de status** (`phases.*` y `batches[].status`): `pending | in_progress | done | failed | skipped`. Ningún otro valor.
 - `phases` tiene **claves fijas** — siempre las 9 de arriba, `skipped` para las que no aplican (p. ej. `e2e` sin UI).
 - `batches` refleja el plan del architect: `id`/`name`/`agent` los siembra el orchestrator; `status`/`tasks_done`/`current_task` mutan durante la ejecución.
