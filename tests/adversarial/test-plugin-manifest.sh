@@ -1391,6 +1391,19 @@ for term in "Configuración recomendada del harness" fallbackModel baseRef agent
   assert_contains "$README_MD" "$term" "README.md documenta $term"
 done
 
+INSTALL_SH="$REPO_ROOT/install.sh"
+for term in "Recomendaciones" security-guidance fallbackModel baseRef agent-memory; do
+  assert_contains "$INSTALL_SH" "$term" "install.sh recomienda $term"
+done
+TOTAL=$((TOTAL + 1))
+if bash -n "$INSTALL_SH" 2>/dev/null; then
+  echo -e "${GREEN}PASS${NC}: install.sh pasa bash -n"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: install.sh no pasa bash -n"
+  FAIL=$((FAIL + 1))
+fi
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---

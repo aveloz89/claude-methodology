@@ -167,7 +167,7 @@ if [ -L "$SETTINGS_DEST" ]; then
     echo "  SKIP: $SETTINGS_DEST es symlink a otra ubicación, no se toca"
   fi
 else
-  echo "  SKIP: $SETTINGS_DEST no es symlink al repo (ya es real, o no existe) — settings.json ya no se distribuye por install.sh"
+  echo "  SKIP: $SETTINGS_DEST no es symlink al repo (ya es real, o no existe): settings.json no se distribuye"
 fi
 
 echo ""
@@ -181,3 +181,10 @@ if [ "$CLAUDE_MD_REAL_SKIPPED" = true ]; then
   echo "    agregale una línea de import:  @$REPO_ROOT/global/CLAUDE.md"
   echo "    o hacé un merge manual con ese archivo."
 fi
+
+echo ""
+echo "Recomendaciones (solo informativas; install.sh no escribe settings):"
+echo "  - fallbackModel en ~/.claude/settings.json: hasta tres modelos en orden, p. ej. [\"opus\", \"sonnet\"]."
+echo "  - worktree.baseRef = \"head\" en el .claude/settings.json de cada proyecto existente (lotes paralelos con worktree)."
+echo "  - .claude/agent-memory/<agente>/: memoria de los reviewers, se versiona en el repo del proyecto; sin efecto con auto memory apagado."
+echo "  - security-guidance (revisa vulnerabilidades mientras Claude escribe; complementa al security-reviewer): claude plugin install security-guidance@claude-plugins-official"
