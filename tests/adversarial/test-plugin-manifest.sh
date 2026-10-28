@@ -1017,7 +1017,7 @@ echo "--- CA-4: sin referencias colgantes a piezas eliminadas de la metodología
 # versionado) y este mismo script (los términos viven acá como patrones
 # de grep, no como menciones normativas).
 DANGLING_SCOPE=("$REPO_ROOT/agents" "$REPO_ROOT/rulebooks" "$REPO_ROOT/skills" "$REPO_ROOT/rules" "$HOOKS_DIR" "$REPO_ROOT/README.md" "$REPO_ROOT/global/CLAUDE.md" "$REPO_ROOT/tests" "$REPO_ROOT/.claude")
-DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule" "context-monitor" "CLAUDE_CONTEXT_TOKENS")
+DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule" "context-monitor" "CLAUDE_CONTEXT_TOKENS" "nunca el historial completo" "no el historial completo ni tareas de otros lotes")
 
 # dangling_grep <patrón>: líneas "ruta:n:texto" del patrón dentro de DANGLING_SCOPE.
 dangling_grep() {
@@ -1252,6 +1252,14 @@ assert_contains "$ORCHESTRATOR_SKILL" "code-review" "skill orchestrator (fila 2.
 RUNBOOK_LIVIANO_PARA=$(awk '/^\*\*En tier liviano\*\*/ {f=1} f && /^$/ {exit} f {print}' "$RUNBOOK")
 assert_section_contains "$RUNBOOK_LIVIANO_PARA" "qa-" "runbook: el párrafo de tier liviano describe el fallback a qa-*"
 assert_section_contains "$RUNBOOK_LIVIANO_PARA" "review_sha" "runbook: el párrafo de tier liviano cierra con review_sha como 2.6"
+
+echo ""
+echo "--- Lote 4: handoff en dos modos (paquete mínimo o fork) ---"
+
+assert_contains "$ORCHESTRATOR_SKILL" "fork" "skill orchestrator §5 describe el modo fork"
+assert_contains "$RUNBOOK" "fork" "runbook (template de handoff) describe cuándo usar fork"
+assert_not_contains "$ORCHESTRATOR_SKILL" "nunca el historial completo" "skill orchestrator ya no prohíbe el historial completo"
+assert_not_contains "$RUNBOOK" "no el historial completo ni tareas de otros lotes" "runbook ya no prohíbe el historial completo"
 
 # --- /code-sweep tests ---
 

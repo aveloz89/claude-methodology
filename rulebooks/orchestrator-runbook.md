@@ -159,7 +159,9 @@ Fase 0 no cambia. En `liviano`, `BRIEF.md` puede ser corto (objetivo, alcance, c
 
 ## Template del prompt de handoff a devs
 
-Cada subagente recibe un paquete de contexto armado por ti, **no el historial completo ni tareas de otros lotes**: `architect` recibe `BRIEF.md` completo; `backend-dev`/`frontend-dev` reciben solo las tareas y la sección de `DESIGN.md` de su lote + path al schema/contratos + branch + `last_batch` + `rules/<lenguaje>.md` (y en `db-complejo`, además schema actual + `rulebooks/db-migrations.md`); si no es el primer lote, instrucción de leer `git log`/`STATE.md`/`state.json`; `security-reviewer`/`qa-*` reciben la fuente del diff (local o `gh pr diff`, según la fase) + `DESIGN.md` + `BRIEF.md`.
+Cada subagente recibe por defecto un paquete de contexto armado por ti (paquete mínimo; sin tareas de otros lotes ni outputs de fases cerradas): `architect` recibe `BRIEF.md` completo; `backend-dev`/`frontend-dev` reciben solo las tareas y la sección de `DESIGN.md` de su lote + path al schema/contratos + branch + `last_batch` + `rules/<lenguaje>.md` (y en `db-complejo`, además schema actual + `rulebooks/db-migrations.md`); si no es el primer lote, instrucción de leer `git log`/`STATE.md`/`state.json`; `security-reviewer`/`qa-*` reciben la fuente del diff (local o `gh pr diff`, según la fase) + `DESIGN.md` + `BRIEF.md`.
+
+**Cuándo fork.** Dos modos de handoff. *Paquete mínimo* (default): lotes de implementación y todo reviewer; un fork hereda el pool de tools de la sesión, así que no sirve para agentes read-only ni para lotes que deben arrancar limpios. *`subagent_type: fork`*: cuando la conversación es el insumo (fixes de review sobre lo recién discutido, un cambio acotado sobre lo que se acaba de analizar) y la sesión no es larga. El handoff mínimo sigue siendo el template de abajo; fork lo reemplaza solo en esos casos.
 
 Aplica para `backend-dev`, `frontend-dev`.
 
