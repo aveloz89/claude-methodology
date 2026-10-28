@@ -1365,6 +1365,15 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+SELF_REFLECTION="$REPO_ROOT/rules/self-reflection.md"
+IMPL_PRINCIPLES="$REPO_ROOT/rules/implementation-principles.md"
+assert_not_contains "$SELF_REFLECTION" "sección Stack" "self-reflection remite a la sección Reglas por lenguaje, no a Stack"
+assert_contains "$SELF_REFLECTION" "candidato para el reporte de" "self-reflection: el barrido va al reporte de code-sweep"
+assert_contains "$IMPL_PRINCIPLES" "candidato para el reporte de" "implementation-principles: el barrido va al reporte de code-sweep"
+assert_not_contains "$IMPL_PRINCIPLES" "\.clients-page__table" "implementation-principles: ejemplo de CSS sin selector de proyecto"
+assert_not_contains "$IMPL_PRINCIPLES" "post-pr-create.sh" "implementation-principles: ejemplo de hook sin nombre de proyecto"
+assert_not_contains "$IMPL_PRINCIPLES" "etimes" "implementation-principles: ejemplo de plataforma sin flag concreto"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---

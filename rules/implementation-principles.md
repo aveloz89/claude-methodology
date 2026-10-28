@@ -79,7 +79,7 @@ Tocar solo lo que el brief requiere. El diff debe ser mínimo y trazable.
 **No hacer:**
 - Refactorizar código no relacionado dentro de un PR de feature (renames, reorganización, cleanup colateral)
 - Cambiar el estilo de código existente para que coincida con tu preferencia — coincidir con el estilo del archivo
-- Tocar archivos solo para "limpiar" — eso sale como issue de `code-sweep` (modo `smells`) y se ejecuta en su propio lote, no colado en este PR
+- Tocar archivos solo para "limpiar" — eso sale como candidato para el reporte de `code-sweep` (modo `smells`) y se ejecuta en su propio lote, no colado en este PR
 - Mover código de un archivo a otro a menos que el brief lo pida
 
 **Regla de oro:** cada línea del diff debe poder trazarse a una línea específica del brief. Si no puede, sale del PR.
@@ -140,11 +140,11 @@ Aplica a todo artefacto, no solo al código: comentarios, mensajes de commit, re
 
 **Qué exige, en concreto:**
 
-- Si afirmas que un flag o comando existe, córrelo **en la plataforma donde va a correr**. Ejemplo real: `ps -o etimes=` es de Linux; en macOS no existe, y el watchdog que lo usaba nunca mató nada mientras se reportaba activo.
-- Si afirmas que un hook o un guard cubre un caso, lee el hook y confirma **cuándo se dispara**. Ejemplo real: `post-pr-create.sh` valida el delta al crear el PR y no vuelve a mirar el branch — citarlo como cobertura de un commit posterior es falso.
+- Si afirmas que un flag o comando existe, córrelo **en la plataforma donde va a correr**. Ejemplo real: una opción de `ps` que solo existe en Linux no existe en macOS, y el watchdog que la usaba nunca mató nada mientras se reportaba activo.
+- Si afirmas que un hook o un guard cubre un caso, lee el hook y confirma **cuándo se dispara**. Ejemplo real: un hook que valida el delta al crear el PR y no vuelve a mirar el branch — citarlo como cobertura de un commit posterior es falso.
 - Si escribes "verificado en N casos", que los N casos **estén en el repo**. Una verificación que vive en un harness desechable no existe para el que venga después. Esto no obliga a agregar casos —YAGNI sigue mandando sobre cuántos tests escribir—: obliga a no afirmar cobertura que el repo no tiene.
 - Si mides tiempo o performance, acota la corrida y reporta **el número**, no la impresión.
-- Si afirmas algo sobre lo que se **ve** —color, fuente, recorte de texto, desborde—, ciérralo con el valor computado **en un navegador real**, en el ancho donde lo afirmas. Leer el archivo de CSS no prueba la cascada ni la especificidad, y un check que puede devolver `true` sin ejercer el camino (como `document.fonts.check()`) tampoco es evidencia. Ejemplo real: un test leía `.clients-page__table td { color }` y no vio que esa regla anulaba el contraste que la spec pedía en tres tablas — el gris nunca llegó a pintarse.
+- Si afirmas algo sobre lo que se **ve** —color, fuente, recorte de texto, desborde—, ciérralo con el valor computado **en un navegador real**, en el ancho donde lo afirmas. Leer el archivo de CSS no prueba la cascada ni la especificidad, y un check que puede devolver `true` sin ejercer el camino (como `document.fonts.check()`) tampoco es evidencia. Ejemplo real: un test leía la regla de CSS de una celda de tabla y no vio que esa regla anulaba el contraste que la spec pedía en tres tablas — el gris nunca llegó a pintarse.
 
 **Corolario para tests: el test que protege un fix debe romperse si se revierte el fix.**
 
