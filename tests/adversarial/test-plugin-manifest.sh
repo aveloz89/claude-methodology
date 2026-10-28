@@ -410,9 +410,27 @@ assert_contains "$GLOBAL_CLAUDE_MD" "Bash solo para git" \
 assert_contains "$GLOBAL_CLAUDE_MD" "si te tienta escribir código" \
   "Rol de la sesión principal advierte contra escribir código \"porque es rápido\""
 assert_contains "$GLOBAL_CLAUDE_MD" "auth, crypto, secrets o pagos" \
-  "Workflow obligatorio #4 tiene la regla de degradación de security-reviewer"
+  "Workflow #4 tiene la regla de review simple (security-reviewer si toca auth, crypto, secrets o pagos)"
 assert_contains "$GLOBAL_CLAUDE_MD" "pre-commit-guard.sh" \
   "Verificación pre-commit menciona que el paso 1 lo refuerza pre-commit-guard.sh"
+
+# CA-12: tono plano. Tokens de énfasis vedados en el núcleo global, como
+# palabra (borde = no letra o inicio/fin de línea, sin depender del locale).
+# El léxico BLOQUEANTE/APROBADO de los reportes de reviewers no está en este archivo.
+BANNED_TOKENS=(NUNCA SIEMPRE JAMÁS DEBES DEBE OBLIGATORIO OBLIGATORIA OBLIGATORIOS OBLIGATORIAS BLOQUEANTE BLOQUEANTES PROHIBIDO PROHIBIDA obligatorio obligatoria obligatorios obligatorias bloqueante bloqueantes)
+TOTAL=$((TOTAL + 1))
+BANNED_HITS=""
+for token in "${BANNED_TOKENS[@]}"; do
+  token_hits=$(grep -nE "(^|[^[:alpha:]])${token}([^[:alpha:]]|\$)" "$GLOBAL_CLAUDE_MD" || true)
+  [ -n "$token_hits" ] && BANNED_HITS="${BANNED_HITS}${token}: ${token_hits}"$'\n'
+done
+if [ -z "$BANNED_HITS" ]; then
+  echo -e "${GREEN}PASS${NC}: global/CLAUDE.md sin tokens de énfasis vedados"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: global/CLAUDE.md tiene tokens vedados: $(echo "$BANNED_HITS" | tr '\n' ' ')"
+  FAIL=$((FAIL + 1))
+fi
 
 echo ""
 echo "--- skills/orchestrator/SKILL.md: allowed-tools sin Bash (pre-aprueba, no restringe) y declara sus agentes ---"
