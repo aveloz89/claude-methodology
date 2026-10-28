@@ -1385,6 +1385,12 @@ assert_not_contains "$REPO_CLAUDE_MD" "ya no tiene bloque" ".claude/CLAUDE.md de
 assert_not_contains "$REPO_CLAUDE_MD" "ya no los registra" ".claude/CLAUDE.md describe el estado actual de settings.json"
 assert_contains "$REPO_CLAUDE_MD" "Declara siempre" ".claude/CLAUDE.md pide declarar paths: en rules/"
 
+# --- Configuración recomendada del harness (README e install.sh) ---
+README_MD="$REPO_ROOT/README.md"
+for term in "Configuración recomendada del harness" fallbackModel baseRef agent-memory security-guidance; do
+  assert_contains "$README_MD" "$term" "README.md documenta $term"
+done
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---

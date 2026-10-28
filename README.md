@@ -98,6 +98,15 @@ El merge pide confirmación: cuando `gh pr merge` pasa las verificaciones, el ho
 
 > **Proyectos que ya adoptaron esta metodología con `.planning/` versionado (incluidas retros de PRs anteriores)**: agrega `.planning/*` + `!.planning/ARCHITECTURE.md` al `.gitignore` del proyecto, corre `git rm -r --cached .planning` (re-agregando `ARCHITECTURE.md` si existe) y borra del working tree los archivos de retro que ya no se generan — la historia queda igual en git. Antes de mergear este cambio (o de cambiar a la rama base mientras `.planning/` siga versionado ahí), respalda la carpeta fuera del repo, por ejemplo con `mkdir ~/planning-backup-<proyecto> && cp -R .planning/. ~/planning-backup-<proyecto>/` (el `mkdir` falla si ya existe un respaldo previo, evitando mezclarlos), porque el checkout a esa rama la borra del disco; restáurala después con `cp -R ~/planning-backup-<proyecto>/. .planning/`.
 
+## Configuración recomendada del harness
+
+Cuatro ajustes viven fuera del plugin (el plugin no distribuye `settings.json`). `install.sh` los imprime como recordatorio al final, sin escribir nada.
+
+- **`fallbackModel`** en `~/.claude/settings.json`: hasta tres modelos, en orden, que el harness prueba cuando el modelo pedido no está disponible. Recomendado: `"fallbackModel": ["opus", "sonnet"]`. Reemplaza la antigua tabla de degradación por rate limit.
+- **`worktree.baseRef = "head"`** en el `.claude/settings.json` de cada proyecto existente: los lotes paralelos con `isolation: "worktree"` lo necesitan. Sin él, el worktree ramifica desde la rama default del remoto y no desde tu branch. `/new-project` ya lo siembra en los proyectos nuevos.
+- **`.claude/agent-memory/<agente>/`**: memoria de `security-reviewer`, `qa-backend` y `qa-frontend`. Se versiona en el repo consumidor; `MEMORY.md` carga solo las primeras 200 líneas o 25 KB. El orchestrator es el único que escribe ahí. Sin efecto si auto memory está apagado.
+- **Plugin oficial `security-guidance`**: revisa vulnerabilidades mientras Claude escribe, dentro de la sesión. El `security-reviewer` audita el diff completo con OWASP antes del push. Se complementan, no se reemplazan. Instalación: `claude plugin install security-guidance@claude-plugins-official` (confirma el nombre del marketplace con `claude plugin marketplace list`).
+
 ## Instalación
 
 Este repo es **plugin y marketplace de Claude Code a la vez**: instala agents/, hooks/ (registrados en `hooks/hooks.json`) y skills/ (namespace `/methodology:<skill>`, ej. `/methodology:pr-workflow`) por el mecanismo nativo de plugins. Los plugins de Claude Code **no** cargan `CLAUDE.md`, `rules/` ni `rulebooks/` — para eso hace falta el `install.sh` residual del repo clonado.
