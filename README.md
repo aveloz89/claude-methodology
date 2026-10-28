@@ -58,6 +58,13 @@ Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá: la sali
 | **/pr-workflow** | Review dual local pre-push, presupuesto de CI, E2E pre-release, branch protection y verificación pre-merge — se invoca en Fase 2.6 o al trabajar sobre un PR existente |
 | **/review-pr** | Re-dispara manualmente el review dual (security + QA según capas tocadas) sobre un PR existente, sin pasar por el flujo completo del orchestrator |
 
+### Workflows (1)
+| Workflow | Qué hace |
+|----------|----------|
+| **code-sweep** | `/methodology:code-sweep [bugs\|smells] [pre-release] [paths]` — escaneo de solo lectura en cuatro fases: `discover` (detecta el stack y agrupa los archivos en chunks de hasta 25), `audit` (un agente por chunk, hasta 8 en paralelo), `verify` (un agente adversario por archivo intenta refutar cada hallazgo; los refutados quedan solo como conteo) y `consolidate` (dedupe, orden por severidad, issues `latent-bug` solo en modo `bugs` para CRÍTICO/ALTO confirmados, y marcador `BLOQUEANTE PRE-RELEASE` si la corrida es `pre-release` y hay un CRÍTICO confirmado) |
+
+El agente `code-sweep` es el **respaldo** cuando los dynamic workflows están apagados: comparte el rulebook `rulebooks/code-sweep-common.md` y entrega el mismo reporte, sin fan-out ni verificación adversarial paralela. El harness avisa con «Dynamic workflows are disabled by managed settings» o «Dynamic workflows are not enabled for this session»; en ese caso el orchestrator invoca al agente.
+
 ## Workflow
 
 ```
@@ -182,6 +189,7 @@ claude-methodology/
 ├── rulebooks/
 │   ├── agent-budget.md
 │   ├── build-errors.md
+│   ├── code-sweep-common.md
 │   ├── db-migrations.md
 │   ├── dev-common.md
 │   ├── governance-playbook.md
@@ -196,6 +204,8 @@ claude-methodology/
 │   │   └── SKILL.md
 │   └── review-pr/
 │       └── SKILL.md
+├── workflows/
+│   └── code-sweep.js
 ├── settings.json
 ├── install.sh
 └── README.md

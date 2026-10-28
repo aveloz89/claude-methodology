@@ -1135,6 +1135,16 @@ if [ -f "$CS_WORKFLOW" ]; then
   fi
 fi
 
+
+echo ""
+echo "--- Conteo de workflows: workflows/*.js vs README vs marketplace ---"
+
+CS_WF_COUNT=$(ls "$REPO_ROOT"/workflows/*.js 2> /dev/null | wc -l | tr -d ' ')
+assert_contains "$REPO_ROOT/README.md" "^### Workflows ($CS_WF_COUNT)" "README declara ### Workflows ($CS_WF_COUNT) igual a ls workflows/*.js"
+assert_contains "$REPO_ROOT/.claude-plugin/marketplace.json" "$CS_WF_COUNT workflow" "marketplace.json declara $CS_WF_COUNT workflow igual a ls workflows/*.js"
+assert_contains "$REPO_ROOT/README.md" '/methodology:code-sweep \[bugs.*smells\] \[pre-release\] \[paths\]' "README documenta la invocación de /methodology:code-sweep"
+assert_contains "$REPO_ROOT/README.md" 'Dynamic workflows are disabled by managed settings' "README documenta el mensaje del harness con workflows apagados"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---
