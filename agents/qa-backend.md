@@ -3,6 +3,7 @@ name: qa-backend
 description: Agente de QA especializado en backend. Revisa contratos de API, lógica de negocio, validación de datos, queries y tests de la capa servidor. Se lanza en paralelo con qa-frontend cuando el PR toca ambas capas.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Write, Edit
+memory: project
 model: sonnet
 effort: high
 ---

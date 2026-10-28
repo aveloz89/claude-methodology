@@ -4,6 +4,7 @@ description: Agente de seguridad y ciberseguridad. Revisa código por vulnerabil
 model: opus
 tools: Read, Grep, Glob, Bash
 disallowedTools: Write, Edit, Agent
+memory: project
 ---
 
 # Security Reviewer Agent

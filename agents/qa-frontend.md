@@ -3,6 +3,7 @@ name: qa-frontend
 description: Agente de QA especializado en frontend. Revisa UX, accesibilidad, componentes, estado de UI y tests de frontend. Se lanza en paralelo con qa-backend cuando el PR toca ambas capas.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Write, Edit
+memory: project
 model: sonnet
 effort: high
 ---

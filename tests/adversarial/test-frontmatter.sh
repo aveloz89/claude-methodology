@@ -232,6 +232,31 @@ for agent_file in "$AGENTS_DIR"/*.md; do
 done
 
 echo ""
+echo "--- memory: project en los reviewers y ausente en el resto, salvo e2e-runner (CA-8) ---"
+
+for agent_file in "$AGENTS_DIR"/*.md; do
+  agent_name="$(basename "$agent_file" .md)"
+  memory_value=$(frontmatter_value "$agent_file" "memory")
+  case "$agent_name" in
+    security-reviewer|qa-backend|qa-frontend)
+      check "$([ "$memory_value" = "project" ] && echo 0 || echo 1)" \
+        "$agent_name: memory=project"
+      check "$(frontmatter_value "$agent_file" "disallowedTools" | grep -q 'Write, Edit' && echo 0 || echo 1)" \
+        "$agent_name: conserva disallowedTools con Write, Edit"
+      ;;
+    e2e-runner)
+      # Preexistente: memoria propia de flakes (no es memoria de reviewer).
+      check "$([ "$memory_value" = "project" ] && echo 0 || echo 1)" \
+        "$agent_name: memory=project (preexistente, flakes)"
+      ;;
+    *)
+      check "$([ -z "$memory_value" ] && echo 0 || echo 1)" \
+        "$agent_name: sin memory${memory_value:+ (encontrado: $memory_value)}"
+      ;;
+  esac
+done
+
+echo ""
 echo "--- skills/*/SKILL.md: Agent(...) namespaced y existente, disable-model-invocation ---"
 
 for skill_file in "$SKILLS_DIR"/*/SKILL.md; do
