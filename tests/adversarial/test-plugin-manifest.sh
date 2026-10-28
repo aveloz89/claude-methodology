@@ -1347,6 +1347,24 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+echo ""
+echo "--- Lote 8: residual del prompt-audit ---"
+
+E2E_RUNNER="$REPO_ROOT/agents/e2e-runner.md"
+assert_not_contains "$E2E_RUNNER" "--repeat-each=10" "e2e-runner usa un solo umbral de estabilidad"
+assert_contains "$E2E_RUNNER" "--repeat-each=5" "e2e-runner fija --repeat-each=5"
+assert_not_contains "$E2E_RUNNER" "## Debugging sistemático cuando un test es flaky" "e2e-runner funde el debugging de flaky en Tests flaky"
+assert_not_contains "$E2E_RUNNER" "levanta servicios automáticamente" "e2e-runner: docker-refresh solo sugiere, no levanta"
+WAIT_MENTIONS=$(grep -c 'NUNCA `waitForTimeout' "$E2E_RUNNER" || true)
+TOTAL=$((TOTAL + 1))
+if [ "$WAIT_MENTIONS" -eq 0 ]; then
+  echo -e "${GREEN}PASS${NC}: e2e-runner no repite NUNCA waitForTimeout"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: e2e-runner repite NUNCA waitForTimeout ($WAIT_MENTIONS veces)"
+  FAIL=$((FAIL + 1))
+fi
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---

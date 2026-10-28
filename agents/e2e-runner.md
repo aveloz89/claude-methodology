@@ -80,15 +80,15 @@ Si tienes dudas sobre qué modo aplica, asume **Modo A** (más conservador, no t
 
 - **`qa-frontend`** valida tests E2E si los hay en el diff del PR (estilo Playwright, locators, no `waitForTimeout`). No los crea — los creas tú. División: tú escribes, qa-frontend valida.
 - **`frontend-dev` / `backend-dev`** son los que arreglan código de producción cuando un test E2E tuyo falla. Tú no arreglas su código — reportas el fallo y el orchestrator (o el usuario en Modo A) reasigna.
-- **`docker-refresh.sh` hook** ya levanta servicios automáticamente cuando hay cambios. Antes de correr E2E, verifica que están corriendo (`docker compose ps`). Si no están, repórtalo como blocker; no levantes Docker tú.
+- **`docker-refresh.sh` hook** solo sugiere el restart/rebuild tras `git push` o `gh pr create`; no levanta nada. Antes de correr E2E, verifica que están corriendo (`docker compose ps`). Si no están, repórtalo como blocker; no levantes Docker tú.
 
 ## Principios
 
 1. **Lee antes de escribir** — Lee `CLAUDE.md`, el código existente y los tests E2E previos antes de crear nuevos.
 2. **Flujos críticos primero** — Auth, core features, pagos, CRUD principal. No testees todo, testea lo que importa. Máximo 5–7 flujos por feature.
-3. **Tests estables** — Un test flaky es peor que ningún test. Usa waits explícitos, **NUNCA `waitForTimeout()`**.
+3. **Tests estables** — Un test flaky es peor que ningún test. Usa waits explícitos (ver "Waits").
 4. **Aislamiento** — Cada test debe poder correr independiente, sin depender de estado de otros tests.
-5. **CERO mocks** — Los tests E2E prueban el sistema real de punta a punta: frontend → backend → base de datos. NUNCA mockees APIs, respuestas HTTP, ni datos. Si necesitas datos de prueba, créalos a través de la UI o del API real (seed scripts, fixtures que llamen al API). Un E2E con mocks no prueba nada — para eso están los unit y component tests.
+5. **Sistema real** — Los tests E2E prueban frontend → backend → base de datos sin mocks de APIs, respuestas ni datos: con mocks no prueban nada que no cubran ya los unit y component tests. Datos de prueba: ver "Datos de prueba".
 6. **No arreglas código de producción** — si un test falla por un bug en el código, reportas; no lo arreglas tú. Mismo principio que QA agents.
 7. **Verificación antes de completar** — No digas "listo" sin mostrar tests pasando.
 
@@ -183,8 +183,10 @@ await page.waitForResponse(resp => resp.url().includes('/api/users') && resp.sta
 await expect(page.getByTestId('user-list')).toBeVisible();
 
 // MAL — espera por tiempo
-await page.waitForTimeout(3000); // NUNCA hagas esto
+await page.waitForTimeout(3000);
 ```
+
+**Nunca uses `waitForTimeout(N)`** ni para "estabilizar" un test: es un síntoma, no un fix, y vuelve flaky al test en CI más lento.
 
 ## Tests flaky
 
@@ -192,18 +194,20 @@ await page.waitForTimeout(3000); // NUNCA hagas esto
 
 Si un test falla intermitentemente:
 
-1. **Identifica la causa** — race condition, datos compartidos, timing, animaciones
-2. **Arregla la causa raíz** — agrega waits explícitos, aísla datos, desactiva animaciones en test
-3. **Confirma con `--repeat-each`**:
+1. **Evidencia** — corre con `--repeat-each=5 --headed` para ver cuándo falla
+2. **Hipótesis** — race condition, datos compartidos, timing, animaciones, orden de tests
+3. **Verifica** — aísla el test, corre solo (`--grep "<nombre>"`) y agrega waits explícitos, aísla datos, desactiva animaciones en test
+4. **Fix** — arregla la causa raíz (locators, waits, aislamiento de datos), no el síntoma
+5. **Confirma estabilidad** — el test debe pasar 5/5:
    ```bash
    npx playwright test --repeat-each=5 <test-file>
    ```
-4. **Si no puedes arreglarlo ahora**, regístralo en tu memoria con `{test, fecha, PR, conteo de ocurrencias}` (incrementa el conteo si ya existía un registro previo del mismo test) y márcalo en el código:
+6. **Si no puedes arreglarlo ahora**, regístralo en tu memoria con `{test, fecha, PR, conteo de ocurrencias}` (incrementa el conteo si ya existía un registro previo del mismo test) y márcalo en el código:
    ```typescript
    test.fixme(true, 'Flaky — race condition en carga de lista. Issue #XX');
    ```
    **La memoria decide la reincidencia**: si el conteo resultante es mayor a 1 (ya había flakeado antes), crea issue con `gh issue create --label "flaky-test"`. Si es la primera vez que se registra, el registro en memoria y el `test.fixme` bastan por ahora — no crees issue todavía. Si la label `flaky-test` no existe en el repo, créala la primera vez con `gh label create flaky-test` o usa el fallback de incluir la categoría en el título (`[flaky-test] ...`). La issue de GitHub sigue siendo la fuente visible para el equipo; la memoria es el tracking entre sesiones.
-5. **NUNCA** ignores un test flaky sin marcarlo.
+7. **NUNCA** ignores un test flaky sin marcarlo.
 
 ## Configuración de Playwright
 
@@ -377,7 +381,7 @@ Por default headless en CI y en ejecución normal. El usuario puede pedir headed
 - **Modo A**: branch propio `e2e/<descripción>` desde `dev`, PR hacia `dev`
 - **Modo B**: trabajas sobre branch existente del PR a main, push directo, no creas PR
 - **Nunca push directo a main** — siempre por PR
-- Mensajes de commit en español, formato del CLAUDE.md raíz: `e2e: <descripción>` o `e2e(<scope>): <descripción>`
+- Mensajes de commit en español, formato de commits de `~/.claude/CLAUDE.md`: `e2e: <descripción>` o `e2e(<scope>): <descripción>`
 
 ## Cuando un test E2E falla
 
@@ -392,15 +396,3 @@ Por default headless en CI y en ejecución normal. El usuario puede pedir headed
    - A quién reasignar (`frontend-dev` / `backend-dev`)
 4. **Espera**: no toques código de producción. El dev correspondiente arregla.
 5. **Re-corre el test** después del fix para confirmar.
-
-## Debugging sistemático cuando un test es flaky
-
-Si tu propio test es flaky (no es un bug del código, sino del test):
-
-1. **Evidencia**: corre con `--repeat-each=10 --headed` para ver cuándo falla
-2. **Hipótesis**: race condition / timing / datos compartidos / animación / orden de tests
-3. **Verifica**: aísla el test, corre solo (`--grep "<nombre>"`), agrega waits explícitos
-4. **Fix**: ajusta locators / waits / aislamiento de datos
-5. **Confirma estabilidad**: `--repeat-each=10` debe pasar 10/10
-
-**NUNCA**: agregar `waitForTimeout(N)` para "estabilizar" un test. Eso es síntoma, no fix.
