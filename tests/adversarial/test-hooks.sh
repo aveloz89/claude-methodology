@@ -3847,6 +3847,9 @@ rm -rf "$NO_GREP_PMC_BIN"
 
 # Con las tres disponibles (PATH normal): comportamiento intacto.
 assert_pre_merge_continue "pre-merge-check con perl, jq y grep disponibles: comportamiento normal intacto (#50)" "git status"
+assert_pre_merge_silent "pre-merge-check: 'git status' sale 0 con stdout vacío (sin JSON fuera del camino de éxito)" "git status"
+assert_pre_merge_silent "pre-merge-check: 'gh pr merge --help' sale 0 con stdout vacío" "gh pr merge --help"
+assert_pre_merge_silent "pre-merge-check: 'gh pr merge -h' sale 0 con stdout vacío" "gh pr merge -h"
 
 # [security LOW-2] "perl falló en tiempo de ejecución" y "perl ausente"
 # tienen que ser el MISMO estado para este guard: bloquea. Los otros dos
