@@ -988,6 +988,27 @@ else
 fi
 
 echo ""
+echo "--- Lote 5: /new-project siembra worktree.baseRef y labels completos ---"
+
+NEW_PROJECT_SKILL="$REPO_ROOT/skills/new-project/SKILL.md"
+assert_contains "$NEW_PROJECT_SKILL" "baseRef" "new-project siembra worktree.baseRef"
+assert_contains "$NEW_PROJECT_SKILL" "severity:critical" "new-project crea la label severity:critical"
+assert_contains "$NEW_PROJECT_SKILL" "severity:high" "new-project crea la label severity:high"
+assert_contains "$NEW_PROJECT_SKILL" "e2e-failure" "new-project crea la label e2e-failure"
+assert_contains "$NEW_PROJECT_SKILL" "project: agregar setup inicial" "new-project: commit inicial con formato de la metodología"
+assert_not_contains "$NEW_PROJECT_SKILL" "tres de las seis" "new-project ya no cuenta la anécdota de las labels"
+assert_not_contains "$NEW_PROJECT_SKILL" "--public --source" "new-project no fija la visibilidad del repo sin preguntar"
+TOTAL=$((TOTAL + 1))
+ACTUAL_BASEREF=$(jq -r '.worktree.baseRef' "$SETTINGS_JSON")
+if [ "$ACTUAL_BASEREF" = "head" ]; then
+  echo -e "${GREEN}PASS${NC}: .claude/settings.json siembra worktree.baseRef = head"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: .claude/settings.json worktree.baseRef es \"$ACTUAL_BASEREF\" (esperado \"head\")"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
 echo "--- registro de review: escritor único documentado (#71) ---"
 
 RUNBOOK="$REPO_ROOT/rulebooks/orchestrator-runbook.md"

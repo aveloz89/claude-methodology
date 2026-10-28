@@ -41,6 +41,8 @@ $1/
 └── README.md
 ```
 
+`.claude/settings.json` se crea con `{"worktree": {"baseRef": "head"}}` (2 espacios de indentación). Es lo que permite al orchestrator lanzar lotes paralelos con `isolation: "worktree"` sin que el worktree ramifique desde `origin/<default>`.
+
 ### 2. Inicializar Git con Gitflow
 
 ```bash
@@ -155,17 +157,17 @@ coverage/
 
 ```bash
 git add -A
-git commit -m "Initial project setup with CI/CD, Docker and gitflow"
+git commit -m "project: agregar setup inicial con CI/CD, Docker y gitflow"
 ```
 
 ### 9. Crear repo en GitHub y push
 
 ```bash
-gh repo create $1 --public --source=. --push
+gh repo create $1 --<public|private> --source=. --push
 git push -u origin dev
 ```
 
-Pregunta al usuario si quiere el repo público o privado antes de crearlo.
+Antes de crearlo, pregunta al usuario si quiere el repo público o privado (con `AskUserQuestion`) y usa su respuesta en el flag `--public` o `--private`.
 
 ### 10. Crear las etiquetas que consumen los agentes
 
@@ -176,9 +178,12 @@ gh label create controversial-fix     --color fbca04 --description "Decisión id
 gh label create stale-docs            --color d4c5f9 --description "Documentación desactualizada detectada de paso, no arreglada en el PR de origen"
 gh label create security              --color B60205 --description "Hallazgo de seguridad (review o scan)"
 gh label create flaky-test            --color fef2c0 --description "Test que falló de forma intermitente; lo trackea el e2e-runner"
+gh label create severity:critical     --color B60205 --description "Severidad de un latent-bug; la asigna code-sweep"
+gh label create severity:high         --color D93F0B --description "Severidad de un latent-bug; la asigna code-sweep"
+gh label create e2e-failure           --color D93F0B --description "Test E2E que falló tras mergear la feature; lo abre el e2e-runner"
 ```
 
-**Por qué es un paso y no un detalle:** `code-sweep` lee issues por estas etiquetas, y `gh issue create` **falla el comando entero** si la etiqueta no existe. Sin este paso, derivar deuda a `code-sweep` se cae en silencio y el hallazgo se pierde — pasó en este mismo repo, que tenía tres de las seis.
+**Por qué es un paso y no un detalle:** `code-sweep` lee issues por estas etiquetas, y `gh issue create` **falla el comando entero** si la etiqueta no existe. Sin este paso, derivar deuda a `code-sweep` se cae en silencio y el hallazgo se pierde.
 
 ### 11. Configurar branch protection
 
