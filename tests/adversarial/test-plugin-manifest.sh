@@ -290,29 +290,55 @@ echo "--- Referencias cruzadas al detalle movido a la skill orchestrator ---"
 RUNBOOK="$REPO_ROOT/rulebooks/orchestrator-runbook.md"
 GOVERNANCE="$REPO_ROOT/rulebooks/governance-playbook.md"
 
+# grep: exit 0 = match, 1 = sin match, >=2 = error (patrón inválido, archivo
+# ilegible). El error es FAIL con el mensaje de grep, nunca "sin match".
 assert_contains() {
-  local file="$1" pattern="$2" label="$3"
+  local file="$1" pattern="$2" label="$3" err rc
   TOTAL=$((TOTAL + 1))
-  if grep -q -- "$pattern" "$file"; then
+  err=$(grep -q -- "$pattern" "$file" 2>&1) && rc=0 || rc=$?
+  if [ "$rc" -eq 0 ]; then
     echo -e "${GREEN}PASS${NC}: $label"
     PASS=$((PASS + 1))
-  else
+  elif [ "$rc" -eq 1 ]; then
     echo -e "${RED}FAIL${NC}: $label (no se encontró \"$pattern\" en $file)"
+    FAIL=$((FAIL + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $label (grep falló con exit $rc para el patrón \"$pattern\": $err)"
     FAIL=$((FAIL + 1))
   fi
 }
 
 assert_not_contains() {
-  local file="$1" pattern="$2" label="$3"
+  local file="$1" pattern="$2" label="$3" err rc
   TOTAL=$((TOTAL + 1))
-  if grep -q -- "$pattern" "$file"; then
+  err=$(grep -q -- "$pattern" "$file" 2>&1) && rc=0 || rc=$?
+  if [ "$rc" -eq 1 ]; then
+    echo -e "${GREEN}PASS${NC}: $label"
+    PASS=$((PASS + 1))
+  elif [ "$rc" -eq 0 ]; then
     echo -e "${RED}FAIL${NC}: $label (todavía se encontró \"$pattern\" en $file)"
     FAIL=$((FAIL + 1))
   else
-    echo -e "${GREEN}PASS${NC}: $label"
-    PASS=$((PASS + 1))
+    echo -e "${RED}FAIL${NC}: $label (grep falló con exit $rc para el patrón \"$pattern\": $err)"
+    FAIL=$((FAIL + 1))
   fi
 }
+
+# CA-14: un patrón que rompe a grep (exit 2) debe dar FAIL, no pasar en vacío.
+BAD_PATTERN_FILE=$(mktemp)
+echo "texto cualquiera" > "$BAD_PATTERN_FILE"
+for helper in assert_not_contains assert_contains; do
+  BAD_OUT=$( ($helper "$BAD_PATTERN_FILE" '[patrón inválido' "sandbox" 2>&1) || true)
+  TOTAL=$((TOTAL + 1))
+  if echo "$BAD_OUT" | grep -q "FAIL"; then
+    echo -e "${GREEN}PASS${NC}: $helper da FAIL ante un patrón que rompe a grep"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $helper no falló ante un patrón que rompe a grep (salida: $BAD_OUT)"
+    FAIL=$((FAIL + 1))
+  fi
+done
+rm -f "$BAD_PATTERN_FILE"
 
 assert_not_contains "$RUNBOOK" "el comportamiento esencial vive en \`CLAUDE.md\` raíz" \
   "runbook línea 3 ya no apunta el detalle esencial a CLAUDE.md raíz"
@@ -761,7 +787,7 @@ echo "--- qa-backend.md y qa-frontend.md: Implementation Principles remite a rev
 
 assert_contains "$REPO_ROOT/agents/qa-backend.md" "rulebooks/reviewer-common.md\` §8" \
   "qa-backend.md Implementation Principles remite a reviewer-common.md §8"
-assert_not_contains "$REPO_ROOT/agents/qa-backend.md" "**Defensive code:** validaciones para casos imposibles **dentro de servicios**" \
+assert_not_contains "$REPO_ROOT/agents/qa-backend.md" "\*\*Defensive code:\*\* validaciones para casos imposibles \*\*dentro de servicios\*\*" \
   "qa-backend.md ya no duplica la lista de Implementation Principles de reviewer-common.md §8"
 assert_contains "$REPO_ROOT/agents/qa-frontend.md" "rulebooks/reviewer-common.md\` §8" \
   "qa-frontend.md Implementation Principles remite a reviewer-common.md §8"
@@ -821,7 +847,7 @@ ARCHITECT="$REPO_ROOT/agents/architect.md"
 
 assert_contains "$ARCHITECT" "| Tipo | Cuándo | Cuándo NO |" \
   "agents/architect.md tiene la tabla corta de tipos de arquitectura"
-assert_not_contains "$ARCHITECT" "**Cuándo NO aplicar SOLID:**" \
+assert_not_contains "$ARCHITECT" "\*\*Cuándo NO aplicar SOLID:\*\*" \
   "agents/architect.md ya no tiene la lista larga de cuándo no aplicar SOLID"
 
 ARCHITECT_LINES=$(wc -l < "$ARCHITECT" | tr -d ' ')
