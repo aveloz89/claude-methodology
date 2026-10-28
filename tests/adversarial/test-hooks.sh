@@ -5927,6 +5927,28 @@ else
 fi
 sandbox_cleanup
 
+# Caso: línea "Tier: <valor>" — liviano se renderiza, ausente cae a completo,
+# fuera del enum es "?" (mismo contrato que status).
+for TIER_CASE in 'liviano|"tier": "liviano",|Tier: liviano' 'ausente||Tier: completo' 'x|"tier": "x",|Tier: ?'; do
+  TIER_LABEL="${TIER_CASE%%|*}"; TIER_REST="${TIER_CASE#*|}"
+  TIER_FIELD="${TIER_REST%%|*}"; TIER_WANT="${TIER_REST#*|}"
+  sandbox_create
+  mkdir -p "$SANDBOX_REPO/.planning"
+  cat > "$SANDBOX_REPO/.planning/state.json" << TIER_EOF
+{"schema": 1, $TIER_FIELD "phases": {"brainstorming": "done", "design": "pending"}, "batches": []}
+TIER_EOF
+  OUTPUT_TIER=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+  TOTAL=$((TOTAL + 1))
+  if echo "$OUTPUT_TIER" | grep -qxF "$TIER_WANT"; then
+    echo -e "${GREEN}PASS${NC}: SessionStart imprime \"$TIER_WANT\" (tier $TIER_LABEL)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: SessionStart no imprime \"$TIER_WANT\" (tier $TIER_LABEL; output: $OUTPUT_TIER)"
+    FAIL=$((FAIL + 1))
+  fi
+  sandbox_cleanup
+done
+
 # Caso: sanitización — un name de batch con caracteres de control y un
 # salto de línea, bien dentro de la ventana de truncado (~80 chars), no debe
 # llegar crudo al output: se trunca y no genera líneas extra. Comparación
