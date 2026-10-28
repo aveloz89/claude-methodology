@@ -106,4 +106,107 @@ const chunks = discovered.chunks
   .filter(c => c.files.length > 0)
 log(`discover: stack ${(discovered.stack || []).join(", ") || "?"} · ${seenFiles.size} archivos en ${chunks.length} chunks`)
 
-return { mode, preRelease, paths, stack: discovered.stack || [], chunks }
+// ---- Utilidades compartidas ---------------------------------------------------
+// parallel() lanza todos los thunks y el runtime los encola contra su tope; acá
+// se acota a MAX_CONCURRENT con tandas, en orden de entrada (resume estable).
+// Cada posición del resultado es null si ese agente murió o fue saltado.
+async function inBatches(items, run) {
+  const out = []
+  for (let i = 0; i < items.length; i += MAX_CONCURRENT) {
+    const batch = items.slice(i, i + MAX_CONCURRENT)
+    const results = await parallel(batch.map((item, j) => () => run(item, i + j)))
+    out.push(...results)
+  }
+  return out
+}
+
+const SEVERITY_RANK = { "CRITICO": 0, "ALTO": 1, "MEDIO": 2, "BAJO": 3 }
+const byLocation = (a, b) =>
+  a.file.localeCompare(b.file) || a.line - b.line || a.pattern.localeCompare(b.pattern)
+
+// ---- Fase: audit --------------------------------------------------------------
+phase("audit")
+
+// Contrato entre fases (idéntico al schema de rulebooks/code-sweep-common.md).
+const FINDING_CONTRACT = `{"id":"CS-001","mode":"${mode}","severity":"CRITICO|ALTO|MEDIO|BAJO","pattern":"<nombre del patrón del rulebook>",
+ "file":"ruta/relativa","line":42,"snippet":"...","description":"...","manifestation":"cómo se manifestaría",
+ "verdict":"unverified","evidence":"","issue":null}`
+
+const FINDING_SCHEMA = {
+  type: "object",
+  required: ["findings"],
+  properties: {
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["severity", "pattern", "file", "line", "snippet", "description", "manifestation"],
+        properties: {
+          "severity": { type: "string", enum: ["CRITICO", "ALTO", "MEDIO", "BAJO"] },
+          "pattern": { type: "string" },
+          "file": { type: "string" },
+          "line": { type: "integer" },
+          "snippet": { type: "string" },
+          "description": { type: "string" },
+          "manifestation": { type: "string" },
+        },
+      },
+    },
+    notCovered: { type: "array", items: { type: "string" } },
+  },
+}
+
+const MODE_BRIEF = mode === "bugs"
+  ? "Modo bugs: busca bugs latentes (código roto que nadie notó porque el code path no se ejercitó todavía). Usa los patrones por stack de la sección 1 del rulebook. Nada de smells ni preferencias de estilo."
+  : "Modo smells: busca código difícil de mantener con los umbrales y reglas de la sección 2 del rulebook (funciones largas, nesting, duplicación, god files). No ejecutas el refactor. Dead code es candidato a revisión humana, nunca se sugiere borrarlo."
+
+log(`audit: ${chunks.length} chunks, hasta ${MAX_CONCURRENT} en paralelo`)
+
+const audited = await inBatches(chunks, chunk =>
+  agent(
+    `Audita estos archivos en modo ${mode}.
+
+${MODE_BRIEF}
+
+Rulebook: ${RULEBOOK} — léelo primero (patrones, umbrales, schema, formato). Si no existe en esa ruta, NO te detengas: decláralo en notCovered ("rulebook code-sweep-common.md no instalado") y audita con tu criterio.
+
+Archivos (chunk ${chunk.id}):
+${chunk.files.map(f => `- ${f}`).join("\n")}
+
+Para cada match lee el contexto y confirma que es real antes de reportarlo: un falso positivo no cuenta. Reporta solo archivos de este chunk, con ruta relativa y línea exacta. No asignes ids (los asigna el workflow). Cada hallazgo sigue este contrato (verdict queda "unverified": otro agente lo verifica después):
+${FINDING_CONTRACT}
+
+Lo que no puedas leer o auditar va en notCovered. Devuelve solo el JSON del schema.
+${UNTRUSTED}`,
+    { label: `audit:${chunk.id}`, phase: "audit", model: "sonnet", schema: FINDING_SCHEMA, ...READ_ONLY },
+  ),
+)
+
+// audited[i] pertenece a chunks[i]; null = ese chunk nadie lo auditó. Un chunk
+// sin auditar no es un chunk limpio: se nombra en NO CUBIERTO.
+const notCovered = []
+const rawFindings = []
+audited.forEach((r, i) => {
+  if (!r) {
+    notCovered.push(`${chunks[i].id}: el auditor no devolvió resultado (${chunks[i].files.length} archivos sin auditar)`)
+    return
+  }
+  for (const nc of r.notCovered || []) notCovered.push(`${chunks[i].id}: ${nc}`)
+  for (const f of r.findings || []) rawFindings.push(f)
+})
+
+// Ids deterministas: orden por file, line, pattern; luego CS-001, CS-002, ...
+const allFindings = rawFindings
+  .slice()
+  .sort(byLocation)
+  .map((f, i) => ({
+    ...f,
+    id: `CS-${String(i + 1).padStart(3, "0")}`,
+    mode,
+    verdict: "unverified",
+    evidence: "",
+    issue: null,
+  }))
+log(`audit: ${allFindings.length} hallazgos candidatos · ${notCovered.length} avisos de cobertura`)
+
+return { mode, preRelease, paths, stack: discovered.stack || [], chunks, findings: allFindings, notCovered }

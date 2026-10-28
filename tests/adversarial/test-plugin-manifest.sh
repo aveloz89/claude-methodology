@@ -1105,6 +1105,11 @@ if [ -f "$CS_WORKFLOW" ]; then
   assert_not_contains "$CS_WORKFLOW" 'Date\.now(' "code-sweep.js no usa Date.now() (rompe resume)"
   assert_not_contains "$CS_WORKFLOW" 'Math\.random(' "code-sweep.js no usa Math.random() (rompe resume)"
 
+  assert_contains "$CS_WORKFLOW" 'MAX_CONCURRENT = 8' "code-sweep.js limita la concurrencia con MAX_CONCURRENT = 8"
+  assert_contains "$CS_WORKFLOW" '"verdict"' "code-sweep.js define el schema de hallazgo (verdict)"
+  assert_contains "$CS_WORKFLOW" '"manifestation"' "code-sweep.js define el schema de hallazgo (manifestation)"
+  assert_contains "$CS_WORKFLOW" 'code-sweep-common.md' "code-sweep.js apunta los prompts al rulebook común"
+
   if command -v node > /dev/null 2>&1; then
     # El runtime ejecuta el script como cuerpo de una función async (con
     # `return` y `await` al nivel superior), que node --check rechaza como
