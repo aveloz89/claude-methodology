@@ -1017,7 +1017,7 @@ echo "--- CA-4: sin referencias colgantes a piezas eliminadas de la metodología
 # versionado) y este mismo script (los términos viven acá como patrones
 # de grep, no como menciones normativas).
 DANGLING_SCOPE=("$REPO_ROOT/agents" "$REPO_ROOT/rulebooks" "$REPO_ROOT/skills" "$REPO_ROOT/rules" "$HOOKS_DIR" "$REPO_ROOT/README.md" "$REPO_ROOT/global/CLAUDE.md" "$REPO_ROOT/tests" "$REPO_ROOT/.claude")
-DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule" "context-monitor" "CLAUDE_CONTEXT_TOKENS" "nunca el historial completo" "no el historial completo ni tareas de otros lotes")
+DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule" "context-monitor" "CLAUDE_CONTEXT_TOKENS" "nunca el historial completo" "no el historial completo ni tareas de otros lotes" "Degradación de modelo")
 
 # dangling_grep <patrón>: líneas "ruta:n:texto" del patrón dentro de DANGLING_SCOPE.
 dangling_grep() {
