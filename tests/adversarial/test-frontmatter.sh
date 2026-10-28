@@ -257,6 +257,15 @@ for agent_file in "$AGENTS_DIR"/*.md; do
 done
 
 echo ""
+echo "--- (i) memory: el cuerpo documenta agent-memory y reviewer-common tiene §9 (CA-8) ---"
+
+REVIEWER_COMMON="$REPO_ROOT/rulebooks/reviewer-common.md"
+check "$(grep -q '^## 9\. ' "$REVIEWER_COMMON" && echo 0 || echo 1)" \
+  "reviewer-common.md tiene la sección ## 9."
+check "$(grep -q 'global/CLAUDE.md' "$REVIEWER_COMMON" && echo 1 || echo 0)" \
+  "reviewer-common.md no cita global/CLAUDE.md (D-14: ruta instalada)"
+
+echo ""
 echo "--- skills/*/SKILL.md: Agent(...) namespaced y existente, disable-model-invocation ---"
 
 for skill_file in "$SKILLS_DIR"/*/SKILL.md; do
