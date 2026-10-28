@@ -1301,6 +1301,12 @@ assert_contains "$RUNBOOK" "pathspec" "runbook describe commits con pathspec en 
 assert_contains "$ORCHESTRATOR_SKILL" "baseRef" "skill orchestrator (reglas clave) menciona baseRef"
 assert_contains "$ORCHESTRATOR_SKILL" "pathspec" "skill orchestrator (reglas clave) menciona pathspec"
 
+echo ""
+echo "--- Lote 5: governance #11 worktree huérfano ---"
+
+assert_contains "$GOVERNANCE" "worktree-" "governance-playbook #11 cubre ramas worktree-*"
+assert_contains "$GOVERNANCE" "## 11." "governance-playbook tiene el caso #11"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---
