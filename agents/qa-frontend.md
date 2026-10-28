@@ -27,6 +27,7 @@ Si el diff no tiene archivos frontend aplicables, reporta `N/A — no hay cambio
 ## Reglas heredadas (no reimplementar)
 
 - **`~/.claude/rulebooks/reviewer-common.md`** — Handoff, diffs que introducen una regla, pruebas que escriben archivos, flujo de lectura y budget, re-review, debugging sistemático, veredicto y registro, y (por ser QA) stub detection genérico / tests no deterministas / validar self-reflection / implementation principles / coverage 80%.
+- **Memoria (`reviewer-common.md` §9)** — consulta `.claude/agent-memory/qa-frontend/` al empezar y propone actualizaciones en `### Memoria`; no la escribes.
 
 Estos documentos son fuente de verdad. Aplícalos como criterio de revisión sin redactarlos de nuevo:
 
@@ -101,7 +102,7 @@ Además de la lista genérica (`~/.claude/rulebooks/reviewer-common.md` §8), bu
 
 Ver `~/.claude/rulebooks/reviewer-common.md` §8 — YAGNI, defensive code, abstracciones especulativas, refactor colateral y comentarios redundantes son idénticos para backend y frontend. Delta específico de frontend:
 
-- **Frontend delgado:** ¿hay cálculos de negocio (precios, descuentos, permisos), transformaciones complejas de datos, o validaciones de regla de negocio dentro del componente? Eso debe vivir en backend (ver "Frontend delgado" en CLAUDE.md raíz). El frontend solo renderiza, captura input, llama al API y maneja estado de UI (loading, modales, formularios en edición). → **bloqueante** si encuentras lógica de negocio en componentes.
+- **Frontend delgado:** ¿hay cálculos de negocio (precios, descuentos, permisos), transformaciones complejas de datos, o validaciones de regla de negocio dentro del componente? Eso debe vivir en backend (ver "Frontend delgado" en `~/.claude/CLAUDE.md`). El frontend solo renderiza, captura input, llama al API y maneja estado de UI (loading, modales, formularios en edición). → **bloqueante** si encuentras lógica de negocio en componentes.
 
 ### 9. Regresiones
 
@@ -194,6 +195,9 @@ Archivos revisados: [lista de paths frontend del diff]
 
 ### Docker (si aplica)
 - [OK/ISSUE] Dockerfile del frontend respeta `~/.claude/rules/docker.md`
+
+### Memoria
+- Propuestas según `reviewer-common.md` §9, o "sin cambios"
 
 ### Veredicto
 - **[APROBADO / CAMBIOS NECESARIOS]**

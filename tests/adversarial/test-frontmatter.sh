@@ -260,6 +260,19 @@ echo ""
 echo "--- (i) memory: el cuerpo documenta agent-memory y reviewer-common tiene §9 (CA-8) ---"
 
 REVIEWER_COMMON="$REPO_ROOT/rulebooks/reviewer-common.md"
+for agent_file in "$AGENTS_DIR"/*.md; do
+  agent_name="$(basename "$agent_file" .md)"
+  [ -z "$(frontmatter_value "$agent_file" "memory")" ] && continue
+  [ "$agent_name" = "e2e-runner" ] && continue
+  agent_body=$(awk '/^---$/{c++; next} c>=2{print}' "$agent_file")
+  check "$(grep -q 'agent-memory' <<< "$agent_body" && echo 0 || echo 1)" \
+    "$agent_name: el cuerpo menciona agent-memory"
+done
+neg() { check "$(grep -qF -- "$2" "$1" && echo 1 || echo 0)" "$3"; }
+neg "$AGENTS_DIR/security-reviewer.md" 'global/CLAUDE.md' "security-reviewer.md no cita global/CLAUDE.md (hunk 17)"
+neg "$AGENTS_DIR/qa-backend.md" 'global/CLAUDE.md' "qa-backend.md no cita global/CLAUDE.md (hunk 17)"
+neg "$AGENTS_DIR/qa-backend.md" 'definidas en CLAUDE.md raíz' "qa-backend.md remite las exclusiones de coverage a ~/.claude/CLAUDE.md (hunk 10)"
+neg "$AGENTS_DIR/qa-frontend.md" '" en CLAUDE.md raíz' "qa-frontend.md remite Frontend delgado a ~/.claude/CLAUDE.md (hunk 10)"
 check "$(grep -q '^## 9\. ' "$REVIEWER_COMMON" && echo 0 || echo 1)" \
   "reviewer-common.md tiene la sección ## 9."
 check "$(grep -q 'global/CLAUDE.md' "$REVIEWER_COMMON" && echo 1 || echo 0)" \
