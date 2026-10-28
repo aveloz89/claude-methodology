@@ -29,8 +29,12 @@ El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesió
 | 3. Post-PR | Re-reviews solo si CI obligó fixes sobre código ya revisado; `e2e-runner` Modo B si el PR va a `main` | reviews actualizados | "Fase 3" |
 | 5. Merge | Verificación pre-merge + merge; `state.json` local con `phases.merge=done` después del merge | PR mergeado | "Fase 5" |
 
+**Variante `liviano`** (criterio en el runbook, "Tier del flujo"): quedan Fase 0 breve, creación del branch, implementación (edición directa tuya o un solo lote), review simple, push + PR, CI y merge. No hay 0.5, 1 (sin `architect` ni `DESIGN.md`), 2.5 (sin `docs`) ni review dual. El `tier` vive en `state.json` (ausente = `completo`).
+
 **Reglas clave** (detalle en el runbook, sección "Fase 2: Implementación", y en la skill `pr-workflow`):
 
+- En `liviano` editas directo hasta 5 archivos acumulados por PR, sin lógica de negocio nueva ni migración, y corres suite y lint de lo tocado antes de commitear; al sexto archivo delegas un único lote (`last_batch=true`). Si haría falta un segundo lote, ya no es liviano.
+- Escalada a `completo` (supera el tamaño, aparece una señal de riesgo o el usuario lo pide): lo dices, registras `[D-NN] escalada: <motivo>` en `STATE.md`, pones `tier = "completo"` y `phases.design = "pending"`, y sigues desde Fase 1 con lo commiteado como insumo del `architect`. Nunca se vuelve de `completo` a `liviano`.
 - Creas el branch una sola vez (`git checkout dev && git checkout -b feature/<slug>`); los devs trabajan sobre ese branch existente.
 - La `description` de cada dev empieza con `Lote N: ` (§5); los lotes de fixes se añaden a `state.json` antes de lanzar al dev (§5).
 - Modo single-PR por default: todos los lotes en el mismo branch, último lote con `last_batch=true`. Modo multi-PR solo si el `architect` lo justificó — cada grupo con su branch + PR propio.
@@ -55,20 +59,22 @@ Preguntas en rondas (alcance, edge cases, integraciones, prioridad) hasta tener 
 
 En cualquier duda, brainstormeas igual. Con confirmación explícita, escribes `.planning/BRIEF.md` (formato en el runbook) y avanzas.
 
+**Tier del flujo.** La pregunta de cierre de Fase 0 (o la primera, si se saltó) propone el tier con `AskUserQuestion`: la recomendada primero y la consecuencia de cada opción en una línea (`liviano`: sin architect ni `DESIGN.md`, sin `docs`, review simple; `completo`: fases 0 a 5). En duda, recomiendas `completo`. Criterio de tamaño y señales de riesgo: runbook, "Tier del flujo". Confirmado el tier, lo escribes en `state.json` antes de crear el branch. En `liviano`, `BRIEF.md` puede ser corto (objetivo, alcance, criterios).
+
 ## 4. Equipo de subagentes
 
-| Agente | Modelo | Rol | Cuándo invocar |
-|--------|--------|-----|----------------|
-| `architect` | fable (fallback: opus) | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva |
-| `ui-ux` | opus | Genera design system y valida flujos | Después del brainstorming, ANTES del architect, si hay UI |
-| `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples y complejas (lotes `db-complejo`) | Lotes con trabajo server-side |
-| `frontend-dev` | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) | Lotes con trabajo client-side |
-| `security-reviewer` | opus | Auditoría OWASP, secrets, dependencias (read-only). Bloqueante | Fase 2.6 y re-reviews post-PR |
-| `qa-frontend` | sonnet | UX, accesibilidad, componentes, tests frontend, coverage. Bloqueante si toca frontend | Diff con archivos de UI |
-| `qa-backend` | sonnet | Contratos API, lógica, datos, tests backend, coverage. Bloqueante si toca backend | Diff con archivos de servidor |
-| `e2e-runner` | sonnet | Tests E2E con Playwright. Modo A: usuario, branch propio. Modo B: pre-release a `main`, branch del PR | Pre-release o invocación directa |
-| `code-sweep` | sonnet | Escanea el repo: modo `bugs` (issues `latent-bug`) o `smells` (reporte). Read-only | Pedido del usuario, o Fase 3 en PR a `main` |
-| `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después del último lote, antes del push + PR |
+| Agente | Modelo | Rol | Cuándo invocar | Tier |
+|--------|--------|-----|----------------|------|
+| `architect` | fable (fallback: opus) | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva | completo |
+| `ui-ux` | opus | Genera design system y valida flujos | Después del brainstorming, ANTES del architect, si hay UI | completo (si hay UI) |
+| `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples y complejas (lotes `db-complejo`) | Lotes con trabajo server-side | ambos (en liviano, un solo lote al sexto archivo) |
+| `frontend-dev` | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) | Lotes con trabajo client-side | ambos (en liviano, un solo lote al sexto archivo) |
+| `security-reviewer` | opus | Auditoría OWASP, secrets, dependencias (read-only). Bloqueante | Fase 2.6 y re-reviews post-PR | completo; en liviano solo si toca auth/crypto/secrets/pagos |
+| `qa-frontend` | sonnet | UX, accesibilidad, componentes, tests frontend, coverage. Bloqueante si toca frontend | Diff con archivos de UI | completo; en liviano solo como fallback de `/code-review` |
+| `qa-backend` | sonnet | Contratos API, lógica, datos, tests backend, coverage. Bloqueante si toca backend | Diff con archivos de servidor | completo; en liviano solo como fallback de `/code-review` |
+| `e2e-runner` | sonnet | Tests E2E con Playwright. Modo A: usuario, branch propio. Modo B: pre-release a `main`, branch del PR | Pre-release o invocación directa | ambos (PR a `main` o pedido directo) |
+| `code-sweep` | sonnet | Escanea el repo: modo `bugs` (issues `latent-bug`) o `smells` (reporte). Read-only | Pedido del usuario, o Fase 3 en PR a `main` | ambos (pedido del usuario) |
+| `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después del último lote, antes del push + PR | completo |
 
 **Degradación de modelo cuando opus está rate-limited:** `security-reviewer` → sonnet solo si el PR no toca auth/crypto/secrets/pagos; `ui-ux` → sonnet aceptable siempre. El `architect` nunca degrada a sonnet: si fable no está disponible, sube a opus (el plan de lotes es la decisión de mayor apalancamiento del flujo).
 
@@ -86,7 +92,7 @@ Template exacto del paquete de handoff a devs: runbook, sección de handoff.
 
 ## 6. Tracker de sesión
 
-Al cerrar el diseño con el `architect`, **si el harness expone `TaskCreate`/`TaskUpdate`** (el CLI sí; la app de escritorio no, verificado en 2.1.286), creas el tracker visible con esas herramientas, con dependencias entre tareas:
+Al cerrar el diseño con el `architect`, **si el harness expone `TaskCreate`/`TaskUpdate`** (no todos los harness las exponen: la app de escritorio no, verificado en 2.1.286; comprueba tu lista de herramientas), creas el tracker visible con esas herramientas, con dependencias entre tareas:
 
 1. Una tarea por lote.
 2. Una tarea de review dual local por PR del plan, bloqueada por los lotes que contiene.

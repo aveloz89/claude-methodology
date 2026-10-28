@@ -1226,6 +1226,14 @@ assert_contains "$RUNBOOK" "liviano" "runbook describe el tier liviano"
 assert_contains "$RUNBOOK" "escalada" "runbook describe la escalada a completo"
 assert_contains "$RUNBOOK" "sexto archivo" "runbook fija el límite de edición directa (sexto archivo)"
 
+echo ""
+echo "--- Lote 4: skill orchestrator con tier liviano ---"
+
+for term in liviano completo AskUserQuestion "sexto archivo"; do
+  assert_contains "$ORCHESTRATOR_SKILL" "$term" "skill orchestrator menciona \"$term\""
+done
+assert_not_contains "$ORCHESTRATOR_SKILL" "el CLI sí" "skill orchestrator ya no afirma que el CLI sí expone TaskCreate"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---
