@@ -2,8 +2,14 @@
 # Verifica que un PR no tenga threads de review sin resolver, reviews
 # bloqueantes, ni CI checks fallando antes de permitir el merge.
 # hooks.json filtra con "if": "Bash(gh *)" — no reemplaza la validación de
-# abajo. Contrato PreToolUse: bloquear = stderr + exit 2, permitir = exit
-# 0 sin stdout.
+# abajo. Contrato PreToolUse, tres estados (único guard con el tercero):
+#   - bloquear: stderr + exit 2, sin stdout (ningún JSON);
+#   - silencio: exit 0 sin stdout cuando no hay nada que decidir (el comando
+#     no es un merge, o `gh pr merge --help`/`-h` exactos);
+#   - ask: exit 0 + JSON permissionDecision "ask", SOLO tras las tres
+#     verificaciones en verde (threads, CHANGES_REQUESTED, checks; "sin
+#     checks configurados" cuenta como verde). En -p/dontAsk el ask se
+#     resuelve como denegación.
 #
 # Forma aceptada, anclada de punta a punta sobre el texto CRUDO: "gh pr
 # merge <N> [flag ...]", sola en el comando y en una línea. <N> =

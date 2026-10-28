@@ -3598,11 +3598,12 @@ _pyrun_cleanup
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 
-# pre-merge-check.sh responde con stderr + exit 2 (bloquear) o exit 0 sin
-# stdout (permitir) — mismo contrato que pre-push-guard.sh/pre-commit-
-# guard.sh (auditoría best-practices, migrado desde el JSON
-# {"decision":"block"}/{"continue":true} que usaba antes; el motivo de
-# bloqueo sigue verificable en stderr). Usa helpers propios (no
+# pre-merge-check.sh tiene tres estados: bloquear = stderr + exit 2 sin
+# stdout (el motivo sigue verificable en stderr); silencio = exit 0 sin
+# stdout cuando no hay nada que decidir (comando que no es un merge,
+# `gh pr merge --help`/`-h`); ask = exit 0 + JSON permissionDecision "ask",
+# solo tras las tres verificaciones en verde. En -p/dontAsk el ask se
+# resuelve como denegación. Usa helpers propios (no
 # assert_blocked_cmd/assert_allowed_cmd genéricos) porque además llama a gh
 # internamente: estos tests reemplazan gh en el PATH por un fake
 # determinístico (sin red) que responde según $FAKE_GH_MODE.
