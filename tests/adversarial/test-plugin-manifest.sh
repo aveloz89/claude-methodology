@@ -1109,6 +1109,10 @@ if [ -f "$CS_WORKFLOW" ]; then
   assert_contains "$CS_WORKFLOW" '"verdict"' "code-sweep.js define el schema de hallazgo (verdict)"
   assert_contains "$CS_WORKFLOW" '"manifestation"' "code-sweep.js define el schema de hallazgo (manifestation)"
   assert_contains "$CS_WORKFLOW" 'code-sweep-common.md' "code-sweep.js apunta los prompts al rulebook común"
+  assert_contains "$CS_WORKFLOW" 'refuted' "code-sweep.js verifica con veredicto refuted"
+  assert_contains "$CS_WORKFLOW" 'gh issue list --label "latent-bug"' "code-sweep.js deduplica issues con gh issue list --label \"latent-bug\""
+  assert_contains "$CS_WORKFLOW" 'date -u' "code-sweep.js obtiene la fecha con date -u (no Date.now)"
+  assert_contains "$CS_WORKFLOW" 'BLOQUEANTE PRE-RELEASE' "code-sweep.js marca BLOQUEANTE PRE-RELEASE"
 
   if command -v node > /dev/null 2>&1; then
     # El runtime ejecuta el script como cuerpo de una función async (con
