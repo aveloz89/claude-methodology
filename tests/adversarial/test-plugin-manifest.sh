@@ -1379,6 +1379,12 @@ assert_not_contains "$REPO_ROOT/agents/ui-ux.md" "2× el costo" "ui-ux: sin mult
 assert_not_contains "$REPO_ROOT/rulebooks/dev-common.md" "formato definido en CLAUDE.md raíz" "dev-common cita ~/.claude/CLAUDE.md para el formato de commits"
 assert_not_contains "$RUNBOOK" "las invariantes viven en \`CLAUDE.md\` raíz" "runbook cita ~/.claude/CLAUDE.md para las invariantes"
 
+REPO_CLAUDE_MD="$REPO_ROOT/.claude/CLAUDE.md"
+assert_not_contains "$REPO_CLAUDE_MD" "## \`rules/\` vs \`rulebooks/\`" ".claude/CLAUDE.md reduce la sección a rules/"
+assert_not_contains "$REPO_CLAUDE_MD" "ya no tiene bloque" ".claude/CLAUDE.md describe el estado actual del registro de hooks"
+assert_not_contains "$REPO_CLAUDE_MD" "ya no los registra" ".claude/CLAUDE.md describe el estado actual de settings.json"
+assert_contains "$REPO_CLAUDE_MD" "Declara siempre" ".claude/CLAUDE.md pide declarar paths: en rules/"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---
