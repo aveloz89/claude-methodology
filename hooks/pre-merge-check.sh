@@ -353,4 +353,9 @@ if [ -n "$ERRORS" ]; then
   exit 2
 fi
 
+# Único camino de éxito: las tres verificaciones pasaron (incluido "sin
+# checks configurados"). Estado "ask": exit 0 + JSON, para que el usuario
+# confirme el merge. En -p/dontAsk el ask se resuelve como denegación.
+jq -nc --arg reason "pre-merge-check: PR #${PR_NUMBER} verificado (sin threads abiertos, sin CHANGES_REQUESTED, checks en verde). Confirma el merge." \
+  '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: $reason}}'
 exit 0

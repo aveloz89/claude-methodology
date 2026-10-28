@@ -3670,6 +3670,40 @@ assert_pre_merge_continue() {
   fi
 }
 
+assert_pre_merge_ask() {
+  local test_name="$1" cmd="$2" fake_gh_mode="${3:-}"
+  TOTAL=$((TOTAL + 1))
+  local json exit_code=0 stdout
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  stdout=$(echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null) || exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && echo "$stdout" | jq -e '.hookSpecificOutput.permissionDecision == "ask" and .hookSpecificOutput.hookEventName == "PreToolUse" and (.hookSpecificOutput.permissionDecisionReason | contains("PR #45"))' > /dev/null 2>&1; then
+    echo -e "${GREEN}PASS${NC}: $test_name (ask emitted)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stdout: $stdout)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# Silencio: exit 0 con stdout vacío cuando no hay nada que decidir. Falla si
+# el JSON de ask se emitiera fuera del camino de éxito final.
+assert_pre_merge_silent() {
+  local test_name="$1" cmd="$2" fake_gh_mode="${3:-}"
+  TOTAL=$((TOTAL + 1))
+  local json exit_code=0 stdout
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  stdout=$(echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null) || exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && [ -z "$stdout" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (silent exit 0)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stdout: $stdout)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 assert_pre_merge_blocked() {
   local test_name="$1" cmd="$2" expected_substring="$3" fake_gh_mode="${4:-}"
   TOTAL=$((TOTAL + 1))
@@ -3738,7 +3772,7 @@ assert_pre_merge_blocked "Compound command with merge after && now blocks (D-04:
 
 # Caso 5a: PR sin checks configurados (repo sin CI) — es un pass legítimo,
 # no debe bloquear.
-assert_pre_merge_continue "No CI checks configured does not block" "gh pr merge 45" "checks_none"
+assert_pre_merge_ask "No CI checks configured emits ask" "gh pr merge 45" "checks_none"
 
 # Caso 5b: la consulta de checks falla de verdad (no es el caso "sin
 # checks") — sigue bloqueando fail-closed.
@@ -3754,7 +3788,7 @@ assert_pre_merge_blocked "GraphQL body with null repository still blocks (fail-c
 # Caso 5d: el caso normal (JSON válido con 0 threads sin resolver) sigue
 # pasando — jq -e no vuelve falsy un `length` de 0 (jq -e solo distingue
 # null/false del resto, y 0 no es ninguno de los dos).
-assert_pre_merge_continue "Valid GraphQL response with 0 unresolved threads still passes" "gh pr merge 45" ""
+assert_pre_merge_ask "Valid GraphQL response with 0 unresolved threads emits ask" "gh pr merge 45" ""
 
 # Caso 6: fail-closed sin dependencias (#50, extendido a grep en la
 # retro del PR #60) — antes, si faltaba perl o jq, la sustitución/parseo
