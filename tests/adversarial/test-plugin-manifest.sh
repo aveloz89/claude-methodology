@@ -1077,6 +1077,55 @@ assert_contains "$CODE_SWEEP" "respaldo" "agente code-sweep se declara respaldo 
 assert_not_contains "$CODE_SWEEP" "| Stack | Patrones" "agente code-sweep no duplica la tabla de patrones del rulebook"
 assert_agent_read_only "$CODE_SWEEP" "sonnet"
 
+echo ""
+echo "--- workflows/code-sweep.js: meta literal, determinismo y sintaxis ---"
+
+TOTAL=$((TOTAL + 1))
+if [ -f "$CS_WORKFLOW" ]; then
+  echo -e "${GREEN}PASS${NC}: workflows/code-sweep.js existe"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: workflows/code-sweep.js no existe"
+  FAIL=$((FAIL + 1))
+fi
+
+if [ -f "$CS_WORKFLOW" ]; then
+  # Primera sentencia no comentada: ignora líneas en blanco y comentarios //.
+  CS_FIRST=$(grep -vE '^[[:space:]]*(//.*)?$' "$CS_WORKFLOW" | head -1)
+  TOTAL=$((TOTAL + 1))
+  case "$CS_FIRST" in
+    "export const meta = {"*)
+      echo -e "${GREEN}PASS${NC}: la primera sentencia de code-sweep.js es export const meta = {"
+      PASS=$((PASS + 1)) ;;
+    *)
+      echo -e "${RED}FAIL${NC}: la primera sentencia de code-sweep.js no es export const meta = { (es: \"$CS_FIRST\")"
+      FAIL=$((FAIL + 1)) ;;
+  esac
+  assert_contains "$CS_WORKFLOW" 'name: "code-sweep"' "meta de code-sweep.js declara name: \"code-sweep\""
+  assert_not_contains "$CS_WORKFLOW" 'Date\.now(' "code-sweep.js no usa Date.now() (rompe resume)"
+  assert_not_contains "$CS_WORKFLOW" 'Math\.random(' "code-sweep.js no usa Math.random() (rompe resume)"
+
+  if command -v node > /dev/null 2>&1; then
+    # El runtime ejecuta el script como cuerpo de una función async (con
+    # `return` y `await` al nivel superior), que node --check rechaza como
+    # módulo. Se chequea la sintaxis envolviendo el cuerpo y quitando `export`.
+    CS_WRAPDIR=$(mktemp -d)
+    CS_WRAPPED="$CS_WRAPDIR/code-sweep-wrapped.js"
+    { echo 'async function __workflow() {'; sed 's/^export const meta/const meta/' "$CS_WORKFLOW"; echo '}'; } > "$CS_WRAPPED"
+    TOTAL=$((TOTAL + 1))
+    if node --check "$CS_WRAPPED" > /dev/null 2>&1; then
+      echo -e "${GREEN}PASS${NC}: node --check pasa sobre code-sweep.js (cuerpo envuelto)"
+      PASS=$((PASS + 1))
+    else
+      echo -e "${RED}FAIL${NC}: node --check falla sobre code-sweep.js"
+      FAIL=$((FAIL + 1))
+    fi
+    rm -rf "$CS_WRAPDIR"
+  else
+    echo "SKIP: 'node' no está en PATH — se omite node --check de code-sweep.js"
+  fi
+fi
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---
