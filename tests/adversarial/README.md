@@ -33,6 +33,18 @@ bash tests/adversarial/test-frontmatter.sh
 3. Comparar hallazgos vs "Expected findings" del fixture
 4. Si el agente no detecta un problema esperado, ajustar su prompt
 
+### Verificación de cierre (compatibilidad con bash 3.2)
+
+Las tres suites corren bajo `/bin/bash` (3.2 en macOS). Una construcción de bash 4 no rompe el exit code: bash imprime el error y sigue, y el assert afectado desaparece del total. Por eso, antes de cerrar un cambio, corre las tres suites bajo `/bin/bash` y exige cero líneas de error de bash en su salida:
+
+```bash
+for s in test-hooks test-plugin-manifest test-frontmatter; do
+  /bin/bash tests/adversarial/$s.sh 2>&1
+done | grep -cE 'tests/adversarial/[a-z-]+\.sh: line [0-9]+:'   # debe imprimir 0
+```
+
+`test-plugin-manifest.sh` además verifica de forma estática que ninguna suite use `declare -A`, `mapfile`, `readarray`, `${var,,}` ni `${var^^}`.
+
 ## Cuándo ejecutar
 
 - Antes de releases

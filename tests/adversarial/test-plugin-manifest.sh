@@ -768,10 +768,16 @@ for dev in backend-dev frontend-dev; do
     "agents/$dev.md referencia rulebooks/dev-common.md"
 done
 
-declare -A DEV_LINE_CAPS=([backend-dev]=110 [frontend-dev]=140)
+# Sin arrays asociativos: /bin/bash 3.2 (macOS) no los soporta.
+dev_line_cap() {
+  case "$1" in
+    backend-dev) echo 110 ;;
+    frontend-dev) echo 140 ;;
+  esac
+}
 for dev in backend-dev frontend-dev; do
   DEV_LINES=$(wc -l < "$REPO_ROOT/agents/$dev.md" | tr -d ' ')
-  CAP="${DEV_LINE_CAPS[$dev]}"
+  CAP="$(dev_line_cap "$dev")"
   TOTAL=$((TOTAL + 1))
   if [ "$DEV_LINES" -le "$CAP" ]; then
     echo -e "${GREEN}PASS${NC}: agents/$dev.md tiene $DEV_LINES líneas (≤$CAP)"
@@ -1403,6 +1409,22 @@ else
   echo -e "${RED}FAIL${NC}: install.sh no pasa bash -n"
   FAIL=$((FAIL + 1))
 fi
+
+# --- Compatibilidad con bash 3.2 (D-19) ---
+# Patrón armado por partes para que este mismo check no se detecte a sí mismo.
+BASH4_PATTERN="declare -""A|map""file|read""array|\\$\\{[A-Za-z_]+(,,|\\^\\^)"
+for suite in test-hooks.sh test-plugin-manifest.sh test-frontmatter.sh; do
+  BASH4_RC=0
+  BASH4_HITS=$(grep -nE -- "$BASH4_PATTERN" "$REPO_ROOT/tests/adversarial/$suite" 2>&1) || BASH4_RC=$?
+  TOTAL=$((TOTAL + 1))
+  if [ "$BASH4_RC" -eq 1 ]; then
+    echo -e "${GREEN}PASS${NC}: $suite sin construcciones de bash 4"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $suite usa construcciones de bash 4 o grep falló (rc=$BASH4_RC): $BASH4_HITS"
+    FAIL=$((FAIL + 1))
+  fi
+done
 
 # --- /code-sweep tests ---
 
