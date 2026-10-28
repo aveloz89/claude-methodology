@@ -5288,12 +5288,12 @@ echo ""
 echo "--- sandbox infra ---"
 
 # Caso trivial: usa sandbox_create/sandbox_cleanup + assert_exit0 con un hook
-# ya existente (context-monitor.sh, siempre exit 0 y sin efectos en
+# ya existente (post-pr-create.sh, con input {} sale 0 y sin efectos en
 # filesystem) para probar la infraestructura de sandbox en sí misma, sin
 # depender de un hook todavía no implementado.
 sandbox_create
-assert_exit0 "Sandbox trivial: context-monitor.sh no crea nada en el sandbox" \
-  "$HOOKS_DIR/context-monitor.sh" \
+assert_exit0 "Sandbox trivial: post-pr-create.sh no crea nada en el sandbox" \
+  "$HOOKS_DIR/post-pr-create.sh" \
   '{}' \
   "$SANDBOX_REPO" \
   "$SANDBOX_HOME" \
