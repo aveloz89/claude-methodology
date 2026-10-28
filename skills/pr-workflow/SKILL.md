@@ -10,7 +10,7 @@ argument-hint: "[número de PR, si es sobre uno existente]"
 
 Proceso para crear, reviewear y mergear pull requests. Aplica a TODOS los proyectos.
 
-Las cuatro reglas invariantes (un PR por objetivo con commits atómicos por tarea, review dual bloqueante, nunca mergear sin aprobación explícita, nunca mergear con CI en rojo) viven en `CLAUDE.md` porque no pueden llegar tarde. Este documento tiene el detalle operativo.
+Las reglas de la sección "PR y merge" de `~/.claude/CLAUDE.md` (un PR por objetivo con commits atómicos por tarea, review antes del merge según el tier, el merge lo confirma el usuario, con CI en rojo no hay merge) se cargan en toda sesión. Este documento tiene el detalle operativo.
 
 ## 1. Un PR por unidad coherente, commits atómicos por tarea
 
@@ -43,7 +43,7 @@ Cuando un reviewer marca sugerencias (no bloqueantes) que son baratas, sin riesg
 
 **Post-PR solo hay re-reviews condicionales** (Fase 3): únicamente si CI obligó fixes que cambian código ya revisado — acotados al delta del fix, re-lanzando solo los reviewers de la capa afectada. Si CI pasó a la primera, no se relanza nada.
 
-El usuario sigue siendo el checkpoint del **merge** (invariante 3 de `global/CLAUDE.md`), no de cada pulido.
+El usuario sigue siendo el checkpoint del **merge** (sección "PR y merge" de `~/.claude/CLAUDE.md`: el merge lo confirma el usuario), no de cada pulido.
 
 El checklist de infraestructura que el security-reviewer debe correr (rate limiting, shell injection, prototype pollution, reflected input) vive en `agents/security-reviewer.md`, en el prompt del agente que lo ejecuta.
 
@@ -110,7 +110,7 @@ Los 3 checks obligatorios antes de cada merge (threads, reviews y CI), y el coma
 ## Trade-offs aceptados
 
 - **PRs pequeños generan más reviews.** Vale la pena: cada review es rápido (~5 min) y atrapa errores antes de que el usuario los vea.
-- **Auto-merge no se usa.** El usuario aprueba cada merge (invariante 3 de `global/CLAUDE.md`). En PRs a `main` aplica además el loop `update-branch + CI wait + merge` por la protection estricta; en `dev` ya no (regla 3.6).
+- **Auto-merge no se usa.** El usuario confirma cada merge: con las verificaciones en verde, `pre-merge-check` devuelve `ask` y el prompt de permiso pide la confirmación (sección "PR y merge" de `~/.claude/CLAUDE.md`). En PRs a `main` aplica además el loop `update-branch + CI wait + merge` por la protection estricta; en `dev` ya no (regla 3.6).
 - **El usuario es el checkpoint final.** Significa fricción mínima entre "listo" y "merged", pero garantiza que nada se mergea sin su mirada.
 - **La combinación post-merge en `dev` se testea después del merge, no antes.** Costo aceptado a cambio de eliminar el re-run de CI por cada PR en cola (regla 3.6).
 - **Vulnerabilidades detectables por scanner pueden vivir en `dev` hasta una semana.** El security-reviewer por PR + scan semanal + scan bloqueante pre-release acotan la ventana; nada llega a `main` sin scan completo (regla 3.4). Incluye a las CVEs de dependencias: en PRs a `dev` el audit lo corre el security-reviewer como check best-effort (no bloqueante); el gate duro de dependencias es el scan semanal y el pre-release.

@@ -1056,7 +1056,7 @@ echo "--- CA-4: sin referencias colgantes a piezas eliminadas de la metodología
 # versionado) y este mismo script (los términos viven acá como patrones
 # de grep, no como menciones normativas).
 DANGLING_SCOPE=("$REPO_ROOT/agents" "$REPO_ROOT/rulebooks" "$REPO_ROOT/skills" "$REPO_ROOT/rules" "$HOOKS_DIR" "$REPO_ROOT/README.md" "$REPO_ROOT/global/CLAUDE.md" "$REPO_ROOT/tests" "$REPO_ROOT/.claude")
-DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule" "context-monitor" "CLAUDE_CONTEXT_TOKENS" "nunca el historial completo" "no el historial completo ni tareas de otros lotes" "Degradación de modelo" "rate-limited" "aviso de contexto agotándose" "NUNCA mergees" "Dual review obligatorio" "Review dual bloqueante" "Las reglas aquí son obligatorias")
+DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule" "context-monitor" "CLAUDE_CONTEXT_TOKENS" "nunca el historial completo" "no el historial completo ni tareas de otros lotes" "Degradación de modelo" "rate-limited" "aviso de contexto agotándose" "NUNCA mergees" "Dual review obligatorio" "Review dual bloqueante" "Las reglas aquí son obligatorias" "Workflow obligatorio" "invariante 3" "cuatro reglas invariantes")
 
 # dangling_grep <patrón>: líneas "ruta:n:texto" del patrón dentro de DANGLING_SCOPE.
 dangling_grep() {
@@ -1324,6 +1324,14 @@ echo "--- Lote 5: governance #11 worktree huérfano ---"
 
 assert_contains "$GOVERNANCE" "worktree-" "governance-playbook #11 cubre ramas worktree-*"
 assert_contains "$GOVERNANCE" "## 11." "governance-playbook tiene el caso #11"
+
+echo ""
+echo "--- Lote 7: reconciliación de invariantes por nombre ---"
+
+PR_WORKFLOW_SKILL="$REPO_ROOT/skills/pr-workflow/SKILL.md"
+assert_not_contains "$PR_WORKFLOW_SKILL" "invariante 3" "pr-workflow ya no cita la invariante por número"
+assert_contains "$RUNBOOK" "prompt de permiso" "runbook Fase 5: el hook pide la confirmación en el prompt de permiso"
+assert_not_contains "$ORCHESTRATOR_SKILL" "Workflow obligatorio" "skill orchestrator cita la sección Workflow por su nombre nuevo"
 
 # --- /code-sweep tests ---
 

@@ -8,11 +8,11 @@ argument-hint: "[feature|fix] <descripción corta>"
 
 # Orchestrator
 
-Manual operativo de la sesión principal. El rol y sus invariantes viven en `global/CLAUDE.md` ("Rol de la sesión principal", "Workflow obligatorio", "PR y merge", "Gitflow") — acá está el cómo, fase por fase.
+Manual operativo de la sesión principal. El rol y sus invariantes viven en `~/.claude/CLAUDE.md` ("Rol de la sesión principal", "Workflow", "PR y merge", "Gitflow") — acá está el cómo, fase por fase.
 
 ## 1. Rol y alcance
 
-El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesión principal" — no lo redefinimos acá para que no diverja. Carga esta skill al empezar cualquier feature, fix o trabajo que termine en un PR, antes de delegar el primer lote. Si ya estás a mitad de un flujo y no la cargaste, cárgala ahora, no esperes al siguiente lote.
+El rol y sus invariantes viven en `~/.claude/CLAUDE.md`, sección "Rol de la sesión principal" — no lo redefinimos acá para que no diverja. Carga esta skill al empezar cualquier feature, fix o trabajo que termine en un PR, antes de delegar el primer lote. Si ya estás a mitad de un flujo y no la cargaste, cárgala ahora, no esperes al siguiente lote.
 
 ## 2. Mapa del flujo
 
@@ -46,7 +46,7 @@ El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesió
 - Conflicto entre reviewers: security gana en seguridad, QA gana en UX/accesibilidad/contratos; zona gris → escalas al usuario (`governance-playbook.md` §7).
 - Máximo 3 intentos de fix automático en CI por PR, después escalas al usuario (matices en "Fase 2.8" del runbook).
 - E2E flaky: un re-run automático por test fallido; dos fallos seguidos es fallo real y bloquea el merge; flakeo repetido → issue `flaky-test` (lo trackea `e2e-runner`).
-- Si el PR cambia una regla de flujo, hooks o formatos de `.planning/`: grep de los términos afectados en `global/CLAUDE.md`, `README.md`, `rulebooks/`, `agents/`, `skills/` y reconcilia cada mención; enuncia una vez y remite el resto.
+- Si el PR cambia una regla de flujo, hooks o formatos de `.planning/`: grep de los términos afectados en `~/.claude/CLAUDE.md`, `README.md`, `rulebooks/`, `agents/`, `skills/` y reconcilia cada mención; enuncia una vez y remite el resto.
 - Una lección accionable se convierte al momento en cambio de regla o en issue — no se guarda para después.
 
 ## 3. Brainstorming
