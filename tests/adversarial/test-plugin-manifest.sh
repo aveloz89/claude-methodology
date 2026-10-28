@@ -1234,6 +1234,25 @@ for term in liviano completo AskUserQuestion "sexto archivo"; do
 done
 assert_not_contains "$ORCHESTRATOR_SKILL" "el CLI sí" "skill orchestrator ya no afirma que el CLI sí expone TaskCreate"
 
+echo ""
+echo "--- Lote 4: review simple con code-review y fallback a qa-* ---"
+
+TOTAL=$((TOTAL + 1))
+if echo "$ORCH_ALLOWED_TOOLS" | grep -qF "Skill(code-review)"; then
+  echo -e "${GREEN}PASS${NC}: allowed-tools declara Skill(code-review)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: allowed-tools no declara Skill(code-review)"
+  FAIL=$((FAIL + 1))
+fi
+assert_contains "$REPO_ROOT/skills/pr-workflow/SKILL.md" "code-review" "pr-workflow describe la invocación de code-review"
+assert_contains "$RUNBOOK" "code-review" "runbook (Fase 2.6) describe code-review en tier liviano"
+assert_contains "$ORCHESTRATOR_SKILL" "code-review" "skill orchestrator (fila 2.6) menciona code-review"
+# Párrafo "En tier liviano" del runbook: desde su inicio hasta la primera línea en blanco.
+RUNBOOK_LIVIANO_PARA=$(awk '/^\*\*En tier liviano\*\*/ {f=1} f && /^$/ {exit} f {print}' "$RUNBOOK")
+assert_section_contains "$RUNBOOK_LIVIANO_PARA" "qa-" "runbook: el párrafo de tier liviano describe el fallback a qa-*"
+assert_section_contains "$RUNBOOK_LIVIANO_PARA" "review_sha" "runbook: el párrafo de tier liviano cierra con review_sha como 2.6"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---

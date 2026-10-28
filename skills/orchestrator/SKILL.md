@@ -2,7 +2,7 @@
 name: orchestrator
 description: Manual de la sesión principal para coordinar una feature o un fix de punta a punta — fases 0 a 5, qué subagente invocar en cada una, lotes y handoff, tracker de sesión, pause/resume. Cargar al iniciar cualquier trabajo que termine en un PR, antes de delegar el primer lote.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner), Agent(methodology:code-sweep)
+allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner), Agent(methodology:code-sweep), Skill(code-review)
 argument-hint: "[feature|fix] <descripción corta>"
 ---
 
@@ -23,7 +23,7 @@ El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesió
 | 1. Diseño | El `architect` diseña y parte en lotes | `.planning/DESIGN.md` | "Fase 1" |
 | 2. Implementación | Invocas devs por lote, con `last_batch=true|false` | commits locales | "Fase 2" |
 | 2.5. Documentación | Invocas `docs` sobre el diff local, sin push; salta `docs` si el diff no toca superficie pública (registra el salto en el body del PR); cambios en hooks, permisos, auth o controles de seguridad siempre invocan `docs` | docs actualizados | "Fase 2.5" |
-| 2.6. Review dual local | `security-reviewer` + `qa-*` en paralelo sobre el diff local; fixes sin push hasta veredictos limpios | `.planning/reviews/<slug>.md` | skill `pr-workflow` |
+| 2.6. Review dual local | `security-reviewer` + `qa-*` en paralelo sobre el diff local; fixes sin push hasta veredictos limpios. En `liviano`: review simple con la skill nativa `code-review` vía tool `Skill` (sin bajar el esfuerzo de la sesión, "skip style, concéntrate en correctitud", sin `--fix`, en background; esperas su resultado antes de tocar el árbol); `security-reviewer` solo si toca auth/crypto/secrets/pagos; mismo cierre (`phases.review = done` + `review_sha`). Si `code-review` no está disponible, un `qa-*` según la capa | `.planning/reviews/<slug>.md` | skill `pr-workflow` |
 | 2.7. Push + PR | Push + `gh pr create` (lo haces tú) | PR abierto | "Comandos `gh` específicos" |
 | 2.8. Monitoreo CI | `gh pr checks --watch --fail-fast` | CI verde | "Fase 2.8" |
 | 3. Post-PR | Re-reviews solo si CI obligó fixes sobre código ya revisado; `e2e-runner` Modo B si el PR va a `main` | reviews actualizados | "Fase 3" |

@@ -72,6 +72,8 @@ El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` r
 5. **Si hay bloqueantes**: fixes por el dev correspondiente en un lote de fixes nuevo (ver "Fase 2"), sin push (schema/migración va a `backend-dev` con `rulebooks/db-migrations.md`). Re-lanza solo los reviewers que marcaron issues, acotados al delta local. Sugerencias baratas: aplicadas antes del push (skill `pr-workflow`, §2)
 6. **Veredictos limpios**: `phases.review = done` y `review_sha` al SHA de HEAD, avanza a Fase 2.7. Fixes, sugerencias y registro viajan en el push inicial: **el PR nace revisado**
 
+**En tier liviano**, el paso 2 se sustituye por un review simple: invoca la skill nativa `code-review` con la tool `Skill`, sin bajar el nivel de esfuerzo de la sesión, con la instrucción "skip style, concéntrate en correctitud" y sin `--fix` (read-only). Corre en background: espera su resultado antes de tocar el árbol (paso 4). Suma `security-reviewer`, con el handoff habitual sobre el diff local, solo si el diff toca auth, crypto, secrets o pagos. Consolidas el reporte en `.planning/reviews/<feature-slug>.md` y cierras igual que en el paso 6: `phases.review = done` y `review_sha` al SHA de HEAD (así `post-pr-create.sh` no cambia). Fallback: si `code-review` no figura en la lista de skills de la sesión, o la invocación devuelve que no existe o está deshabilitada (`-p`, entornos sin feature flags), lanza `qa-backend` o `qa-frontend` según la capa tocada ("Clasificación del diff por capa"), con el handoff de siempre: un solo review, read-only. Los fixes los aplica el orchestrator dentro de su límite de edición directa o un lote de dev.
+
 ### Fase 2.7: Push + PR
 
 Lo haces tú:
