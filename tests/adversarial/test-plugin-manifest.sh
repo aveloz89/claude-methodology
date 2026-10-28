@@ -1058,6 +1058,27 @@ fi
 
 echo ""
 
+echo ""
+echo "--- code-sweep: rulebook común y agente de respaldo ---"
+
+CS_RULEBOOK="$REPO_ROOT/rulebooks/code-sweep-common.md"
+CS_WORKFLOW="$REPO_ROOT/workflows/code-sweep.js"
+
+TOTAL=$((TOTAL + 1))
+if [ -f "$CS_RULEBOOK" ]; then
+  echo -e "${GREEN}PASS${NC}: rulebooks/code-sweep-common.md existe"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: rulebooks/code-sweep-common.md no existe"
+  FAIL=$((FAIL + 1))
+fi
+assert_contains "$CODE_SWEEP" "code-sweep-common.md" "agente code-sweep referencia el rulebook común"
+assert_contains "$CODE_SWEEP" "respaldo" "agente code-sweep se declara respaldo del workflow"
+assert_not_contains "$CODE_SWEEP" "| Stack | Patrones" "agente code-sweep no duplica la tabla de patrones del rulebook"
+assert_agent_read_only "$CODE_SWEEP" "sonnet"
+
+# --- /code-sweep tests ---
+
 # --- Resumen ---
 echo "=== Results ==="
 echo -e "Total: $TOTAL | ${GREEN}Pass: $PASS${NC} | ${RED}Fail: $FAIL${NC}"
