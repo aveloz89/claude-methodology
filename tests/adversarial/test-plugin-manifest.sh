@@ -1374,6 +1374,11 @@ assert_not_contains "$IMPL_PRINCIPLES" "\.clients-page__table" "implementation-p
 assert_not_contains "$IMPL_PRINCIPLES" "post-pr-create.sh" "implementation-principles: ejemplo de hook sin nombre de proyecto"
 assert_not_contains "$IMPL_PRINCIPLES" "etimes" "implementation-principles: ejemplo de plataforma sin flag concreto"
 
+assert_not_contains "$REPO_ROOT/agents/backend-dev.md" "sección crítica, no abreviar" "backend-dev: Testing sin énfasis"
+assert_not_contains "$REPO_ROOT/agents/ui-ux.md" "2× el costo" "ui-ux: sin multiplicador de costo"
+assert_not_contains "$REPO_ROOT/rulebooks/dev-common.md" "formato definido en CLAUDE.md raíz" "dev-common cita ~/.claude/CLAUDE.md para el formato de commits"
+assert_not_contains "$RUNBOOK" "las invariantes viven en \`CLAUDE.md\` raíz" "runbook cita ~/.claude/CLAUDE.md para las invariantes"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---

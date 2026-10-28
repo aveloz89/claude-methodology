@@ -1,6 +1,6 @@
 # Orchestrator Runbook
 
-Detalle operativo del flujo de orchestration. **Lectura bajo demanda**: las invariantes viven en `CLAUDE.md` raíz y se cargan siempre; el manual de la sesión principal (fases, equipo de subagentes, lotes) vive en la skill `orchestrator`; este documento se consulta cuando necesitas un formato exacto, un comando específico o resolver una situación puntual.
+Detalle operativo del flujo de orchestration. **Lectura bajo demanda**: las invariantes viven en `~/.claude/CLAUDE.md` y se cargan siempre; el manual de la sesión principal (fases, equipo de subagentes, lotes) vive en la skill `orchestrator`; este documento se consulta cuando necesitas un formato exacto, un comando específico o resolver una situación puntual.
 
 ---
 

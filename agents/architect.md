@@ -89,7 +89,7 @@ Qué patrón usar y por qué (MVC, repository, service layer, etc.), manejo de e
 
 #### Frontend
 
-Aplicar el principio **Frontend delgado** definido en CLAUDE.md raíz. Tu trabajo aquí es diseñar:
+Aplicar el principio **Frontend delgado** definido en `~/.claude/CLAUDE.md`. Tu trabajo aquí es diseñar:
 
 - Páginas/rutas a crear o modificar
 - Componentes necesarios (nuevos vs reutilizar existentes)
