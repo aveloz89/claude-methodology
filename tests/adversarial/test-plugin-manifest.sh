@@ -993,10 +993,40 @@ echo "--- CA-4: sin referencias colgantes a piezas eliminadas de la metodología
 DANGLING_SCOPE=("$REPO_ROOT/agents" "$REPO_ROOT/rulebooks" "$REPO_ROOT/skills" "$REPO_ROOT/rules" "$HOOKS_DIR" "$REPO_ROOT/README.md" "$REPO_ROOT/global/CLAUDE.md" "$REPO_ROOT/tests" "$REPO_ROOT/.claude")
 DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule" "context-monitor" "CLAUDE_CONTEXT_TOKENS")
 
+# dangling_grep <patrón>: líneas "ruta:n:texto" del patrón dentro de DANGLING_SCOPE.
+dangling_grep() {
+  # Solo archivos trackeados: .claude/worktrees/ (untracked) guarda copias
+  # viejas del repo con los términos vedados y no es contenido normativo.
+  # Salida con rutas relativas a REPO_ROOT.
+  local scope_rel=()
+  local p
+  for p in "${DANGLING_SCOPE[@]}"; do scope_rel+=("${p#"$REPO_ROOT"/}"); done
+  (cd "$REPO_ROOT" && git ls-files -z -- "${scope_rel[@]}" \
+    | xargs -0 grep -n -- "$1" /dev/null 2>/dev/null) || true
+}
+
+# CA-14: el barrido solo mira archivos trackeados por git. Un worktree huérfano
+# bajo .claude/worktrees/ (untracked) con un término vedado no debe fallar el check.
+ORPHAN_DIR="$REPO_ROOT/.claude/worktrees/__dangling-sandbox__"
+trap 'rm -rf "$ORPHAN_DIR"' EXIT
+mkdir -p "$ORPHAN_DIR"
+echo "product-reviewer" > "$ORPHAN_DIR/stale.md"
+ORPHAN_HITS=$(dangling_grep "product-reviewer" | (grep -- "^\.claude/worktrees/" || true))
+TOTAL=$((TOTAL + 1))
+if [ -z "$ORPHAN_HITS" ]; then
+  echo -e "${GREEN}PASS${NC}: el barrido de términos colgantes ignora archivos no trackeados bajo .claude/worktrees/"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: el barrido vio un archivo no trackeado bajo .claude/worktrees/: $ORPHAN_HITS"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$ORPHAN_DIR"
+trap - EXIT
+
 for term in "${DANGLING_TERMS[@]}"; do
   TOTAL=$((TOTAL + 1))
-  HITS=$( (grep -rn -- "$term" "${DANGLING_SCOPE[@]}" 2>/dev/null || true) \
-    | (grep -v -- "$SCRIPT_DIR/test-plugin-manifest.sh:" || true) \
+  HITS=$( (dangling_grep "$term") \
+    | (grep -v -- "^tests/adversarial/test-plugin-manifest.sh:" || true) \
     | (grep -v -- "\.bak:" || true))
   # Excepción documentada: test-frontmatter.sh mantiene "product-reviewer" en
   # HISTORICAL_AGENTS a propósito, para seguir detectando menciones `<agente>`
@@ -1019,8 +1049,8 @@ done
 # palabra genérica "refactor" (refactorizar, refactor colateral, etc.):
 # solo cuenta la forma que lo nombra como agente, entre backticks.
 TOTAL=$((TOTAL + 1))
-REFACTOR_AGENT_HITS=$( (grep -rn -- '`refactor`' "${DANGLING_SCOPE[@]}" 2>/dev/null || true) \
-  | (grep -v -- "$SCRIPT_DIR/test-plugin-manifest.sh:" || true) \
+REFACTOR_AGENT_HITS=$( (dangling_grep '`refactor`') \
+  | (grep -v -- "^tests/adversarial/test-plugin-manifest.sh:" || true) \
   | (grep -v -- "\.bak:" || true))
 if [ -z "$REFACTOR_AGENT_HITS" ]; then
   echo -e "${GREEN}PASS${NC}: sin referencias colgantes al agente \`refactor\` (viejo)"
