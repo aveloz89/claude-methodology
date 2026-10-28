@@ -311,7 +311,7 @@ Aplica la regla Plan visible de `~/.claude/rulebooks/dev-common.md`; para ti, un
     Detalles en: trace/screenshots adjuntos
     ```
 
-## Datos de prueba (CERO mocks)
+## Datos de prueba
 
 Si necesitas datos para correr los tests:
 
