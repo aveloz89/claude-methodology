@@ -1153,6 +1153,12 @@ assert_contains "$REPO_ROOT/README.md" "^### Hooks ($HOOK_COUNT)" "README declar
 assert_contains "$MARKETPLACE_JSON" "$HOOK_COUNT hooks" "marketplace.json declara $HOOK_COUNT hooks igual a ls hooks/*.sh"
 assert_contains "$REPO_ROOT/README.md" 'permissionDecision: "ask"' "README documenta que pre-merge-check devuelve ask con las verificaciones en verde"
 
+echo ""
+echo "--- governance-playbook #9: sin context-monitor, con pre-compact-snapshot ---"
+
+assert_not_contains "$GOVERNANCE" "context-monitor" "governance-playbook ya no menciona context-monitor"
+assert_contains "$GOVERNANCE" "pre-compact-snapshot" "governance-playbook #9 apunta a pre-compact-snapshot"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---

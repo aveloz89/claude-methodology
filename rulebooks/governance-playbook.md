@@ -143,9 +143,11 @@ Build falla en main o dev después de merge
 ## 9. Contexto agotado durante implementación (sesión del usuario)
 
 ```
-El context-monitor avisa que el contexto está en 25% (critical)
-  → Paso 1: Aplicar el procedimiento de Pause / Resume de la skill orchestrator
-  → Paso 2: Informar al usuario que debe iniciar nueva sesión
+El harness compacta el contexto solo
+  → pre-compact-snapshot guarda .planning/ antes de compactar
+  → Si la sesión queda inconsistente tras compactar: aplicar Pause / Resume
+    de la skill orchestrator y restaurar .planning/ desde el snapshot
+    (~/.claude/methodology/snapshots/<slug>/)
 ```
 
 ## 10. Budget agotado en una invocación de agente
