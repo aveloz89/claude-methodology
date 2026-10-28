@@ -991,7 +991,7 @@ echo "--- CA-4: sin referencias colgantes a piezas eliminadas de la metodología
 # versionado) y este mismo script (los términos viven acá como patrones
 # de grep, no como menciones normativas).
 DANGLING_SCOPE=("$REPO_ROOT/agents" "$REPO_ROOT/rulebooks" "$REPO_ROOT/skills" "$REPO_ROOT/rules" "$HOOKS_DIR" "$REPO_ROOT/README.md" "$REPO_ROOT/global/CLAUDE.md" "$REPO_ROOT/tests" "$REPO_ROOT/.claude")
-DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule")
+DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule" "context-monitor" "CLAUDE_CONTEXT_TOKENS")
 
 for term in "${DANGLING_TERMS[@]}"; do
   TOTAL=$((TOTAL + 1))
@@ -1144,6 +1144,14 @@ assert_contains "$REPO_ROOT/README.md" "^### Workflows ($CS_WF_COUNT)" "README d
 assert_contains "$REPO_ROOT/.claude-plugin/marketplace.json" "$CS_WF_COUNT workflow" "marketplace.json declara $CS_WF_COUNT workflow igual a ls workflows/*.js"
 assert_contains "$REPO_ROOT/README.md" '/methodology:code-sweep \[bugs.*smells\] \[pre-release\] \[paths\]' "README documenta la invocación de /methodology:code-sweep"
 assert_contains "$REPO_ROOT/README.md" 'Dynamic workflows are disabled by managed settings' "README documenta el mensaje del harness con workflows apagados"
+
+echo ""
+echo "--- Conteo de hooks: hooks/*.sh vs README vs marketplace ---"
+
+HOOK_COUNT=$(ls "$HOOKS_DIR"/*.sh | wc -l | tr -d ' ')
+assert_contains "$REPO_ROOT/README.md" "^### Hooks ($HOOK_COUNT)" "README declara ### Hooks ($HOOK_COUNT) igual a ls hooks/*.sh"
+assert_contains "$MARKETPLACE_JSON" "$HOOK_COUNT hooks" "marketplace.json declara $HOOK_COUNT hooks igual a ls hooks/*.sh"
+assert_contains "$REPO_ROOT/README.md" 'permissionDecision: "ask"' "README documenta que pre-merge-check devuelve ask con las verificaciones en verde"
 
 # --- /code-sweep tests ---
 
