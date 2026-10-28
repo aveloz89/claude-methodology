@@ -66,22 +66,32 @@ El agente `code-sweep` es el **respaldo** cuando los dynamic workflows están ap
 
 ## Workflow
 
+El flujo tiene dos tiers. La sesión principal propone uno según riesgo y tamaño y lo confirma contigo; en duda, usa el completo.
+
+- **Completo**: diseño, lotes y review por agentes.
+- **Liviano**: la sesión principal edita directo hasta 5 archivos acumulados por PR, sin lógica de negocio nueva ni migraciones, y corre la suite y el lint de ese cambio. Al sexto archivo delega un lote; lógica nueva o migración escala al completo. Salta el diseño del architect y la delegación en lotes.
+
 ```
 Idea → Brainstorming (orchestrator pregunta: ¿vale la pena?, resultado esperado, criterios de aceptación) → Brief
-  → Architect diseña + escribe schemas/contratos
+  → Architect diseña + escribe schemas/contratos            (tier completo)
   → Devs implementan con TDD (Red → Green → Refactor)
-  → Review dual local pre-push → Security + QA (qa-frontend y/o qa-backend según capas) en paralelo
+  → Review local pre-push, según tier:
+      completo → Security + QA (qa-frontend y/o qa-backend según capas) en paralelo
+      liviano  → /code-review, más security-reviewer si el diff toca auth, crypto, secrets o pagos
   → Si hay issues → Dev corrige en el mismo branch, sin push → Re-review
-  → Veredictos limpios → Push + PR (nace revisado) → CI → Merge
+  → Veredictos limpios → Push + PR (nace revisado) → CI → Merge con confirmación del usuario
 ```
+
+El merge pide confirmación: cuando `gh pr merge` pasa las verificaciones, el hook `pre-merge-check` devuelve `ask` y el prompt de permiso te lo consulta; en modos no interactivos se deniega.
 
 ## Reglas enforced
 
 - **80% test coverage** mínimo para mergear
-- **Dual review** obligatorio, pre-push por default (security + QA frontend/backend según capas del diff)
-- **TDD** obligatorio (test antes que código)
+- **Review antes del merge**, pre-push por default y según el tier (security + QA frontend/backend en el completo; `/code-review` en el liviano)
+- **TDD** para lógica de negocio (test antes que código)
 - **Build debe compilar** antes de commit
 - **No push directo a main**
+- **El merge lo confirma el usuario** (`ask` de `pre-merge-check`); con CI en rojo no hay merge
 - **No stubs/TODOs** en código mergeado
 - **Frontend delgado** — cero lógica de negocio
 - **Estado persistente** en `.planning/` — sobrevive cambios de sesión, no se versiona (salvo `.planning/ARCHITECTURE.md`)
