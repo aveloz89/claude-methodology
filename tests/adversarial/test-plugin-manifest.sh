@@ -1335,6 +1335,18 @@ assert_not_contains "$ORCHESTRATOR_SKILL" "Workflow obligatorio" "skill orchestr
 assert_not_contains "$PR_WORKFLOW_SKILL" "catálogos" "pr-workflow ya no cuenta la anécdota de catálogos"
 assert_contains "$README" "liviano" "README describe el tier liviano"
 
+# D-14: lo distribuido por el plugin cita el archivo instalado (~/.claude/CLAUDE.md),
+# no la ruta global/CLAUDE.md de este repo. README, .claude/CLAUDE.md e install.sh quedan fuera.
+GLOBAL_PATH_HITS=$( (cd "$REPO_ROOT" && git ls-files -z -- agents skills rules rulebooks | xargs -0 grep -n -- "global/CLAUDE.md" /dev/null 2>/dev/null) || true)
+TOTAL=$((TOTAL + 1))
+if [ -z "$GLOBAL_PATH_HITS" ]; then
+  echo -e "${GREEN}PASS${NC}: agents/, skills/, rules/ y rulebooks/ no citan global/CLAUDE.md"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: citan global/CLAUDE.md en vez de ~/.claude/CLAUDE.md: $GLOBAL_PATH_HITS"
+  FAIL=$((FAIL + 1))
+fi
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---
