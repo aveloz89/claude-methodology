@@ -40,6 +40,7 @@ El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesió
 - Modo single-PR por default: todos los lotes en el mismo branch, último lote con `last_batch=true`. Modo multi-PR solo si el `architect` lo justificó — cada grupo con su branch + PR propio.
 - Un push por ronda de review (las de Fase 2.6 no pushean); docs va en el push inicial.
 - Cuando un lote de `backend-dev` es `db-complejo`: va primero (schema), el resto de `backend-dev` lo consume, luego `frontend-dev`. Back/front pueden paralelizarse si son archivos disjuntos.
+- Lotes paralelos solo con archivos disjuntos. Con `worktree.baseRef = "head"` en `.claude/settings.json` del proyecto, `isolation: "worktree"` por llamada y merge de cada rama `worktree-*` desde el checkout principal; sin ese setting, mismo checkout con commits por pathspec (`git add <paths>`, `git commit -- <paths>`, nunca `-a`/`-A`). Un conflicto al integrar significa lotes no disjuntos: detienes y escalas (`governance-playbook.md` §11). Receta: runbook, "Fase 2".
 - Fixes de review siempre en el mismo PR/branch — nunca un branch nuevo.
 - Re-lanzas solo los reviewers que marcaron issues, no los que aprobaron.
 - Conflicto entre reviewers: security gana en seguridad, QA gana en UX/accesibilidad/contratos; zona gris → escalas al usuario (`governance-playbook.md` §7).

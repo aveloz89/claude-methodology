@@ -49,6 +49,27 @@ Setup del branch (una sola vez): `git checkout dev && git pull origin dev && git
 
 **Modo single-PR (default):** todos los lotes corren sobre el mismo branch. Invocas cada lote en orden con `last_batch=false`; el dev commitea por tarea y termina sin push ni PR; esperas su reporte antes de pasar al siguiente. El último lote lleva `last_batch=true` (verificación final completa, sin push ni PR) — después vienen docs (2.5), review dual local (2.6) y push + PR (2.7). **Con lote `db-complejo`**: primero ese lote (schema, migraciones, queries, tests de DB, con `rulebooks/db-migrations.md`), después el resto de `backend-dev`, `frontend-dev` al final. Back/front paralelizan si son archivos disjuntos. Un plan con lote consumidor antes del `db-complejo` se devuelve al architect.
 
+**Lotes paralelos.** Dos lotes corren a la vez solo si sus archivos son disjuntos; si no lo son, van en secuencia. Hay dos modos:
+
+*(a) Worktree por llamada.* Pasas `isolation: "worktree"` en la llamada al `Agent` (no en el frontmatter del agente). Requisito: `.claude/settings.json` del proyecto con `{"worktree": {"baseRef": "head"}}`; sin eso el worktree ramifica desde `origin/<default>` y su merge arrastraría `main` al feature. Contrato del handoff en este modo:
+- El dev trabaja en la rama `worktree-<nombre>` (observado `worktree-agent-<hash>`): no crea otra ni la renombra.
+- `.planning/` está gitignorado y no existe en el worktree. El handoff pasa rutas absolutas del checkout principal para leer `DESIGN.md`/`BRIEF.md` y para escribir `state.json` y `HANDOFF.md`.
+
+Integración, desde el checkout principal, cuando los devs reportaron (un merge por lote):
+```bash
+git merge --no-ff <rama-worktree> -m "merge: integrar lote <N> (worktree)"
+git worktree prune                                  # si el harness ya borró el directorio
+git worktree remove .claude/worktrees/<nombre>      # si quedó; con cambios sin commitear, inspecciónalos antes
+git branch -d <rama-worktree>
+```
+Un conflicto en ese merge significa que los lotes no eran disjuntos: detienes y escalas (`governance-playbook.md` §11).
+
+*(b) Mismo checkout, archivos disjuntos.* Es el modo cuando falta `baseRef = head`. Reglas de convivencia, que van en el handoff de cada dev:
+- Commitea solo tus archivos con pathspec: `git add <paths>` y `git commit -m "…" -- <paths>`; nunca `-a` ni `-A`.
+- Corre solo las suites que tu lote toca.
+- No toques archivos del otro lote.
+- Actualiza `state.json` con escritura atómica (`jq … > tmp && mv`).
+
 **Modo multi-PR** (solo si el architect lo justificó): cada grupo de lotes corre sobre branch + PR propio — branch desde dev, lotes del grupo (último `last_batch=true`), Fase 2.5 → 2.6 → 2.7 → 2.8 → 3 → 5, y al siguiente grupo.
 
 Cada invocación de dev lleva `description` `Lote N: …` (ver "Template del prompt de handoff a devs"); los lotes de fixes (review, CI) se añaden a `batches[]` antes de lanzar al dev (contrato en "`STATE.md` + `state.json`").

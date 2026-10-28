@@ -1269,6 +1269,17 @@ assert_not_contains "$ORCHESTRATOR_SKILL" "rate-limited" "skill orchestrator ya 
 assert_not_contains "$ORCHESTRATOR_SKILL" "fallback: opus" "skill orchestrator: la fila del architect no declara fallback: opus"
 assert_contains "$ORCHESTRATOR_SKILL" "fallbackModel" "skill orchestrator remite a fallbackModel del harness"
 
+echo ""
+echo "--- Lote 5: lotes paralelos (worktree por llamada o mismo checkout) ---"
+
+assert_contains "$RUNBOOK" 'isolation: "worktree"' "runbook describe isolation: \"worktree\" por llamada"
+assert_contains "$RUNBOOK" "baseRef" "runbook exige worktree.baseRef"
+assert_contains "$RUNBOOK" "git worktree remove" "runbook describe la limpieza del worktree"
+assert_contains "$RUNBOOK" "git branch -d" "runbook describe borrar la rama worktree-*"
+assert_contains "$RUNBOOK" "pathspec" "runbook describe commits con pathspec en mismo checkout"
+assert_contains "$ORCHESTRATOR_SKILL" "baseRef" "skill orchestrator (reglas clave) menciona baseRef"
+assert_contains "$ORCHESTRATOR_SKILL" "pathspec" "skill orchestrator (reglas clave) menciona pathspec"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---
