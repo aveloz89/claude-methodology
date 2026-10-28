@@ -1261,6 +1261,14 @@ assert_contains "$RUNBOOK" "fork" "runbook (template de handoff) describe cuánd
 assert_not_contains "$ORCHESTRATOR_SKILL" "nunca el historial completo" "skill orchestrator ya no prohíbe el historial completo"
 assert_not_contains "$RUNBOOK" "no el historial completo ni tareas de otros lotes" "runbook ya no prohíbe el historial completo"
 
+echo ""
+echo "--- Lote 5: fallbackModel en lugar de degradación manual ---"
+
+assert_not_contains "$ORCHESTRATOR_SKILL" "Degradación de modelo" "skill orchestrator ya no describe degradación manual de modelo"
+assert_not_contains "$ORCHESTRATOR_SKILL" "rate-limited" "skill orchestrator ya no menciona rate-limited"
+assert_not_contains "$ORCHESTRATOR_SKILL" "fallback: opus" "skill orchestrator: la fila del architect no declara fallback: opus"
+assert_contains "$ORCHESTRATOR_SKILL" "fallbackModel" "skill orchestrator remite a fallbackModel del harness"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---

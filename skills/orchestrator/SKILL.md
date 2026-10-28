@@ -65,7 +65,7 @@ En cualquier duda, brainstormeas igual. Con confirmación explícita, escribes `
 
 | Agente | Modelo | Rol | Cuándo invocar | Tier |
 |--------|--------|-----|----------------|------|
-| `architect` | fable (fallback: opus) | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva | completo |
+| `architect` | fable | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva | completo |
 | `ui-ux` | opus | Genera design system y valida flujos | Después del brainstorming, ANTES del architect, si hay UI | completo (si hay UI) |
 | `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples y complejas (lotes `db-complejo`) | Lotes con trabajo server-side | ambos (en liviano, un solo lote al sexto archivo) |
 | `frontend-dev` | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) | Lotes con trabajo client-side | ambos (en liviano, un solo lote al sexto archivo) |
@@ -76,7 +76,7 @@ En cualquier duda, brainstormeas igual. Con confirmación explícita, escribes `
 | `code-sweep` | sonnet | Escanea el repo: modo `bugs` (issues `latent-bug`) o `smells` (reporte). Read-only | Pedido del usuario, o Fase 3 en PR a `main` | ambos (pedido del usuario) |
 | `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después del último lote, antes del push + PR | completo |
 
-**Degradación de modelo cuando opus está rate-limited:** `security-reviewer` → sonnet solo si el PR no toca auth/crypto/secrets/pagos; `ui-ux` → sonnet aceptable siempre. El `architect` nunca degrada a sonnet: si fable no está disponible, sube a opus (el plan de lotes es la decisión de mayor apalancamiento del flujo).
+**Modelo no disponible.** Lo resuelve el setting `fallbackModel` del harness (hasta tres modelos, en orden; recomendado `["opus", "sonnet"]` con aliases), no tú. El modelo de cada agente vive en el frontmatter de su archivo en `agents/`.
 
 **Cuándo un lote es `db-complejo`:** backfill, cambio de tipo, particionamiento, queries lentas, >1M filas, constraints sobre datos existentes — lo sigue haciendo `backend-dev`, marcado y ordenado primero en el plan. Lo simple (tabla nueva sin datos, columna nullable, índice simple, FK) es un lote normal. Criterios completos: runbook, "Cuándo un lote es DB complejo".
 
