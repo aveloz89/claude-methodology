@@ -3707,16 +3707,16 @@ assert_pre_merge_silent() {
 assert_pre_merge_blocked() {
   local test_name="$1" cmd="$2" expected_substring="$3" fake_gh_mode="${4:-}"
   TOTAL=$((TOTAL + 1))
-  local json exit_code=0 stderr_file
+  local json exit_code=0 stderr_file stdout
   stderr_file=$(mktemp)
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>"$stderr_file" || exit_code=$?
+  stdout=$(echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" 2>"$stderr_file") || exit_code=$?
 
-  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file"; then
-    echo -e "${GREEN}PASS${NC}: $test_name (blocked with expected reason)"
+  if [ "$exit_code" -eq 2 ] && [ -z "$stdout" ] && grep -qF -- "$expected_substring" "$stderr_file"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked with expected reason, no stdout)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"))"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stdout: $stdout, stderr: $(cat "$stderr_file"))"
     FAIL=$((FAIL + 1))
   fi
   rm -f "$stderr_file"
