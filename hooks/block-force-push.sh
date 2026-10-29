@@ -69,7 +69,7 @@ guard_force_with_lease_allowed() {
   # --all y --mirror empujan TODOS los refs remotos (o los espejan) sin
   # importar qué otro ref aparezca en el resto del comando: la excepción de
   # --force-with-lease no los cubre, siempre bloquean.
-  echo "$push_segment" | grep -qE '(^|[[:space:]])--(all|mirror)([[:space:]]|$)' && return 1
+  echo "$push_segment" | grep -qE "$GUARD_PUSH_ALL_RE" && return 1
   ! echo "$push_segment" | grep -qE '(^|[[:space:]:])(main|master|dev)([[:space:]:]|$)|refs/heads/(main|master|dev)([[:space:]:]|$)'
 }
 

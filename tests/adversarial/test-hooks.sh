@@ -501,6 +501,32 @@ assert_blocked_cmd "block-force-push: '(git push --force-with-lease origin main)
 assert_blocked_cmd "block-force-push: '(git push --force-with-lease --all origin)' en subshell bloquea (#117)" \
   "block-force-push.sh" "(git push --force-with-lease --all origin)" "$PATH" "$SANDBOX_REPO"
 
+# #117 ronda 1 (H1): git acepta cualquier prefijo único de una opción larga y
+# "--branches" es alias de "--all". Prefijos verificados contra un remoto bare
+# real: --al/--all, --b..--branches y --m..--mirror se aceptan (exit 0, el
+# remoto recibe main); "--a" es ambiguo (129, all/atomic) y "--all="/"--mirror="
+# se rechazan (129, "takes no value"), así que no son bypass.
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --branches origin' bloquea (alias de --all, #117)" \
+  "pre-push-guard.sh" "git push --branches origin" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin --branches' bloquea (#117)" \
+  "pre-push-guard.sh" "git push origin --branches" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --mi' (prefijo de --mirror) bloquea (#117)" \
+  "pre-push-guard.sh" "git push --mi" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --al origin' (prefijo de --all) bloquea (#117)" \
+  "pre-push-guard.sh" "git push --al origin" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --b origin' (prefijo único de --branches) bloquea (#117)" \
+  "pre-push-guard.sh" "git push --b origin" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '--force-with-lease --branches' no alcanza la excepción (#117)" \
+  "block-force-push.sh" "git push --force-with-lease --branches origin" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '--force-with-lease --mi' no alcanza la excepción (#117)" \
+  "block-force-push.sh" "git push --force-with-lease --mi origin" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push --tags origin' pasa (#117)" \
+  "pre-push-guard.sh" "git push --tags origin" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin feature/allx' pasa (#117)" \
+  "pre-push-guard.sh" "git push origin feature/allx" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin --dry-run feature/x' pasa (#117)" \
+  "pre-push-guard.sh" "git push origin --dry-run feature/x" "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""

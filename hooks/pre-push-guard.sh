@@ -93,13 +93,14 @@ if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}[^&|;)]*" | grep -qE "$DST_MA
   exit 2
 fi
 
-# #117: "--all" y "--mirror" empujan todas las ramas locales (incluida main)
+# #117: "--all", "--mirror" y "--branches" (y cualquier prefijo único de ellas,
+# ver GUARD_PUSH_ALL_RE) empujan todas las ramas locales (incluida main)
 # sin nombrarla en el comando, así que el chequeo de destino de arriba no
 # los ve. Se bloquean desde cualquier rama, con el mismo regex y la misma
 # segmentación (hasta el primer &&/;/|/")") que usa block-force-push.sh. El
 # ")" corta el segmento para que "(git push origin HEAD:main)" cierre el
 # borde del token main (antes pasaba con exit 0).
-if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}[^&|;)]*" | grep -qE '(^|[[:space:]])--(all|mirror)([[:space:]]|$)'; then
+if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}[^&|;)]*" | grep -qE "$GUARD_PUSH_ALL_RE"; then
   echo "BLOCKED: git push --all/--mirror empuja todas las ramas locales, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
   exit 2
 fi

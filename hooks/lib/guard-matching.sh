@@ -68,6 +68,16 @@ GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
 # shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh, pre-push-guard.sh y pre-commit-guard.sh
 GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
 
+# Fragmento de regex ERE que reconoce las opciones de "git push" que empujan
+# todas las ramas locales (incluida main) sin nombrarla: --all, --mirror y
+# --branches (alias de --all), más CUALQUIER prefijo único de ellas, porque
+# git acepta prefijos de opciones largas. Verificado contra un remoto bare
+# (git 2.54): se aceptan --al, --all, --b..--branches y --m..--mirror; "--a"
+# es ambiguo (all/atomic, exit 129) y "--all="/"--mirror=" se rechazan
+# (129, "takes no value"), por eso el regex exige espacio o fin después.
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
+GUARD_PUSH_ALL_RE='(^|[[:space:]])--(al|all|b|br|bra|bran|branc|branch|branche|branches|m|mi|mir|mirr|mirro|mirror)([[:space:]]|$)'
+
 # Fragmento de regex ERE que reconoce "gh ... pr ... merge" tolerando hasta
 # 2 tokens entre "gh"/"pr" y entre "pr"/"merge" (formas como "gh -R x pr
 # merge N", que gh acepta de verdad). Antes vivía inline en
