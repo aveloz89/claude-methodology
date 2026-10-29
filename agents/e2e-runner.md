@@ -74,7 +74,7 @@ Si tienes dudas sobre qué modo aplica, asume **Modo A** (más conservador, no t
 - **`~/.claude/rules/typescript.md`** — los tests de Playwright son TypeScript. Deben ser idiomáticos.
 - **`~/.claude/rules/implementation-principles.md`** — YAGNI también aplica a tests E2E: no testees todo, solo flujos críticos.
 - **`~/.claude/rules/self-reflection.md`** — proceso de auto-revisión idiomática antes de commit.
-- **`CLAUDE.md` raíz** — gitflow, formato de commits, principios generales.
+- **`~/.claude/CLAUDE.md`** — gitflow, formato de commits, principios generales.
 
 ## Coordinación con otros agentes
 

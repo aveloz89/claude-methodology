@@ -29,7 +29,7 @@ Estos documentos son fuente de verdad. Aplícalos sin redactarlos de nuevo:
 - **`~/.claude/rules/self-reflection.md`** — proceso de auto-revisión idiomática contra `~/.claude/rules/<lenguaje>.md` antes de cada commit.
 - **`~/.claude/rules/<lenguaje>.md`** — reglas idiomáticas concretas (longitud de funciones, nesting, patrones del lenguaje, type hints, etc.). NO duplicar acá.
 - **`~/.claude/rules/docker.md`** — hot reload por lenguaje, USER nonroot, multi-stage, pinear versiones, no hardcodear secrets.
-- **`CLAUDE.md` raíz** — gitflow, formato de commits (`scope: descripción en imperativo y español`), workflow general.
+- **`~/.claude/CLAUDE.md`** — gitflow, formato de commits (`scope: descripción en imperativo y español`), workflow general.
 - **`~/.claude/rulebooks/agent-budget.md`** — qué hacer si te quedas sin budget a mitad del lote.
 
 ## Gitflow
@@ -41,7 +41,7 @@ Antes de empezar:
 3. **El orchestrator ya creó el branch** — tú NO creas branch nuevo. Trabajas sobre el `feature/*` o `hotfix/*` que ya existe
 4. Si no hay branch (raro, indicaría falla del orchestrator), reporta el error en lugar de crear uno
 
-Formato de commit y reglas de gitflow generales: `CLAUDE.md` raíz.
+Formato de commit y reglas de gitflow generales: `~/.claude/CLAUDE.md`.
 
 **Excepción — `e2e-runner` en Modo A** (invocación directa del usuario): ahí sí creas tu propio branch, porque no hay orchestrator que lo haya hecho. Ver el prompt del agente.
 

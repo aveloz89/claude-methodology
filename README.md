@@ -46,7 +46,11 @@ Los guards de `hooks/` protegen errores honestos del orchestrator y los devs: fo
 - la flag o el subcomando en una variable (`F=--force; git push $F`), `eval`, `bash -c '…'`/`sh -c`, alias y funciones de git/gh definidas en el mismo comando o en uno anterior (`w() { gh "$@"; }; w pr merge 5` pasa);
 - la palabra del binario alterada o disfrazada: `"gh"`, `g\h`, `env git …`, `/usr/bin/git …`, `command git …` (el `if` de `hooks.json` tampoco dispara para las tres últimas: compara cada subcomando por prefijo y solo descarta asignaciones `VAR=x` al frente; ver la tabla "Bash if matching" de la doc de hooks);
 - en `block-force-push`: la flag entre comillas (`git push origin "--force"`, `git push '-f'`) y una redirección honesta (`2>&1`, `>&2`, `&>log`) o un `;` escapado antes de la flag de force;
-- en `pre-push-guard`: el refspec entre comillas (`git push origin "HEAD:main"`: el saneo vacía el span antes del match del destino) y una redirección antes del refspec o pegada a él (`git push origin 2>&1 HEAD:main`, `git push origin HEAD:main>log`: el segmento se corta en `&`, o el `>` queda pegado al nombre).
+- en `pre-push-guard`: el refspec entre comillas (`git push origin "HEAD:main"`: el saneo vacía el span antes del match del destino) y una redirección con `&` antes del refspec (`git push origin 2>&1 HEAD:main`: el segmento se corta en `&`). Una redirección pegada al refspec (`HEAD:main>log`, `HEAD:main</dev/null`) sí bloquea: `<` y `>` sin comillas cierran el token.
+- en `pre-push-guard` y `block-force-push`: una sustitución que PRODUCE el ref o la flag (`git push origin $(git branch --show-current)`) no se evalúa; el guard solo ve tokens literales del comando.
+- en `pre-push-guard` y `block-force-push`: `push.default=matching` o `remote.<x>.mirror`/`remote.<x>.push` fijados en el config del repo o global (solo se ven los `-c` y `--config-env` literales y sin comillas del comando), `remote.pushDefault` y un `-c` escrito en una variable.
+- en `pre-push-guard` y `block-force-push`: un `-c` con el valor entre comillas (`git -c 'user.name=x' push origin main`) anula ambos guards: el saneo vacía el span y `-c\s+\S+` se traga `push` (issue #120).
+- que el `if: Bash(git *)` de `hooks/hooks.json` dispare `pre-push-guard` y `block-force-push` para comandos que no empiezan por `git` (backtick, `echo`, `(`) está **sin verificar de punta a punta**: lo probado es el script con el comando por stdin.
 
 Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá: la salida es escribir el comando en su forma directa.
 
@@ -61,7 +65,7 @@ Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá: la sali
 ### Workflows (1)
 | Workflow | Qué hace |
 |----------|----------|
-| **code-sweep** | `/methodology:code-sweep [bugs\|smells] [pre-release] [paths]` — escaneo de solo lectura en cuatro fases: `discover` (detecta el stack y agrupa los archivos en chunks de hasta 25), `audit` (un agente por chunk, hasta 8 en paralelo), `verify` (un agente adversario por archivo intenta refutar cada hallazgo; los refutados quedan solo como conteo) y `consolidate` (dedupe, orden por severidad, issues `latent-bug` solo en modo `bugs` para CRÍTICO/ALTO confirmados, y marcador `BLOQUEANTE PRE-RELEASE` si la corrida es `pre-release` y hay un CRÍTICO confirmado) |
+| **code-sweep** | `/methodology:code-sweep [bugs\|smells] [pre-release] [paths]` — escaneo de solo lectura (el modo es solo el primer token; un `bugs`/`smells` posterior es un path, y `pre-release` vale en cualquier posición) en cuatro fases: `discover` (detecta el stack y agrupa los archivos en chunks de hasta 25), `audit` (un agente por chunk, hasta 8 en paralelo), `verify` (un agente adversario por archivo intenta refutar cada hallazgo; los refutados quedan solo como conteo) y `consolidate` (dedupe, orden por severidad, issues `latent-bug` solo en modo `bugs` para CRÍTICO/ALTO confirmados, y marcador `BLOQUEANTE PRE-RELEASE` si la corrida es `pre-release` y hay un CRÍTICO confirmado). Si el nombre no resuelve en la sesión (`not found`), se lanza con `scriptPath` al `workflows/code-sweep.js` del plugin. Antes de crear issues, el consolidador asegura los labels `latent-bug`, `severity:critical` y `severity:high` con `gh label create --force` (`/new-project` también los siembra) |
 
 El agente `code-sweep` es el **respaldo** cuando los dynamic workflows están apagados: comparte el rulebook `rulebooks/code-sweep-common.md` y entrega el mismo reporte, sin fan-out ni verificación adversarial paralela. El harness avisa con «Dynamic workflows are disabled by managed settings» o «Dynamic workflows are not enabled for this session»; en ese caso el orchestrator invoca al agente.
 
@@ -78,12 +82,12 @@ Idea → Brainstorming (orchestrator pregunta: ¿vale la pena?, resultado espera
   → Devs implementan con TDD (Red → Green → Refactor)
   → Review local pre-push, según tier:
       completo → Security + QA (qa-frontend y/o qa-backend según capas) en paralelo
-      liviano  → /code-review, más security-reviewer si el diff toca las señales 1, 4 u 8 del runbook (auth y autorización, crypto, secrets, pagos, PII, hooks, permisos, input externo)
+      liviano  → /code-review desde un subagente fresco (fork aislado), más security-reviewer si el diff toca las señales 1, 4 u 8 del runbook (auth y autorización, crypto, secrets, pagos, PII, hooks, permisos, input externo)
   → Si hay issues → Dev corrige en el mismo branch, sin push → Re-review
   → Veredictos limpios → Push + PR (nace revisado) → CI → Merge con confirmación del usuario
 ```
 
-El merge pide confirmación: cuando `gh pr merge` pasa las verificaciones, el hook `pre-merge-check` devuelve `ask` y el prompt de permiso te lo consulta; en la app de escritorio en auto mode el prompt se resolvió sin diálogo visible y había aprobación previa en la conversación (verificado el 2026-10-28; mecanismo no verificado), por eso esa aprobación precede siempre al merge; sin verificar: `-p`/`dontAsk` (la doc dice denegación), `bypassPermissions`, la app sin aprobación previa y una sesión de CLI en Manual.
+El merge pide confirmación: cuando `gh pr merge` pasa las verificaciones, el hook `pre-merge-check` devuelve `ask` y el prompt de permiso te lo consulta; una regla `allow` no se lo salta (verificado el 2026-10-28). El diálogo visible no está garantizado: en auto mode se mostró en dos merges (uno por Remote Control, otro en la app de escritorio) y en otro de la misma app se resolvió sin diálogo, siempre con aprobación previa en la conversación (mecanismo no verificado), por eso esa aprobación precede siempre al merge; sin verificar: `-p`/`dontAsk` (la doc dice denegación), `bypassPermissions`, la app sin aprobación previa y una sesión de CLI en Manual.
 
 ## Reglas enforced
 

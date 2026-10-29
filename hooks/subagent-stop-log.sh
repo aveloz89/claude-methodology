@@ -49,6 +49,8 @@ mkdir -p "$LOG_DIR" 2>/dev/null
 # Rotación: si el log ya supera ~1MB, se archiva a .old (pisando el .old
 # anterior) antes de appendear la línea nueva a un archivo fresco.
 if [ -f "$LOG_FILE" ]; then
+  # Verificado (Debian, 2026-10-29): en GNU stat "-f%z" falla con exit 1
+  # ("invalid option -- '%'") y el "||" cae a "stat -c%s", que da el tamaño.
   SIZE=$(stat -f%z "$LOG_FILE" 2>/dev/null || stat -c%s "$LOG_FILE" 2>/dev/null)
   if [ -n "$SIZE" ] && [ "$SIZE" -gt 1048576 ] 2>/dev/null; then
     mv -f "$LOG_FILE" "$LOG_FILE.old" 2>/dev/null

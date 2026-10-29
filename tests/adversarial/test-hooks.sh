@@ -473,6 +473,201 @@ assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push -u origin feature
 assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin feature/main-page' pasa (main como fragmento, #112)" \
   "pre-push-guard.sh" "git push origin feature/main-page" "$PATH" "$SANDBOX_REPO"
 
+# #117: (1) el segmento "git push ..." se tragaba el ")" y el destino "main)"
+# no cerraba el borde de DST_MAIN_RE: "(git push origin HEAD:main)" pasaba con
+# exit 0 mientras la forma directa bloqueaba; (2) --all y --mirror empujan
+# todas las ramas locales (incluida main) sin nombrar main en el comando.
+# RED con el guard anterior (los cuatro bloqueos); los controles siguen en 0.
+assert_blocked_cmd "pre-push-guard: desde feature/x, '(git push origin HEAD:main)' en subshell bloquea (#117)" \
+  "pre-push-guard.sh" "(git push origin HEAD:main)" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --all origin' bloquea (#117)" \
+  "pre-push-guard.sh" "git push --all origin" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin --all' bloquea (#117)" \
+  "pre-push-guard.sh" "git push origin --all" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --mirror origin' bloquea (#117)" \
+  "pre-push-guard.sh" "git push --mirror origin" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin dev' pasa (#117)" \
+  "pre-push-guard.sh" "git push origin dev" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin feature/x' pasa (#117)" \
+  "pre-push-guard.sh" "git push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push -u origin feature/x' pasa (#117)" \
+  "pre-push-guard.sh" "git push -u origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, '(git push origin feature/x)' en subshell pasa (#117)" \
+  "pre-push-guard.sh" "(git push origin feature/x)" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '(git push --force origin main)' en subshell bloquea (#117)" \
+  "block-force-push.sh" "(git push --force origin main)" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '(git push --force-with-lease origin main)' en subshell bloquea (#117)" \
+  "block-force-push.sh" "(git push --force-with-lease origin main)" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '(git push --force-with-lease --all origin)' en subshell bloquea (#117)" \
+  "block-force-push.sh" "(git push --force-with-lease --all origin)" "$PATH" "$SANDBOX_REPO"
+
+# #117 ronda 1 (H1): git acepta cualquier prefijo único de una opción larga y
+# "--branches" es alias de "--all". Prefijos verificados contra un remoto bare
+# real: --al/--all, --b..--branches y --m..--mirror se aceptan (exit 0, el
+# remoto recibe main); "--a" es ambiguo (129, all/atomic) y "--all="/"--mirror="
+# se rechazan (129, "takes no value"), así que no son bypass.
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --branches origin' bloquea (alias de --all, #117)" \
+  "pre-push-guard.sh" "git push --branches origin" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin --branches' bloquea (#117)" \
+  "pre-push-guard.sh" "git push origin --branches" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --mi' (prefijo de --mirror) bloquea (#117)" \
+  "pre-push-guard.sh" "git push --mi" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --al origin' (prefijo de --all) bloquea (#117)" \
+  "pre-push-guard.sh" "git push --al origin" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --b origin' (prefijo único de --branches) bloquea (#117)" \
+  "pre-push-guard.sh" "git push --b origin" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '--force-with-lease --branches' no alcanza la excepción (#117)" \
+  "block-force-push.sh" "git push --force-with-lease --branches origin" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '--force-with-lease --mi' no alcanza la excepción (#117)" \
+  "block-force-push.sh" "git push --force-with-lease --mi origin" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push --tags origin' pasa (#117)" \
+  "pre-push-guard.sh" "git push --tags origin" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin feature/allx' pasa (#117)" \
+  "pre-push-guard.sh" "git push origin feature/allx" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin --dry-run feature/x' pasa (#117)" \
+  "pre-push-guard.sh" "git push origin --dry-run feature/x" "$PATH" "$SANDBOX_REPO"
+
+# #117 ronda 1 (H2/H9): el backtick ancla un comando (GUARD_ANCHOR) pero la
+# clase de fin de segmento no lo cortaba: el "`" pegado al destino rompía el
+# borde del token main y el push pasaba con exit 0.
+assert_blocked_cmd "pre-push-guard: '\`git push origin HEAD:main\`' en backticks bloquea (#117)" \
+  "pre-push-guard.sh" '`git push origin HEAD:main`' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: 'echo \`git push origin HEAD:main\`' bloquea (#117)" \
+  "pre-push-guard.sh" 'echo `git push origin HEAD:main`' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '\`git push --force-with-lease origin main\`' en backticks bloquea (#117)" \
+  "block-force-push.sh" '`git push --force-with-lease origin main`' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '\`git push --force origin feature/x\`' en backticks bloquea (#117)" \
+  "block-force-push.sh" '`git push --force origin feature/x`' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: '(git push origin HEAD:main)' sigue bloqueando (control, #117)" \
+  "pre-push-guard.sh" '(git push origin HEAD:main)' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: 'git push origin HEAD:main' sigue bloqueando (control, #117)" \
+  "pre-push-guard.sh" 'git push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: 'x=\`git rev-parse HEAD\` && git push origin feature/x' pasa (#117)" \
+  "pre-push-guard.sh" 'x=`git rev-parse HEAD` && git push origin feature/x' "$PATH" "$SANDBOX_REPO"
+
+# #117 ronda 2 (HIGH): el ")" y el backtick cerraban el SEGMENTO "git push",
+# así que una sustitución dentro del push escondía lo que seguía (flag de
+# force, destino main). Ahora solo cierran el TOKEN (GUARD_TOKEN_END).
+# RED con el guard anterior: las seis primeras daban exit 0.
+assert_blocked_cmd "block-force-push: sustitución con paréntesis antes de --force bloquea (#117)" \
+  "block-force-push.sh" 'git push origin $(true) --force' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: sustitución con backticks antes de -f bloquea (#117)" \
+  "block-force-push.sh" 'git push origin feature/x `true` -f' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: sustitución con backticks antes de main bloquea (#117)" \
+  "pre-push-guard.sh" 'git push origin `true` main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: sustitución con backticks antes de HEAD:main bloquea (#117)" \
+  "pre-push-guard.sh" 'git push origin feature/x `echo` HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: sustitución con paréntesis antes de HEAD:main bloquea (#117)" \
+  "pre-push-guard.sh" 'git push origin $(true) HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con sustitución con backticks antes de dev bloquea (#117)" \
+  "block-force-push.sh" 'git push --force-with-lease origin feature/x `true` dev' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push --all sigue bloqueando (control, #117)" \
+  "pre-push-guard.sh" 'git push --all origin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push --all en subshell sigue bloqueando (control, #117)" \
+  "pre-push-guard.sh" '(git push --all)' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x en subshell pasa (control, #117)" \
+  "pre-push-guard.sh" '(git push origin feature/x)' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x seguido de echo y paréntesis suelto pasa (control, #117)" \
+  "pre-push-guard.sh" 'git push origin feature/x && echo ok)' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: push a feature/x en subshell pasa (control, #117)" \
+  "block-force-push.sh" '(git push origin feature/x)' "$PATH" "$SANDBOX_REPO"
+
+# #117 ronda 2 (MEDIO): formas por configuración y refspec vacío que
+# actualizan main sin nombrarla (verificado en un sandbox git 2.54 desde
+# feature/x). RED con el guard anterior: las cuatro primeras daban exit 0.
+assert_blocked_cmd "pre-push-guard: -c push.default=matching sin refspec bloquea (#117)" \
+  "pre-push-guard.sh" 'git -c push.default=matching push origin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c remote.origin.mirror=true sin refspec bloquea (#117)" \
+  "pre-push-guard.sh" 'git -c remote.origin.mirror=true push origin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c remote.origin.push= sin refspec bloquea (#117)" \
+  "pre-push-guard.sh" 'git -c remote.origin.push=refs/heads/*:refs/heads/* push origin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec ':' suelto bloquea (#117)" \
+  "pre-push-guard.sh" 'git push origin :' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con -c remote.origin.mirror=true no alcanza la excepción (#117)" \
+  "block-force-push.sh" 'git -c remote.origin.mirror=true push --force-with-lease origin' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: -c user.name=x push a feature/x pasa (control, #117)" \
+  "pre-push-guard.sh" 'git -c user.name=x push origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: -c push.default=simple push a feature/x pasa (control, #117)" \
+  "pre-push-guard.sh" 'git -c push.default=simple push origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec feature/x:feature/x pasa (control, #117)" \
+  "pre-push-guard.sh" 'git push origin feature/x:feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: borrar una rama remota feature con ':feature/x' pasa (comportamiento fijado, #117)" \
+  "pre-push-guard.sh" 'git push origin :feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease a feature/x con -c push.default=simple pasa (control, #117)" \
+  "block-force-push.sh" 'git -c push.default=simple push --force-with-lease origin feature/x' "$PATH" "$SANDBOX_REPO"
+
+# #117 ronda 3 (S1): grafías y casing de la config. git no distingue
+# mayúsculas en la clave (sección y nombre), acepta "mirror" sin "=" (booleano
+# verdadero), cualquier entero distinto de 0, push.default=upstream/tracking
+# (empujan al upstream de la rama, que puede ser main) y --config-env=<clave>=<VAR>.
+# RED con el guard anterior: las nueve formas daban exit 0 en ambos hooks.
+for CFG_FORM in \
+  'git -c remote.origin.mirror push origin' \
+  'git -c remote.origin.mirror=TRUE push origin' \
+  'git -c remote.origin.mirror=2 push origin' \
+  'git -c remote.origin.Mirror=true push origin' \
+  'git -c Push.Default=matching push origin' \
+  'git -c REMOTE.origin.MIRROR=true push origin' \
+  'git -c push.default=upstream push origin' \
+  'git -c push.default=tracking push origin' \
+  'X=matching git --config-env=push.default=X push origin'; do
+  assert_blocked_cmd "pre-push-guard: config peligrosa '$CFG_FORM' bloquea (#117)" \
+    "pre-push-guard.sh" "$CFG_FORM" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-force-push: lease con config peligrosa '$CFG_FORM' bloquea (#117)" \
+    "block-force-push.sh" "${CFG_FORM/ push / push --force-with-lease }" "$PATH" "$SANDBOX_REPO"
+done
+for CFG_CTRL in \
+  'git -c user.name=x push origin feature/x' \
+  'git -c push.default=simple push origin feature/x' \
+  'git -c remote.origin.mirror=false push origin feature/x' \
+  'git -c push.default=current push origin feature/x'; do
+  assert_allowed_cmd "pre-push-guard: config inocua '$CFG_CTRL' pasa (control, #117)" \
+    "pre-push-guard.sh" "$CFG_CTRL" "$PATH" "$SANDBOX_REPO"
+  assert_allowed_cmd "block-force-push: lease con config inocua '$CFG_CTRL' pasa (control, #117)" \
+    "block-force-push.sh" "${CFG_CTRL/ push / push --force-with-lease }" "$PATH" "$SANDBOX_REPO"
+done
+assert_blocked_cmd "pre-push-guard: prefijo de entorno cualquiera antes de git push a main bloquea (#117)" \
+  "pre-push-guard.sh" 'FOO=1 git push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
+
+# #117 ronda 3 (S3, S4): "<" y ">" sin comillas son siempre redirección, así
+# que cierran el token; y la excepción de --force-with-lease nunca cubre el
+# refspec ":" / "+:" (empuja las ramas coincidentes, incluida main).
+# RED con el guard anterior: los bloqueos de abajo daban exit 0.
+assert_blocked_cmd "pre-push-guard: HEAD:main seguido de redirección de entrada bloquea (#117)" \
+  "pre-push-guard.sh" 'git push origin HEAD:main</dev/null' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: HEAD:main seguido de redirección de salida bloquea (#117)" \
+  "pre-push-guard.sh" 'git push origin HEAD:main>log' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease a feature/x y dev seguido de redirección bloquea (#117)" \
+  "block-force-push.sh" 'git push --force-with-lease origin feature/x dev</dev/null' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x con redirección de entrada pasa (control, #117)" \
+  "pre-push-guard.sh" 'git push origin feature/x</dev/null' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x con 2>&1 pasa (control, #117)" \
+  "pre-push-guard.sh" 'git push origin feature/x 2>&1' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con refspec ':' suelto bloquea (#117)" \
+  "block-force-push.sh" 'git push --force-with-lease origin :' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con refspec '+:' suelto bloquea (#117)" \
+  "block-force-push.sh" 'git push --force-with-lease origin +:' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: refspec forzado '+:' sin lease bloquea (#117)" \
+  "block-force-push.sh" 'git push origin +:' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease con feature/x:feature/x pasa (control, #117)" \
+  "block-force-push.sh" 'git push --force-with-lease origin feature/x:feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease con borrado ':feature/x' pasa (control, #117)" \
+  "block-force-push.sh" 'git push --force-with-lease origin :feature/x' "$PATH" "$SANDBOX_REPO"
+
+# #117 ronda 1 (H3): la excepción de --force-with-lease evaluaba solo el
+# primer segmento "git push" (head -1); un segundo push a dev colaba.
+# RED con el guard anterior: el primer bloqueo; el resto fija el comportamiento.
+assert_blocked_cmd "block-force-push: dos --force-with-lease, el segundo a dev, bloquea (#117)" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/x && git push --force-with-lease origin dev" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: dos --force-with-lease, el primero a dev, bloquea (#117)" \
+  "block-force-push.sh" "git push --force-with-lease origin dev && git push --force-with-lease origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '--force-with-lease origin dev' solo sigue bloqueando (control, #117)" \
+  "block-force-push.sh" "git push --force-with-lease origin dev" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: dos --force-with-lease a ramas feature pasan (#117)" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/x && git push --force-with-lease origin feature/y" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: push normal seguido de --force bloquea (comportamiento fijado, #117)" \
+  "block-force-push.sh" "git push origin feature/x && git push --force origin feature/y" "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""
