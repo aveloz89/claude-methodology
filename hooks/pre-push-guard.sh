@@ -106,4 +106,20 @@ if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}" | grep 
   exit 2
 fi
 
+# #117 ronda 2 (MEDIO): formas que empujan main sin nombrarla ni usar --all.
+# (a) "-c push.default=matching", "-c remote.<x>.mirror=true" y
+# "-c remote.<x>.push=..." (GUARD_PUSH_CONFIG_RE) vuelven "git push origin"
+# un push de todas las ramas coincidentes; (b) el refspec ":" suelto
+# (GUARD_PUSH_EMPTY_REFSPEC_RE) hace lo mismo. ":rama" borra una rama remota
+# y sigue pasando. Mismo segmento que el chequeo de --all.
+PUSH_SEGMENTS=$(echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}")
+if echo "$PUSH_SEGMENTS" | grep -qE "$GUARD_PUSH_CONFIG_RE"; then
+  echo "BLOCKED: git -c push.default=matching / remote.<x>.mirror=true / remote.<x>.push=... empuja main sin nombrarla. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
+  exit 2
+fi
+if echo "$PUSH_SEGMENTS" | grep -qE "$GUARD_PUSH_EMPTY_REFSPEC_RE"; then
+  echo "BLOCKED: el refspec ':' suelto empuja las ramas coincidentes, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
+  exit 2
+fi
+
 exit 0

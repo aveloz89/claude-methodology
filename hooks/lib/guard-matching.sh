@@ -48,6 +48,10 @@
 #     una redirección antes del refspec o pegada a él (`git push origin
 #     2>&1 HEAD:main`, `git push origin HEAD:main>log`: el segmento se
 #     corta en "&", o el ">" queda pegado al nombre).
+#   - pre-push-guard.sh y block-force-push.sh: push.default=matching o
+#     remote.<x>.mirror/push fijados en el config del repo o global (solo se
+#     ven los "-c" literales del comando), remote.pushDefault y un "-c"
+#     escrito en una variable;
 #   - pre-push-guard.sh y block-force-push.sh: una sustitución que PRODUCE el
 #     ref o la flag (git push origin $(git branch --show-current)) no se
 #     evalúa; el guard solo ve tokens literales del comando.
@@ -100,6 +104,24 @@ GUARD_TOKEN_END='([[:space:]]|[)`]|$)'
 # ")", backtick o fin) después.
 # shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
 GUARD_PUSH_ALL_RE="(^|[[:space:]])--(al|all|b|br|bra|bran|branc|branch|branche|branches|m|mi|mir|mirr|mirro|mirror)${GUARD_TOKEN_END}"
+
+# Fragmento de regex ERE que reconoce las opciones "-c" de git que vuelven un
+# "git push" sin refspec equivalente a "--all"/"--mirror" (empuja main sin
+# nombrarla): "-c push.default=matching", "-c remote.<x>.mirror=<verdadero>"
+# (true/yes/on/1) y "-c remote.<x>.push=<algo>". Verificado en un sandbox
+# (git 2.54, desde feature/x): con cada una, "git push origin" actualiza main
+# del remoto. Se aplica al segmento "git ... push ..." ya extraído. Cubre solo
+# el "-c" literal del comando, no el config del repo ni el global (ver
+# "Fuera de alcance" del README).
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
+GUARD_PUSH_CONFIG_RE="(^|[[:space:]])-c[[:space:]]+(push\.default=matching|remote\.[^=[:space:]]+\.(mirror=(true|yes|on|1)|push=[^[:space:]]*))${GUARD_TOKEN_END}"
+
+# Refspec "git push origin :" (token exactamente ":", con "+" opcional): con
+# push.default=matching/simple según la versión, empuja las ramas que
+# coinciden en el remoto, incluida main. ":rama" (borrar una rama remota) NO
+# matchea: el ":" va seguido de un nombre.
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh
+GUARD_PUSH_EMPTY_REFSPEC_RE="(^|[[:space:]])\+?:${GUARD_TOKEN_END}"
 
 # Fragmento de regex ERE que reconoce "gh ... pr ... merge" tolerando hasta
 # 2 tokens entre "gh"/"pr" y entre "pr"/"merge" (formas como "gh -R x pr

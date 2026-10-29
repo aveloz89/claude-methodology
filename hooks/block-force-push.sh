@@ -81,6 +81,9 @@ guard_force_with_lease_allowed() {
     # empujan TODOS los refs remotos (o los espejan) sin importar qué otro ref
     # aparezca en el resto del comando: la excepción nunca los cubre.
     echo "$push_segment" | grep -qE "$GUARD_PUSH_ALL_RE" && return 1
+    # Los "-c" que vuelven el push un push de todo (GUARD_PUSH_CONFIG_RE) tampoco
+    # los cubre la excepción: empujarían main sin nombrarla.
+    echo "$push_segment" | grep -qE "$GUARD_PUSH_CONFIG_RE" && return 1
     echo "$push_segment" | grep -qE "(^|[[:space:]:])(main|master|dev)([[:space:]:)\`]|\$)|refs/heads/(main|master|dev)([[:space:]:)\`]|\$)" && return 1
   done <<< "$push_segments"
   return 0

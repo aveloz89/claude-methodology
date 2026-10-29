@@ -572,6 +572,30 @@ assert_allowed_cmd "pre-push-guard: push a feature/x seguido de echo y paréntes
 assert_allowed_cmd "block-force-push: push a feature/x en subshell pasa (control, #117)" \
   "block-force-push.sh" '(git push origin feature/x)' "$PATH" "$SANDBOX_REPO"
 
+# #117 ronda 2 (MEDIO): formas por configuración y refspec vacío que
+# actualizan main sin nombrarla (verificado en un sandbox git 2.54 desde
+# feature/x). RED con el guard anterior: las cuatro primeras daban exit 0.
+assert_blocked_cmd "pre-push-guard: -c push.default=matching sin refspec bloquea (#117)" \
+  "pre-push-guard.sh" 'git -c push.default=matching push origin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c remote.origin.mirror=true sin refspec bloquea (#117)" \
+  "pre-push-guard.sh" 'git -c remote.origin.mirror=true push origin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c remote.origin.push= sin refspec bloquea (#117)" \
+  "pre-push-guard.sh" 'git -c remote.origin.push=refs/heads/*:refs/heads/* push origin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec ':' suelto bloquea (#117)" \
+  "pre-push-guard.sh" 'git push origin :' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con -c remote.origin.mirror=true no alcanza la excepción (#117)" \
+  "block-force-push.sh" 'git -c remote.origin.mirror=true push --force-with-lease origin' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: -c user.name=x push a feature/x pasa (control, #117)" \
+  "pre-push-guard.sh" 'git -c user.name=x push origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: -c push.default=simple push a feature/x pasa (control, #117)" \
+  "pre-push-guard.sh" 'git -c push.default=simple push origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec feature/x:feature/x pasa (control, #117)" \
+  "pre-push-guard.sh" 'git push origin feature/x:feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: borrar una rama remota feature con ':feature/x' pasa (comportamiento fijado, #117)" \
+  "pre-push-guard.sh" 'git push origin :feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease a feature/x con -c push.default=simple pasa (control, #117)" \
+  "block-force-push.sh" 'git -c push.default=simple push --force-with-lease origin feature/x' "$PATH" "$SANDBOX_REPO"
+
 # #117 ronda 1 (H3): la excepción de --force-with-lease evaluaba solo el
 # primer segmento "git push" (head -1); un segundo push a dev colaba.
 # RED con el guard anterior: el primer bloqueo; el resto fija el comportamiento.
