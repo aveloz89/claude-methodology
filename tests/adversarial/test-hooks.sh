@@ -861,6 +861,35 @@ assert_blocked_cmd "block-admin-merge: --admin con comillas pegadas sigue bloque
 assert_blocked_cmd "block-admin-merge: dos -R entre comillas y --admin sigue bloqueando (control 2, #120)" \
   "block-admin-merge.sh" 'gh -R "a/b" -R "c/d" pr merge 5 --admin' "$PATH" "$SANDBOX_REPO"
 
+# #119 (ronda 1 de review): el "*" de un refspec cubre tambien "/", asi que un
+# glob bajo "refs/" que NO pasa por "refs/heads/" tambien mueve main
+# (refs/*:refs/*, refs/h*:refs/h*, refs/*). Regla: se toma el prefijo literal
+# del destino antes del primer "*" y se bloquea si es prefijo de "refs/heads/",
+# si empieza por "refs/heads/" o si no empieza por "refs/".
+# RED con 85f002c: los bloqueos de abajo daban exit 0.
+assert_blocked_cmd "pre-push-guard: refspec glob refs/*:refs/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/*:refs/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob refs/h*:refs/h* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/h*:refs/h*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob de un solo lado refs/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob refs/heads* sin barra bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/heads*:refs/heads*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob forzado +refs/*:refs/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin +refs/*:refs/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con refspec glob refs/*:refs/* no alcanza la excepcion (#119)" \
+  "block-force-push.sh" 'git push --force-with-lease origin refs/*:refs/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con refspec glob refs/h*:refs/h* no alcanza la excepcion (#119)" \
+  "block-force-push.sh" 'git push --force-with-lease origin refs/h*:refs/h*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec glob refs/remotes/x/* pasa (control, #119)" \
+  "pre-push-guard.sh" 'git push origin refs/remotes/x/*:refs/remotes/x/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec glob refs/tags/* de un solo lado pasa (control, #119)" \
+  "pre-push-guard.sh" 'git push origin refs/tags/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease con refspec glob refs/tags/* pasa (control, #119)" \
+  "block-force-push.sh" 'git push --force-with-lease origin refs/tags/*:refs/tags/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec glob entre comillas refs/heads/* queda fuera de alcance y pasa (fijado, #119)" \
+  "pre-push-guard.sh" "git push origin 'refs/heads/*'" "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""

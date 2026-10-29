@@ -50,8 +50,9 @@
 #     refspec (`HEAD:main>log`, `HEAD:main</dev/null`) SÍ bloquea: "<" y ">"
 #     sin comillas cierran el token (GUARD_TOKEN_END).
 #   - pre-push-guard.sh: un refspec glob entre comillas (`git push origin
-#     '*:*'`; el saneo vacía el span). El glob sin comillas SÍ bloquea cuando
-#     su destino cuelga de refs/heads/ o no lleva prefijo refs/ (#119, ver
+#     '*:*'`, `'refs/heads/*'`; el saneo deja el placeholder Q y el glob no se ve). El glob sin comillas SÍ bloquea cuando
+#     su destino cuelga de refs/heads/, no lleva prefijo refs/ o su prefijo
+#     literal es prefijo de refs/heads/ (`refs/*`, `refs/h*`; #119, ver
 #     GUARD_PUSH_GLOB_RE); `refs/tags/*:refs/tags/*` pasa.
 #   - pre-push-guard.sh y block-force-push.sh: push.default=matching o
 #     remote.<x>.mirror/push fijados en el config del repo o global (solo se
@@ -173,10 +174,16 @@ GUARD_PUSH_EMPTY_REFSPEC_RE="(^|[[:space:]])\+?:${GUARD_TOKEN_END}"
 # extrae el token con "*" en el destino (con "+" y origen opcionales);
 # guard_push_has_glob_dst decide si ese destino cuenta: BLOQUEA el que cuelga
 # de "refs/heads/" o no lleva prefijo "refs/" (git lo completa a refs/heads/);
-# deja pasar el que cuelga de otro "refs/..." (refs/tags/*:refs/tags/*).
+# deja pasar el que cuelga de otro "refs/..." (refs/tags/*:refs/tags/*,
+# refs/remotes/x/*). El "*" de un refspec cubre también "/", así que "refs/*",
+# "refs/h*" y "refs/heads*" (cuyo prefijo literal es prefijo de "refs/heads/")
+# también mueven main y bloquean (ronda 1 de review).
 # Falso positivo asumido (dirección segura): refs/heads/feature/*:refs/heads/
 # feature/* tampoco toca main, pero no se distingue de refs/heads/*. Fuera de
-# alcance: el refspec entre comillas ('*:*'), que el saneo vacía.
+# alcance: el refspec entre comillas ('*:*', 'refs/heads/*'): el saneo lo
+# reemplaza por el placeholder Q, que ya no se distingue de cualquier otro
+# valor entre comillas; tratar un Q en posición de refspec como sospechoso
+# daría falsos positivos (-m "msg", valores de -c) y se deja fuera de alcance.
 # shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
 GUARD_PUSH_GLOB_RE="(^|[[:space:]])\+?([^[:space:]:]*:)?[^[:space:]:]*\*[^[:space:]:]*${GUARD_TOKEN_END}"
 
@@ -184,13 +191,18 @@ GUARD_PUSH_GLOB_RE="(^|[[:space:]])\+?([^[:space:]:]*:)?[^[:space:]:]*\*[^[:spac
 # glob peligroso (ver GUARD_PUSH_GLOB_RE), 1 si no. Los tokens que empiezan por
 # "-" son opciones, no refspecs.
 guard_push_has_glob_dst() {
-  local tok dst
+  local tok dst prefix
   while IFS= read -r tok; do
     tok="${tok#"${tok%%[![:space:]]*}"}"
     case "$tok" in -*) continue ;; esac
     dst="${tok##*:}"
     dst="${dst#+}"
-    case "$dst" in
+    prefix="${dst%%\**}"
+    # Prefijo literal del destino antes del primer "*" (el "*" cubre también
+    # "/"): bloquea si es prefijo de "refs/heads/" (incluye "", "refs/",
+    # "refs/h", "refs/heads"), si cuelga de "refs/heads/" o si no lleva "refs/".
+    [[ "refs/heads/" == "$prefix"* ]] && return 0
+    case "$prefix" in
       refs/heads/*) return 0 ;;
       refs/*) ;;
       *) return 0 ;;
