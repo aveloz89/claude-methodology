@@ -1225,6 +1225,10 @@ if [ -f "$CS_WORKFLOW" ]; then
     assert_contains "$CS_WORKFLOW" "gh label create severity:$lbl --force" "code-sweep.js asegura el label severity:$lbl con --force (#113)"
     assert_contains "$CODE_SWEEP" "gh label create severity:$lbl --force" "agents/code-sweep.md asegura el label severity:$lbl con --force (#113)"
   done
+  assert_contains "$CS_WORKFLOW" 'toPersist.length > 0 ? `' "code-sweep.js incluye el paso de labels solo si toPersist.length > 0 (#113)"
+  assert_contains "$CS_WORKFLOW" 'Hallazgo de seguridad (review o scan)' "code-sweep.js usa la descripción canónica del label security de new-project (#113)"
+  assert_contains "$CODE_SWEEP" 'Hallazgo de seguridad (review o scan)' "agents/code-sweep.md usa la descripción canónica del label security de new-project (#113)"
+  assert_contains "$CODE_SWEEP" 'solo si hay hallazgos CRÍTICOS o ALTOS' "agents/code-sweep.md condiciona el paso de labels a que haya candidatos (#113)"
   assert_contains "$CS_WORKFLOW" '"verdict"' "code-sweep.js define el schema de hallazgo (verdict)"
   assert_contains "$CS_WORKFLOW" '"manifestation"' "code-sweep.js define el schema de hallazgo (manifestation)"
   assert_contains "$CS_WORKFLOW" 'code-sweep-common.md' "code-sweep.js apunta los prompts al rulebook común"
@@ -1307,6 +1311,11 @@ const cases = [
   ["pattern catch {} del rulebook (#113)", { ...base, pattern: "catch {}" }, true],
   ["pattern .unwrap()/.expect() fuera de tests (#113)", { ...base, pattern: ".unwrap()/.expect() fuera de tests" }, true],
   ["pattern con dos puntos y coma", { ...base, pattern: "a: b, c" }, true],
+  ["pattern panic!() en libraries (#113)", { ...base, pattern: "panic!() en libraries" }, true],
+  ["pattern subprocess/os.system con string y shell=True (#113)", { ...base, pattern: "subprocess/os.system con string y shell=True" }, true],
+  ["pattern catch {}/catch { alert(...) } vacíos con tilde (#113)", { ...base, pattern: "catch {}/catch { alert(...) } vacíos" }, true],
+  ["pattern con ñ y mayúscula acentuada (#113)", { ...base, pattern: "Año Ámbito" }, true],
+  ["pattern a!b$c", { ...base, pattern: "a!b$c" }, false],
   ["pattern con $", { ...base, pattern: "a$b" }, false],
   ["pattern con backslash", { ...base, pattern: "a\\b" }, false],
   ["pattern con ;", { ...base, pattern: "a;b" }, false],

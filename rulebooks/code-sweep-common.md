@@ -45,7 +45,7 @@ Contrato entre las fases `audit`, `verify` y `consolidate`:
 
 En modo `smells` el auditor puede añadir el campo opcional `"refactor":"<una línea con el refactor sugerido>"`; en `bugs` no existe.
 
-- `pattern`: nombre del patrón del rulebook, solo letras, dígitos, espacio y `_ . - / ( ) { } : ,`.
+- `pattern`: nombre del patrón del rulebook, solo letras (ASCII, con tilde y ñ), dígitos, espacio y `_ . - / ( ) { } : , ! =`.
 - `id` determinista: se asigna ordenando por `file`, `line`, `pattern`; nunca aleatorio.
 - El auditor deja `verdict: "unverified"` y `evidence: ""`; el verificador fija ambos.
 - `issue` es `null` hasta que el consolidador crea o encuentra un issue.
