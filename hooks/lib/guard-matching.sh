@@ -100,12 +100,15 @@ GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&|\))\s*((then|do|else|elif|if|while|
 # las opciones de git que pueden aparecer entre "git" y el subcomando
 # vigilado (push, reset --hard, commit): opciones de árbol ("-C <ruta>",
 # "--git-dir"/"--work-tree" con o sin "="), "-c <clave=valor>",
-# "--config-env=<clave>=<VAR>" (con o sin "="), "--no-pager" y "-P". Una sola alternancia repetida en vez de fragmentos concatenados en
+# "--config-env=<clave>=<VAR>" (con o sin "="), "--namespace"/"--attr-source" con
+# valor separado, CUALQUIER otra opción larga sin valor o con "=" ("--no-pager",
+# "--no-optional-locks", "--literal-pathspecs", "--paginate", "--no-advice",
+# "--exec-path=<ruta>", ...) y "-p"/"-P". Una sola alternancia repetida en vez de fragmentos concatenados en
 # un orden fijo: "git -C /x -c a=b push --force" (árbol después de "-c") no
 # matchearía un fragmento que solo tolerase un orden. git acepta estas
 # opciones en cualquier orden antes del subcomando; el regex también.
 # shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh, pre-push-guard.sh y pre-commit-guard.sh
-GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--config-env)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
+GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--namespace|--config-env|--attr-source)(=\S*|\s+\S*)?|-c\s+\S+|--[a-z][a-z-]*(=\S*)?|-p|-P)\s+)*'
 
 # Prefijo antes de "git": cero o más asignaciones de entorno ("VAR=valor git
 # push ...") y cero o más WRAPPERS que ejecutan el comando que les sigue, cada
@@ -134,8 +137,8 @@ GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(((time|nohup|exec|command|cop
 #   - el ANCLA (GUARD_ANCHOR) ABRE un comando tras: inicio de string/línea,
 #     "&&", "||", ";", "|", "$(", backtick, "(", "{" y "&";
 #   - el SEGMENTO "git push ..." (GUARD_SEGMENT_END) CIERRA solo en "&", "|"
-#     y ";", salvo que el "&" sea parte de una redirección ("2>&1", ">&2",
-#     "&>log": el "&" de background sí cierra, #118). NO cierra en ")" ni en backtick: una sustitución DENTRO del push
+#     y ";", salvo que el "&" o el "|" sean parte de una redirección ("2>&1",
+#     ">&2", "<&0", "&>log", ">|log": el "&" de background sí cierra, #118). NO cierra en ")" ni en backtick: una sustitución DENTRO del push
 #     ("git push origin $(true) HEAD:main", "git push origin `true` main")
 #     esconde lo que sigue si el segmento se corta ahí (regresión de la
 #     ronda 2 de #117, verificada contra dev). Coste asumido del trade-off:
@@ -148,7 +151,7 @@ GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(((time|nohup|exec|command|cop
 # Van entre comillas simples: el backtick es literal en la asignación y al
 # expandirlas dentro de comillas dobles no se vuelve a evaluar.
 # shellcheck disable=SC2016,SC2034 # backtick literal; se usan en pre-push-guard.sh y block-force-push.sh
-GUARD_SEGMENT_END='([^&|;]|>&[0-9-]?|&>)*'
+GUARD_SEGMENT_END='([^&|;]|>&[0-9-]?|<&[0-9-]?|>\||&>)*'
 # shellcheck disable=SC2016,SC2034
 GUARD_TOKEN_END='([[:space:]]|[)`<>]|$)'
 

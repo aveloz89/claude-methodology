@@ -1025,6 +1025,39 @@ assert_allowed_cmd "pre-push-guard: \$'feature/x' entre comillas ANSI-C pasa (co
   "pre-push-guard.sh" "git push origin \$'feature/x'" "$PATH" "$SANDBOX_REPO"
 assert_blocked_cmd "pre-push-guard: refspec entero con \$'' de contenido simple bloquea (cierre)" \
   "pre-push-guard.sh" "git push origin \$'HEAD:main'" "$PATH" "$SANDBOX_REPO"
+
+# Grupo B: redirecciones <&N y >| dentro del segmento, opciones globales de git
+# fuera de la lista fija (--no-optional-locks, -p, --namespace x, ...) y -C
+# precedido de otras opciones en pre-commit-guard. RED con 7e45e70: todos los
+# bloqueos de abajo daban exit 0.
+assert_blocked_cmd "block-force-push: redireccion <&0 antes de --force bloquea (cierre)" \
+  "block-force-push.sh" 'git push origin feature/x <&0 --force' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: redireccion >| antes del refspec a main bloquea (cierre)" \
+  "pre-push-guard.sh" 'git push origin >|/dev/null HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: redireccion >| antes de --hard bloquea (cierre)" \
+  "block-hard-reset.sh" 'git reset >|log --hard' "$PATH" "$SANDBOX_REPO"
+for _opt in --no-optional-locks --literal-pathspecs -p --paginate --no-replace-objects --no-advice --exec-path=/x --namespace=x "--namespace x" "--attr-source HEAD"; do
+  assert_blocked_cmd "pre-push-guard: git $_opt antes de push a main bloquea (cierre)" \
+    "pre-push-guard.sh" "git $_opt push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-force-push: git $_opt antes de push -f bloquea (cierre)" \
+    "block-force-push.sh" "git $_opt push -f origin feature/x" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-hard-reset: git $_opt antes de reset --hard bloquea (cierre)" \
+    "block-hard-reset.sh" "git $_opt reset --hard" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "pre-commit-guard: git $_opt antes de commit se reconoce (cierre)" \
+    "pre-commit-guard.sh" "git $_opt commit -m x --work-tree=/x" "$PATH" "$SANDBOX_REPO"
+done
+assert_blocked_cmd "pre-commit-guard: -c k=v antes de -C no se resuelve y bloquea (cierre)" \
+  "pre-commit-guard.sh" 'git -c a=b -C /tmp commit -m x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: git --no-optional-locks push a feature/x pasa (control, cierre)" \
+  "pre-push-guard.sh" 'git --no-optional-locks push origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: git -p push sin force pasa (control, cierre)" \
+  "block-force-push.sh" 'git -p push origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: git --namespace x reset --soft pasa (control, cierre)" \
+  "block-hard-reset.sh" 'git --namespace x reset --soft HEAD~1' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: redireccion <&0 y push a feature/x pasa (control, cierre)" \
+  "pre-push-guard.sh" 'git push origin feature/x <&0' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: redireccion >| seguida de otro comando con main pasa (control, cierre)" \
+  "pre-push-guard.sh" 'git push origin feature/x >|/dev/null; echo main' "$PATH" "$SANDBOX_REPO"
 # Fin ronda de cierre
 
 sandbox_cleanup_pushrepo
