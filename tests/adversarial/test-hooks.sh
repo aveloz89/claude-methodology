@@ -428,6 +428,51 @@ assert_nul_blocked_cwd() {
 }
 assert_nul_blocked_cwd "pre-push-guard: bloquea NUL en el comando (B2)" "$SANDBOX_REPO"
 
+# #112 (BAJO, code-sweep pre-release v4.0.0): el guard decidía solo por la
+# rama actual, así que desde feature/x un push cuyo DESTINO es main pasaba
+# sin evaluarse (exit 0): "HEAD:main", "dev:main", "refs/heads/main" o el
+# refspec pelado "main" (empuja la rama local main). Ahora evalúa también
+# el destino de cada refspec del segmento push — lo que sigue al ":" o
+# el token entero si no hay ":" —, con el "+" opcional del refspec
+# forzado y "refs/heads/main" contado como main; mira todos los segmentos
+# "git push" del comando, no solo el primero. Los tags (refs/tags/... o
+# un nombre de tag suelto), un refspec con main como ORIGEN y las ramas
+# feature/* siguen pasando desde cualquier rama. RED con el guard viejo
+# (los seis bloqueos).
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/refspec-dst "$PUSH_INITIAL_COMMIT")
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin HEAD:main' bloquea (destino main, #112)" \
+  "pre-push-guard.sh" "git push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin dev:main' bloquea (destino main, #112)" \
+  "pre-push-guard.sh" "git push origin dev:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin refs/heads/main' bloquea (destino main, #112)" \
+  "pre-push-guard.sh" "git push origin refs/heads/main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin HEAD:refs/heads/master' bloquea (destino master, #112)" \
+  "pre-push-guard.sh" "git push origin HEAD:refs/heads/master" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin main' (rama local main) bloquea (destino main, #112)" \
+  "pre-push-guard.sh" "git push origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin feature/x && git push origin HEAD:main' bloquea (segundo push, #112)" \
+  "pre-push-guard.sh" "git push origin feature/x && git push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+# Review (code-review, cobertura): las ramas "\+?" y origen vacío de
+# DST_MAIN_RE, y el borrado de la main remota, quedan en la suite y no solo
+# en probes a mano.
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin +main' bloquea (refspec forzado con destino main, #112)" \
+  "pre-push-guard.sh" "git push origin +main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin :main' bloquea (borra la main remota, #112)" \
+  "pre-push-guard.sh" "git push origin :main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --delete origin main' bloquea (borra la main remota, #112)" \
+  "pre-push-guard.sh" "git push --delete origin main" "$PATH" "$SANDBOX_REPO"
+# Negativos: un destino que no es main/master sigue pasando desde feature/*.
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin refs/tags/v1.0.0' pasa (tag, #112)" \
+  "pre-push-guard.sh" "git push origin refs/tags/v1.0.0" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin methodology--v4.0.1' pasa (tag por nombre, #112)" \
+  "pre-push-guard.sh" "git push origin methodology--v4.0.1" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin main:feature/backup' pasa (main es origen, no destino, #112)" \
+  "pre-push-guard.sh" "git push origin main:feature/backup" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push -u origin feature/refspec-dst' pasa (#112)" \
+  "pre-push-guard.sh" "git push -u origin feature/refspec-dst" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin feature/main-page' pasa (main como fragmento, #112)" \
+  "pre-push-guard.sh" "git push origin feature/main-page" "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""
@@ -508,6 +553,19 @@ assert_blocked_cmd "block-force-push: git push origin +feature/x (refspec forzad
 assert_blocked_cmd "block-force-push: git push origin +HEAD:main (refspec forzado) blocks" \
   "block-force-push.sh" \
   "git push origin +HEAD:main"
+
+# #112 (code-sweep pre-release v4.0.0): "[^\s:]+" dentro de una expresión
+# de corchetes POSIX no es "no espacio" — son los caracteres "\", "s" y
+# ":" — así que un refspec forzado cuyo ref empieza con "s" (+staging,
+# +stable, +support/x) no matcheaba y pasaba sin bloqueo; +main, +dev y
+# +feature/x sí bloqueaban, por eso no se notó. Fix: "[^[:space:]:]+".
+# RED con el patrón viejo.
+assert_blocked_cmd "block-force-push: git push origin +staging (refspec forzado que empieza con s) blocks (#112)" \
+  "block-force-push.sh" \
+  "git push origin +staging"
+assert_blocked_cmd "block-force-push: git push origin +support/x (refspec forzado que empieza con s) blocks (#112)" \
+  "block-force-push.sh" \
+  "git push origin +support/x"
 
 # Negativos (C4): no deben bloquear por el nuevo camino del refspec.
 assert_allowed_cmd "block-force-push: git push origin main --follow-tags allowed" \
@@ -6356,13 +6414,23 @@ echo "--- post-pr-create.sh ---"
 # review) vs CASO B (PR fuera del flujo: instruir review dual) — así que
 # los casos capturan el output inline (como session-start-context.sh) en
 # vez de usar assert_exit0. El stdin replica el JSON PostToolUse real:
-# tool_input.command + stdout del comando ejecutado.
+# tool_input.command + tool_response.stdout (la salida del comando vive
+# dentro de tool_response, no en la raíz del payload — #111).
 # Todos los casos corren en sandbox con branch explícito y state.json
 # sembrado EN el sandbox (decisión ARCHITECTURE 2026-08-14).
 
-# postpr_input: arma el JSON PostToolUse para el hook (comando + stdout).
+# postpr_input: arma el JSON PostToolUse para el hook con la forma real del
+# payload (#111): la salida del comando vive en tool_response.stdout, con
+# los demás campos del tool_response de Bash (stderr, interrupted, isImage)
+# como los manda el harness. La versión anterior ponía stdout en la raíz,
+# igual que el hook lo leía: fixture autoconfirmante que nunca atrapó el
+# WARNING que el hook emitía en cada "gh pr create" real.
 postpr_input() {
-  jq -n --arg cmd "$1" --arg out "$2" '{tool_input: {command: $cmd}, stdout: $out}'
+  jq -n --arg cmd "$1" --arg out "$2" '{
+    hook_event_name: "PostToolUse", tool_name: "Bash",
+    tool_input: {command: $cmd},
+    tool_response: {stdout: $out, stderr: "", interrupted: false, isImage: false}
+  }'
 }
 
 # postpr_seed_state: escribe .planning/state.json en el sandbox con el
@@ -6419,6 +6487,38 @@ POSTPR_HEAD_SHA=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$POSTPR_HEAD_SHA"
 assert_postpr_caso_a "post-pr-create CASO A: review=done + branch coincide + review_sha == HEAD → checkpoint de PR revisado, sin ACCIÓN REQUERIDA" \
   "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
+sandbox_cleanup
+
+# Caso (#111): payload real de PostToolUse — con los campos de nivel
+# superior que manda el harness (session_id, transcript_path, cwd,
+# permission_mode, hook_event_name, tool_name, tool_use_id) y la salida del
+# comando en tool_response.stdout. El hook leía ".stdout" en la raíz y caía
+# siempre al WARNING (4 de 4 PRs en la sesión del 2026-10-28): este caso es
+# RED con esa lectura y GREEN con ".tool_response.stdout".
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_REAL_PAYLOAD=$(jq -n --arg out "$POSTPR_URL" --arg cwd "$SANDBOX_REPO" '{
+  session_id: "abc123",
+  transcript_path: "/home/user/.claude/projects/x/transcript.jsonl",
+  cwd: $cwd, permission_mode: "default", hook_event_name: "PostToolUse",
+  tool_name: "Bash", tool_use_id: "toolu_01ABC123",
+  tool_input: {command: "gh pr create --base dev --title \"feat: checkpoint\" --body \"...\"", description: "Crear PR"},
+  tool_response: {stdout: ($out + "\n"), stderr: "", interrupted: false, isImage: false}
+}')
+assert_postpr_caso_a "post-pr-create #111: payload real de PostToolUse (URL en tool_response.stdout) → CASO A, no WARNING" \
+  "$POSTPR_REAL_PAYLOAD"
+sandbox_cleanup
+
+# Caso (#111, compatibilidad): la forma previa del fixture — stdout en la
+# raíz del JSON — sigue resolviendo la URL (el hook lee
+# ".tool_response.stdout // .stdout"), así un harness que mande la salida
+# en la raíz no pierde el checkpoint.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+assert_postpr_caso_a "post-pr-create #111: stdout en la raíz (forma legacy) → sigue extrayendo la URL, CASO A" \
+  "$(jq -n --arg out "$POSTPR_URL" '{tool_input: {command: "gh pr create --base dev"}, stdout: $out}')"
 sandbox_cleanup
 
 # assert_postpr_caso_b: corre el hook en el sandbox con el input dado y
@@ -6576,6 +6676,30 @@ if [ "$POSTPR_EXIT_2URL" -eq 0 ] \
   PASS=$((PASS + 1))
 else
   echo -e "${RED}FAIL${NC}: post-pr-create sanitización: stdout con 2 URLs → una sola línea 'PR creado' con la primera (PR-7) (exit: $POSTPR_EXIT_2URL, output: $POSTPR_OUTPUT_2URL)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso (review de seguridad, LOW): la URL del PR se interpola en el texto
+# del checkpoint, así que el patrón que la extrae acota owner y repo a
+# [A-Za-z0-9._-] en vez de "[^ ]+" — una URL con otro carácter (comillas,
+# tab) no se extrae y el hook cae al WARNING sin interpolarla. RED con el
+# patrón "[^ ]+" (interpolaba la URL con la comilla).
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_BAD_URL='https://github.com/acme/widgets"evil/pull/7'
+POSTPR_EXIT_BADURL=0
+POSTPR_OUTPUT_BADURL=$(cd "$SANDBOX_REPO" && postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_BAD_URL" \
+  | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_BADURL=$?
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_BADURL" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_BADURL" | grep -qF "WARNING: Se detectó 'gh pr create' pero no se pudo extraer la URL del PR del output." \
+  && ! echo "$POSTPR_OUTPUT_BADURL" | grep -qF 'widgets"evil'; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create sanitización: URL con carácter fuera de la allowlist de owner/repo → WARNING, no se interpola"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create sanitización: URL con carácter fuera de la allowlist de owner/repo → WARNING, no se interpola (exit: $POSTPR_EXIT_BADURL, output: $POSTPR_OUTPUT_BADURL)"
   FAIL=$((FAIL + 1))
 fi
 

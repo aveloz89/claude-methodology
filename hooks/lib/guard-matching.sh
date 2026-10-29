@@ -42,7 +42,12 @@
 #     matching" de la doc de hooks);
 #   - block-force-push.sh: la flag entre comillas (`git push origin
 #     "--force"`, `git push '-f'`) y una redirección honesta (2>&1, >&2,
-#     &>log) o un ";" escapado antes de la flag de force.
+#     &>log) o un ";" escapado antes de la flag de force;
+#   - pre-push-guard.sh: el refspec entre comillas (`git push origin
+#     "HEAD:main"`: el saneo vacía el span antes del match del destino) y
+#     una redirección antes del refspec o pegada a él (`git push origin
+#     2>&1 HEAD:main`, `git push origin HEAD:main>log`: el segmento se
+#     corta en "&", o el ">" queda pegado al nombre).
 # Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá:
 # la salida es escribir el comando en su forma directa.
 
