@@ -68,6 +68,14 @@ GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
 # shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh, pre-push-guard.sh y pre-commit-guard.sh
 GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
 
+# Clase ERE que consume el resto de un segmento "git push ..." hasta el
+# separador que lo cierra: &, |, ;, ")" (subshell) o backtick (sustitución
+# de comando). Misma lista que cierra el ancla GUARD_ANCHOR por el otro
+# lado. Va entre comillas simples: el backtick es literal en la asignación
+# y al expandirla dentro de comillas dobles no se vuelve a evaluar.
+# shellcheck disable=SC2016,SC2034 # backtick literal; se usa en pre-push-guard.sh y block-force-push.sh
+GUARD_SEGMENT_END='[^&|;)`]*'
+
 # Fragmento de regex ERE que reconoce las opciones de "git push" que empujan
 # todas las ramas locales (incluida main) sin nombrarla: --all, --mirror y
 # --branches (alias de --all), más CUALQUIER prefijo único de ellas, porque

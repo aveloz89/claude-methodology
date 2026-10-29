@@ -527,6 +527,24 @@ assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin feature/al
 assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin --dry-run feature/x' pasa (#117)" \
   "pre-push-guard.sh" "git push origin --dry-run feature/x" "$PATH" "$SANDBOX_REPO"
 
+# #117 ronda 1 (H2/H9): el backtick ancla un comando (GUARD_ANCHOR) pero la
+# clase de fin de segmento no lo cortaba: el "`" pegado al destino rompía el
+# borde del token main y el push pasaba con exit 0.
+assert_blocked_cmd "pre-push-guard: '`git push origin HEAD:main`' en backticks bloquea (#117)" \
+  "pre-push-guard.sh" '`git push origin HEAD:main`' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: 'echo `git push origin HEAD:main`' bloquea (#117)" \
+  "pre-push-guard.sh" 'echo `git push origin HEAD:main`' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '`git push --force-with-lease origin main`' en backticks bloquea (#117)" \
+  "block-force-push.sh" '`git push --force-with-lease origin main`' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '`git push --force origin feature/x`' en backticks bloquea (#117)" \
+  "block-force-push.sh" '`git push --force origin feature/x`' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: '(git push origin HEAD:main)' sigue bloqueando (control, #117)" \
+  "pre-push-guard.sh" '(git push origin HEAD:main)' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: 'git push origin HEAD:main' sigue bloqueando (control, #117)" \
+  "pre-push-guard.sh" 'git push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: 'x=`git rev-parse HEAD` && git push origin feature/x' pasa (#117)" \
+  "pre-push-guard.sh" 'x=`git rev-parse HEAD` && git push origin feature/x' "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""
