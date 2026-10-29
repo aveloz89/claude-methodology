@@ -78,7 +78,7 @@ Idea → Brainstorming (orchestrator pregunta: ¿vale la pena?, resultado espera
   → Devs implementan con TDD (Red → Green → Refactor)
   → Review local pre-push, según tier:
       completo → Security + QA (qa-frontend y/o qa-backend según capas) en paralelo
-      liviano  → /code-review, más security-reviewer si el diff toca las señales 1, 4 u 8 del runbook (auth y autorización, crypto, secrets, pagos, PII, hooks, permisos, input externo)
+      liviano  → /code-review desde un subagente fresco (fork aislado), más security-reviewer si el diff toca las señales 1, 4 u 8 del runbook (auth y autorización, crypto, secrets, pagos, PII, hooks, permisos, input externo)
   → Si hay issues → Dev corrige en el mismo branch, sin push → Re-review
   → Veredictos limpios → Push + PR (nace revisado) → CI → Merge con confirmación del usuario
 ```
