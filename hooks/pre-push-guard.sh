@@ -1,6 +1,7 @@
 #!/bin/bash
-# Pre-push guard: Previene push directo a main.
-# Debe hacerse por PR.
+# Pre-push guard: Previene push directo a main — desde la rama main/master
+# local, o con un refspec cuyo destino sea main/master desde cualquier rama
+# (#112). Debe hacerse por PR.
 #
 # hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
 # latencia, no reemplaza la validación de abajo, que sigue mirando el
@@ -66,6 +67,29 @@ if [ "$CURRENT_BRANCH" = "main" ] || [ "$CURRENT_BRANCH" = "master" ]; then
     exit 0
   fi
   echo "BLOCKED: No push directo a main. Usa un PR desde dev o feature branch." >&2
+  exit 2
+fi
+
+# #112: el destino del refspec también cuenta. Desde cualquier rama, "git
+# push origin HEAD:main", "dev:main", "refs/heads/main" o el refspec pelado
+# "main" (empuja la rama local main) son push directo a main aunque la rama
+# actual sea feature/x; antes salían en 0 sin evaluarse. Se mira cada
+# segmento "git push ..." del comando saneado (anclado con PUSH_RE, hasta el
+# primer &&/;/|), no solo el primero, y de cada token su DESTINO: lo que
+# sigue al ":" o el token entero si no lo tiene, con el "+" opcional
+# del refspec forzado. "refs/heads/(main|master)" cuenta como main;
+# "refs/tags/..." y un nombre de tag suelto no. Un refspec con main como
+# ORIGEN (main:feature/x) no bloquea: su destino es otro. La excepción del
+# merge commit de arriba es solo para la rama main local — un merge commit
+# en HEAD de feature/x no habilita empujarlo a main. Fuera de alcance
+# (README, "Fuera de alcance"; misma clase que la flag quoted y la
+# redirección en block-force-push.sh): el refspec entre comillas (el saneo
+# vacía el span) y una redirección antes del refspec o pegada a él ("2>&1
+# HEAD:main" corta el segmento en "&"; "HEAD:main>log" deja el ">" pegado
+# al nombre y rompe el borde del token).
+DST_MAIN_RE='(^|[[:space:]])\+?([^[:space:]:]*:)?(refs/heads/)?(main|master)([[:space:]]|$)'
+if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}[^&|;]*" | grep -qE "$DST_MAIN_RE"; then
+  echo "BLOCKED: No push directo a main: el refspec apunta a main/master (HEAD:main, dev:main, refs/heads/main o la rama local main). Usa un PR desde dev o feature branch." >&2
   exit 2
 fi
 

@@ -73,7 +73,12 @@ guard_force_with_lease_allowed() {
   ! echo "$push_segment" | grep -qE '(^|[[:space:]:])(main|master|dev)([[:space:]:]|$)|refs/heads/(main|master|dev)([[:space:]:]|$)'
 }
 
-FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^\s:]+)"
+# El ref del refspec forzado se cierra con "[^[:space:]:]+", no con
+# "[^\s:]+": dentro de una expresión de corchetes POSIX "\s" no significa
+# "espacio" sino los caracteres "\" y "s", así que un ref que empieza con
+# "s" (+staging, +stable, +support/x) no matcheaba y pasaba sin bloqueo;
+# +main, +dev y +feature/x sí bloqueaban, por eso no se notó (#112).
+FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^[:space:]:]+)"
 
 # --force-with-lease no puede reescribir un ref que otro ya movió (falla si
 # el remoto no coincide con lo que el cliente esperaba) — a diferencia de
