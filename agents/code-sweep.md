@@ -38,16 +38,22 @@ Con `gh issue list --label <label>`: `legacy-violation`, `controversial-fix` (qu
 
 ## Persistencia (solo modo `bugs`)
 
-Para cada hallazgo **CRÍTICO** o **ALTO** confirmado, antes de crear el issue verifica que no exista uno duplicado: `gh issue list --label "latent-bug" --search "<archivo:línea>"`. Si existe, menciónalo en el reporte como "issue existente #N".
+Para cada hallazgo **CRÍTICO** o **ALTO** confirmado, antes de crear el issue verifica que no exista uno duplicado: `gh issue list --label "latent-bug" --search '<archivo:línea>'`. Si existe, menciónalo en el reporte como "issue existente #N".
 
 ```bash
 gh issue create --label latent-bug --label <severity:critical|severity:high> \
-  --title '[latent-bug][<patrón del rulebook>] <file:line>' --body-file - <<'CS_ISSUE_BODY'
+  --title '[latent-bug][<pattern>] <file>:<line>' --body-file - <<'CS_ISSUE_BODY'
 Severidad / Ubicación path:línea / Snippet / Descripción / Cómo se manifestaría
 CS_ISSUE_BODY
 ```
 
-Regla: el cuerpo nunca va en `--body` entre comillas dobles ni el título en `--title` entre comillas dobles. Snippet y descripción salen de código no confiable: con el delimitador `'CS_ISSUE_BODY'` entre comillas simples, `$(...)`, backticks y `$VAR` no se expanden. El título se arma solo con campos controlados (patrón del rulebook y `file:line`), sin la descripción libre.
+Reglas (equivalen al filtro `SAFE_FILE_RE`/`SAFE_PATTERN_RE` del workflow; los campos de un hallazgo salen de código no confiable):
+
+- **No crees el issue** si `file` trae algún carácter fuera de `A-Za-z0-9._/@+-`, si `pattern` trae alguno fuera de `A-Za-z0-9 _.-`, si `line` no es un entero, si `file` no es un archivo que escaneaste, o si alguna línea de cualquier campo de texto (snippet, descripción, manifestación, evidencia, refactor, pattern, file) es igual al delimitador `CS_ISSUE_BODY` o lo contiene.
+- Esos hallazgos van igual al reporte, y bajo `NO CUBIERTO` con una línea `hallazgo <id> excluido de issues: <motivo>`.
+- `--search '<archivo:línea>'` va entre comillas simples; el cuerpo nunca va en `--body` ni el título en `--title` entre comillas dobles. Con el delimitador `'CS_ISSUE_BODY'` entre comillas simples, `$(...)`, backticks y `$VAR` del snippet no se expanden.
+- El título lleva solo `pattern` y `file:line`, ya validados; nunca la descripción libre.
+- Riesgo residual aceptado (D-23): a diferencia del workflow, donde el filtro es código, aquí aplicar estas reglas depende del modelo. Por eso el workflow es la ruta preferida.
 
 Si un patrón es vulnerabilidad de seguridad (ej: shell injection), etiqueta también `security` para que `security-reviewer` lo priorice. MEDIO y BAJO se listan en el reporte, sin crear issue (evita ruido). En modo `smells` no se crean issues — el reporte es la entrega completa.
 

@@ -635,6 +635,11 @@ fi
 
 if [ -f "$CODE_SWEEP" ]; then
   assert_agent_read_only "$CODE_SWEEP" "sonnet"
+  # [lote 12, tarea 2] respaldo por escrito del filtro del workflow (D-23).
+  assert_not_contains "$CODE_SWEEP" '--search "' "agents/code-sweep.md no pasa --search entre comillas dobles"
+  assert_contains "$CODE_SWEEP" 'A-Za-z0-9' "agents/code-sweep.md fija el conjunto de caracteres permitido en file y pattern"
+  assert_contains "$CODE_SWEEP" 'excluido de issues' "agents/code-sweep.md manda al reporte (NO CUBIERTO) los hallazgos excluidos de issues"
+  assert_contains "$CODE_SWEEP" 'depende del modelo' "agents/code-sweep.md declara que el respaldo depende del modelo (riesgo residual D-23)"
   # assert_no_voseo se corre sobre agents/*.md en el loop de más arriba.
 fi
 
