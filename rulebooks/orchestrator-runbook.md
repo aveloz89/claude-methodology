@@ -145,14 +145,14 @@ El review dual ya ocurrió en Fase 2.6: **el PR nació revisado**. Esta fase cub
 
 El orchestrator propone el tier al cerrar Fase 0 (o como primera pregunta, si se saltó el brainstorming). Siempre con `AskUserQuestion`: la recomendada primero y la consecuencia de cada opción en una línea (`liviano`: sin architect ni `DESIGN.md`, sin `docs`, review simple; `completo`: fases 0 a 5). Propone `liviano` solo si se cumple **todo** lo de abajo; en duda, `completo`. Al confirmar, escribe `tier` en `state.json` antes de crear el branch (en `liviano`: `phases.design` y `phases.docs` en `skipped`).
 
-**Tamaño (las tres):** ≤10 archivos tocados (los archivos del commit `memory:` del orchestrator no cuentan para este límite), ≤300 líneas estimadas (sumando altas y bajas) y cabe en un solo lote de ≤5 tareas.
+**Tamaño (las tres):** ≤10 archivos tocados (los archivos del commit `memory:` del orchestrator no cuentan para este límite, y solo si ese commit toca exclusivamente `.claude/agent-memory/methodology-*/` y sus líneas coinciden con una `### Memoria` del registro de review; cualquier otro archivo del mismo commit cuenta), ≤300 líneas estimadas (sumando altas y bajas) y cabe en un solo lote de ≤5 tareas.
 
 **8 señales de riesgo (cualquiera → `completo`):**
 
 1. Toca auth (autenticación y autorización), crypto, secrets, pagos, PII, CORS/cookies/headers de seguridad.
 2. Migración o cambio de schema de DB.
 3. Cambia un contrato público: endpoint, schema exportado, props de componente exportado, flags de CLI, o el formato de un archivo que otro proceso lee.
-4. Toca hooks, permisos, CI/CD, branch protection, settings del harness o `.claude/agent-memory/`. El commit `memory: actualizar memoria de <agente>` del orchestrator (Fase 2.6, paso 6) no dispara esta señal.
+4. Toca hooks, permisos, CI/CD, branch protection, settings del harness o `.claude/agent-memory/`. El commit `memory: actualizar memoria de <agente>` del orchestrator (Fase 2.6, paso 6) no dispara esta señal mientras toque exclusivamente archivos bajo `.claude/agent-memory/methodology-*/` con líneas que coinciden con una `### Memoria` del registro; si toca cualquier otro archivo, ese archivo cuenta y la señal se dispara.
 5. Dependencia nueva, cambio de major o downgrade.
 6. Lógica de negocio nueva (regla, cálculo o validación de dominio que no existía); ajustar una existente no cuenta.
 7. Scripts que tocan datos (backfill, fixes de datos en producción).

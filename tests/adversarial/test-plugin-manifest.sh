@@ -1591,6 +1591,8 @@ assert_contains "$RUNBOOK" '≤10 archivos' "runbook: umbral de ≤10 archivos d
 assert_contains "$RUNBOOK" '300 líneas' "runbook: umbral de 300 líneas del tier liviano"
 assert_contains "$RUNBOOK" 'sexto archivo' "runbook: umbral del sexto archivo en edición directa"
 assert_contains "$GLOBAL_CLAUDE_MD" 'Piden confirmación' "global: lista lo que pide confirmación"
+assert_contains "$RUNBOOK" 'toque exclusivamente' "runbook señal 4: la excepción memory: vale solo si el commit toca exclusivamente agent-memory"
+assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" 'git show --name-only' "reviewer-common §9: el reviewer comprueba el commit memory: con git show --name-only"
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" '200 líneas' "reviewer-common §9: tope de 200 líneas de MEMORY.md"
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" '25 KB' "reviewer-common §9: tope de 25 KB de MEMORY.md"
 for rv in security-reviewer qa-backend qa-frontend; do
