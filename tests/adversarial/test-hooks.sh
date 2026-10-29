@@ -545,6 +545,20 @@ assert_blocked_cmd "pre-push-guard: 'git push origin HEAD:main' sigue bloqueando
 assert_allowed_cmd "pre-push-guard: 'x=`git rev-parse HEAD` && git push origin feature/x' pasa (#117)" \
   "pre-push-guard.sh" 'x=`git rev-parse HEAD` && git push origin feature/x' "$PATH" "$SANDBOX_REPO"
 
+# #117 ronda 1 (H3): la excepción de --force-with-lease evaluaba solo el
+# primer segmento "git push" (head -1); un segundo push a dev colaba.
+# RED con el guard anterior: el primer bloqueo; el resto fija el comportamiento.
+assert_blocked_cmd "block-force-push: dos --force-with-lease, el segundo a dev, bloquea (#117)" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/x && git push --force-with-lease origin dev" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: dos --force-with-lease, el primero a dev, bloquea (#117)" \
+  "block-force-push.sh" "git push --force-with-lease origin dev && git push --force-with-lease origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '--force-with-lease origin dev' solo sigue bloqueando (control, #117)" \
+  "block-force-push.sh" "git push --force-with-lease origin dev" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: dos --force-with-lease a ramas feature pasan (#117)" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/x && git push --force-with-lease origin feature/y" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: push normal seguido de --force bloquea (comportamiento fijado, #117)" \
+  "block-force-push.sh" "git push origin feature/x && git push --force origin feature/y" "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""

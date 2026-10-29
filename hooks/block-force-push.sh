@@ -47,7 +47,7 @@ guard_init "block-force-push"
 # segmento evaluado — coló un push a rama protegida (review ronda 1,
 # security MEDIUM).
 guard_force_with_lease_allowed() {
-  local dir branch push_segment raw_push_segment
+  local dir branch push_segment push_segments raw_push_segments
   dir=$(guard_session_dir) || return 1
   branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2> /dev/null) || return 1
   case "$branch" in
@@ -63,14 +63,26 @@ guard_force_with_lease_allowed() {
   # parsear el shell de verdad — la excepción no aplica y bloquea
   # fail-closed, en vez de confiar en un match que puede estar mirando un
   # segmento vaciado por el saneo.
-  raw_push_segment=$(echo "$COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}" | head -1)
-  echo "$raw_push_segment" | grep -q "['\"]" && return 1
-  push_segment=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}" | head -1)
-  # --all y --mirror empujan TODOS los refs remotos (o los espejan) sin
-  # importar qué otro ref aparezca en el resto del comando: la excepción de
-  # --force-with-lease no los cubre, siempre bloquean.
-  echo "$push_segment" | grep -qE "$GUARD_PUSH_ALL_RE" && return 1
-  ! echo "$push_segment" | grep -qE '(^|[[:space:]:])(main|master|dev)([[:space:]:]|$)|refs/heads/(main|master|dev)([[:space:]:]|$)'
+  # Se evalúan TODOS los segmentos "git push" del comando, no solo el
+  # primero (H3, ronda 1): "git push --force-with-lease origin feature/x &&
+  # git push --force-with-lease origin dev" colaba el segundo. Con comillas
+  # en cualquiera de los segmentos crudos, bloquea (fail-closed).
+  raw_push_segments=$(echo "$COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}")
+  echo "$raw_push_segments" | grep -q "['\"]" && return 1
+  push_segments=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}")
+  # La excepción aplica a los segmentos que llevan --force-with-lease: cada
+  # uno tiene que cumplirla; si cualquiera falla, bloquea. Un segmento sin
+  # la flag no es force por sí mismo (si lo fuera, LEASE_STRIPPED_COMMAND
+  # ya habría bloqueado antes de llegar acá).
+  while IFS= read -r push_segment; do
+    echo "$push_segment" | grep -q -- '--force-with-lease' || continue
+    # --all y --mirror (y --branches y los prefijos únicos, GUARD_PUSH_ALL_RE)
+    # empujan TODOS los refs remotos (o los espejan) sin importar qué otro ref
+    # aparezca en el resto del comando: la excepción nunca los cubre.
+    echo "$push_segment" | grep -qE "$GUARD_PUSH_ALL_RE" && return 1
+    echo "$push_segment" | grep -qE '(^|[[:space:]:])(main|master|dev)([[:space:]:]|$)|refs/heads/(main|master|dev)([[:space:]:]|$)' && return 1
+  done <<< "$push_segments"
+  return 0
 }
 
 # El ref del refspec forzado se cierra con "[^[:space:]:]+", no con
