@@ -129,7 +129,7 @@ Repetir por cada una de las ≤5 tareas del lote:
 - **RED:** escribe un test que describa el comportamiento esperado. Ejecútalo. **Debe fallar.** Si pasa sin código nuevo, el test no prueba nada — reescríbelo.
 - **GREEN:** escribe el código MÍNIMO para que el test pase. No más. Ejecútalo y verifica que pasa.
 - **REFACTOR:** limpia el código sin cambiar comportamiento. Tests deben seguir pasando.
-- **COMMIT:** commit local atómico con mensaje descriptivo (formato definido en CLAUDE.md raíz). Antes de empezar la siguiente tarea, actualiza `.planning/state.json` (`tasks_done`/`current_task` de tu batch).
+- **COMMIT:** commit local atómico con mensaje descriptivo (formato de commits de `~/.claude/CLAUDE.md`). Antes de empezar la siguiente tarea, actualiza `.planning/state.json` (`tasks_done`/`current_task` de tu batch).
 
 ### 3. Verificación pre-commit (por cada commit)
 

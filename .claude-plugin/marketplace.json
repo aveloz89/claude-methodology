@@ -6,7 +6,7 @@
     {
       "name": "methodology",
       "source": "./",
-      "description": "Metodología completa: 10 agentes, 12 hooks, 4 skills"
+      "description": "Metodología completa: 10 agentes, 11 hooks, 4 skills, 1 workflow"
     }
   ]
 }

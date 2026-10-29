@@ -2,8 +2,15 @@
 # Verifica que un PR no tenga threads de review sin resolver, reviews
 # bloqueantes, ni CI checks fallando antes de permitir el merge.
 # hooks.json filtra con "if": "Bash(gh *)" — no reemplaza la validación de
-# abajo. Contrato PreToolUse: bloquear = stderr + exit 2, permitir = exit
-# 0 sin stdout.
+# abajo. Contrato PreToolUse, tres estados (único guard con el tercero):
+#   - bloquear: stderr + exit 2, sin stdout (ningún JSON);
+#   - silencio: exit 0 sin stdout cuando no hay nada que decidir (el comando
+#     no es un merge, o `gh pr merge --help`/`-h` exactos);
+#   - ask: exit 0 + JSON permissionDecision "ask", SOLO tras las tres
+#     verificaciones en verde (threads, CHANGES_REQUESTED, checks; "sin
+#     checks configurados" cuenta como verde). En -p/dontAsk el ask se
+#     resuelve como denegación según la doc del harness; sin verificar
+#     end-to-end en esta versión.
 #
 # Forma aceptada, anclada de punta a punta sobre el texto CRUDO: "gh pr
 # merge <N> [flag ...]", sola en el comando y en una línea. <N> =
@@ -337,7 +344,8 @@ rm -f "$CHECKS_STDERR_FILE"
 if [ -z "$CHECKS_OUTPUT" ] && [ "$NO_CHECKS_CONFIGURED" = false ]; then
   block "Blocked: no pude consultar los CI checks del PR #${PR_NUMBER}. Reintenta — el guard no verifica a ciegas."
 fi
-FAILED_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -cE '\bfail\b|\berror\b' || true)
+# cancel/cancelled cuenta como fallo: una corrida cancelada no es un check verde.
+FAILED_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -cE '\bfail\b|\berror\b|\bcancel(led)?\b' || true)
 PENDING_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -cE '\bpending\b|\bqueued\b' || true)
 if [ "$FAILED_CHECKS" -gt 0 ]; then
   ERRORS="${ERRORS}  - Hay ${FAILED_CHECKS} CI check(s) fallando\n"
@@ -353,4 +361,19 @@ if [ -n "$ERRORS" ]; then
   exit 2
 fi
 
+# Único camino de éxito: las tres verificaciones pasaron (incluido "sin
+# checks configurados"). Estado "ask": exit 0 + JSON, para que el usuario
+# confirme el merge. En -p/dontAsk el ask se resuelve como denegación
+# según la doc del harness; sin verificar end-to-end en esta versión.
+if [ "$NO_CHECKS_CONFIGURED" = true ]; then
+  CHECKS_TEXT="sin checks configurados"
+else
+  CHECKS_TEXT="checks en verde"
+fi
+# Si jq falla, no hay JSON: bloquear en vez de salir 0 sin `ask` (silencio
+# = el comando pasaría sin que nadie confirme el merge).
+ASK_JSON=$(jq -nc --arg reason "pre-merge-check: PR #${PR_NUMBER} verificado (sin threads abiertos, sin CHANGES_REQUESTED, ${CHECKS_TEXT}). Confirma el merge." \
+  '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: $reason}}') \
+  || block "pre-merge-check: no pude construir la decisión ask"
+echo "$ASK_JSON"
 exit 0

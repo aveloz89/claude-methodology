@@ -4,5 +4,8 @@
       "Bash(gh issue:*)",
       "Bash(gh label:*)"
     ]
+  },
+  "worktree": {
+    "baseRef": "head"
   }
 }

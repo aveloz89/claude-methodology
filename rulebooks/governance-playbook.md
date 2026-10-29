@@ -143,9 +143,11 @@ Build falla en main o dev después de merge
 ## 9. Contexto agotado durante implementación (sesión del usuario)
 
 ```
-El context-monitor avisa que el contexto está en 25% (critical)
-  → Paso 1: Aplicar el procedimiento de Pause / Resume de la skill orchestrator
-  → Paso 2: Informar al usuario que debe iniciar nueva sesión
+El harness compacta el contexto solo
+  → pre-compact-snapshot guarda .planning/ antes de compactar
+  → Si la sesión queda inconsistente tras compactar: aplicar Pause / Resume
+    de la skill orchestrator y restaurar .planning/ desde el snapshot
+    (~/.claude/methodology/snapshots/<slug>/)
 ```
 
 ## 10. Budget agotado en una invocación de agente
@@ -153,3 +155,21 @@ El context-monitor avisa que el contexto está en 25% (critical)
 Distinto de #9 — acá el corte es del *sub-agente* (dev, qa, etc.), no de la sesión del usuario. Causa raíz típica: el orchestrator pasó demasiadas tareas en una invocación.
 
 El fallback completo (leer `HANDOFF.md`, confirmar commits per-tarea, reinvocar bajo el cap de 5) y su prevención viven en `rulebooks/agent-budget.md` — no se duplican acá. Si el agente se cortó sin aplicarlo: sin commits, re-invoca desde cero con el cap; con commits parciales, continúa desde la última tarea completada. Abre un issue si el patrón se repite.
+
+## 11. Worktree de subagente huérfano o merge de rama `worktree-*` con conflicto
+
+Aplica al modo `isolation: "worktree"` de lotes paralelos (runbook, "Fase 2"). Las ramas `worktree-*` no se limpian solas.
+
+```
+Queda un worktree o una rama worktree-* sin integrar, o su merge da conflicto
+  → Paso 1: git worktree list y git branch --list 'worktree-*' para ver qué quedó
+  → Paso 2: Si el directorio sigue en .claude/worktrees/, inspeccionar los cambios
+    sin commitear (git -C <ruta> status) antes de tocarlo — no borrar a ciegas
+  → Paso 3: Si el trabajo del dev es valioso
+     → Desde el checkout principal: git merge --no-ff <rama-worktree>
+     → Si el merge da conflicto: los lotes no eran disjuntos
+       → git merge --abort, detener y escalar al usuario con el diff del conflicto
+  → Paso 4: Si es descartable
+     → git worktree remove .claude/worktrees/<nombre> (o git worktree prune si el directorio ya no existe)
+  → Paso 5: git branch -d <rama-worktree> (con -D solo si el usuario lo confirma)
+```

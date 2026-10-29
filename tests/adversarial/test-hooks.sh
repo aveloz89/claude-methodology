@@ -3598,11 +3598,12 @@ _pyrun_cleanup
 # --- pre-merge-check.sh ---
 echo "--- pre-merge-check.sh ---"
 
-# pre-merge-check.sh responde con stderr + exit 2 (bloquear) o exit 0 sin
-# stdout (permitir) — mismo contrato que pre-push-guard.sh/pre-commit-
-# guard.sh (auditoría best-practices, migrado desde el JSON
-# {"decision":"block"}/{"continue":true} que usaba antes; el motivo de
-# bloqueo sigue verificable en stderr). Usa helpers propios (no
+# pre-merge-check.sh tiene tres estados: bloquear = stderr + exit 2 sin
+# stdout (el motivo sigue verificable en stderr); silencio = exit 0 sin
+# stdout cuando no hay nada que decidir (comando que no es un merge,
+# `gh pr merge --help`/`-h`); ask = exit 0 + JSON permissionDecision "ask",
+# solo tras las tres verificaciones en verde. En -p/dontAsk el ask se
+# resuelve como denegación. Usa helpers propios (no
 # assert_blocked_cmd/assert_allowed_cmd genéricos) porque además llama a gh
 # internamente: estos tests reemplazan gh en el PATH por un fake
 # determinístico (sin red) que responde según $FAKE_GH_MODE.
@@ -3617,7 +3618,11 @@ case "$1 $2" in
     echo "owner/repo"
     ;;
   "pr view")
-    echo '{"reviewDecision":null}'
+    if [ "$FAKE_GH_MODE" = "changes_requested" ]; then
+      echo '{"reviewDecision":"CHANGES_REQUESTED"}'
+    else
+      echo '{"reviewDecision":null}'
+    fi
     ;;
   "api graphql")
     case "$FAKE_GH_MODE" in
@@ -3626,6 +3631,9 @@ case "$1 $2" in
         # renombrado, error con HTTP 200) — jq falla al indexar .pullRequest
         # sobre null.
         echo '{"data":{"repository":null}}'
+        ;;
+      threads_open)
+        echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":true},{"isResolved":false}]}}}}}'
         ;;
       *)
         echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
@@ -3641,6 +3649,12 @@ case "$1 $2" in
       checks_fail)
         echo "gh: unexpected error connecting to api.github.com" >&2
         exit 1
+        ;;
+      checks_pending)
+        printf 'some-check\tpass\t1s\nslow-check\tpending\t0\n'
+        ;;
+      checks_cancelled)
+        printf 'some-check\tpass\t1s\nold-run\tcancel\t2s\n'
         ;;
       *)
         printf 'some-check\tpass\t1s\n'
@@ -3670,19 +3684,53 @@ assert_pre_merge_continue() {
   fi
 }
 
+assert_pre_merge_ask() {
+  local test_name="$1" cmd="$2" fake_gh_mode="${3:-}"
+  TOTAL=$((TOTAL + 1))
+  local json exit_code=0 stdout
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  stdout=$(echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null) || exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && echo "$stdout" | jq -e '.hookSpecificOutput.permissionDecision == "ask" and .hookSpecificOutput.hookEventName == "PreToolUse" and (.hookSpecificOutput.permissionDecisionReason | contains("PR #45"))' > /dev/null 2>&1; then
+    echo -e "${GREEN}PASS${NC}: $test_name (ask emitted)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stdout: $stdout)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# Silencio: exit 0 con stdout vacío cuando no hay nada que decidir. Falla si
+# el JSON de ask se emitiera fuera del camino de éxito final.
+assert_pre_merge_silent() {
+  local test_name="$1" cmd="$2" fake_gh_mode="${3:-}"
+  TOTAL=$((TOTAL + 1))
+  local json exit_code=0 stdout
+  json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
+  stdout=$(echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null) || exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && [ -z "$stdout" ]; then
+    echo -e "${GREEN}PASS${NC}: $test_name (silent exit 0)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stdout: $stdout)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 assert_pre_merge_blocked() {
   local test_name="$1" cmd="$2" expected_substring="$3" fake_gh_mode="${4:-}"
   TOTAL=$((TOTAL + 1))
-  local json exit_code=0 stderr_file
+  local json exit_code=0 stderr_file stdout
   stderr_file=$(mktemp)
   json=$(jq -n --arg cmd "$cmd" '{tool_input: {command: $cmd}}')
-  echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" > /dev/null 2>"$stderr_file" || exit_code=$?
+  stdout=$(echo "$json" | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="$fake_gh_mode" bash "$HOOKS_DIR/pre-merge-check.sh" 2>"$stderr_file") || exit_code=$?
 
-  if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file"; then
-    echo -e "${GREEN}PASS${NC}: $test_name (blocked with expected reason)"
+  if [ "$exit_code" -eq 2 ] && [ -z "$stdout" ] && grep -qF -- "$expected_substring" "$stderr_file"; then
+    echo -e "${GREEN}PASS${NC}: $test_name (blocked with expected reason, no stdout)"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stderr: $(cat "$stderr_file"))"
+    echo -e "${RED}FAIL${NC}: $test_name (exit code: $exit_code, stdout: $stdout, stderr: $(cat "$stderr_file"))"
     FAIL=$((FAIL + 1))
   fi
   rm -f "$stderr_file"
@@ -3738,7 +3786,7 @@ assert_pre_merge_blocked "Compound command with merge after && now blocks (D-04:
 
 # Caso 5a: PR sin checks configurados (repo sin CI) — es un pass legítimo,
 # no debe bloquear.
-assert_pre_merge_continue "No CI checks configured does not block" "gh pr merge 45" "checks_none"
+assert_pre_merge_ask "No CI checks configured emits ask" "gh pr merge 45" "checks_none"
 
 # Caso 5b: la consulta de checks falla de verdad (no es el caso "sin
 # checks") — sigue bloqueando fail-closed.
@@ -3751,10 +3799,53 @@ assert_pre_merge_blocked "Genuine CI checks query failure still blocks" "gh pr m
 # resolver": el guard pasaba en silencio (fail-open) en vez de bloquear.
 assert_pre_merge_blocked "GraphQL body with null repository still blocks (fail-closed)" "gh pr merge 45" "no pude parsear los threads de review" "threads_null_repo"
 
+# Caso 5e [lote 10, B4]: el bloque ERRORS (threads abiertos,
+# CHANGES_REQUESTED, checks pendientes o cancelados) bloquea con exit 2,
+# el motivo en stderr y stdout vacío; antes ningún test lo ejercía y un
+# `ask` emitido ahí pasaba la suite.
+assert_pre_merge_blocked "Unresolved review threads block (exit 2, no stdout)" "gh pr merge 45" "1 thread(s) de review sin resolver" "threads_open"
+assert_pre_merge_blocked "CHANGES_REQUESTED review blocks (exit 2, no stdout)" "gh pr merge 45" "CHANGES_REQUESTED" "changes_requested"
+assert_pre_merge_blocked "Pending CI check blocks (exit 2, no stdout)" "gh pr merge 45" "1 CI check(s) pendientes" "checks_pending"
+assert_pre_merge_blocked "Cancelled CI check counts as failing and blocks" "gh pr merge 45" "1 CI check(s) fallando" "checks_cancelled"
+
+# Caso 5f [lote 10]: si jq no puede construir el JSON final, el hook
+# bloquea en vez de salir 0 sin `ask`. El wrapper falla solo con `-nc`.
+JQ_REAL=$(command -v jq)
+FAKE_JQ_DIR=$(mktemp -d)
+cat > "$FAKE_JQ_DIR/jq" <<FAKE_JQ_EOF
+#!/bin/bash
+[ "\$1" = "-nc" ] && exit 1
+exec "$JQ_REAL" "\$@"
+FAKE_JQ_EOF
+chmod +x "$FAKE_JQ_DIR/jq"
+TOTAL=$((TOTAL + 1))
+JQFAIL_EXIT=0
+JQFAIL_STDOUT=$(echo '{"tool_input":{"command":"gh pr merge 45"}}' | PATH="$FAKE_JQ_DIR:$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="" bash "$HOOKS_DIR/pre-merge-check.sh" 2>"$FAKE_JQ_DIR/stderr") || JQFAIL_EXIT=$?
+if [ "$JQFAIL_EXIT" -eq 2 ] && [ -z "$JQFAIL_STDOUT" ] && grep -qF "no pude construir la decisión ask" "$FAKE_JQ_DIR/stderr"; then
+  echo -e "${GREEN}PASS${NC}: jq fallando en el JSON final bloquea (exit 2, sin ask)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: jq fallando en el JSON final bloquea (exit: $JQFAIL_EXIT, stdout: $JQFAIL_STDOUT, stderr: $(cat "$FAKE_JQ_DIR/stderr"))"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$FAKE_JQ_DIR"
+
+# Caso 5g [lote 10]: "checks en verde" solo cuando los hay; sin checks
+# configurados el motivo del ask lo dice.
+TOTAL=$((TOTAL + 1))
+NOCHECKS_REASON=$(echo '{"tool_input":{"command":"gh pr merge 45"}}' | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="checks_none" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecisionReason')
+if echo "$NOCHECKS_REASON" | grep -qF "sin checks configurados" && ! echo "$NOCHECKS_REASON" | grep -qF "checks en verde"; then
+  echo -e "${GREEN}PASS${NC}: el ask sin checks configurados no dice \"checks en verde\""
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: el ask sin checks configurados no dice \"checks en verde\" (motivo: $NOCHECKS_REASON)"
+  FAIL=$((FAIL + 1))
+fi
+
 # Caso 5d: el caso normal (JSON válido con 0 threads sin resolver) sigue
 # pasando — jq -e no vuelve falsy un `length` de 0 (jq -e solo distingue
 # null/false del resto, y 0 no es ninguno de los dos).
-assert_pre_merge_continue "Valid GraphQL response with 0 unresolved threads still passes" "gh pr merge 45" ""
+assert_pre_merge_ask "Valid GraphQL response with 0 unresolved threads emits ask" "gh pr merge 45" ""
 
 # Caso 6: fail-closed sin dependencias (#50, extendido a grep en la
 # retro del PR #60) — antes, si faltaba perl o jq, la sustitución/parseo
@@ -3813,6 +3904,9 @@ rm -rf "$NO_GREP_PMC_BIN"
 
 # Con las tres disponibles (PATH normal): comportamiento intacto.
 assert_pre_merge_continue "pre-merge-check con perl, jq y grep disponibles: comportamiento normal intacto (#50)" "git status"
+assert_pre_merge_silent "pre-merge-check: 'git status' sale 0 con stdout vacío (sin JSON fuera del camino de éxito)" "git status"
+assert_pre_merge_silent "pre-merge-check: 'gh pr merge --help' sale 0 con stdout vacío" "gh pr merge --help"
+assert_pre_merge_silent "pre-merge-check: 'gh pr merge -h' sale 0 con stdout vacío" "gh pr merge -h"
 
 # [security LOW-2] "perl falló en tiempo de ejecución" y "perl ausente"
 # tienen que ser el MISMO estado para este guard: bloquea. Los otros dos
@@ -5250,12 +5344,12 @@ echo ""
 echo "--- sandbox infra ---"
 
 # Caso trivial: usa sandbox_create/sandbox_cleanup + assert_exit0 con un hook
-# ya existente (context-monitor.sh, siempre exit 0 y sin efectos en
+# ya existente (post-pr-create.sh, con input {} sale 0 y sin efectos en
 # filesystem) para probar la infraestructura de sandbox en sí misma, sin
 # depender de un hook todavía no implementado.
 sandbox_create
-assert_exit0 "Sandbox trivial: context-monitor.sh no crea nada en el sandbox" \
-  "$HOOKS_DIR/context-monitor.sh" \
+assert_exit0 "Sandbox trivial: post-pr-create.sh no crea nada en el sandbox" \
+  "$HOOKS_DIR/post-pr-create.sh" \
   '{}' \
   "$SANDBOX_REPO" \
   "$SANDBOX_HOME" \
@@ -5888,6 +5982,28 @@ else
   FAIL=$((FAIL + 1))
 fi
 sandbox_cleanup
+
+# Caso: línea "Tier: <valor>" — liviano se renderiza, ausente cae a completo,
+# fuera del enum es "?" (mismo contrato que status).
+for TIER_CASE in 'liviano|"tier": "liviano",|Tier: liviano' 'ausente||Tier: completo' 'null|"tier": null,|Tier: completo' 'x|"tier": "x",|Tier: ?'; do
+  TIER_LABEL="${TIER_CASE%%|*}"; TIER_REST="${TIER_CASE#*|}"
+  TIER_FIELD="${TIER_REST%%|*}"; TIER_WANT="${TIER_REST#*|}"
+  sandbox_create
+  mkdir -p "$SANDBOX_REPO/.planning"
+  cat > "$SANDBOX_REPO/.planning/state.json" << TIER_EOF
+{"schema": 1, $TIER_FIELD "phases": {"brainstorming": "done", "design": "pending"}, "batches": []}
+TIER_EOF
+  OUTPUT_TIER=$(cd "$SANDBOX_REPO" && HOME="$SANDBOX_HOME" bash "$HOOKS_DIR/session-start-context.sh" 2>&1)
+  TOTAL=$((TOTAL + 1))
+  if echo "$OUTPUT_TIER" | grep -qxF "$TIER_WANT"; then
+    echo -e "${GREEN}PASS${NC}: SessionStart imprime \"$TIER_WANT\" (tier $TIER_LABEL)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: SessionStart no imprime \"$TIER_WANT\" (tier $TIER_LABEL; output: $OUTPUT_TIER)"
+    FAIL=$((FAIL + 1))
+  fi
+  sandbox_cleanup
+done
 
 # Caso: sanitización — un name de batch con caracteres de control y un
 # salto de línea, bien dentro de la ventana de truncado (~80 chars), no debe

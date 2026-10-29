@@ -54,11 +54,6 @@
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/context-monitor.sh\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/docker-refresh.sh\"",
             "timeout": 15
           }

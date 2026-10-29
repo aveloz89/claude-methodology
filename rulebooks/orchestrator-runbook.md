@@ -1,20 +1,21 @@
 # Orchestrator Runbook
 
-Detalle operativo del flujo de orchestration. **Lectura bajo demanda**: las invariantes viven en `CLAUDE.md` raíz y se cargan siempre; el manual de la sesión principal (fases, equipo de subagentes, lotes) vive en la skill `orchestrator`; este documento se consulta cuando necesitas un formato exacto, un comando específico o resolver una situación puntual.
+Detalle operativo del flujo de orchestration. **Lectura bajo demanda**: las invariantes viven en `~/.claude/CLAUDE.md` y se cargan siempre; el manual de la sesión principal (fases, equipo de subagentes, lotes) vive en la skill `orchestrator`; este documento se consulta cuando necesitas un formato exacto, un comando específico o resolver una situación puntual.
 
 ---
 
 ## Contenido
 
 1. [Detalle de cada fase del flujo](#detalle-de-cada-fase-del-flujo)
-2. [Cuándo un lote es DB complejo](#cuándo-un-lote-es-db-complejo)
-3. [Template del prompt de handoff a devs](#template-del-prompt-de-handoff-a-devs)
-4. [Formatos de archivos en `.planning/`](#formatos-de-archivos-en-planning)
-5. [Clasificación del diff por capa (frontend / backend)](#clasificación-del-diff-por-capa)
-6. [Comandos `gh` específicos](#comandos-gh-específicos)
-7. [Formato de reporte de review](#formato-de-reporte-de-review)
-8. [Pre-release E2E (Modo B del e2e-runner)](#pre-release-e2e-modo-b-del-e2e-runner)
-9. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
+2. [Tier del flujo](#tier-del-flujo)
+3. [Cuándo un lote es DB complejo](#cuándo-un-lote-es-db-complejo)
+4. [Template del prompt de handoff a devs](#template-del-prompt-de-handoff-a-devs)
+5. [Formatos de archivos en `.planning/`](#formatos-de-archivos-en-planning)
+6. [Clasificación del diff por capa (frontend / backend)](#clasificación-del-diff-por-capa)
+7. [Comandos `gh` específicos](#comandos-gh-específicos)
+8. [Formato de reporte de review](#formato-de-reporte-de-review)
+9. [Pre-release E2E (Modo B del e2e-runner)](#pre-release-e2e-modo-b-del-e2e-runner)
+10. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
 
 ---
 
@@ -48,6 +49,27 @@ Setup del branch (una sola vez): `git checkout dev && git pull origin dev && git
 
 **Modo single-PR (default):** todos los lotes corren sobre el mismo branch. Invocas cada lote en orden con `last_batch=false`; el dev commitea por tarea y termina sin push ni PR; esperas su reporte antes de pasar al siguiente. El último lote lleva `last_batch=true` (verificación final completa, sin push ni PR) — después vienen docs (2.5), review dual local (2.6) y push + PR (2.7). **Con lote `db-complejo`**: primero ese lote (schema, migraciones, queries, tests de DB, con `rulebooks/db-migrations.md`), después el resto de `backend-dev`, `frontend-dev` al final. Back/front paralelizan si son archivos disjuntos. Un plan con lote consumidor antes del `db-complejo` se devuelve al architect.
 
+**Lotes paralelos.** Dos lotes corren a la vez solo si sus archivos son disjuntos; si no lo son, van en secuencia. Hay dos modos:
+
+*(a) Worktree por llamada.* Pasas `isolation: "worktree"` en la llamada al `Agent` (no en el frontmatter del agente). Requisito: `.claude/settings.json` del proyecto con `{"worktree": {"baseRef": "head"}}`; sin eso el worktree ramifica desde `origin/<default>` y su merge arrastraría `main` al feature. Contrato del handoff en este modo:
+- El dev trabaja en la rama `worktree-<nombre>` (observado `worktree-agent-<hash>`): no crea otra ni la renombra.
+- `.planning/` está gitignorado y no existe en el worktree. El handoff pasa rutas absolutas del checkout principal para leer `DESIGN.md`/`BRIEF.md` y para escribir `state.json` y `HANDOFF.md`.
+
+Integración, desde el checkout principal, cuando los devs reportaron (un merge por lote):
+```bash
+git merge --no-ff <rama-worktree> -m "merge: integrar lote <N> (worktree)"
+git worktree prune                                  # si el harness ya borró el directorio
+git worktree remove .claude/worktrees/<nombre>      # si quedó; con cambios sin commitear, inspecciónalos antes
+git branch -d <rama-worktree>
+```
+Un conflicto en ese merge significa que los lotes no eran disjuntos: detienes y escalas (`governance-playbook.md` §11).
+
+*(b) Mismo checkout, archivos disjuntos.* Es el modo cuando falta `baseRef = head`. Reglas de convivencia, que van en el handoff de cada dev:
+- Commitea solo tus archivos con pathspec: `git add <paths>` y `git commit -m "…" -- <paths>`; nunca `-a` ni `-A`.
+- Corre solo las suites que tu lote toca.
+- No toques archivos del otro lote.
+- Actualiza `state.json` con escritura atómica (`jq … > tmp && mv`).
+
 **Modo multi-PR** (solo si el architect lo justificó): cada grupo de lotes corre sobre branch + PR propio — branch desde dev, lotes del grupo (último `last_batch=true`), Fase 2.5 → 2.6 → 2.7 → 2.8 → 3 → 5, y al siguiente grupo.
 
 Cada invocación de dev lleva `description` `Lote N: …` (ver "Template del prompt de handoff a devs"); los lotes de fixes (review, CI) se añaden a `batches[]` antes de lanzar al dev (contrato en "`STATE.md` + `state.json`").
@@ -69,7 +91,10 @@ El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` r
 3. **Consolida y registra**: el orchestrator es el único escritor del registro — ningún reviewer lo toca (tienen `Write`/`Edit` prohibidos). Consolidas los reportes **después de que vuelvan todos**, con el "Formato de reporte de review", guardado local (sin commit) en `.planning/reviews/<feature-slug>.md`
 4. **Mientras haya un reviewer corriendo, el árbol no se mueve.** Espera a que vuelvan todos antes de aplicar nada. Vale igual para un dev en paralelo: si un lote y un review tocan los mismos archivos, no van juntos
 5. **Si hay bloqueantes**: fixes por el dev correspondiente en un lote de fixes nuevo (ver "Fase 2"), sin push (schema/migración va a `backend-dev` con `rulebooks/db-migrations.md`). Re-lanza solo los reviewers que marcaron issues, acotados al delta local. Sugerencias baratas: aplicadas antes del push (skill `pr-workflow`, §2)
-6. **Veredictos limpios**: `phases.review = done` y `review_sha` al SHA de HEAD, avanza a Fase 2.7. Fixes, sugerencias y registro viajan en el push inicial: **el PR nace revisado**
+6. **Memoria de los reviewers** (tras consolidar): vuelca las entradas de `### Memoria` de cada reviewer en `.claude/agent-memory/methodology-<agente>/MEMORY.md` con el formato de `rulebooks/reviewer-common.md` §9, manteniéndolo bajo 200 líneas / 25 KB (el detalle va en archivos aparte del mismo directorio), y commitea `memory: actualizar memoria de <agente>` en el mismo branch. Eres el único escritor y filtras antes de escribir: persiste solo líneas con el formato exacto de §9 (`- [YYYY-MM-DD] <falso-positivo|decision|convencion> — <una línea> (origen: …)`); descarta las que matcheen patrones de secrets (tokens, claves, `ghp_`, `sk-`, `AKIA`, cadenas base64 largas) o que cite código del diff; persiste `falso-positivo` solo si tú o el usuario lo confirmaron en esta sesión; y no persiste nada de un review cuyo diff tocó `.claude/agent-memory/**`. Muestra al usuario, en el reporte de fase, las líneas de memoria que persistes (control humano contra el envenenamiento semántico: una `decision`/`convencion` bien formateada que normalice un patrón inseguro). Sin propuestas que pasen el filtro, no hay commit. Si la ronda de review ocurre con el PR ya abierto (Fase 3), el commit `memory:` viaja en el push consolidado de esa ronda (`pr-workflow`, regla 3.2), no en un push aparte
+7. **Veredictos limpios**: `phases.review = done` y `review_sha` al SHA de HEAD, avanza a Fase 2.7. Fixes, sugerencias, memoria y registro viajan en el push inicial: **el PR nace revisado**
+
+**En tier liviano**, el paso 2 se sustituye por un review simple: invoca la skill nativa `code-review` con la tool `Skill`, sin bajar el nivel de esfuerzo de la sesión, con la instrucción "skip style, concéntrate en correctitud" y sin `--fix` (read-only). Corre en background: espera su resultado antes de tocar el árbol (paso 4). Suma `security-reviewer`, con el handoff habitual sobre el diff local, solo si el diff toca cualquiera de las señales 1, 4 u 8 (auth y autorización, crypto, secrets, pagos, PII, CORS/cookies/headers; hooks, permisos, CI, settings del harness o `.claude/agent-memory/`; input externo que construye comandos, queries o rutas, o que se deserializa). Es condicional porque esas señales ya mandan a `completo`: aplica cuando el usuario eligió `liviano` pese a una señal o el diff final las toca. Consolidas el reporte en `.planning/reviews/<feature-slug>.md` y cierras igual que en el paso 7: `phases.review = done` y `review_sha` al SHA de HEAD (así `post-pr-create.sh` no cambia). Fallback: si `code-review` no figura en la lista de skills de la sesión, o la invocación devuelve que no existe o está deshabilitada (`-p`, entornos sin feature flags), lanza `qa-backend` o `qa-frontend` según la capa tocada ("Clasificación del diff por capa"), con el handoff de siempre: un solo review, read-only. Los fixes los aplica el orchestrator dentro de su límite de edición directa o un lote de dev.
 
 ### Fase 2.7: Push + PR
 
@@ -100,7 +125,7 @@ Si falla algún check: lee logs (`gh run view <run-id> --log-failed`), asigna el
 El review dual ya ocurrió en Fase 2.6: **el PR nació revisado**. Esta fase cubre solo lo que requiere el PR abierto:
 
 1. **Re-review condicional**: solo si la Fase 2.8 obligó fixes sobre código ya revisado. Acotado al delta, re-lanzando solo los reviewers de la capa afectada (skill `pr-workflow`, §2). Append al registro local. Si CI pasó a la primera, no-op
-2. **Si el PR es a `main`**: invoca `e2e-runner` Modo B antes de la verificación pre-merge (ver "Pre-release E2E"); opcionalmente `code-sweep` modo `bugs` sobre el diff
+2. **Si el PR es a `main`**: invoca `e2e-runner` Modo B antes de la verificación pre-merge (ver "Pre-release E2E"); opcionalmente `code-sweep` modo `bugs` sobre el diff: default el workflow `/methodology:code-sweep bugs pre-release <paths>` con los paths del diff (`git diff --name-only <base>...HEAD`, o los directorios que los contienen), invocado con la tool `Skill`/`Workflow` según lo exponga el harness; fallback al agente `code-sweep` si el comando no figura o la invocación devuelve «Dynamic workflows are disabled by managed settings» / «Dynamic workflows are not enabled for this session» (el agente recibe la lista de archivos del diff). El marcador `BLOQUEANTE PRE-RELEASE` del workflow equivale al bloqueo del agente
 3. Sin nada pendiente, avanza a **Fase 5**
 
 **PRs fuera del flujo** (sin review pre-push, señalado por `post-pr-create`): skill `review-pr`.
@@ -108,11 +133,36 @@ El review dual ya ocurrió en Fase 2.6: **el PR nació revisado**. Esta fase cub
 ### Fase 5: Merge
 
 1. Ejecuta la **verificación pre-merge** (3 checks en sección "Comandos `gh` específicos")
-2. Solo si las verificaciones pasan **y el usuario aprobó el merge explícitamente** (invariante 3 de `CLAUDE.md`: no se infiere de CI verde), mergea con el comando apropiado según el tipo de branch:
+2. Solo si las verificaciones pasan, lanza `gh pr merge`: el hook `pre-merge-check` devuelve `ask` (`permissionDecision`) y el prompt de permiso pide la confirmación al usuario; CI verde no la reemplaza, y en modos no interactivos el prompt se resuelve como denegación (según la doc del harness; sin verificar end-to-end en esta versión); en cualquier modo, la aprobación del usuario en la conversación precede a `gh pr merge`. El comando depende del tipo de branch:
    - `feature/*` o `hotfix/*` → `gh pr merge <number> --merge --delete-branch`
-   - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `CLAUDE.md`)
+   - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `~/.claude/CLAUDE.md`)
 3. Si era hotfix (PR a main), después del merge integra a dev (procedimiento más abajo)
 4. Después del merge: `.planning/state.json` con `phases.merge` en `done` (local — `.planning/` no se versiona, no hay commit que hacer)
+
+---
+
+## Tier del flujo
+
+El orchestrator propone el tier al cerrar Fase 0 (o como primera pregunta, si se saltó el brainstorming). Siempre con `AskUserQuestion`: la recomendada primero y la consecuencia de cada opción en una línea (`liviano`: sin architect ni `DESIGN.md`, sin `docs`, review simple; `completo`: fases 0 a 5). Propone `liviano` solo si se cumple **todo** lo de abajo; en duda, `completo`. Al confirmar, escribe `tier` en `state.json` antes de crear el branch (en `liviano`: `phases.design` y `phases.docs` en `skipped`).
+
+**Tamaño (las tres):** ≤10 archivos tocados (los archivos del commit `memory:` del orchestrator no cuentan para este límite, y solo si ese commit toca exclusivamente `.claude/agent-memory/methodology-*/` y sus líneas coinciden con una `### Memoria` del registro de review; cualquier otro archivo del mismo commit cuenta), ≤300 líneas estimadas (sumando altas y bajas) y cabe en un solo lote de ≤5 tareas.
+
+**8 señales de riesgo (cualquiera → `completo`):**
+
+1. Toca auth (autenticación y autorización), crypto, secrets, pagos, PII, CORS/cookies/headers de seguridad.
+2. Migración o cambio de schema de DB.
+3. Cambia un contrato público: endpoint, schema exportado, props de componente exportado, flags de CLI, o el formato de un archivo que otro proceso lee.
+4. Toca hooks, permisos, CI/CD, branch protection, settings del harness o `.claude/agent-memory/`. El commit `memory: actualizar memoria de <agente>` del orchestrator (Fase 2.6, paso 6) no dispara esta señal mientras toque exclusivamente archivos bajo `.claude/agent-memory/methodology-*/` con líneas que coinciden con una `### Memoria` del registro; si toca cualquier otro archivo, ese archivo cuenta y la señal se dispara.
+5. Dependencia nueva, cambio de major o downgrade.
+6. Lógica de negocio nueva (regla, cálculo o validación de dominio que no existía); ajustar una existente no cuenta.
+7. Scripts que tocan datos (backfill, fixes de datos en producción).
+8. Input externo que construye comandos, queries o rutas, o que se deserializa.
+
+**Edición directa en `liviano`:** el orchestrator edita hasta 5 archivos acumulados por PR, sin lógica de negocio nueva ni migración. Antes de commitear aplica los seis pasos de la verificación pre-commit (`~/.claude/CLAUDE.md`), no solo suite y lint. Al sexto archivo delega un único lote a un dev (`last_batch=true`). Si haría falta un segundo lote, ya no es `liviano`.
+
+**Escalada a `completo`** (en cualquier momento): el cambio supera el tamaño, aparece una señal de riesgo o el usuario lo pide. El orchestrator lo dice, registra `[D-NN] escalada: <motivo>` en `STATE.md`, pone `tier = "completo"`, `phases.design = "pending"` y `phases.docs = "pending"`, y sigue desde Fase 1 con lo ya commiteado como insumo del `architect`. Si el usuario eligió `liviano` pese a una señal de riesgo, queda registrado en `STATE.md`, y `security-reviewer` corre si el diff toca cualquiera de las señales 1, 4 u 8.
+
+Fase 0 no cambia. En `liviano`, `BRIEF.md` puede ser corto (objetivo, alcance, criterios).
 
 ---
 
@@ -132,7 +182,9 @@ El review dual ya ocurrió en Fase 2.6: **el PR nació revisado**. Esta fase cub
 
 ## Template del prompt de handoff a devs
 
-Cada subagente recibe un paquete de contexto armado por ti, **no el historial completo ni tareas de otros lotes**: `architect` recibe `BRIEF.md` completo; `backend-dev`/`frontend-dev` reciben solo las tareas y la sección de `DESIGN.md` de su lote + path al schema/contratos + branch + `last_batch` + `rules/<lenguaje>.md` (y en `db-complejo`, además schema actual + `rulebooks/db-migrations.md`); si no es el primer lote, instrucción de leer `git log`/`STATE.md`/`state.json`; `security-reviewer`/`qa-*` reciben la fuente del diff (local o `gh pr diff`, según la fase) + `DESIGN.md` + `BRIEF.md`.
+Cada subagente recibe por defecto un paquete de contexto armado por ti (paquete mínimo; sin tareas de otros lotes ni outputs de fases cerradas): `architect` recibe `BRIEF.md` completo; `backend-dev`/`frontend-dev` reciben solo las tareas y la sección de `DESIGN.md` de su lote + path al schema/contratos + branch + `last_batch` + `rules/<lenguaje>.md` (y en `db-complejo`, además schema actual + `rulebooks/db-migrations.md`); si no es el primer lote, instrucción de leer `git log`/`STATE.md`/`state.json`; `security-reviewer`/`qa-*` reciben la fuente del diff (local o `gh pr diff`, según la fase) + `DESIGN.md` + `BRIEF.md`.
+
+**Cuándo fork.** Dos modos de handoff. *Paquete mínimo* (default): lotes de implementación y todo reviewer; un fork hereda el pool de tools de la sesión, así que no sirve para agentes read-only ni para lotes que deben arrancar limpios. *`subagent_type: fork`*: cuando la conversación es el insumo (fixes de review sobre lo recién discutido, un cambio acotado sobre lo que se acaba de analizar) y la sesión no es larga. El handoff mínimo sigue siendo el template de abajo; fork lo reemplaza solo en esos casos.
 
 Aplica para `backend-dev`, `frontend-dev`.
 
@@ -240,6 +292,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 ```json
 {
   "schema": 1,
+  "tier": "completo",
   "feature": "slug-corto-de-la-feature",
   "branch": "feature/slug",
   "pr": null,
@@ -270,6 +323,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 }
 ```
 
+- **`tier`** (opcional): enum cerrado `"liviano" | "completo"`; ausente = `completo` (archivos previos al campo; `schema` sigue en 1, agregar una clave es aditivo). Lo escribe el orchestrator al confirmar el tier, antes de crear el branch, y en una escalada; nunca vuelve de `completo` a `liviano`. En `liviano`, `phases.design` y `phases.docs` son `skipped` y `batches` puede quedar vacío o con un solo lote. Criterio y escalada: "Tier del flujo".
 - **Enum de status** (`phases.*` y `batches[].status`): `pending | in_progress | done | failed | skipped`. Ningún otro valor.
 - `phases` tiene **claves fijas** — siempre las 9 de arriba, `skipped` para las que no aplican (p. ej. `e2e` sin UI).
 - `batches` refleja el plan del architect: `id`/`name`/`agent` los siembra el orchestrator; `status`/`tasks_done`/`current_task` mutan durante la ejecución.
@@ -312,7 +366,7 @@ Cuando `session-start-context.sh` detecta `HANDOFF.md` (ver "Pause / Resume" en 
 
 **Backend**: extensiones `.py`, `.go`, `.rs`, `.cs`, `.sql`, `.sh`/`.bash` (contra `rules/bash.md`); o `.ts`/`.js` bajo `api/`, `apps/backend/`, `apps/api/`, `backend/`, `server/`, `services/`, `controllers/`, `routes/`, `handlers/`, `models/`, `lib/`, `db/`, `migrations/`, `workers/`, `jobs/`.
 
-**Documentos normativos del sistema de agentes**: un diff que toca `rules/`, `rulebooks/`, `agents/`, `skills/` (incluida `skills/orchestrator/SKILL.md`) o `global/CLAUDE.md` va a **`qa-backend`**, con criterio de coherencia normativa en vez de capas de aplicación. Sin esta entrada, un diff 100% de metodología no matchea ninguna capa. `README.md` y el `CLAUDE.md` raíz de un proyecto no entran acá (son meta-documentación) — excepto en este mismo repo, donde ambos describen cómo se edita el sistema y sí van a `qa-backend`.
+**Documentos normativos del sistema de agentes**: un diff que toca `rules/`, `rulebooks/`, `agents/`, `skills/` (incluida `skills/orchestrator/SKILL.md`) o el núcleo global instalado como `~/.claude/CLAUDE.md` va a **`qa-backend`**, con criterio de coherencia normativa en vez de capas de aplicación. Sin esta entrada, un diff 100% de metodología no matchea ninguna capa. `README.md` y el `CLAUDE.md` raíz de un proyecto no entran acá (son meta-documentación) — excepto en este mismo repo, donde ambos describen cómo se edita el sistema y sí van a `qa-backend`.
 
 **Diff mixto**: archivos de ambas capas → lanzar ambos QAs en paralelo. Archivos bajo `db/`, `migrations/`, `schema/` los revisa `qa-backend` (no hay `qa-db` separado).
 
@@ -397,6 +451,9 @@ El mismo formato sirve para las dos rondas: **pre-PR** (Fase 2.6 — no hay PR t
 ### QA Backend
 [Hallazgos del qa-backend — contratos, datos, tests, migraciones. Omitir si no se lanzó]
 [Criterios de aceptación del brief: cubiertos N de M (lista los no cubiertos). Solo si BRIEF.md los trae; no bloquea por sí solo.]
+
+### Memoria
+[Por reviewer: entradas propuestas para su `MEMORY.md` (formato de `reviewer-common.md` §9) o "sin cambios"]
 
 ### Veredicto
 **[APROBADO / CAMBIOS REQUERIDOS]**
