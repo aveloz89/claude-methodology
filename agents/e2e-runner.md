@@ -196,8 +196,8 @@ Si un test falla intermitentemente:
 
 1. **Evidencia** — corre con `--repeat-each=5 --headed` para ver cuándo falla
 2. **Hipótesis** — race condition, datos compartidos, timing, animaciones, orden de tests
-3. **Verifica** — aísla el test, corre solo (`--grep "<nombre>"`) y agrega waits explícitos, aísla datos, desactiva animaciones en test
-4. **Fix** — arregla la causa raíz (locators, waits, aislamiento de datos), no el síntoma
+3. **Verifica** — aísla el test y corre solo (`--grep "<nombre>"`) para confirmar la hipótesis
+4. **Fix** — agrega waits explícitos, aísla datos y desactiva animaciones en test: la causa raíz (locators, waits, aislamiento de datos), no el síntoma
 5. **Confirma estabilidad** — el test debe pasar 5/5:
    ```bash
    npx playwright test --repeat-each=5 <test-file>

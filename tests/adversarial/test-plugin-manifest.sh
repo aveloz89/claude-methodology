@@ -1478,6 +1478,27 @@ assert_contains "$GLOBAL_CLAUDE_MD" "seis pasos" "global: la edición directa ap
 assert_contains "$ORCHESTRATOR_SKILL" "seis pasos" "skill orchestrator: la edición directa aplica los seis pasos pre-commit"
 assert_contains "$README_MD" "auth (autenticación y autorización), crypto, secrets, pagos o PII" "README: condición del security-reviewer en liviano con PII"
 
+# --- Lote 11 / tarea 4: ask en modos no interactivos, liviano, runbook, e2e-runner, Workflow ---
+UNVERIFIED="sin verificar end-to-end en esta versión"
+for f in README.md rulebooks/orchestrator-runbook.md skills/pr-workflow/SKILL.md global/CLAUDE.md hooks/pre-merge-check.sh; do
+  assert_contains "$REPO_ROOT/$f" "$UNVERIFIED" "$f: el ask en modos no interactivos queda como no verificado"
+  assert_not_contains "$REPO_ROOT/$f" "también en auto mode" "$f no afirma que el ask funcione también en auto mode"
+done
+assert_not_contains "$README_MD" "se resuelve como denegación;" "README: el ask no afirma denegación en -p/dontAsk"
+assert_not_contains "$README_MD" "en modos no interactivos se deniega\." "README (flujo): el ask no afirma denegación sin verificar"
+assert_contains "$GLOBAL_CLAUDE_MD" "en cualquier modo" "global PR y merge #3: la aprobación en la conversación rige en cualquier modo"
+assert_contains "$GLOBAL_CLAUDE_MD" "agente \`docs\`" "global: el liviano salta el agente docs"
+assert_contains "$README_MD" "agente \`docs\`" "README: el liviano salta el agente docs"
+assert_contains "$README_MD" "sexto archivo" "README: el liviano delega un único lote al sexto archivo"
+assert_contains "$README_MD" "checks en verde" "README pre-merge-check: motivo del ask con checks en verde"
+assert_contains "$README_MD" "sin checks configurados" "README pre-merge-check: motivo del ask sin checks configurados"
+assert_contains "$RUNBOOK" "instalado como" "runbook cita el núcleo global como instalado como ~/.claude/CLAUDE.md"
+assert_not_contains "$RUNBOOK" "el núcleo global del repo" "runbook sin la perífrasis del núcleo global del repo"
+assert_contains "$ORCHESTRATOR_SKILL" "Workflow(methodology:code-sweep)" "skill orchestrator: allowed-tools acota el Workflow a code-sweep"
+assert_not_contains "$ORCHESTRATOR_SKILL" ", Workflow$" "skill orchestrator: sin Workflow a secas en allowed-tools"
+assert_not_contains "$ORCHESTRATOR_SKILL" ", Workflow," "skill orchestrator: sin Workflow a secas intercalado en allowed-tools"
+assert_contains "$E2E_RUNNER" "4. \*\*Fix\*\* — agrega waits" "e2e-runner: Verifica y Fix son pasos distintos"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---

@@ -9,7 +9,8 @@
 #   - ask: exit 0 + JSON permissionDecision "ask", SOLO tras las tres
 #     verificaciones en verde (threads, CHANGES_REQUESTED, checks; "sin
 #     checks configurados" cuenta como verde). En -p/dontAsk el ask se
-#     resuelve como denegación.
+#     resuelve como denegación según la doc del harness; sin verificar
+#     end-to-end en esta versión.
 #
 # Forma aceptada, anclada de punta a punta sobre el texto CRUDO: "gh pr
 # merge <N> [flag ...]", sola en el comando y en una línea. <N> =
@@ -362,7 +363,8 @@ fi
 
 # Único camino de éxito: las tres verificaciones pasaron (incluido "sin
 # checks configurados"). Estado "ask": exit 0 + JSON, para que el usuario
-# confirme el merge. En -p/dontAsk el ask se resuelve como denegación.
+# confirme el merge. En -p/dontAsk el ask se resuelve como denegación
+# según la doc del harness; sin verificar end-to-end en esta versión.
 if [ "$NO_CHECKS_CONFIGURED" = true ]; then
   CHECKS_TEXT="sin checks configurados"
 else

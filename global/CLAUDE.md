@@ -1,6 +1,6 @@
 # CLAUDE.md — Metodología de agentes de Claude Code
 
-Núcleo global de la metodología: workflow, gitflow, dual review, TDD y reglas operativas que aplican a **todo proyecto** en el que trabajas. Se carga en toda sesión de Claude Code. Lo que está acá aplica en todos los proyectos; lo que no puede fallar lo hace cumplir un hook. Si el proyecto tiene su propio `CLAUDE.md`, ese es el override para lo repo-específico — este documento cubre lo que aplica siempre; no lo dupliques.
+Núcleo global de la metodología: workflow, gitflow, dual review, TDD y reglas operativas. Se carga en toda sesión de Claude Code y aplica en todos los proyectos; lo que no puede fallar lo hace cumplir un hook. Si el proyecto tiene su propio `CLAUDE.md`, ese es el override para lo repo-específico; este documento no lo duplica.
 
 > **Detalle operativo bajo demanda**: el manual completo de la sesión principal (fases 0 a 5, equipo de subagentes, lotes, tracker, pause/resume) vive en la skill `orchestrator`. Formatos exactos de archivos, comandos `gh` y tablas de errores viven en `~/.claude/rulebooks/orchestrator-runbook.md`.
 
@@ -22,7 +22,7 @@ momento. El hook de inicio de sesión lo recuerda.
 
 ## Workflow
 
-El flujo tiene dos tiers. La sesión principal propone uno según riesgo y tamaño del cambio, lo confirma con `AskUserQuestion` y, en duda, usa el completo. El liviano salta el diseño del architect y la delegación en lotes; el review y el TDD siguen.
+El flujo tiene dos tiers. La sesión principal propone uno según riesgo y tamaño del cambio, lo confirma con `AskUserQuestion` y, en duda, usa el completo. El liviano salta el diseño del architect, la delegación en lotes (salvo un único lote al sexto archivo) y el agente `docs`; el review y el TDD siguen.
 
 1. **Brainstorming antes de diseñar** — la sesión principal entiende el requerimiento haciendo preguntas antes de pasar al architect. Condiciones para saltarlo y formato de brief: skill `orchestrator`.
 2. **Diseño antes de código (tier completo)** — el architect diseña (estructura, contratos, schemas) antes de que los devs implementen.
@@ -36,7 +36,7 @@ El flujo tiene dos tiers. La sesión principal propone uno según riesgo y tama�
 
 1. **Un PR por objetivo, commits atómicos por tarea.** Refactor y feature van en PRs distintos.
 2. **Review antes del merge** según el tier (ver "Workflow" #4).
-3. **El merge lo confirma el usuario.** Cuando `gh pr merge` pasa las verificaciones de `pre-merge-check`, el hook pide la confirmación en el prompt de permiso; CI verde o reviewers aprobando no la reemplazan, y en modos no interactivos el prompt se resuelve como denegación: sin confirmación no hay merge.
+3. **El merge lo confirma el usuario.** Cuando `gh pr merge` pasa las verificaciones de `pre-merge-check`, el hook pide la confirmación en el prompt de permiso; CI verde o reviewers aprobando no la reemplazan. La aprobación del usuario en la conversación precede a `gh pr merge` en cualquier modo de permisos; en modos no interactivos el prompt se resolvería como denegación (según la doc del harness; sin verificar end-to-end en esta versión).
 4. **Con CI en rojo no hay merge**, aunque el fallo parezca preexistente o un falso positivo: se suprime formalmente y se espera el verde. `--admin` lo bloquea un hook.
 
 El resto del proceso de PR — presupuesto de CI, E2E pre-release, branch protection, verificación pre-merge, criterios de corte — vive en la skill `orchestrator` y en la skill `pr-workflow`.

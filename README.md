@@ -28,7 +28,7 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal. La
 | **block-admin-merge** | PreToolUse (Bash) | Bloquea `gh pr merge --admin` que bypasea branch protections; también `gh -R o/r pr merge --admin` y `gh pr -R o/r merge --admin` |
 | **block-force-push** | PreToolUse (Bash) | Bloquea `git push --force` / `-f`, un refspec forzado (`+<ref>`) y un cluster corto con `f` (`-fu`, `-uf`); permite `--force-with-lease` fuera de `main`/`master`/`dev` (branch de `.cwd` y tokens del segmento `push`), y lo bloquea hacia/desde uno de esos tres o fuera de un repo git resoluble |
 | **block-hard-reset** | PreToolUse (Bash) | Bloquea `git reset --hard`, incluido `git -C <ruta> reset --hard` |
-| **pre-merge-check** | PreToolUse (Bash) | Solo acepta `gh pr merge <N> [flags conocidos]` sola en el comando y en una línea; bloquea con threads de review sin resolver, reviews/checks pendientes, sin número de PR explícito, o si no puede verificar (fail-closed). Con las tres verificaciones en verde (threads, reviews, checks) devuelve `permissionDecision: "ask"` y el merge pide confirmación al usuario, también en auto mode; en `-p`/`dontAsk` se resuelve como denegación. Para un PR de otro repo, usa `--repo`/`-R` explícito, nunca `cd`. Sin `--repo`, si el cwd de la sesión no coincide con el cwd donde corre el hook (o no existe), bloquea sin consultar y pide `--repo owner/repo` |
+| **pre-merge-check** | PreToolUse (Bash) | Solo acepta `gh pr merge <N> [flags conocidos]` sola en el comando y en una línea; bloquea con threads de review sin resolver, reviews/checks pendientes, sin número de PR explícito, o si no puede verificar (fail-closed). Con las tres verificaciones en verde (threads, reviews, checks) devuelve `permissionDecision: "ask"` y el merge pide confirmación al usuario (motivo del `ask`: "checks en verde" o "sin checks configurados", según el caso); en `-p`/`dontAsk` el `ask` se resuelve como denegación según la doc del harness; sin verificar end-to-end en esta versión. Para un PR de otro repo, usa `--repo`/`-R` explícito, nunca `cd`. Sin `--repo`, si el cwd de la sesión no coincide con el cwd donde corre el hook (o no existe), bloquea sin consultar y pide `--repo owner/repo` |
 | **post-pr-create** | PostToolUse (Bash) | Checkpoint de respaldo al crear un PR: en `state.json`, si el review dual pre-push ocurrió sobre el branch actual y `review_sha` es ancestro de HEAD sin delta posterior, no hace nada; si no hay esa evidencia, instruye lanzar el review (PR fuera del flujo) |
 | **session-start-context** | SessionStart | Muestra branch, último commit, estado de `.planning/` y resumen de `state.json` |
 | **docker-refresh** | PostToolUse (Bash) | Detecta si servicios Docker necesitan restart/rebuild después de push o PR. Respeta hot reload |
@@ -69,7 +69,7 @@ El agente `code-sweep` es el **respaldo** cuando los dynamic workflows están ap
 El flujo tiene dos tiers. La sesión principal propone uno según riesgo y tamaño y lo confirma contigo; en duda, usa el completo.
 
 - **Completo**: diseño, lotes y review por agentes.
-- **Liviano**: la sesión principal edita directo hasta 5 archivos acumulados por PR, sin lógica de negocio nueva ni migraciones, y corre la suite y el lint de ese cambio. Al sexto archivo delega un lote; lógica nueva o migración escala al completo. Salta el diseño del architect y la delegación en lotes.
+- **Liviano**: la sesión principal edita directo hasta 5 archivos acumulados por PR, sin lógica de negocio nueva ni migraciones, y aplica los seis pasos de la verificación pre-commit. Al sexto archivo delega un único lote; lógica nueva o migración escala al completo. Salta el diseño del architect, la delegación en lotes (salvo ese único lote) y el agente `docs`.
 
 ```
 Idea → Brainstorming (orchestrator pregunta: ¿vale la pena?, resultado esperado, criterios de aceptación) → Brief
@@ -82,7 +82,7 @@ Idea → Brainstorming (orchestrator pregunta: ¿vale la pena?, resultado espera
   → Veredictos limpios → Push + PR (nace revisado) → CI → Merge con confirmación del usuario
 ```
 
-El merge pide confirmación: cuando `gh pr merge` pasa las verificaciones, el hook `pre-merge-check` devuelve `ask` y el prompt de permiso te lo consulta; en modos no interactivos se deniega.
+El merge pide confirmación: cuando `gh pr merge` pasa las verificaciones, el hook `pre-merge-check` devuelve `ask` y el prompt de permiso te lo consulta; en modos no interactivos se deniega, según la doc del harness; sin verificar end-to-end en esta versión.
 
 ## Reglas enforced
 

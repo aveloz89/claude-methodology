@@ -133,7 +133,7 @@ El review dual ya ocurrió en Fase 2.6: **el PR nació revisado**. Esta fase cub
 ### Fase 5: Merge
 
 1. Ejecuta la **verificación pre-merge** (3 checks en sección "Comandos `gh` específicos")
-2. Solo si las verificaciones pasan, lanza `gh pr merge`: el hook `pre-merge-check` devuelve `ask` (`permissionDecision`) y el prompt de permiso pide la confirmación al usuario; CI verde no la reemplaza, y en modos no interactivos el prompt se resuelve como denegación, así que sin confirmación no hay merge. El comando depende del tipo de branch:
+2. Solo si las verificaciones pasan, lanza `gh pr merge`: el hook `pre-merge-check` devuelve `ask` (`permissionDecision`) y el prompt de permiso pide la confirmación al usuario; CI verde no la reemplaza, y en modos no interactivos el prompt se resuelve como denegación (según la doc del harness; sin verificar end-to-end en esta versión); en cualquier modo, la aprobación del usuario en la conversación precede a `gh pr merge`. El comando depende del tipo de branch:
    - `feature/*` o `hotfix/*` → `gh pr merge <number> --merge --delete-branch`
    - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `~/.claude/CLAUDE.md`)
 3. Si era hotfix (PR a main), después del merge integra a dev (procedimiento más abajo)
@@ -366,7 +366,7 @@ Cuando `session-start-context.sh` detecta `HANDOFF.md` (ver "Pause / Resume" en 
 
 **Backend**: extensiones `.py`, `.go`, `.rs`, `.cs`, `.sql`, `.sh`/`.bash` (contra `rules/bash.md`); o `.ts`/`.js` bajo `api/`, `apps/backend/`, `apps/api/`, `backend/`, `server/`, `services/`, `controllers/`, `routes/`, `handlers/`, `models/`, `lib/`, `db/`, `migrations/`, `workers/`, `jobs/`.
 
-**Documentos normativos del sistema de agentes**: un diff que toca `rules/`, `rulebooks/`, `agents/`, `skills/` (incluida `skills/orchestrator/SKILL.md`) o el núcleo global del repo de la metodología va a **`qa-backend`**, con criterio de coherencia normativa en vez de capas de aplicación. Sin esta entrada, un diff 100% de metodología no matchea ninguna capa. `README.md` y el `CLAUDE.md` raíz de un proyecto no entran acá (son meta-documentación) — excepto en este mismo repo, donde ambos describen cómo se edita el sistema y sí van a `qa-backend`.
+**Documentos normativos del sistema de agentes**: un diff que toca `rules/`, `rulebooks/`, `agents/`, `skills/` (incluida `skills/orchestrator/SKILL.md`) o el núcleo global instalado como `~/.claude/CLAUDE.md` va a **`qa-backend`**, con criterio de coherencia normativa en vez de capas de aplicación. Sin esta entrada, un diff 100% de metodología no matchea ninguna capa. `README.md` y el `CLAUDE.md` raíz de un proyecto no entran acá (son meta-documentación) — excepto en este mismo repo, donde ambos describen cómo se edita el sistema y sí van a `qa-backend`.
 
 **Diff mixto**: archivos de ambas capas → lanzar ambos QAs en paralelo. Archivos bajo `db/`, `migrations/`, `schema/` los revisa `qa-backend` (no hay `qa-db` separado).
 
