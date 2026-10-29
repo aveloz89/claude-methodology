@@ -1123,6 +1123,33 @@ assert_blocked_cmd "block-hard-reset: comando compuesto (cd a && git reset --har
 assert_allowed_cmd "block-hard-reset: git reset --soft HEAD~1 allowed" "block-hard-reset.sh" "git reset --soft HEAD~1"
 assert_allowed_cmd "block-hard-reset: git push allowed (no relacionado)" "block-hard-reset.sh" "git push"
 
+# #121: un prefijo de entorno antes de git no debe esconder el reset --hard.
+# RED con el regex anterior: los tres bloqueos daban exit 0.
+assert_blocked_cmd "block-hard-reset: prefijo de entorno FOO=1 y reset --hard bloquea (#121)" "block-hard-reset.sh" "FOO=1 git reset --hard"
+assert_blocked_cmd "block-hard-reset: dos asignaciones de entorno y reset --hard HEAD~1 bloquean (#121)" "block-hard-reset.sh" "A=1 B=2 git reset --hard HEAD~1"
+assert_blocked_cmd "block-hard-reset: prefijo de entorno tras && bloquea (#121)" "block-hard-reset.sh" "cd a && FOO=1 git reset --hard"
+assert_blocked_cmd "block-hard-reset: prefijo de entorno con valor entre comillas bloquea (#121)" "block-hard-reset.sh" "FOO='a b' git reset --hard"
+assert_allowed_cmd "block-hard-reset: prefijo de entorno y reset --soft pasa (control, #121)" "block-hard-reset.sh" "FOO=1 git reset --soft HEAD~1"
+assert_allowed_cmd "block-hard-reset: prefijo de entorno y git status pasa (control, #121)" "block-hard-reset.sh" "FOO=1 git status"
+
+# Hueco de la misma clase (forma que git ejecuta y el guard no veia), medido en
+# un repo temporal con git 2.54: "reset -q --hard", "reset HEAD~1 --hard" y los
+# prefijos unicos de la opcion larga (--h, --ha, --har) descartan cambios igual
+# que "reset --hard". RED con el regex anterior (exige "reset --hard" pegado):
+# los seis bloqueos daban exit 0.
+assert_blocked_cmd "block-hard-reset: opcion previa a --hard (reset -q --hard) bloquea" "block-hard-reset.sh" "git reset -q --hard HEAD~1"
+assert_blocked_cmd "block-hard-reset: --hard despues del commit (reset HEAD~1 --hard) bloquea" "block-hard-reset.sh" "git reset HEAD~1 --hard"
+assert_blocked_cmd "block-hard-reset: opcion corta y --hard al final (reset -q HEAD~1 --hard) bloquea" "block-hard-reset.sh" "git reset -q HEAD~1 --hard"
+assert_blocked_cmd "block-hard-reset: prefijo --har de la opcion bloquea" "block-hard-reset.sh" "git reset --har HEAD~1"
+assert_blocked_cmd "block-hard-reset: prefijo --ha de la opcion bloquea" "block-hard-reset.sh" "git reset --ha HEAD~1"
+assert_blocked_cmd "block-hard-reset: prefijo --h de la opcion bloquea" "block-hard-reset.sh" "git reset --h HEAD~1"
+assert_blocked_cmd "block-hard-reset: --hard pegado a ; o && bloquea" "block-hard-reset.sh" "git reset --hard;git status && git reset HEAD~1 --hard&&true"
+assert_blocked_cmd "block-hard-reset: opcion previa con prefijo de entorno bloquea (#121)" "block-hard-reset.sh" "FOO=1 git reset -q --hard"
+assert_allowed_cmd "block-hard-reset: reset --mixed con opcion corta al final pasa (control)" "block-hard-reset.sh" "git reset --mixed HEAD~1 -q"
+assert_allowed_cmd "block-hard-reset: --hard en OTRO comando tras && no dispara (control)" "block-hard-reset.sh" "git reset HEAD~1 && echo --hard"
+assert_allowed_cmd "block-hard-reset: ruta que empieza por --hard- no dispara (control)" "block-hard-reset.sh" "git reset -- --hard-notes.md"
+assert_allowed_cmd "block-hard-reset: --hard entre comillas en un mensaje no dispara (control)" "block-hard-reset.sh" "git commit -m 'git reset --hard'"
+
 # Fail-closed sin jq (revisión pre-push, security MEDIUM): mismo hueco que
 # en block-force-push.sh — sin jq, COMMAND queda vacío y un
 # "git reset --hard" real pasa en silencio.

@@ -98,7 +98,7 @@ GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--config-env)(=\S*|\s+\S*)?|-c\s+\S+
 # Prefijo de entorno antes de "git" ("VAR=valor git push ..."): cero o más
 # asignaciones. Sin él, "X=matching git --config-env=push.default=X push
 # origin" ni siquiera se reconocía como un push (el hook salía 0 sin evaluarlo).
-# shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh, block-force-push.sh y block-hard-reset.sh
 GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'
 
 # Inventario de delimitadores (lo verificado, no un absoluto). Tres listas
