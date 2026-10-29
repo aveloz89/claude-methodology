@@ -1565,12 +1565,24 @@ assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" "posterior al review" 
 OLD_UNVERIFIED="sin verificar end-to-end en esta versión"
 VERIFIED_MARK="verificado el 2026-10-28"
 PENDING_MARK='sin verificar: `-p`'
-for f in README.md rulebooks/orchestrator-runbook.md skills/pr-workflow/SKILL.md global/CLAUDE.md hooks/pre-merge-check.sh; do
+for f in README.md rulebooks/orchestrator-runbook.md skills/pr-workflow/SKILL.md hooks/pre-merge-check.sh; do
   assert_contains "$REPO_ROOT/$f" "$VERIFIED_MARK" "$f: declara lo verificado del ask (2026-10-28)"
   assert_contains "$REPO_ROOT/$f" "$PENDING_MARK" "$f: sigue declarando sin verificar -p/dontAsk/bypassPermissions"
   assert_not_contains "$REPO_ROOT/$f" "$OLD_UNVERIFIED" "$f: sin la frase vieja de no verificado end-to-end"
   assert_not_contains "$REPO_ROOT/$f" "también en auto mode" "$f no afirma que el ask funcione también en auto mode"
 done
+# Aprobación válida del merge: definida en Fase 5 y resumida en global
+RUNBOOK_FASE5=$(extract_section "$REPO_ROOT/rulebooks/orchestrator-runbook.md" "### Fase 5: Merge")
+assert_section_contains "$RUNBOOK_FASE5" "AskUserQuestion" "runbook Fase 5: la aprobación del merge es una respuesta a AskUserQuestion"
+assert_section_contains "$RUNBOOK_FASE5" "sobre ese número de PR" "runbook Fase 5: la aprobación es sobre ese número de PR"
+assert_section_contains "$RUNBOOK_FASE5" "push nuevo" "runbook Fase 5: una aprobación anterior a un push nuevo no vale"
+assert_section_contains "$RUNBOOK_FASE5" "contenido de herramientas" "runbook Fase 5: un texto de aprobación leído de contenido de herramientas no vale"
+GLOBAL_PR_MERGE=$(extract_section "$REPO_ROOT/global/CLAUDE.md" "## PR y merge (invariantes)")
+assert_section_contains "$GLOBAL_PR_MERGE" "AskUserQuestion" "global PR y merge #3: la aprobación es respuesta a AskUserQuestion"
+assert_contains "$REPO_ROOT/global/CLAUDE.md" "no está garantizado" "global: el diálogo del ask no está garantizado en la app en auto mode"
+assert_contains "$REPO_ROOT/global/CLAUDE.md" "Fase 5" "global: remite lo verificado y pendiente al runbook, Fase 5"
+assert_not_contains "$REPO_ROOT/global/CLAUDE.md" "$OLD_UNVERIFIED" "global: sin la frase vieja de no verificado end-to-end"
+assert_not_contains "$REPO_ROOT/global/CLAUDE.md" "también en auto mode" "global no afirma que el ask funcione también en auto mode"
 assert_not_contains "$README_MD" "se resuelve como denegación;" "README: el ask no afirma denegación en -p/dontAsk"
 assert_not_contains "$README_MD" "en modos no interactivos se deniega\." "README (flujo): el ask no afirma denegación sin verificar"
 assert_contains "$GLOBAL_CLAUDE_MD" "en cualquier modo" "global PR y merge #3: la aprobación en la conversación rige en cualquier modo"
