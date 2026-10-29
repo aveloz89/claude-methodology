@@ -265,8 +265,8 @@ for agent_file in "$AGENTS_DIR"/*.md; do
   [ -z "$(frontmatter_value "$agent_file" "memory")" ] && continue
   [ "$agent_name" = "e2e-runner" ] && continue
   agent_body=$(awk '/^---$/{c++; next} c>=2{print}' "$agent_file")
-  check "$(grep -q 'agent-memory' <<< "$agent_body" && echo 0 || echo 1)" \
-    "$agent_name: el cuerpo menciona agent-memory"
+  check "$(grep -q 'agent-memory/methodology-' <<< "$agent_body" && echo 0 || echo 1)" \
+    "$agent_name: el cuerpo cita agent-memory/methodology-"
 done
 neg() { check "$(grep -qF -- "$2" "$1" && echo 1 || echo 0)" "$3"; }
 neg "$AGENTS_DIR/security-reviewer.md" 'global/CLAUDE.md' "security-reviewer.md no cita global/CLAUDE.md (hunk 17)"

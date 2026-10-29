@@ -1449,6 +1449,14 @@ for suite in test-hooks.sh test-plugin-manifest.sh test-frontmatter.sh; do
   fi
 done
 
+# --- Lote 11 / tarea 1: ruta real de la memoria (D-21) ---
+for f in rulebooks/reviewer-common.md agents/qa-backend.md agents/qa-frontend.md agents/security-reviewer.md; do
+  assert_contains "$REPO_ROOT/$f" "agent-memory/methodology-" "$f cita la ruta real agent-memory/methodology-<agente>"
+done
+assert_not_contains "$README_MD" "agent-memory/<agente>" "README.md no usa la ruta vieja agent-memory/<agente>"
+assert_not_contains "$INSTALL_SH" "agent-memory/<agente>" "install.sh no usa la ruta vieja agent-memory/<agente>"
+assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" "ni por Bash" "reviewer-common §9: el reviewer no escribe la memoria ni por Bash"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---

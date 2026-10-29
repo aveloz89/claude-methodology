@@ -104,7 +104,7 @@ Cuatro ajustes viven fuera del plugin (el plugin no distribuye `settings.json`).
 
 - **`fallbackModel`** en `~/.claude/settings.json`: hasta tres modelos, en orden, que el harness prueba cuando el modelo pedido no está disponible. Recomendado: `"fallbackModel": ["opus", "sonnet"]`. Reemplaza la antigua tabla de degradación por rate limit.
 - **`worktree.baseRef = "head"`** en el `.claude/settings.json` de cada proyecto existente: los lotes paralelos con `isolation: "worktree"` lo necesitan. Sin él, el worktree ramifica desde la rama default del remoto y no desde tu branch. `/new-project` ya lo siembra en los proyectos nuevos.
-- **`.claude/agent-memory/<agente>/`**: memoria de `security-reviewer`, `qa-backend` y `qa-frontend`. Se versiona en el repo consumidor; `MEMORY.md` carga solo las primeras 200 líneas o 25 KB. El orchestrator es el único que escribe ahí. Sin efecto si auto memory está apagado.
+- **`.claude/agent-memory/methodology-<agente>/`**: memoria de `security-reviewer`, `qa-backend` y `qa-frontend`. Se versiona en el repo consumidor; `MEMORY.md` carga solo las primeras 200 líneas o 25 KB. El orchestrator es el único que escribe ahí. Sin efecto si auto memory está apagado.
 - **Plugin oficial `security-guidance`**: revisa vulnerabilidades mientras Claude escribe, dentro de la sesión. El `security-reviewer` audita el diff completo con OWASP antes del push. Se complementan, no se reemplazan. Instalación: `claude plugin install security-guidance@claude-plugins-official` (confirma el nombre del marketplace con `claude plugin marketplace list`).
 
 ## Instalación

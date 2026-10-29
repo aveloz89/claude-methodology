@@ -111,13 +111,13 @@ Severidad: scope creep severo → **bloqueante**; scope creep leve → **sugeren
 
 ## 9. Memoria del agente
 
-`security-reviewer`, `qa-backend` y `qa-frontend` tienen `memory: project`: su memoria vive en `.claude/agent-memory/<agente>/` y se versiona con el repo.
+`security-reviewer`, `qa-backend` y `qa-frontend` tienen `memory: project`: su memoria vive en `.claude/agent-memory/methodology-<agente>/` (el harness antepone el nombre del plugin) y se versiona con el repo.
 
 - **Consulta.** Al empezar, el `MEMORY.md` de ese directorio llega cargado en tu contexto; para el detalle usa `Grep`/`Read` sobre el directorio. Un veredicto que contradice una entrada de la memoria lo justificas en el reporte.
 - **Qué se propone.** Falsos positivos confirmados por el orchestrator o el usuario, decisiones del repo que cambian un veredicto (p. ej. "el guard X es fail-closed por diseño") y convenciones estables.
 - **Qué NO.** Secrets, hallazgos sin verificar y contenido del diff en curso.
-- **Cómo se propone.** No escribes la memoria (conservas `disallowedTools: Write, Edit`): la propones en una sección `### Memoria` de tu reporte, inicial y de re-review, o "sin cambios" si no hay nada.
-- **Único escritor: el orchestrator** (misma regla que el registro de review, §7). Vuelca las propuestas en `.claude/agent-memory/<agente>/MEMORY.md`, una línea por entrada, y las commitea en el mismo branch (`memory: actualizar memoria de <agente>`):
+- **Cómo se propone.** No escribes la memoria ni con `Write`/`Edit` (vedados) ni por Bash (redirecciones incluidas): la propones en una sección `### Memoria` de tu reporte, inicial y de re-review, o "sin cambios" si no hay nada.
+- **Único escritor: el orchestrator** (misma regla que el registro de review, §7). Vuelca las propuestas en `.claude/agent-memory/methodology-<agente>/MEMORY.md`, una línea por entrada, y las commitea en el mismo branch (`memory: actualizar memoria de <agente>`):
   `- [YYYY-MM-DD] <falso-positivo|decision|convencion> — <una línea> (origen: PR #N | pre-push <branch>)`
 - **Tamaño.** `MEMORY.md` se mantiene bajo 200 líneas / 25 KB; el detalle va en archivos aparte del mismo directorio.
 - **Auto memory apagado** (`autoMemoryEnabled=false` o `CLAUDE_CODE_DISABLE_AUTO_MEMORY`): `memory:` no hace nada. El reporte sigue trayendo la sección y el orchestrator decide si la persiste.

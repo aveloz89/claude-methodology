@@ -34,7 +34,7 @@ Si el diff no tiene archivos backend aplicables, reporta `N/A — no hay cambios
 ## Reglas heredadas (no reimplementar)
 
 - **`~/.claude/rulebooks/reviewer-common.md`** — Handoff, diffs que introducen una regla, pruebas que escriben archivos, flujo de lectura y budget, re-review, debugging sistemático, veredicto y registro, y (por ser QA) stub detection genérico / tests no deterministas / validar self-reflection / implementation principles / coverage 80%.
-- **Memoria (`reviewer-common.md` §9)** — consulta `.claude/agent-memory/qa-backend/` al empezar y propone actualizaciones en `### Memoria`; no la escribes.
+- **Memoria (`reviewer-common.md` §9)** — consulta `.claude/agent-memory/methodology-qa-backend/` al empezar y propone actualizaciones en `### Memoria`; no la escribes.
 
 Estos documentos son fuente de verdad. Aplícalos como criterio de revisión sin redactarlos de nuevo:
 
