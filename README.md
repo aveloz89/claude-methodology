@@ -47,6 +47,7 @@ Los guards de `hooks/` protegen errores honestos del orchestrator y los devs: fo
 - la palabra del binario alterada o disfrazada: `"gh"`, `g\h`, `env git …`, `/usr/bin/git …`, `command git …` (el `if` de `hooks.json` tampoco dispara para las tres últimas: compara cada subcomando por prefijo y solo descarta asignaciones `VAR=x` al frente; ver la tabla "Bash if matching" de la doc de hooks);
 - en `block-force-push`: la flag entre comillas (`git push origin "--force"`, `git push '-f'`) y una redirección honesta (`2>&1`, `>&2`, `&>log`) o un `;` escapado antes de la flag de force;
 - en `pre-push-guard`: el refspec entre comillas (`git push origin "HEAD:main"`: el saneo vacía el span antes del match del destino) y una redirección antes del refspec o pegada a él (`git push origin 2>&1 HEAD:main`, `git push origin HEAD:main>log`: el segmento se corta en `&`, o el `>` queda pegado al nombre).
+- en `pre-push-guard` y `block-force-push`: una sustitución que PRODUCE el ref o la flag (`git push origin $(git branch --show-current)`) no se evalúa; el guard solo ve tokens literales del comando.
 
 Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá: la salida es escribir el comando en su forma directa.
 

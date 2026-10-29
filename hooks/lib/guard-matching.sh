@@ -48,6 +48,9 @@
 #     una redirección antes del refspec o pegada a él (`git push origin
 #     2>&1 HEAD:main`, `git push origin HEAD:main>log`: el segmento se
 #     corta en "&", o el ">" queda pegado al nombre).
+#   - pre-push-guard.sh y block-force-push.sh: una sustitución que PRODUCE el
+#     ref o la flag (git push origin $(git branch --show-current)) no se
+#     evalúa; el guard solo ve tokens literales del comando.
 # Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá:
 # la salida es escribir el comando en su forma directa.
 
@@ -68,13 +71,24 @@ GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
 # shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh, pre-push-guard.sh y pre-commit-guard.sh
 GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
 
-# Clase ERE que consume el resto de un segmento "git push ..." hasta el
-# separador que lo cierra: &, |, ;, ")" (subshell) o backtick (sustitución
-# de comando). Misma lista que cierra el ancla GUARD_ANCHOR por el otro
-# lado. Va entre comillas simples: el backtick es literal en la asignación
-# y al expandirla dentro de comillas dobles no se vuelve a evaluar.
-# shellcheck disable=SC2016,SC2034 # backtick literal; se usa en pre-push-guard.sh y block-force-push.sh
-GUARD_SEGMENT_END='[^&|;)`]*'
+# Inventario de delimitadores (lo verificado, no un absoluto). Tres listas
+# distintas, cada una con su propio papel:
+#   - el ANCLA (GUARD_ANCHOR) ABRE un comando tras: inicio de string/línea,
+#     "&&", "||", ";", "|", "$(", backtick, "(", "{" y "&";
+#   - el SEGMENTO "git push ..." (GUARD_SEGMENT_END) CIERRA solo en "&", "|"
+#     y ";". NO cierra en ")" ni en backtick: una sustitución DENTRO del push
+#     ("git push origin $(true) HEAD:main", "git push origin `true` main")
+#     esconde lo que sigue si el segmento se corta ahí (regresión de la
+#     ronda 2 de #117, verificada contra dev);
+#   - el TOKEN (GUARD_TOKEN_END) se cierra en espacio, ")" , backtick o fin
+#     de string. Así "(git push origin HEAD:main)" y "`git push origin
+#     HEAD:main`" cierran el borde del token "main" sin cortar el segmento.
+# Van entre comillas simples: el backtick es literal en la asignación y al
+# expandirlas dentro de comillas dobles no se vuelve a evaluar.
+# shellcheck disable=SC2016,SC2034 # backtick literal; se usan en pre-push-guard.sh y block-force-push.sh
+GUARD_SEGMENT_END='[^&|;]*'
+# shellcheck disable=SC2016,SC2034
+GUARD_TOKEN_END='([[:space:]]|[)`]|$)'
 
 # Fragmento de regex ERE que reconoce las opciones de "git push" que empujan
 # todas las ramas locales (incluida main) sin nombrarla: --all, --mirror y
@@ -82,9 +96,10 @@ GUARD_SEGMENT_END='[^&|;)`]*'
 # git acepta prefijos de opciones largas. Verificado contra un remoto bare
 # (git 2.54): se aceptan --al, --all, --b..--branches y --m..--mirror; "--a"
 # es ambiguo (all/atomic, exit 129) y "--all="/"--mirror=" se rechazan
-# (129, "takes no value"), por eso el regex exige espacio o fin después.
+# (129, "takes no value"), por eso el regex exige token completo (espacio,
+# ")", backtick o fin) después.
 # shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
-GUARD_PUSH_ALL_RE='(^|[[:space:]])--(al|all|b|br|bra|bran|branc|branch|branche|branches|m|mi|mir|mirr|mirro|mirror)([[:space:]]|$)'
+GUARD_PUSH_ALL_RE="(^|[[:space:]])--(al|all|b|br|bra|bran|branc|branch|branche|branches|m|mi|mir|mirr|mirro|mirror)${GUARD_TOKEN_END}"
 
 # Fragmento de regex ERE que reconoce "gh ... pr ... merge" tolerando hasta
 # 2 tokens entre "gh"/"pr" y entre "pr"/"merge" (formas como "gh -R x pr

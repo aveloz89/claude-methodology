@@ -22,7 +22,8 @@ guard_init "block-force-push"
 # "fix/login-form" o "feature/add-feature-flags".
 #
 # El GUARD_SEGMENT_END entre "push\b" y la flag no cruza un separador de
-# comando real (&, ;, |, ")" ni backtick): sin esto, "git push origin x && echo -f" (sin
+# comando real (&, ; ni |; el ")" y el backtick cierran el token, no el
+# segmento, ver GUARD_TOKEN_END en la lib): sin esto, "git push origin x && echo -f" (sin
 # --force) bloquearía igual, porque el charset se estiraría hasta la
 # "-f" de un comando distinto después del separador.
 
@@ -34,7 +35,7 @@ guard_init "block-force-push"
 # guard_force_with_lease_allowed: 0 (permitido) solo si el branch actual
 # (de guard_session_dir) NO es main/master/dev y el segmento del "git ...
 # push ..." real (anclado a posición de comando con GUARD_ANCHOR, hasta el
-# primer &, ;, |, ")" o backtick: GUARD_SEGMENT_END) no lleva --all/--mirror ni menciona main/master/dev como
+# primer &, ; o |: GUARD_SEGMENT_END) no lleva --all/--mirror ni menciona main/master/dev como
 # token, refspec (x:main, main:x) o destino "refs/heads/(main|master|dev)".
 # Fuera de un repo git, o sin poder resolver el branch, bloquea
 # (fail-closed) — no hay forma segura de asumir "no es main".
@@ -80,7 +81,7 @@ guard_force_with_lease_allowed() {
     # empujan TODOS los refs remotos (o los espejan) sin importar qué otro ref
     # aparezca en el resto del comando: la excepción nunca los cubre.
     echo "$push_segment" | grep -qE "$GUARD_PUSH_ALL_RE" && return 1
-    echo "$push_segment" | grep -qE '(^|[[:space:]:])(main|master|dev)([[:space:]:]|$)|refs/heads/(main|master|dev)([[:space:]:]|$)' && return 1
+    echo "$push_segment" | grep -qE "(^|[[:space:]:])(main|master|dev)([[:space:]:)\`]|\$)|refs/heads/(main|master|dev)([[:space:]:)\`]|\$)" && return 1
   done <<< "$push_segments"
   return 0
 }
@@ -90,7 +91,7 @@ guard_force_with_lease_allowed() {
 # "espacio" sino los caracteres "\" y "s", así que un ref que empieza con
 # "s" (+staging, +stable, +support/x) no matcheaba y pasaba sin bloqueo;
 # +main, +dev y +feature/x sí bloqueaban, por eso no se notó (#112).
-FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^[:space:]:]+)"
+FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*${GUARD_TOKEN_END}|\s\+[^[:space:]:]+)"
 
 # --force-with-lease no puede reescribir un ref que otro ya movió (falla si
 # el remoto no coincide con lo que el cliente esperaba) — a diferencia de

@@ -545,6 +545,33 @@ assert_blocked_cmd "pre-push-guard: 'git push origin HEAD:main' sigue bloqueando
 assert_allowed_cmd "pre-push-guard: 'x=\`git rev-parse HEAD\` && git push origin feature/x' pasa (#117)" \
   "pre-push-guard.sh" 'x=`git rev-parse HEAD` && git push origin feature/x' "$PATH" "$SANDBOX_REPO"
 
+# #117 ronda 2 (HIGH): el ")" y el backtick cerraban el SEGMENTO "git push",
+# así que una sustitución dentro del push escondía lo que seguía (flag de
+# force, destino main). Ahora solo cierran el TOKEN (GUARD_TOKEN_END).
+# RED con el guard anterior: las seis primeras daban exit 0.
+assert_blocked_cmd "block-force-push: sustitución con paréntesis antes de --force bloquea (#117)" \
+  "block-force-push.sh" 'git push origin $(true) --force' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: sustitución con backticks antes de -f bloquea (#117)" \
+  "block-force-push.sh" 'git push origin feature/x `true` -f' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: sustitución con backticks antes de main bloquea (#117)" \
+  "pre-push-guard.sh" 'git push origin `true` main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: sustitución con backticks antes de HEAD:main bloquea (#117)" \
+  "pre-push-guard.sh" 'git push origin feature/x `echo` HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: sustitución con paréntesis antes de HEAD:main bloquea (#117)" \
+  "pre-push-guard.sh" 'git push origin $(true) HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con sustitución con backticks antes de dev bloquea (#117)" \
+  "block-force-push.sh" 'git push --force-with-lease origin feature/x `true` dev' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push --all sigue bloqueando (control, #117)" \
+  "pre-push-guard.sh" 'git push --all origin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push --all en subshell sigue bloqueando (control, #117)" \
+  "pre-push-guard.sh" '(git push --all)' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x en subshell pasa (control, #117)" \
+  "pre-push-guard.sh" '(git push origin feature/x)' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x seguido de echo y paréntesis suelto pasa (control, #117)" \
+  "pre-push-guard.sh" 'git push origin feature/x && echo ok)' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: push a feature/x en subshell pasa (control, #117)" \
+  "block-force-push.sh" '(git push origin feature/x)' "$PATH" "$SANDBOX_REPO"
+
 # #117 ronda 1 (H3): la excepción de --force-with-lease evaluaba solo el
 # primer segmento "git push" (head -1); un segundo push a dev colaba.
 # RED con el guard anterior: el primer bloqueo; el resto fija el comportamiento.

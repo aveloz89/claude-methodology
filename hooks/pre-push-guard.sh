@@ -75,7 +75,7 @@ fi
 # "main" (empuja la rama local main) son push directo a main aunque la rama
 # actual sea feature/x; antes salían en 0 sin evaluarse. Se mira cada
 # segmento "git push ..." del comando saneado (anclado con PUSH_RE, hasta el
-# primer &, ;, |, ")" o backtick: GUARD_SEGMENT_END), no solo el primero, y de cada token su DESTINO: lo que
+# primer &, ; o |: GUARD_SEGMENT_END), no solo el primero, y de cada token su DESTINO: lo que
 # sigue al ":" o el token entero si no lo tiene, con el "+" opcional
 # del refspec forzado. "refs/heads/(main|master)" cuenta como main;
 # "refs/tags/..." y un nombre de tag suelto no. Un refspec con main como
@@ -87,7 +87,7 @@ fi
 # vacía el span) y una redirección antes del refspec o pegada a él ("2>&1
 # HEAD:main" corta el segmento en "&"; "HEAD:main>log" deja el ">" pegado
 # al nombre y rompe el borde del token).
-DST_MAIN_RE='(^|[[:space:]])\+?([^[:space:]:]*:)?(refs/heads/)?(main|master)([[:space:]]|$)'
+DST_MAIN_RE="(^|[[:space:]])\+?([^[:space:]:]*:)?(refs/heads/)?(main|master)${GUARD_TOKEN_END}"
 if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}" | grep -qE "$DST_MAIN_RE"; then
   echo "BLOCKED: No push directo a main: el refspec apunta a main/master (HEAD:main, dev:main, refs/heads/main o la rama local main). Usa un PR desde dev o feature branch." >&2
   exit 2
@@ -97,9 +97,10 @@ fi
 # ver GUARD_PUSH_ALL_RE) empujan todas las ramas locales (incluida main)
 # sin nombrarla en el comando, así que el chequeo de destino de arriba no
 # los ve. Se bloquean desde cualquier rama, con el mismo regex y la misma
-# segmentación (GUARD_SEGMENT_END: hasta el primer &, ;, |, ")" o backtick) que usa block-force-push.sh. El
-# ")" corta el segmento para que "(git push origin HEAD:main)" cierre el
-# borde del token main (antes pasaba con exit 0).
+# segmentación (GUARD_SEGMENT_END: hasta el primer &, ; o |) que usa
+# block-force-push.sh. El ")" y el backtick cierran el TOKEN (GUARD_TOKEN_END),
+# no el segmento: "(git push origin HEAD:main)" bloquea y una sustitución
+# dentro del push ("git push origin $(true) HEAD:main") no esconde lo que sigue.
 if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}" | grep -qE "$GUARD_PUSH_ALL_RE"; then
   echo "BLOCKED: git push --all/--mirror empuja todas las ramas locales, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
   exit 2
