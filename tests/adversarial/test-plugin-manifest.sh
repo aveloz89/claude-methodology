@@ -1546,6 +1546,16 @@ done
 assert_contains "$RUNBOOK" "no cuentan para" "runbook: los archivos del commit memory: no cuentan para el tamaño ni disparan la señal 4"
 assert_contains "$RUNBOOK" "viaja en el push consolidado" "runbook Fase 2.6 paso 6: con el PR abierto el commit memory: viaja en el push consolidado de la ronda"
 
+# --- Lote 12 / tarea 4: volcado de memoria con criterio ---
+RUNBOOK_MEM_STEP=$(grep -E '^6\. \*\*Memoria de los reviewers\*\*' "$RUNBOOK" || true)
+assert_section_contains "$RUNBOOK_MEM_STEP" "formato exacto" "runbook paso 6: persiste solo líneas con el formato exacto de §9"
+assert_section_contains "$RUNBOOK_MEM_STEP" "falso-positivo" "runbook paso 6: el falso-positivo se persiste solo si fue confirmado en la sesión"
+assert_section_contains "$RUNBOOK_MEM_STEP" "ghp_" "runbook paso 6: descarta las líneas que matchean patrones de secrets (ghp_, sk-, AKIA)"
+assert_section_contains "$RUNBOOK_MEM_STEP" "cite código del diff" "runbook paso 6: descarta las entradas que citan código del diff"
+assert_section_contains "$RUNBOOK_MEM_STEP" "agent-memory/\*\*" "runbook paso 6: no persiste nada de un review cuyo diff tocó agent-memory/**"
+assert_contains "$ORCHESTRATOR_SKILL" "formato exacto" "skill orchestrator: el volcado de memoria filtra por formato exacto"
+assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" "posterior al review" "reviewer-common §9: un commit memory: del orchestrator posterior al review no se reporta como hallazgo"
+
 # --- Lote 11 / tarea 4: ask en modos no interactivos, liviano, runbook, e2e-runner, Workflow ---
 UNVERIFIED="sin verificar end-to-end en esta versión"
 for f in README.md rulebooks/orchestrator-runbook.md skills/pr-workflow/SKILL.md global/CLAUDE.md hooks/pre-merge-check.sh; do
