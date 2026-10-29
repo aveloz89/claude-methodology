@@ -890,6 +890,28 @@ assert_allowed_cmd "block-force-push: lease con refspec glob refs/tags/* pasa (c
 assert_allowed_cmd "pre-push-guard: refspec glob entre comillas refs/heads/* queda fuera de alcance y pasa (fijado, #119)" \
   "pre-push-guard.sh" "git push origin 'refs/heads/*'" "$PATH" "$SANDBOX_REPO"
 
+# #120 (ronda 1 de review, preexistente): el shell quita la barra invertida
+# dentro de un token sin comillas (HEAD:ma\in es HEAD:main). El saneo ahora
+# cambia \X por X cuando X es alfanumerico o uno de ._/:+- (no toca \; \& \|).
+# RED con 85f002c: los bloqueos de abajo daban exit 0.
+assert_blocked_cmd "pre-push-guard: barra invertida dentro del refspec (HEAD:ma\\in) bloquea (#120)" \
+  "pre-push-guard.sh" 'git push origin HEAD:ma\in' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: barra invertida dentro de la flag (--forc\\e) bloquea (#120)" \
+  "block-force-push.sh" 'git push origin feature/x --forc\e' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: barra invertida dentro de la opcion (--har\\d) bloquea (#120)" \
+  "block-hard-reset.sh" 'git reset --har\d' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: barra invertida dentro del binario (g\\it) bloquea (#120)" \
+  "pre-push-guard.sh" 'g\it push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: barra invertida en el subcomando (re\\set) bloquea (#120)" \
+  "block-hard-reset.sh" 'git re\set --hard' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: barra invertida dentro de la flag (--admi\\n) bloquea (#120)" \
+  "block-admin-merge.sh" 'gh pr merge 5 --admi\n' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: barra invertida dentro de un ref de feature pasa (control, #120)" \
+  "pre-push-guard.sh" 'git push origin feature/\x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: barra invertida y push normal pasa (control, #120)" \
+  "block-force-push.sh" 'git push origin feat\ure/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-admin-merge: gh pr merge sin --admin con barra invertida pasa (control, #120)" \
+  "block-admin-merge.sh" 'gh pr mer\ge 5 --squash' "$PATH" "$SANDBOX_REPO"
 sandbox_cleanup_pushrepo
 
 echo ""
@@ -5578,9 +5600,12 @@ assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla simple sin termi
 # un mismo carácter genera una ambigüedad de partición que la otra no
 # tiene.
 UNTERMINATED_DOUBLE_QUOTE_LARGE="echo \"$(printf 'a\%.0s' $(seq 1 50000))"
-assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla doble sin terminar con backslashes (50k pares) no cuelga y queda sin cambios" \
+# Sin cierre ningun span matchea y la comilla queda; las barras sin comillas
+# se quitan como en el shell (#120: \a pasa a a, la ultima barra queda sola).
+UNTERMINATED_DOUBLE_QUOTE_LARGE_UNESCAPED="echo \"$(printf 'a%.0s' $(seq 1 50000))\\"
+assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla doble sin terminar con backslashes (50k pares) no cuelga, conserva la comilla y quita las barras" \
   "$UNTERMINATED_DOUBLE_QUOTE_LARGE" \
-  "$UNTERMINATED_DOUBLE_QUOTE_LARGE"
+  "$UNTERMINATED_DOUBLE_QUOTE_LARGE_UNESCAPED"
 
 # (c) Comilla simple grande que SÍ cierra al final: complementa (a) —
 # confirma que cerrar al final de un span largo no es más caro que nunca

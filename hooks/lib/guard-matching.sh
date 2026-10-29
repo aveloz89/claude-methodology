@@ -35,7 +35,7 @@
 #     eval, bash -c '...'/sh -c, alias y funciones de git/gh definidas en
 #     el mismo comando o en uno anterior (w() { gh "$@"; }; w pr merge 5
 #     pasa);
-#   - la palabra del binario alterada o disfrazada: "gh", g\h, env git …,
+#   - la palabra del binario alterada o disfrazada: "gh", env git …,
 #     /usr/bin/git …, command git … (el "if" de hooks.json tampoco
 #     dispara para las tres últimas: compara cada subcomando por prefijo
 #     y solo descarta asignaciones VAR=x al frente; ver la tabla "Bash if
@@ -308,6 +308,11 @@ guard_sanitize() {
     # a texto, el placeholder queda y marca que la palabra cambió (+"feature/x"
     # sigue siendo "+Q", un refspec forzado; "--force"x"" no es --force).
     # Con el placeholder " " (guards de gh) el reemplazo no cambia: ya separa.
+    # Después de las comillas, la barra invertida SIN comillas se quita como
+    # hace el shell: \X pasa a X cuando X es alfanumérico o uno de ._/:+-
+    # (HEAD:ma\in es HEAD:main, --forc\e es --force, g\it es git). No toca
+    # \; \& \| ni \' (documentados en "Fuera de alcance"). Los guards de gh
+    # lo reciben igual: g\h pr merge --admin ahora bloquea, como en el shell.
     local sanitized status placeholder="${2:- }"
     sanitized=$(printf '%s' "$1" | GUARD_SANITIZE_PH="$placeholder" perl -0777 -pe '
       BEGIN { alarm 5 }
@@ -320,6 +325,7 @@ guard_sanitize() {
         my $attached = ($pre ne q{} && $pre !~ m{$d}) || ($post ne q{} && $post !~ m{$d});
         ($ph eq q{ } || !$attached || $run !~ m{\A(?:\x27\x27|"")+\z}) ? $ph : q{};
       }ge;
+      s{\\([A-Za-z0-9._/:+-])}{$1}g;
     ')
     status=$?
     # Red de seguridad para cualquier patológico futuro no anticipado por
