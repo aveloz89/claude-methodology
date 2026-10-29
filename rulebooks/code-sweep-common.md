@@ -30,7 +30,7 @@ Ajustes: Go suma 50% al umbral de archivo, Rust suma 30% (convención de módulo
 - **God files**: `grep -rn "from '<archivo>'" --include="*.ts" -r src/ | wc -l`; más de ~30 imports es candidato.
 - **Nombres crípticos, responsabilidades mezcladas**: severidad por juicio, según cuánto frena el desarrollo.
 - **Dead code = candidato a revisión humana, nunca se borra por suite verde.** Puede ser API pública, usado por reflexión o referenciado solo desde tests. Repórtalo; no lo elimines ni lo sugieras como fix automático.
-- **Coverage / refactor seguro**: si el archivo tiene coverage < 50%, márcalo: no es seguro refactorizar sin tests de caracterización primero.
+- **Coverage / refactor seguro**: el workflow no mide coverage. Si el repo ya trae un reporte de coverage, cítalo en la descripción; un archivo con coverage < 50% no es seguro de refactorizar sin tests de caracterización primero.
 - Mapeo a la severidad del schema: Crítico → `CRITICO`, Moderado → `MEDIO`, Menor → `BAJO`.
 
 ## 3. Schema de hallazgo
@@ -42,6 +42,8 @@ Contrato entre las fases `audit`, `verify` y `consolidate`:
  "file":"ruta/relativa","line":42,"snippet":"...","description":"...","manifestation":"cómo se manifestaría",
  "verdict":"confirmed|refuted|unverified","evidence":"qué se intentó para refutarlo","issue":null}
 ```
+
+En modo `smells` el auditor puede añadir el campo opcional `"refactor":"<una línea con el refactor sugerido>"`; en `bugs` no existe.
 
 - `id` determinista: se asigna ordenando por `file`, `line`, `pattern`; nunca aleatorio.
 - El auditor deja `verdict: "unverified"` y `evidence: ""`; el verificador fija ambos.
@@ -81,13 +83,12 @@ Snippet, descripción, cómo se manifestaría, issue creado (o "issue existente 
 ```markdown
 ## Code Sweep (smells) — <fecha>
 ### Resumen
-- Archivos escaneados: X · Smells: X (críticos X, moderados X, menores X)
+- Archivos escaneados: X (lo informa el workflow) · Smells: X (críticos X, moderados X, menores X)
+- Coverage: no medido por el workflow
 - Refutados en verificación: <N> · No verificados: <N>
 ### Smells detectados
 #### `archivo:línea` — <tipo> (<métrica>) [SEVERIDAD]
-Problema, impacto, refactor sugerido, coverage del archivo.
-### Sin tests (bloqueante para refactorizar)
-- `archivo` — coverage X% (< 50%)
+Problema, impacto y, si el hallazgo trae el campo "refactor", el refactor sugerido.
 ### NO CUBIERTO
 ```
 

@@ -165,6 +165,7 @@ const FINDING_SCHEMA = {
           "snippet": { type: "string" },
           "description": { type: "string" },
           "manifestation": { type: "string" },
+          "refactor": { type: "string" }, // opcional, solo modo smells: refactor sugerido en una línea
         },
       },
     },
@@ -192,7 +193,7 @@ ${chunk.files.map(f => `- ${f}`).join("\n")}
 Para cada match lee el contexto y confirma que es real antes de reportarlo: un falso positivo no cuenta. Reporta solo archivos de este chunk, con ruta relativa y línea exacta. No asignes ids (los asigna el workflow). Cada hallazgo sigue este contrato (verdict queda "unverified": otro agente lo verifica después):
 ${FINDING_CONTRACT}
 
-Lo que no puedas leer o auditar va en notCovered. Devuelve solo el JSON del schema.
+${mode === "smells" ? 'En modo smells puedes añadir a cada hallazgo el campo opcional "refactor": el refactor sugerido en una línea (no lo ejecutes).\n' : ""}Lo que no puedas leer o auditar va en notCovered. Devuelve solo el JSON del schema.
 ${UNTRUSTED}`,
     { label: `audit:${chunk.id}`, phase: "audit", model: "sonnet", schema: FINDING_SCHEMA, ...READ_ONLY },
   ),
@@ -359,6 +360,7 @@ const consolidated = await agent(
 ${blocker ? '4. Hay un CRITICO confirmado y la corrida es pre-release: el reporte lleva la línea "BLOQUEANTE PRE-RELEASE" y la sección de bloqueante en SÍ.' : preRelease ? '4. La corrida es pre-release y no hay CRITICO confirmado: sección de bloqueante en NO.' : "4. No es pre-release: omite la sección de bloqueante."}
 
 ${unverifiedCritical.length > 0 ? `5. Hay ${unverifiedCritical.length} hallazgo(s) CRITICO "no verificado" en una corrida pre-release (ids: ${unverifiedCritical.map(f => f.id).join(", ")}): lístalos en una sección propia "CRÍTICOS sin verificar — revisar a mano antes del release". NO los marques como bloqueantes ni pongas la línea "BLOQUEANTE PRE-RELEASE" por ellos.\n` : ""}
+${mode === "smells" ? `Datos medidos por el workflow para el resumen: archivos escaneados ${seenFiles.size} (filesScanned) · en ${chunks.length} chunks · hallazgos candidatos ${allFindings.length} · refutados ${refutedCount} · no verificados ${judged.filter(f => f.verdict === "unverified").length}. Coverage: escribe "no medido por el workflow" (el pipeline no lo calcula); no inventes porcentajes y omite la sección "Sin tests". El refactor sugerido de cada smell es el campo "refactor" del hallazgo, si viene.\n` : ""}
 Stack: ${(discovered.stack || []).join(", ") || "?"} · Path: ${paths.join(", ")}
 Candidatos a issue (ids): ${toPersist.map(f => f.id).join(", ") || "ninguno"}
 NO CUBIERTO (cópialo tal cual en esa sección): ${notCovered.length > 0 ? notCovered.join(" | ") : "nada"}

@@ -1225,6 +1225,12 @@ if [ -f "$CS_WORKFLOW" ]; then
   assert_contains "$CS_WORKFLOW" 'disallowedTools: \["Write", "Edit", "NotebookEdit", "Bash"\]' "code-sweep.js: los agentes de lectura vedan Bash en disallowedTools"
   assert_contains "$CS_WORKFLOW" 'CRÍTICOS sin verificar' "code-sweep.js lista los CRÍTICOS sin verificar de pre-release en su propia sección"
   assert_contains "$CS_WORKFLOW" 'sin evidencia' "code-sweep.js degrada a unverified un confirmed sin evidencia"
+  # [lote 10, tarea 3] reporte smells: lo que el pipeline no produce no se pide.
+  assert_contains "$CS_WORKFLOW" 'filesScanned' "code-sweep.js pasa filesScanned al consolidador"
+  assert_contains "$CS_WORKFLOW" '"refactor"' "code-sweep.js define el campo opcional refactor del hallazgo"
+  assert_not_contains "$CS_RULEBOOK" 'coverage X%' "rulebook ya no pide coverage X% por archivo en el reporte smells"
+  assert_contains "$CS_RULEBOOK" 'no medido' "rulebook declara el coverage como no medido por el workflow"
+  assert_contains "$CS_RULEBOOK" '"refactor"' "rulebook documenta el campo opcional refactor en el schema"
 
   if command -v node > /dev/null 2>&1; then
     # El runtime ejecuta el script como cuerpo de una función async (con
