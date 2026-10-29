@@ -38,6 +38,15 @@ Con `gh issue list --label <label>`: `legacy-violation`, `controversial-fix` (qu
 
 ## Persistencia (solo modo `bugs`)
 
+Antes del primer `gh issue create`, asegura los labels con estos comandos literales (sin ningún texto de hallazgo):
+
+```bash
+gh label create latent-bug --force --color D93F0B --description 'Bug latente detectado por code-sweep'
+gh label create severity:critical --force --color B60205 --description 'Severidad de un latent-bug'
+gh label create severity:high --force --color D93F0B --description 'Severidad de un latent-bug'
+gh label create security --force --color B60205 --description 'Hallazgo de seguridad'
+```
+
 Para cada hallazgo **CRÍTICO** o **ALTO** confirmado, antes de crear el issue verifica que no exista uno duplicado: `gh issue list --label "latent-bug" --search '<archivo:línea>'`. Si existe, menciónalo en el reporte como "issue existente #N".
 
 ```bash

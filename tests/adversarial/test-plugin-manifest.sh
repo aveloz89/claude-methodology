@@ -1220,6 +1220,11 @@ if [ -f "$CS_WORKFLOW" ]; then
   assert_not_contains "$CS_WORKFLOW" 'Math\.random(' "code-sweep.js no usa Math.random() (rompe resume)"
 
   assert_contains "$CS_WORKFLOW" 'MAX_CONCURRENT = 8' "code-sweep.js limita la concurrencia con MAX_CONCURRENT = 8"
+  # [#113] los labels se aseguran con comandos literales antes del primer gh issue create
+  for lbl in critical high; do
+    assert_contains "$CS_WORKFLOW" "gh label create severity:$lbl --force" "code-sweep.js asegura el label severity:$lbl con --force (#113)"
+    assert_contains "$CODE_SWEEP" "gh label create severity:$lbl --force" "agents/code-sweep.md asegura el label severity:$lbl con --force (#113)"
+  done
   assert_contains "$CS_WORKFLOW" '"verdict"' "code-sweep.js define el schema de hallazgo (verdict)"
   assert_contains "$CS_WORKFLOW" '"manifestation"' "code-sweep.js define el schema de hallazgo (manifestation)"
   assert_contains "$CS_WORKFLOW" 'code-sweep-common.md' "code-sweep.js apunta los prompts al rulebook común"
