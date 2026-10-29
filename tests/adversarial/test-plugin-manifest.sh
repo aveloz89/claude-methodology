@@ -1246,6 +1246,14 @@ if [ -f "$CS_WORKFLOW" ]; then
   assert_contains "$RUNBOOK" 'Dynamic workflows are disabled by managed settings' "runbook documenta el mensaje de workflows apagados por managed settings"
   assert_contains "$ORCHESTRATOR_SKILL" '^allowed-tools:.*Workflow' "skill orchestrator permite la tool Workflow"
 
+  # [lote 12, tarea 1] filtro determinista de hallazgos antes de crear issues.
+  assert_contains "$CS_WORKFLOW" 'SAFE_FILE_RE' "code-sweep.js declara SAFE_FILE_RE (file permitido para issues)"
+  assert_contains "$CS_WORKFLOW" 'SAFE_PATTERN_RE' "code-sweep.js declara SAFE_PATTERN_RE (pattern permitido para issues)"
+  assert_contains "$CS_WORKFLOW" 'seenFiles\.has' "code-sweep.js exige que el file del issue esté en seenFiles"
+  assert_contains "$CS_WORKFLOW" 'excluido de issues' "code-sweep.js declara en NO CUBIERTO los hallazgos excluidos de issues"
+  assert_not_contains "$CS_WORKFLOW" '--search "' "code-sweep.js no pasa --search entre comillas dobles (inyección de shell)"
+  assert_not_contains "$CS_WORKFLOW" 'CS_ISSUE_BODY_2' "code-sweep.js ya no delega al modelo cambiar el delimitador (CS_ISSUE_BODY_2)"
+
   if command -v node > /dev/null 2>&1; then
     # El runtime ejecuta el script como cuerpo de una función async (con
     # `return` y `await` al nivel superior), que node --check rechaza como
@@ -1262,6 +1270,44 @@ if [ -f "$CS_WORKFLOW" ]; then
       FAIL=$((FAIL + 1))
     fi
     rm -rf "$CS_WRAPDIR"
+
+    # [lote 12, tarea 1] test funcional del filtro: se extraen las constantes y
+    # las funciones puras del script (sin el runtime) y se evalúan en node.
+    CS_FILTER_DIR=$(mktemp -d)
+    CS_FILTER_JS="$CS_FILTER_DIR/filter.js"
+    {
+      grep -E '^const (SAFE_FILE_RE|SAFE_PATTERN_RE|ISSUE_DELIMITER|ISSUE_TEXT_FIELDS) ' "$CS_WORKFLOW" || true
+      awk '/^function issue(ExclusionReason|Safe)\(/ {f=1} f {print} f && /^}/ {f=0}' "$CS_WORKFLOW"
+      cat <<'JSEOF'
+const seen = new Set(["src/app.js"])
+const base = { severity: "ALTO", pattern: "null deref", file: "src/app.js", line: 3, snippet: "x.y", description: "d", manifestation: "m", evidence: "e" }
+const cases = [
+  ["valido", base, true],
+  ["file con comilla simple", { ...base, file: "src/a'b.js" }, false],
+  ["file con $(", { ...base, file: "src/$(id).js" }, false],
+  ["file fuera de seenFiles", { ...base, file: "src/otro.js" }, false],
+  ["pattern con backtick", { ...base, pattern: "null`id`" }, false],
+  ["snippet con linea delimitador", { ...base, snippet: "a\n" + ISSUE_DELIMITER + "\nb" }, false],
+  ["description que contiene el delimitador", { ...base, description: "xx " + ISSUE_DELIMITER + " yy" }, false],
+]
+let bad = 0
+for (const [name, f, want] of cases) {
+  const got = issueSafe(f, seen, ISSUE_DELIMITER)
+  if (got !== want) { bad++; console.log("MISMATCH " + name + ": " + got) }
+}
+if (typeof issueExclusionReason === "function" && issueExclusionReason({ ...base, file: "src/a'b.js" }, seen, ISSUE_DELIMITER) === null) { bad++; console.log("MISMATCH reason") }
+process.exit(bad === 0 ? 0 : 1)
+JSEOF
+    } > "$CS_FILTER_JS"
+    TOTAL=$((TOTAL + 1))
+    if CS_FILTER_OUT=$(node "$CS_FILTER_JS" 2>&1); then
+      echo -e "${GREEN}PASS${NC}: issueSafe de code-sweep.js acepta el hallazgo válido y rechaza file/pattern/campos hostiles"
+      PASS=$((PASS + 1))
+    else
+      echo -e "${RED}FAIL${NC}: issueSafe de code-sweep.js no se comporta como se espera: $CS_FILTER_OUT"
+      FAIL=$((FAIL + 1))
+    fi
+    rm -rf "$CS_FILTER_DIR"
   else
     echo "SKIP: 'node' no está en PATH — se omite node --check de code-sweep.js"
   fi
