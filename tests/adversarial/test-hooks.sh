@@ -5985,7 +5985,7 @@ sandbox_cleanup
 
 # Caso: línea "Tier: <valor>" — liviano se renderiza, ausente cae a completo,
 # fuera del enum es "?" (mismo contrato que status).
-for TIER_CASE in 'liviano|"tier": "liviano",|Tier: liviano' 'ausente||Tier: completo' 'x|"tier": "x",|Tier: ?'; do
+for TIER_CASE in 'liviano|"tier": "liviano",|Tier: liviano' 'ausente||Tier: completo' 'null|"tier": null,|Tier: completo' 'x|"tier": "x",|Tier: ?'; do
   TIER_LABEL="${TIER_CASE%%|*}"; TIER_REST="${TIER_CASE#*|}"
   TIER_FIELD="${TIER_REST%%|*}"; TIER_WANT="${TIER_REST#*|}"
   sandbox_create

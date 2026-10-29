@@ -1070,7 +1070,15 @@ dangling_grep() {
   # viejas del repo con los términos vedados y no es contenido normativo.
   # Salida con rutas relativas a REPO_ROOT.
   local scope_rel=()
-  local p
+  local p probe_err probe_rc
+  # Un patrón que rompe a grep (exit 2) no puede pasar por "sin hits": se
+  # prueba contra /dev/null y el error sale como salida, igual que en
+  # assert_not_contains.
+  probe_err=$(grep -q -- "$1" /dev/null 2>&1) && probe_rc=0 || probe_rc=$?
+  if [ "$probe_rc" -gt 1 ]; then
+    echo "grep falló (exit $probe_rc) para el patrón \"$1\": $probe_err"
+    return 0
+  fi
   for p in "${DANGLING_SCOPE[@]}"; do scope_rel+=("${p#"$REPO_ROOT"/}"); done
   (cd "$REPO_ROOT" && git ls-files -z -- "${scope_rel[@]}" \
     | xargs -0 grep -n -- "$1" /dev/null 2>/dev/null) || true
@@ -1498,6 +1506,37 @@ assert_contains "$ORCHESTRATOR_SKILL" "Workflow(methodology:code-sweep)" "skill 
 assert_not_contains "$ORCHESTRATOR_SKILL" ", Workflow$" "skill orchestrator: sin Workflow a secas en allowed-tools"
 assert_not_contains "$ORCHESTRATOR_SKILL" ", Workflow," "skill orchestrator: sin Workflow a secas intercalado en allowed-tools"
 assert_contains "$E2E_RUNNER" "4. \*\*Fix\*\* — agrega waits" "e2e-runner: Verifica y Fix son pasos distintos"
+
+# --- Lote 11 / tarea 5: asserts faltantes (hunk 10, umbrales del tier, memoria) ---
+for dev in frontend-dev architect backend-dev; do
+  assert_contains "$REPO_ROOT/agents/$dev.md" '~/.claude/CLAUDE.md' "$dev cita ~/.claude/CLAUDE.md (hunk 10)"
+done
+assert_not_contains "$REPO_ROOT/agents/frontend-dev.md" 'Ver "Frontend delgado" en CLAUDE.md raíz' "frontend-dev (~25) remite Frontend delgado a ~/.claude/CLAUDE.md"
+assert_not_contains "$REPO_ROOT/agents/frontend-dev.md" 'Ver CLAUDE.md raíz para exclusiones' "frontend-dev (~53) remite las exclusiones a ~/.claude/CLAUDE.md"
+assert_not_contains "$REPO_ROOT/agents/architect.md" 'definido en CLAUDE.md raíz' "architect (~92) remite Frontend delgado a ~/.claude/CLAUDE.md"
+assert_not_contains "$REPO_ROOT/agents/backend-dev.md" '(ver CLAUDE.md raíz)' "backend-dev (~20) remite el escape hatch de TDD a ~/.claude/CLAUDE.md"
+assert_not_contains "$REPO_ROOT/agents/backend-dev.md" 'ver CLAUDE.md raíz para exclusiones' "backend-dev (~41) remite las exclusiones a ~/.claude/CLAUDE.md"
+assert_contains "$REPO_ROOT/agents/architect.md" 'Leer `CLAUDE.md` raíz' "architect (~35) sigue leyendo el CLAUDE.md del proyecto"
+assert_contains "$RUNBOOK" '≤10 archivos' "runbook: umbral de ≤10 archivos del tier liviano"
+assert_contains "$RUNBOOK" '300 líneas' "runbook: umbral de 300 líneas del tier liviano"
+assert_contains "$RUNBOOK" 'sexto archivo' "runbook: umbral del sexto archivo en edición directa"
+assert_contains "$GLOBAL_CLAUDE_MD" 'Piden confirmación' "global: lista lo que pide confirmación"
+assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" '200 líneas' "reviewer-common §9: tope de 200 líneas de MEMORY.md"
+assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" '25 KB' "reviewer-common §9: tope de 25 KB de MEMORY.md"
+for rv in security-reviewer qa-backend qa-frontend; do
+  assert_contains "$REPO_ROOT/agents/$rv.md" '### Memoria' "$rv: el formato de reporte trae ### Memoria"
+done
+
+# dangling_grep: un error de grep (exit 2) no se confunde con "sin hits".
+INVALID_HITS=$(dangling_grep '[')
+TOTAL=$((TOTAL + 1))
+if echo "$INVALID_HITS" | grep -q "grep falló"; then
+  echo -e "${GREEN}PASS${NC}: dangling_grep reporta el error de grep ante un patrón inválido"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: dangling_grep devolvió \"$INVALID_HITS\" ante un patrón inválido (esperado: mensaje \"grep falló\")"
+  FAIL=$((FAIL + 1))
+fi
 
 # --- /code-sweep tests ---
 
