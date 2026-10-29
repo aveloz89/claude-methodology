@@ -142,18 +142,23 @@ assert_hook_if "pre-merge-check.sh" "Bash(gh *)"
 
 # Paridad: el resto de las entradas de hooks.json no cambió (evento, matcher,
 # script, if y timeout de las 11); solo los 4 guards de git perdieron el "if".
-EXPECTED_HANDLERS='PreToolUse|Bash|block-admin-merge.sh|Bash(gh *)|10
-PreToolUse|Bash|block-force-push.sh|-|10
-PreToolUse|Bash|block-hard-reset.sh|-|10
-PreToolUse|Bash|pre-push-guard.sh|-|10
-PreToolUse|Bash|pre-merge-check.sh|Bash(gh *)|30
-PreToolUse|Bash|pre-commit-guard.sh|-|600
-PostToolUse|Bash|post-pr-create.sh|-|15
-PostToolUse|Bash|docker-refresh.sh|-|15
-SessionStart|startup|resume|clear|compact|session-start-context.sh|-|15
-PreCompact||pre-compact-snapshot.sh|-|15
-SubagentStop||subagent-stop-log.sh|-|10'
-ACTUAL_HANDLERS=$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | .matcher as $m | .hooks[] | [$e, ($m // ""), (.command | sub(".*/"; "") | sub("\"$"; "")), (.if // "-"), (.timeout // "-" | tostring)] | join("|")' "$HOOKS_JSON")
+# Los campos se unen con US (0x1f), no con "|": el matcher de SessionStart
+# ("startup|resume|clear|compact") ya trae "|" y con ese separador un campo
+# podía confundirse con otro.
+US=$'\x1f'
+EXPECTED_HANDLERS=$(printf '%s\n' \
+  "PreToolUse${US}Bash${US}block-admin-merge.sh${US}Bash(gh *)${US}10" \
+  "PreToolUse${US}Bash${US}block-force-push.sh${US}-${US}10" \
+  "PreToolUse${US}Bash${US}block-hard-reset.sh${US}-${US}10" \
+  "PreToolUse${US}Bash${US}pre-push-guard.sh${US}-${US}10" \
+  "PreToolUse${US}Bash${US}pre-merge-check.sh${US}Bash(gh *)${US}30" \
+  "PreToolUse${US}Bash${US}pre-commit-guard.sh${US}-${US}600" \
+  "PostToolUse${US}Bash${US}post-pr-create.sh${US}-${US}15" \
+  "PostToolUse${US}Bash${US}docker-refresh.sh${US}-${US}15" \
+  "SessionStart${US}startup|resume|clear|compact${US}session-start-context.sh${US}-${US}15" \
+  "PreCompact${US}${US}pre-compact-snapshot.sh${US}-${US}15" \
+  "SubagentStop${US}${US}subagent-stop-log.sh${US}-${US}10")
+ACTUAL_HANDLERS=$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | .matcher as $m | .hooks[] | [$e, ($m // ""), (.command | sub(".*/"; "") | sub("\"$"; "")), (.if // "-"), (.timeout // "-" | tostring)] | join("\u001f")' "$HOOKS_JSON")
 TOTAL=$((TOTAL + 1))
 if [ "$ACTUAL_HANDLERS" = "$EXPECTED_HANDLERS" ]; then
   echo -e "${GREEN}PASS${NC}: las 11 entradas de hooks.json coinciden (evento, matcher, script, if, timeout)"
