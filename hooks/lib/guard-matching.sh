@@ -49,8 +49,11 @@
 #     de background sí;
 #   - pre-push-guard.sh: el refspec entero entre comillas (`git push origin
 #     "HEAD:main"`: el saneo lo reemplaza por el placeholder Q antes del match
-#     del destino). Las comillas vacías pegadas (HEAD:main'') y la barra
-#     invertida dentro del token (HEAD:ma\in) SÍ bloquean desde #120. Una
+#     del destino); también la palabra entera entre comillas (git "push"
+#     origin main) y pegadas con contenido no simple (espacios, $, *). Las
+#     comillas pegadas con contenido simple (HEAD:main'', HEAD:"main",
+#     --for"ce") se unen como el shell y SÍ bloquean desde #120, igual que la
+#     barra invertida dentro del token (HEAD:ma\in). Una
 #     redirección pegada al refspec (`HEAD:main>log`, `HEAD:main</dev/null`)
 #     bloquea: "<" y ">" sin comillas cierran el token (GUARD_TOKEN_END).
 #   - pre-push-guard.sh: un refspec glob entre comillas (`git push origin
@@ -329,12 +332,13 @@ guard_sanitize() {
     # g''it es git): una racha de spans quoted contiguos que es la palabra
     # completa (delimitada por espacio, ; & | ( ) { } < > backtick, el inicio o
     # el fin) va como el placeholder; si va pegada a texto sin comillas, se
-    # borra sin poner nada, como el shell (#120, ronda 1 de review: con "Q"
-    # pegado, "git push origin feature/x --force''" quedaba "--forceQ" y pasaba).
-    # Solo se borra si los spans están VACÍOS ('' o ""): con contenido, pegado
-    # a texto, el placeholder queda y marca que la palabra cambió (+"feature/x"
-    # sigue siendo "+Q", un refspec forzado; "--force"x"" no es --force).
-    # Con el placeholder " " (guards de gh) el reemplazo no cambia: ya separa.
+    # une sin comillas, como el shell (#120, ronda 1 de review: con "Q" pegado,
+    # "git push origin feature/x --force''" quedaba "--forceQ" y pasaba). Solo
+    # se une si el contenido es una palabra simple ([A-Za-z0-9._/:+=@%,-], o
+    # vacío): --force'' es --force, --for"ce" es --force, HEAD:"main" es
+    # HEAD:main. Con otro contenido pegado a texto (espacios, $, *, ...) queda
+    # el placeholder: no se expone un mensaje entre comillas.
+    # Con el placeholder " " (guards de gh) una racha SUELTA no cambia: ya separa.
     # Después de las comillas, la barra invertida SIN comillas se quita como
     # hace el shell: \X pasa a X cuando X es alfanumérico o uno de ._/:+-
     # (HEAD:ma\in es HEAD:main, --forc\e es --force, g\it es git). No toca
@@ -350,7 +354,8 @@ guard_sanitize() {
         my $pre = $-[0] > 0 ? substr($_, $-[0] - 1, 1) : q{};
         my $post = $+[0] < length($_) ? substr($_, $+[0], 1) : q{};
         my $attached = ($pre ne q{} && $pre !~ m{$d}) || ($post ne q{} && $post !~ m{$d});
-        ($ph eq q{ } || !$attached || $run !~ m{\A(?:\x27\x27|"")+\z}) ? $ph : q{};
+        my $text = join q{}, map { substr($_, 1, length($_) - 2) } ($run =~ m{\x27[^\x27]*\x27|"(?:[^"\\]|\\.)*"}g);
+        ($attached && $text =~ m{\A[A-Za-z0-9._/:+=@%,-]*\z}) ? $text : $ph;
       }ge;
       s{\\([A-Za-z0-9._/:+-])}{$1}g;
     ')

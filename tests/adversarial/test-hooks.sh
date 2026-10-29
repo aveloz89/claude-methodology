@@ -848,6 +848,22 @@ assert_blocked_cmd "block-hard-reset: comillas dobles vacias antes de git bloque
   "block-hard-reset.sh" '""git reset --hard' "$PATH" "$SANDBOX_REPO"
 assert_blocked_cmd "block-hard-reset: comillas vacias antes de --hard bloquea (#120)" \
   "block-hard-reset.sh" "git reset ''--hard" "$PATH" "$SANDBOX_REPO"
+# Spans con contenido simple pegados a texto: el shell los une (--for"ce" es
+# --force, HEAD:"main" es HEAD:main). RED con 85f002c: exit 0.
+assert_blocked_cmd "pre-push-guard: refspec con el destino entre comillas pegado (HEAD:\"main\") bloquea (#120)" \
+  "pre-push-guard.sh" 'git push origin HEAD:"main"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: destino partido por comillas (HEAD:ma\"\"in) bloquea (#120)" \
+  "pre-push-guard.sh" 'git push origin HEAD:ma""in' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: flag partida por comillas (--for\"ce\") bloquea (#120)" \
+  "block-force-push.sh" 'git push origin feature/x --for"ce"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: opcion partida por comillas (--har\"d\") bloquea (#120)" \
+  "block-hard-reset.sh" 'git reset --har"d"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: flag partida por comillas (--adm\"in\") bloquea (#120)" \
+  "block-admin-merge.sh" 'gh pr merge 5 --adm"in"' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: mensaje con espacios pegado a -m no expone --hard (control, #120)" \
+  "block-hard-reset.sh" 'git commit -m"x --hard"' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: mensaje con espacios pegado a -m no expone el push (control, #120)" \
+  "pre-push-guard.sh" 'git commit -m"push origin main"' "$PATH" "$SANDBOX_REPO"
 # Controles: el span que ES la palabra entera sigue siendo Q (el -c de #120) y
 # una palabra vacia suelta no deforma nada.
 assert_blocked_cmd "pre-push-guard: -c con valor entre comillas y push a main sigue bloqueando (control, #120)" \
