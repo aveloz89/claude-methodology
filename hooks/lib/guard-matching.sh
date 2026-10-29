@@ -71,13 +71,19 @@ GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
 # Fragmento de regex ERE que consume, cero o más veces y EN CUALQUIER ORDEN,
 # las opciones de git que pueden aparecer entre "git" y el subcomando
 # vigilado (push, reset --hard, commit): opciones de árbol ("-C <ruta>",
-# "--git-dir"/"--work-tree" con o sin "="), "-c <clave=valor>", "--no-pager"
-# y "-P". Una sola alternancia repetida en vez de fragmentos concatenados en
+# "--git-dir"/"--work-tree" con o sin "="), "-c <clave=valor>",
+# "--config-env=<clave>=<VAR>" (con o sin "="), "--no-pager" y "-P". Una sola alternancia repetida en vez de fragmentos concatenados en
 # un orden fijo: "git -C /x -c a=b push --force" (árbol después de "-c") no
 # matchearía un fragmento que solo tolerase un orden. git acepta estas
 # opciones en cualquier orden antes del subcomando; el regex también.
 # shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh, pre-push-guard.sh y pre-commit-guard.sh
-GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
+GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--config-env)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
+
+# Prefijo de entorno antes de "git" ("VAR=valor git push ..."): cero o más
+# asignaciones. Sin él, "X=matching git --config-env=push.default=X push
+# origin" ni siquiera se reconocía como un push (el hook salía 0 sin evaluarlo).
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
+GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'
 
 # Inventario de delimitadores (lo verificado, no un absoluto). Tres listas
 # distintas, cada una con su propio papel:
@@ -109,21 +115,33 @@ GUARD_TOKEN_END='([[:space:]]|[)`]|$)'
 # shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
 GUARD_PUSH_ALL_RE="(^|[[:space:]])--(al|all|b|br|bra|bran|branc|branch|branche|branches|m|mi|mir|mirr|mirro|mirror)${GUARD_TOKEN_END}"
 
-# Fragmento de regex ERE que reconoce las opciones "-c" de git que vuelven un
-# "git push" sin refspec equivalente a "--all"/"--mirror" (empuja main sin
-# nombrarla): "-c push.default=matching", "-c remote.<x>.mirror=<verdadero>"
-# (true/yes/on/1) y "-c remote.<x>.push=<algo>". Verificado en un sandbox
-# (git 2.54, desde feature/x): con cada una, "git push origin" actualiza main
-# del remoto. Se aplica al segmento "git ... push ..." ya extraído. Cubre solo
-# el "-c" literal del comando, no el config del repo ni el global (ver
-# "Fuera de alcance" del README).
+# Fragmento de regex ERE que reconoce la configuración por línea de comando
+# que vuelve un "git push" sin refspec equivalente a "--all"/"--mirror"
+# (empuja main sin nombrarla). Cubre, con "-c <clave>=<valor>":
+#   - push.default=matching, y también =upstream y =tracking (alias): empujan
+#     al upstream de la rama actual, que puede ser main;
+#   - remote.<x>.mirror verdadero: la clave SIN "=" (git la toma como true),
+#     o =true/yes/on o un entero distinto de 0 (=2, =01); "=false/no/off/0" y
+#     el valor vacío NO cuentan;
+#   - remote.<x>.push=<algo>;
+# y con "--config-env=<clave>=<VAR>" (o "--config-env <clave>=<VAR>") las mismas
+# claves, sin mirar el valor: viene de una variable, así que se bloquea
+# conservadoramente. Verificado en un sandbox (git 2.54, desde feature/x): con
+# cada una, "git push origin" actualiza main del remoto. git no distingue
+# mayúsculas en la clave (sección ni nombre): quien aplique este regex debe
+# usar "grep -iE" (pre-push-guard.sh y block-force-push.sh lo hacen); con -i
+# "push.default=MATCHING" también bloquea aunque git lo rechace (128):
+# dirección segura. Se aplica al segmento "git ... push ..." ya extraído.
+# Cubre solo la config literal del comando, no el config del repo ni el global
+# (ver "Fuera de alcance" del README).
 # shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
-GUARD_PUSH_CONFIG_RE="(^|[[:space:]])-c[[:space:]]+(push\.default=matching|remote\.[^=[:space:]]+\.(mirror=(true|yes|on|1)|push=[^[:space:]]*))${GUARD_TOKEN_END}"
+GUARD_PUSH_CONFIG_RE="(^|[[:space:]])(-c[[:space:]]+(push\.default=(matching|upstream|tracking)|remote\.[^=[:space:]]+\.(mirror(=(true|yes|on|-?[0-9]*[1-9][0-9]*))?|push=[^[:space:]]*))${GUARD_TOKEN_END}|--config-env(=|[[:space:]]+)(push\.default|remote\.[^=[:space:]]+\.(mirror|push))=)"
 
-# Refspec "git push origin :" (token exactamente ":", con "+" opcional): con
-# push.default=matching/simple según la versión, empuja las ramas que
-# coinciden en el remoto, incluida main. ":rama" (borrar una rama remota) NO
-# matchea: el ":" va seguido de un nombre.
+# Refspec "git push origin :" (token exactamente ":", con "+" opcional):
+# verificado en git 2.54, el ":" suelto empuja las ramas que coinciden en el
+# remoto, incluida main, SIN configurar nada (no hace falta push.default=
+# matching). ":rama" (borrar una rama remota) NO matchea: el ":" va seguido
+# de un nombre.
 # shellcheck disable=SC2034 # se usa en pre-push-guard.sh
 GUARD_PUSH_EMPTY_REFSPEC_RE="(^|[[:space:]])\+?:${GUARD_TOKEN_END}"
 

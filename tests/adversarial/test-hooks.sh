@@ -596,6 +596,39 @@ assert_allowed_cmd "pre-push-guard: borrar una rama remota feature con ':feature
 assert_allowed_cmd "block-force-push: lease a feature/x con -c push.default=simple pasa (control, #117)" \
   "block-force-push.sh" 'git -c push.default=simple push --force-with-lease origin feature/x' "$PATH" "$SANDBOX_REPO"
 
+# #117 ronda 3 (S1): grafías y casing de la config. git no distingue
+# mayúsculas en la clave (sección y nombre), acepta "mirror" sin "=" (booleano
+# verdadero), cualquier entero distinto de 0, push.default=upstream/tracking
+# (empujan al upstream de la rama, que puede ser main) y --config-env=<clave>=<VAR>.
+# RED con el guard anterior: las nueve formas daban exit 0 en ambos hooks.
+for CFG_FORM in \
+  'git -c remote.origin.mirror push origin' \
+  'git -c remote.origin.mirror=TRUE push origin' \
+  'git -c remote.origin.mirror=2 push origin' \
+  'git -c remote.origin.Mirror=true push origin' \
+  'git -c Push.Default=matching push origin' \
+  'git -c REMOTE.origin.MIRROR=true push origin' \
+  'git -c push.default=upstream push origin' \
+  'git -c push.default=tracking push origin' \
+  'X=matching git --config-env=push.default=X push origin'; do
+  assert_blocked_cmd "pre-push-guard: config peligrosa '$CFG_FORM' bloquea (#117)" \
+    "pre-push-guard.sh" "$CFG_FORM" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-force-push: lease con config peligrosa '$CFG_FORM' bloquea (#117)" \
+    "block-force-push.sh" "${CFG_FORM/ push / push --force-with-lease }" "$PATH" "$SANDBOX_REPO"
+done
+for CFG_CTRL in \
+  'git -c user.name=x push origin feature/x' \
+  'git -c push.default=simple push origin feature/x' \
+  'git -c remote.origin.mirror=false push origin feature/x' \
+  'git -c push.default=current push origin feature/x'; do
+  assert_allowed_cmd "pre-push-guard: config inocua '$CFG_CTRL' pasa (control, #117)" \
+    "pre-push-guard.sh" "$CFG_CTRL" "$PATH" "$SANDBOX_REPO"
+  assert_allowed_cmd "block-force-push: lease con config inocua '$CFG_CTRL' pasa (control, #117)" \
+    "block-force-push.sh" "${CFG_CTRL/ push / push --force-with-lease }" "$PATH" "$SANDBOX_REPO"
+done
+assert_blocked_cmd "pre-push-guard: prefijo de entorno cualquiera antes de git push a main bloquea (#117)" \
+  "pre-push-guard.sh" 'FOO=1 git push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
+
 # #117 ronda 1 (H3): la excepción de --force-with-lease evaluaba solo el
 # primer segmento "git push" (head -1); un segundo push a dev colaba.
 # RED con el guard anterior: el primer bloqueo; el resto fija el comportamiento.

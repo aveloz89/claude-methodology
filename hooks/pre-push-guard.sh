@@ -32,7 +32,7 @@ guard_init "pre-push-guard"
 # push real a main pasaba SIN EVALUAR (exit 0) en vez de bloquear por ser
 # push directo a main; un orden distinto al fijo de antes ("git -C . -c
 # a=b push") tampoco. Ver hooks/lib/guard-matching.sh.
-PUSH_RE="${GUARD_ANCHOR}((GIT_DIR|GIT_WORK_TREE)=\S*\s+)*git\s+${GUARD_GIT_OPTS}push\b"
+PUSH_RE="${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b"
 if ! echo "$SANITIZED_COMMAND" | grep -qE "$PUSH_RE"; then
   exit 0
 fi
@@ -115,7 +115,7 @@ fi
 # (GUARD_PUSH_EMPTY_REFSPEC_RE) hace lo mismo. ":rama" borra una rama remota
 # y sigue pasando. Mismo segmento que el chequeo de --all.
 PUSH_SEGMENTS=$(echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}")
-if echo "$PUSH_SEGMENTS" | grep -qE "$GUARD_PUSH_CONFIG_RE"; then
+if echo "$PUSH_SEGMENTS" | grep -qiE "$GUARD_PUSH_CONFIG_RE"; then
   echo "BLOCKED: git -c push.default=matching / remote.<x>.mirror=true / remote.<x>.push=... empuja main sin nombrarla. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
   exit 2
 fi

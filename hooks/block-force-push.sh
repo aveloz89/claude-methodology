@@ -70,9 +70,9 @@ guard_force_with_lease_allowed() {
   # primero (H3, ronda 1): "git push --force-with-lease origin feature/x &&
   # git push --force-with-lease origin dev" colaba el segundo. Con comillas
   # en cualquiera de los segmentos crudos, bloquea (fail-closed).
-  raw_push_segments=$(echo "$COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}")
+  raw_push_segments=$(echo "$COMMAND" | grep -oE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}")
   echo "$raw_push_segments" | grep -q "['\"]" && return 1
-  push_segments=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}")
+  push_segments=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}")
   # La excepción aplica a los segmentos que llevan --force-with-lease: cada
   # uno tiene que cumplirla; si cualquiera falla, bloquea. Un segmento sin
   # la flag no es force por sí mismo (si lo fuera, LEASE_STRIPPED_COMMAND
@@ -85,7 +85,7 @@ guard_force_with_lease_allowed() {
     echo "$push_segment" | grep -qE "$GUARD_PUSH_ALL_RE" && return 1
     # Los "-c" que vuelven el push un push de todo (GUARD_PUSH_CONFIG_RE) tampoco
     # los cubre la excepción: empujarían main sin nombrarla.
-    echo "$push_segment" | grep -qE "$GUARD_PUSH_CONFIG_RE" && return 1
+    echo "$push_segment" | grep -qiE "$GUARD_PUSH_CONFIG_RE" && return 1
     echo "$push_segment" | grep -qE "(^|[[:space:]:])(main|master|dev)([[:space:]:)\`]|\$)|refs/heads/(main|master|dev)([[:space:]:)\`]|\$)" && return 1
   done <<< "$push_segments"
   return 0
@@ -96,7 +96,7 @@ guard_force_with_lease_allowed() {
 # "espacio" sino los caracteres "\" y "s", así que un ref que empieza con
 # "s" (+staging, +stable, +support/x) no matcheaba y pasaba sin bloqueo;
 # +main, +dev y +feature/x sí bloqueaban, por eso no se notó (#112).
-FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*${GUARD_TOKEN_END}|\s\+[^[:space:]:]+)"
+FORCE_PATTERN="${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*${GUARD_TOKEN_END}|\s\+[^[:space:]:]+)"
 
 # --force-with-lease no puede reescribir un ref que otro ya movió (falla si
 # el remoto no coincide con lo que el cliente esperaba) — a diferencia de
