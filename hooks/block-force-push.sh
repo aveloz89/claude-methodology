@@ -34,6 +34,28 @@ guard_init "block-force-push"
 # mismo comando no lo redirige acá, lo bloquea pre-push-guard.sh (mismo
 # criterio que ese guard) antes de que este código corra.
 #
+# guard_raw_push_has_quote: 0 si algún trozo del comando CRUDO que es un "git
+# push" lleva una comilla, una barra invertida o un "$". No depende del ancla
+# literal "git" sobre el texto crudo (g''it, g\it o "git" partido por una
+# continuación de línea no la matchean): cada trozo se limpia de comillas,
+# barras y "$" y se busca el push sobre el texto limpio. Se parte en ";", "&&",
+# "||", "|" (no en ">|") y newline; un "&" suelto NO parte, para que una
+# redirección (2>&1) no corte el segmento a la mitad: partir de menos solo
+# agranda el trozo (más bloqueo, dirección segura). Una barra+newline se une
+# antes de partir.
+guard_raw_push_has_quote() {
+  local joined="${COMMAND//\\$'\n'/}" piece clean
+  joined="${joined//>|/>$'\001'}"
+  joined="${joined//&&/;}"
+  joined="${joined//||/;}"
+  while IFS= read -r piece; do
+    clean=$(printf '%s' "$piece" | tr -d "'\"\\\\\$")
+    [ "$clean" = "$piece" ] && continue
+    printf '%s' "$clean" | grep -qE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b" && return 0
+  done < <(printf '%s\n' "$joined" | tr ';|' '\n')
+  return 1
+}
+
 # guard_force_with_lease_allowed: 0 (permitido) solo si el branch actual
 # (de guard_session_dir) NO es main/master/dev y el segmento del "git ...
 # push ..." real (anclado a posición de comando con GUARD_ANCHOR, hasta el
@@ -50,28 +72,20 @@ guard_init "block-force-push"
 # segmento evaluado — coló un push a rama protegida (review ronda 1,
 # security MEDIUM).
 guard_force_with_lease_allowed() {
-  local dir branch push_segment push_segments raw_push_segments
+  local dir branch push_segment push_segments
   dir=$(guard_session_dir) || return 1
   branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2> /dev/null) || return 1
   case "$branch" in
     main | master | dev) return 1 ;;
   esac
-  # El saneo (guard_sanitize) vacía los spans quoted antes de que
-  # SANITIZED_COMMAND llegue acá: "origin 'main'" queda como "origin " y el
-  # token "main" desaparece del segmento, así que el check de abajo (que
-  # busca "main"/"dev" como palabra suelta) no lo ve y la excepción de
-  # --force-with-lease se cuela. El segmento sobre $COMMAND crudo (sin
-  # sanear) SÍ conserva las comillas: si aparecen dentro del segmento del
-  # push real, no hay forma barata de saber qué token queda adentro sin
-  # parsear el shell de verdad — la excepción no aplica y bloquea
-  # fail-closed, en vez de confiar en un match que puede estar mirando un
-  # segmento vaciado por el saneo.
-  # Se evalúan TODOS los segmentos "git push" del comando, no solo el
-  # primero (H3, ronda 1): "git push --force-with-lease origin feature/x &&
-  # git push --force-with-lease origin dev" colaba el segundo. Con comillas
-  # en cualquiera de los segmentos crudos, bloquea (fail-closed).
-  raw_push_segments=$(echo "$COMMAND" | grep -oE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}")
-  echo "$raw_push_segments" | grep -q "['\"]" && return 1
+  # El saneo (guard_sanitize) reemplaza los spans quoted por el placeholder Q:
+  # "origin 'main'" queda como "origin Q" y el token "main" desaparece del
+  # segmento, así que el check de abajo (que busca "main"/"dev" como palabra
+  # suelta) no lo ve y la excepción de --force-with-lease se cuela. El comando
+  # CRUDO sí conserva las comillas: si el push con lease lleva cualquiera, no
+  # hay forma barata de saber qué token queda adentro sin parsear el shell de
+  # verdad — la excepción no aplica y bloquea fail-closed (guard_raw_push_has_quote).
+  guard_raw_push_has_quote && return 1
   push_segments=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}")
   # La excepción aplica a los segmentos que llevan --force-with-lease: cada
   # uno tiene que cumplirla; si cualquiera falla, bloquea. Un segmento sin

@@ -1081,6 +1081,31 @@ assert_allowed_cmd "block-hard-reset: timeout 1m30s git reset --soft pasa (contr
   "block-hard-reset.sh" 'timeout 1m30s git reset --soft HEAD~1' "$PATH" "$SANDBOX_REPO"
 assert_allowed_cmd "pre-push-guard: sudo con opcion no listada sigue fuera de alcance y pasa (fijado, cierre)" \
   "pre-push-guard.sh" 'sudo -g staff git push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
+
+# Grupo D: la excepcion de --force-with-lease mira las comillas en todo el
+# segmento crudo sin depender del ancla literal "git": g''it, g\it y la
+# continuacion de linea ocultaban el "dev" entre comillas. RED con 7e45e70: los
+# bloqueos de abajo daban exit 0.
+assert_blocked_cmd "block-force-push: g''it con lease y dev entre comillas bloquea (cierre)" \
+  "block-force-push.sh" "g''it push --force-with-lease origin 'dev'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: g\\it con lease y dev entre comillas bloquea (cierre)" \
+  "block-force-push.sh" 'g\it push --force-with-lease origin "dev"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con continuacion de linea y dev entre comillas bloquea (cierre)" \
+  "block-force-push.sh" $'git push --force-with-lease \\\n origin "dev"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con redireccion 2>&1 y dev entre comillas bloquea (cierre)" \
+  "block-force-push.sh" 'git push --force-with-lease 2>&1 origin "dev"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con dev en comillas ANSI-C bloquea (cierre)" \
+  "block-force-push.sh" "git push --force-with-lease origin \$'dev'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con git entre comillas dentro de then bloquea (cierre)" \
+  "block-force-push.sh" "if true; then g''it push --force-with-lease origin 'dev'; fi" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease a feature/x sin comillas pasa (control, cierre)" \
+  "block-force-push.sh" 'git push --force-with-lease origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: commit con mensaje entre comillas y despues lease a feature/x pasa (control, cierre)" \
+  "block-force-push.sh" 'git commit -m "fix" && git push --force-with-lease origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease a feature/x con redireccion 2>&1 pasa (control, cierre)" \
+  "block-force-push.sh" 'git push --force-with-lease 2>&1 origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease a feature/x con continuacion de linea pasa (control, cierre)" \
+  "block-force-push.sh" $'git push --force-with-lease \\\n origin feature/x' "$PATH" "$SANDBOX_REPO"
 # Fin ronda de cierre
 
 sandbox_cleanup_pushrepo
