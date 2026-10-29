@@ -38,7 +38,7 @@ Con `gh issue list --label <label>`: `legacy-violation`, `controversial-fix` (qu
 
 ## Persistencia (solo modo `bugs`)
 
-Los labels se aseguran solo si hay hallazgos CRÍTICOS o ALTOS confirmados que van a issue; sin candidatos no se crea ningún label. Antes del primer `gh issue create`, con estos comandos literales (sin ningún texto de hallazgo; textos y colores de `skills/new-project/SKILL.md`, paso 10, más `--force` para que sea idempotente):
+Los labels se aseguran solo si hay hallazgos CRÍTICOS o ALTOS confirmados que van a issue; sin candidatos no se crea ningún label. Antes del primer `gh issue create`, asegura los labels con estos comandos literales (sin ningún texto de hallazgo; textos y colores de `skills/new-project/SKILL.md`, paso 10, más `--force` para que sea idempotente):
 
 ```bash
 gh label create latent-bug --force --color D93F0B --description 'Bug latente detectado por code-sweep o durante desarrollo; lo procesa code-sweep'

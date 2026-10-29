@@ -54,7 +54,11 @@
 #     escrito en una variable;
 #   - pre-push-guard.sh y block-force-push.sh: una sustitución que PRODUCE el
 #     ref o la flag (git push origin $(git branch --show-current)) no se
-#     evalúa; el guard solo ve tokens literales del comando.
+#     evalúa; el guard solo ve tokens literales del comando;
+#   - que el "if": "Bash(git *)" de hooks.json dispare el hook para
+#     comandos que no empiezan por git (backtick, echo, "(") NO está
+#     verificado de punta a punta: lo probado es el script con el comando
+#     por stdin.
 # Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá:
 # la salida es escribir el comando en su forma directa.
 
