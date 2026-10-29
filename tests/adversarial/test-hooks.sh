@@ -509,6 +509,19 @@ assert_blocked_cmd "block-force-push: git push origin +HEAD:main (refspec forzad
   "block-force-push.sh" \
   "git push origin +HEAD:main"
 
+# #112 (code-sweep pre-release v4.0.0): "[^\s:]+" dentro de una expresión
+# de corchetes POSIX no es "no espacio" — son los caracteres "\", "s" y
+# ":" — así que un refspec forzado cuyo ref empieza con "s" (+staging,
+# +stable, +support/x) no matcheaba y pasaba sin bloqueo; +main, +dev y
+# +feature/x sí bloqueaban, por eso no se notó. Fix: "[^[:space:]:]+".
+# RED con el patrón viejo.
+assert_blocked_cmd "block-force-push: git push origin +staging (refspec forzado que empieza con s) blocks (#112)" \
+  "block-force-push.sh" \
+  "git push origin +staging"
+assert_blocked_cmd "block-force-push: git push origin +support/x (refspec forzado que empieza con s) blocks (#112)" \
+  "block-force-push.sh" \
+  "git push origin +support/x"
+
 # Negativos (C4): no deben bloquear por el nuevo camino del refspec.
 assert_allowed_cmd "block-force-push: git push origin main --follow-tags allowed" \
   "block-force-push.sh" \
