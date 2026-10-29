@@ -1106,6 +1106,42 @@ assert_allowed_cmd "block-force-push: lease a feature/x con redireccion 2>&1 pas
   "block-force-push.sh" 'git push --force-with-lease 2>&1 origin feature/x' "$PATH" "$SANDBOX_REPO"
 assert_allowed_cmd "block-force-push: lease a feature/x con continuacion de linea pasa (control, cierre)" \
   "block-force-push.sh" $'git push --force-with-lease \\\n origin feature/x' "$PATH" "$SANDBOX_REPO"
+
+# Ronda final (#118): xargs con opcion y valor separado (corta o larga).
+for _w in 'xargs -a f' 'xargs --max-args 1' 'xargs -R 2' 'xargs -S 255' 'xargs -r -a f' 'xargs -0 -a f' 'xargs -0 -I {}' 'xargs -0' 'xargs --arg-file=f' 'xargs -I PALABRA'; do
+  assert_blocked_cmd "pre-push-guard: wrapper $_w delante de git push a main bloquea (ronda final)" \
+    "pre-push-guard.sh" "$_w git push origin main" "$PATH" "$SANDBOX_REPO"
+done
+assert_blocked_cmd "pre-push-guard: echo x pipe xargs git push origin main bloquea (ronda final)" \
+  "pre-push-guard.sh" 'echo x | xargs git push origin main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: xargs -I PALABRA con refspec PALABRA:main bloquea (ronda final)" \
+  "pre-push-guard.sh" 'xargs -I PALABRA git push origin PALABRA:main' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: xargs -a f git push a feature/x pasa (control, ronda final)" \
+  "pre-push-guard.sh" 'xargs -a f git push origin feature/x' "$PATH" "$SANDBOX_REPO"
+
+# Ronda final (#118): la excepcion de lease solo mira comillas, barra y $' / $",
+# no un $VAR o $(...) sin comillas.
+assert_allowed_cmd "block-force-push: lease con sustitucion de comando sin comillas pasa (ronda final)" \
+  "block-force-push.sh" 'git push --force-with-lease origin $(git branch --show-current)' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease con variable sin comillas pasa (ronda final)" \
+  "block-force-push.sh" 'git push --force-with-lease origin $BRANCH' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease a feature/x con variable extra pasa (ronda final)" \
+  "block-force-push.sh" 'git push --force-with-lease origin feature/x $EXTRA' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con dev ANSI-C bloquea (ronda final)" \
+  "block-force-push.sh" "git push --force-with-lease origin \$'dev'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con dev entre comillas dobles bloquea (ronda final)" \
+  "block-force-push.sh" 'git push --force-with-lease origin "dev"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con g y comillas vacias en git bloquea (ronda final)" \
+  "block-force-push.sh" "g''it push --force-with-lease origin 'dev'" "$PATH" "$SANDBOX_REPO"
+
+# Ronda final (#118): dos barras antes del newline son una barra literal y el
+# newline separa comandos; no es continuacion de linea.
+assert_blocked_cmd "block-hard-reset: dos barras y newline no son continuacion bloquea (ronda final)" \
+  "block-hard-reset.sh" $'echo hi \\\\\ngit reset --hard' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: una barra y newline si es continuacion pasa (control, ronda final)" \
+  "block-hard-reset.sh" $'echo hi \\\ngit reset --hard' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con dos barras, newline y push a dev con comillas bloquea (ronda final)" \
+  "block-force-push.sh" $'echo \\\\\ngit push --force-with-lease origin "dev"' "$PATH" "$SANDBOX_REPO"
 # Fin ronda de cierre
 
 sandbox_cleanup_pushrepo

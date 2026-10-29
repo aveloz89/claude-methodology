@@ -137,7 +137,10 @@ GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--namespace|--config-env|--attr-sour
 #     "timeout --preserve-status 5s", "timeout 1m30s": duraciones con sufijo y
 #     compuestas);
 #   - xargs  (+ opciones; con valor separado -I, -L, -n, -P, -s, -d, -E, -J:
-#     "xargs -n 1", "xargs -I WORD", "xargs -I {}"): "echo a | xargs git push ...";
+#     "xargs -n 1", "xargs -I WORD", "xargs -I {}"; y tras CUALQUIER otra opción,
+#     corta o larga, un valor separado opcional que sea "{}", un número o una
+#     palabra sin "-" inicial que no sea "git": "xargs -a f", "xargs --max-args
+#     1", "xargs -R 2"): "echo a | xargs git push ...";
 #   - sudo, doas  (+ "-u USUARIO" y opciones sin valor: "sudo -E", "sudo -n");
 #   - nice  (+ "-n N"), ionice  (+ "-c N", "-n N"), stdbuf  (+ "-oN", "-o N"),
 #     caffeinate  (+ "-i", "-t N"), chrt  (+ opciones y la prioridad), taskset
@@ -151,7 +154,7 @@ GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--namespace|--config-env|--attr-sour
 # el wrapper al frente sí llega al script; verificado con claude -p, ver
 # "Fuera de alcance" del README.
 # shellcheck disable=SC2034 # se usa en pre-push-guard.sh, block-force-push.sh, block-hard-reset.sh y pre-commit-guard.sh
-GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(((time|nohup|command|coproc)(\s+-\S+)*\s+|exec(\s+(-a\s+\S+|-\S+))*\s+|env(\s+(-[uC]\s+\S+|-\S*|[A-Za-z_][A-Za-z0-9_]*=\S*))*\s+|timeout(\s+-\S+(\s+[A-Za-z0-9]+)?)*\s+[0-9.]+[smhd]?([0-9.]+[smhd])*\s+|xargs(\s+(-[ILnPsdEJ]\s+\S+|-\S+))*\s+|(sudo|doas)(\s+(-u\s+\S+|-\S+))*\s+|nice(\s+(-n\s+\S+|-\S+))*\s+|ionice(\s+(-[cnp]\s+\S+|-\S+))*\s+|stdbuf(\s+(-[ioe]\s+\S+|-\S+))*\s+|caffeinate(\s+(-[tw]\s+\S+|-\S+))*\s+|chrt(\s+-\S+)*\s+[0-9]+\s+|taskset(\s+-\S+)*\s+[0-9A-Fa-fx,-]+\s+|arch(\s+-\S+)*\s+)([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)*'
+GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(((time|nohup|command|coproc)(\s+-\S+)*\s+|exec(\s+(-a\s+\S+|-\S+))*\s+|env(\s+(-[uC]\s+\S+|-\S*|[A-Za-z_][A-Za-z0-9_]*=\S*))*\s+|timeout(\s+-\S+(\s+[A-Za-z0-9]+)?)*\s+[0-9.]+[smhd]?([0-9.]+[smhd])*\s+|xargs(\s+(-[ILnPsdEJ]\s+\S+|-\S+(\s+(\{\}|[0-9]+|[^-g[:space:]]\S*|g([^i[:space:]]\S*)?|gi([^t[:space:]]\S*)?|git\S+))?))*\s+|(sudo|doas)(\s+(-u\s+\S+|-\S+))*\s+|nice(\s+(-n\s+\S+|-\S+))*\s+|ionice(\s+(-[cnp]\s+\S+|-\S+))*\s+|stdbuf(\s+(-[ioe]\s+\S+|-\S+))*\s+|caffeinate(\s+(-[tw]\s+\S+|-\S+))*\s+|chrt(\s+-\S+)*\s+[0-9]+\s+|taskset(\s+-\S+)*\s+[0-9A-Fa-fx,-]+\s+|arch(\s+-\S+)*\s+)([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)*'
 
 # Inventario de delimitadores (lo verificado, no un absoluto). Tres listas
 # distintas, cada una con su propio papel:
@@ -377,7 +380,7 @@ guard_sanitize() {
     local sanitized status placeholder="${2:- }"
     sanitized=$(printf '%s' "$1" | GUARD_SANITIZE_PH="$placeholder" perl -0777 -pe '
       BEGIN { alarm 5 }
-      s/\\\n//g;
+      s/(?<!\\)((?:\\\\)*)\\\n/$1/g;
       s/\\\z//;
       s/<<-?[ \t]*[\x27"]?([A-Za-z0-9_-]+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1[ \t]*$)[^\n]*\n)*?[ \t]*\1(?:\n|$)/\n/gsm;
       s{((?:\$?\x27[^\x27]*\x27|\$?"(?:[^"\\]|\\.)*")+)}{

@@ -44,13 +44,18 @@ guard_init "block-force-push"
 # agranda el trozo (más bloqueo, dirección segura). Una barra+newline se une
 # antes de partir.
 guard_raw_push_has_quote() {
-  local joined="${COMMAND//\\$'\n'/}" piece clean
+  local joined piece clean
+  # Barra+newline se une solo si las barras son impares (una cantidad par son
+  # barras literales y el newline separa comandos), igual que guard_sanitize.
+  joined=$(printf '%s' "$COMMAND" | perl -0777 -pe 'BEGIN { alarm 5 } s/(?<!\\)((?:\\\\)*)\\\n/$1/g')
   joined="${joined//>|/>$'\001'}"
   joined="${joined//&&/;}"
   joined="${joined//||/;}"
   while IFS= read -r piece; do
+    # Solo esconden un nombre literal las comillas, la barra invertida y $'/$"
+    # (que ya llevan comilla): un $VAR o $(...) sin comillas no lo esconden.
+    [ "$(printf '%s' "$piece" | tr -d "'\"\\\\")" = "$piece" ] && continue
     clean=$(printf '%s' "$piece" | tr -d "'\"\\\\\$")
-    [ "$clean" = "$piece" ] && continue
     printf '%s' "$clean" | grep -qE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b" && return 0
   done < <(printf '%s\n' "$joined" | tr ';|' '\n')
   return 1
