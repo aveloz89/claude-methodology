@@ -45,9 +45,10 @@
 #     &>log) o un ";" escapado antes de la flag de force;
 #   - pre-push-guard.sh: el refspec entre comillas (`git push origin
 #     "HEAD:main"`: el saneo vacía el span antes del match del destino) y
-#     una redirección antes del refspec o pegada a él (`git push origin
-#     2>&1 HEAD:main`, `git push origin HEAD:main>log`: el segmento se
-#     corta en "&", o el ">" queda pegado al nombre).
+#     una redirección con "&" antes del refspec (`git push origin 2>&1
+#     HEAD:main`: el segmento se corta en "&"). Una redirección pegada al
+#     refspec (`HEAD:main>log`, `HEAD:main</dev/null`) SÍ bloquea: "<" y ">"
+#     sin comillas cierran el token (GUARD_TOKEN_END).
 #   - pre-push-guard.sh y block-force-push.sh: push.default=matching o
 #     remote.<x>.mirror/push fijados en el config del repo o global (solo se
 #     ven los "-c" literales del comando), remote.pushDefault y un "-c"
@@ -94,15 +95,15 @@ GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'
 #     ("git push origin $(true) HEAD:main", "git push origin `true` main")
 #     esconde lo que sigue si el segmento se corta ahí (regresión de la
 #     ronda 2 de #117, verificada contra dev);
-#   - el TOKEN (GUARD_TOKEN_END) se cierra en espacio, ")" , backtick o fin
-#     de string. Así "(git push origin HEAD:main)" y "`git push origin
+#   - el TOKEN (GUARD_TOKEN_END) se cierra en espacio, ")", backtick, "<", ">"
+#     o fin de string ("<" y ">" sin comillas son siempre redirección). Así "(git push origin HEAD:main)" y "`git push origin
 #     HEAD:main`" cierran el borde del token "main" sin cortar el segmento.
 # Van entre comillas simples: el backtick es literal en la asignación y al
 # expandirlas dentro de comillas dobles no se vuelve a evaluar.
 # shellcheck disable=SC2016,SC2034 # backtick literal; se usan en pre-push-guard.sh y block-force-push.sh
 GUARD_SEGMENT_END='[^&|;]*'
 # shellcheck disable=SC2016,SC2034
-GUARD_TOKEN_END='([[:space:]]|[)`]|$)'
+GUARD_TOKEN_END='([[:space:]]|[)`<>]|$)'
 
 # Fragmento de regex ERE que reconoce las opciones de "git push" que empujan
 # todas las ramas locales (incluida main) sin nombrarla: --all, --mirror y
@@ -142,7 +143,9 @@ GUARD_PUSH_CONFIG_RE="(^|[[:space:]])(-c[[:space:]]+(push\.default=(matching|ups
 # remoto, incluida main, SIN configurar nada (no hace falta push.default=
 # matching). ":rama" (borrar una rama remota) NO matchea: el ":" va seguido
 # de un nombre.
-# shellcheck disable=SC2034 # se usa en pre-push-guard.sh
+# La usan pre-push-guard.sh y la excepción de --force-with-lease de
+# block-force-push.sh (que nunca cubre pushes de todo).
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
 GUARD_PUSH_EMPTY_REFSPEC_RE="(^|[[:space:]])\+?:${GUARD_TOKEN_END}"
 
 # Fragmento de regex ERE que reconoce "gh ... pr ... merge" tolerando hasta

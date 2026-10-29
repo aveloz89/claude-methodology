@@ -629,6 +629,31 @@ done
 assert_blocked_cmd "pre-push-guard: prefijo de entorno cualquiera antes de git push a main bloquea (#117)" \
   "pre-push-guard.sh" 'FOO=1 git push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
 
+# #117 ronda 3 (S3, S4): "<" y ">" sin comillas son siempre redirección, así
+# que cierran el token; y la excepción de --force-with-lease nunca cubre el
+# refspec ":" / "+:" (empuja las ramas coincidentes, incluida main).
+# RED con el guard anterior: los bloqueos de abajo daban exit 0.
+assert_blocked_cmd "pre-push-guard: HEAD:main seguido de redirección de entrada bloquea (#117)" \
+  "pre-push-guard.sh" 'git push origin HEAD:main</dev/null' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: HEAD:main seguido de redirección de salida bloquea (#117)" \
+  "pre-push-guard.sh" 'git push origin HEAD:main>log' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease a feature/x y dev seguido de redirección bloquea (#117)" \
+  "block-force-push.sh" 'git push --force-with-lease origin feature/x dev</dev/null' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x con redirección de entrada pasa (control, #117)" \
+  "pre-push-guard.sh" 'git push origin feature/x</dev/null' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x con 2>&1 pasa (control, #117)" \
+  "pre-push-guard.sh" 'git push origin feature/x 2>&1' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con refspec ':' suelto bloquea (#117)" \
+  "block-force-push.sh" 'git push --force-with-lease origin :' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con refspec '+:' suelto bloquea (#117)" \
+  "block-force-push.sh" 'git push --force-with-lease origin +:' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: refspec forzado '+:' sin lease bloquea (#117)" \
+  "block-force-push.sh" 'git push origin +:' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease con feature/x:feature/x pasa (control, #117)" \
+  "block-force-push.sh" 'git push --force-with-lease origin feature/x:feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease con borrado ':feature/x' pasa (control, #117)" \
+  "block-force-push.sh" 'git push --force-with-lease origin :feature/x' "$PATH" "$SANDBOX_REPO"
+
 # #117 ronda 1 (H3): la excepción de --force-with-lease evaluaba solo el
 # primer segmento "git push" (head -1); un segundo push a dev colaba.
 # RED con el guard anterior: el primer bloqueo; el resto fija el comportamiento.

@@ -86,9 +86,9 @@ fi
 # en HEAD de feature/x no habilita empujarlo a main. Fuera de alcance
 # (README, "Fuera de alcance"; misma clase que la flag quoted y la
 # redirección en block-force-push.sh): el refspec entre comillas (el saneo
-# vacía el span) y una redirección antes del refspec o pegada a él ("2>&1
-# HEAD:main" corta el segmento en "&"; "HEAD:main>log" deja el ">" pegado
-# al nombre y rompe el borde del token).
+# vacía el span) y una redirección con "&" antes del refspec ("2>&1
+# HEAD:main" corta el segmento en "&"). "HEAD:main>log" y "HEAD:main</dev/null"
+# SÍ bloquean: "<" y ">" cierran el token (GUARD_TOKEN_END).
 DST_MAIN_RE="(^|[[:space:]])\+?([^[:space:]:]*:)?(refs/heads/)?(main|master)${GUARD_TOKEN_END}"
 if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}" | grep -qE "$DST_MAIN_RE"; then
   echo "BLOCKED: No push directo a main: el refspec apunta a main/master (HEAD:main, dev:main, refs/heads/main o la rama local main). Usa un PR desde dev o feature branch." >&2

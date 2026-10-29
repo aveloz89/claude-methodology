@@ -86,7 +86,10 @@ guard_force_with_lease_allowed() {
     # Los "-c" que vuelven el push un push de todo (GUARD_PUSH_CONFIG_RE) tampoco
     # los cubre la excepción: empujarían main sin nombrarla.
     echo "$push_segment" | grep -qiE "$GUARD_PUSH_CONFIG_RE" && return 1
-    echo "$push_segment" | grep -qE "(^|[[:space:]:])(main|master|dev)([[:space:]:)\`]|\$)|refs/heads/(main|master|dev)([[:space:]:)\`]|\$)" && return 1
+    # El refspec ":" / "+:" suelto empuja las ramas coincidentes (incluida
+    # main) sin nombrarla: tampoco lo cubre la excepción.
+    echo "$push_segment" | grep -qE "$GUARD_PUSH_EMPTY_REFSPEC_RE" && return 1
+    echo "$push_segment" | grep -qE "(^|[[:space:]:])(main|master|dev)(:|${GUARD_TOKEN_END})|refs/heads/(main|master|dev)(:|${GUARD_TOKEN_END})" && return 1
   done <<< "$push_segments"
   return 0
 }
@@ -96,7 +99,7 @@ guard_force_with_lease_allowed() {
 # "espacio" sino los caracteres "\" y "s", así que un ref que empieza con
 # "s" (+staging, +stable, +support/x) no matcheaba y pasaba sin bloqueo;
 # +main, +dev y +feature/x sí bloqueaban, por eso no se notó (#112).
-FORCE_PATTERN="${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*${GUARD_TOKEN_END}|\s\+[^[:space:]:]+)"
+FORCE_PATTERN="${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*${GUARD_TOKEN_END}|\s\+[^[:space:]:]+|\s\+:${GUARD_TOKEN_END})"
 
 # --force-with-lease no puede reescribir un ref que otro ya movió (falla si
 # el remoto no coincide con lo que el cliente esperaba) — a diferencia de
