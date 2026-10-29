@@ -3,12 +3,11 @@
 # local, o con un refspec cuyo destino sea main/master desde cualquier rama
 # (#112). Debe hacerse por PR.
 #
-# hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
-# latencia, no reemplaza la validación de abajo, que sigue mirando el
-# comando completo. NO verificado de punta a punta: que ese "if" dispare el
-# hook para comandos que no empiezan por git (backtick, echo, "(") o que
-# empiezan por un wrapper (time, env, nohup, …) — lo probado es el script
-# con el comando por stdin.
+# hooks.json registra este guard SIN "if" (decisión del usuario, ronda 1 de
+# review): corre en cada Bash. Con "Bash(git *)" el harness no lo invocaba para
+# comandos que empiezan por un wrapper ("time git push origin HEAD:main" movía
+# main, verificado en un sandbox con claude -p), un if/then ni un backtick. La
+# validación de abajo mira el comando completo; sin "git" en el comando sale 0.
 #
 # Matching endurecido (D-07, #77): el match se sanea (spans quoted/heredoc)
 # y se ancla a posición de comando en vez de "^\s*git\s+push" sobre el

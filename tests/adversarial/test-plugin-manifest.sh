@@ -130,10 +130,13 @@ assert_hook_if() {
   fi
 }
 
-assert_hook_if "block-force-push.sh" "Bash(git *)"
-assert_hook_if "block-hard-reset.sh" "Bash(git *)"
-assert_hook_if "pre-push-guard.sh" "Bash(git *)"
-assert_hook_if "pre-commit-guard.sh" "Bash(git *)"
+# Los 4 guards de git NO llevan "if": con "Bash(git *)" el harness no los
+# invocaba para comandos que empiezan por un wrapper (time, env, ...), un
+# if/then, un backtick o un "(" (decisión del usuario, ronda 1 de review). El
+# filtro de latencia lo hace cada script con su salida temprana.
+for GIT_GUARD in block-force-push.sh block-hard-reset.sh pre-push-guard.sh pre-commit-guard.sh; do
+  assert_hook_if "$GIT_GUARD" "MISSING"
+done
 assert_hook_if "block-admin-merge.sh" "Bash(gh *)"
 assert_hook_if "pre-merge-check.sh" "Bash(gh *)"
 

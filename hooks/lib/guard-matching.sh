@@ -36,9 +36,7 @@
 #     el mismo comando o en uno anterior (w() { gh "$@"; }; w pr merge 5
 #     pasa);
 #   - la palabra del binario alterada o disfrazada: "gh" y /usr/bin/git …
-#     (el "if" de hooks.json tampoco dispara para la ruta absoluta: compara
-#     cada subcomando por prefijo y solo descarta asignaciones VAR=x al
-#     frente; ver la tabla "Bash if matching" de la doc de hooks). Los
+#     (el anclado exige "git" como palabra de comando). Los
 #     wrappers time, nohup, exec, command, env, timeout, xargs y coproc SÍ
 #     los cubre el script de los guards de git (GUARD_ENV_PREFIX, #118);
 #     sudo, nice, ionice, stdbuf, watch y otros siguen fuera;
@@ -73,12 +71,12 @@
 #   - pre-push-guard.sh y block-force-push.sh: una sustitución que PRODUCE el
 #     ref o la flag (git push origin $(git branch --show-current)) no se
 #     evalúa; el guard solo ve tokens literales del comando;
-#   - que el "if": "Bash(git *)" de hooks.json dispare el hook para
-#     comandos que no empiezan por git (backtick, echo, "(") o que empiezan
-#     por un wrapper (time, env, nohup, …) NO está verificado de punta a
-#     punta: lo probado es el script con el comando por stdin. Según la tabla
-#     "Bash if matching" el "if" compara por prefijo, así que es probable que
-#     el hook no se invoque con un wrapper al frente.
+#   - (resuelto) los 4 guards de git ya no llevan "if": "Bash(git *)" en
+#     hooks.json: corren en cada Bash. Verificado de punta a punta con
+#     claude -p en un sandbox con remoto bare: "time git push origin HEAD:main"
+#     y "if true; then git push origin HEAD:main; fi" bloquean (BLOCKED de
+#     pre-push-guard) y el remoto no se mueve; con el "if" anterior, "time git
+#     push origin HEAD:main" movió main.
 # Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá:
 # la salida es escribir el comando en su forma directa.
 
@@ -125,9 +123,9 @@ GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--config-env)(=\S*|\s+\S*)?|-c\s+\S+
 # ionice, stdbuf, watch y demás wrappers; opciones con valor que no sean las de
 # arriba (xargs -I FOO queda dentro: una letra). Solo ancla tras el separador de
 # comando: "echo time git push origin main" NO es un push.
-# NO verificado de punta a punta: que el "if": "Bash(git *)" de hooks.json
-# dispare el hook para un comando que EMPIEZA por un wrapper (time, env, ...);
-# lo probado es el script por stdin. Ver "Fuera de alcance" del README.
+# Los guards de git no llevan "if" en hooks.json (corren en cada Bash), así que
+# el wrapper al frente sí llega al script; verificado con claude -p, ver
+# "Fuera de alcance" del README.
 # shellcheck disable=SC2034 # se usa en pre-push-guard.sh, block-force-push.sh, block-hard-reset.sh y pre-commit-guard.sh
 GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(((time|nohup|exec|command|coproc)(\s+-\S+)*\s+|env(\s+(-u\s+\S+|-\S*|[A-Za-z_][A-Za-z0-9_]*=\S*))*\s+|timeout(\s+-\S+(\s+[A-Za-z0-9]+)?)*\s+[0-9.]+[smhd]?\s+|xargs(\s+-\S+(\s+(\{\}|[0-9]+|[A-Za-z]))?)*\s+)([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)*'
 

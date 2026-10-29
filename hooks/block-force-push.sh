@@ -1,12 +1,11 @@
 #!/bin/bash
 # Bloquea git push --force / -f que puede sobrescribir historia remota.
 #
-# hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
-# latencia, no reemplaza la validación de abajo, que sigue mirando el
-# comando completo. NO verificado de punta a punta: que ese "if" dispare el
-# hook para comandos que no empiezan por git (backtick, echo, "(") o que
-# empiezan por un wrapper (time, env, nohup, …) — lo probado es el script
-# con el comando por stdin.
+# hooks.json registra este guard SIN "if" (decisión del usuario, ronda 1 de
+# review): corre en cada Bash. Con "Bash(git *)" el harness no lo invocaba para
+# comandos que empiezan por un wrapper ("time git push origin HEAD:main" movía
+# main, verificado en un sandbox con claude -p), un if/then ni un backtick. La
+# validación de abajo mira el comando completo; sin "git" en el comando sale 0.
 LIB="${0%/*}/lib/guard-matching.sh"
 [ -r "$LIB" ] || { echo "BLOCKED: block-force-push no operativo: falta hooks/lib/guard-matching.sh" >&2; exit 2; }
 # shellcheck source=lib/guard-matching.sh
