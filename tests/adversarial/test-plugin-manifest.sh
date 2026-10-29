@@ -1457,6 +1457,14 @@ assert_not_contains "$README_MD" "agent-memory/<agente>" "README.md no usa la ru
 assert_not_contains "$INSTALL_SH" "agent-memory/<agente>" "install.sh no usa la ruta vieja agent-memory/<agente>"
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" "ni por Bash" "reviewer-common §9: el reviewer no escribe la memoria ni por Bash"
 
+# --- Lote 11 / tarea 2: orchestrator único escritor de la memoria y anti-envenenamiento ---
+assert_contains "$RUNBOOK" "memory: actualizar memoria de" "runbook Fase 2.6: el orchestrator commitea la memoria con memory:"
+assert_contains "$RUNBOOK" "### Memoria" "runbook: el formato de reporte trae la sección ### Memoria"
+assert_contains "$RUNBOOK" "25 KB" "runbook Fase 2.6: tope de 25 KB de MEMORY.md"
+assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" "no se consideran" "reviewer-common §9: las entradas de un diff que toca la memoria no se consideran"
+assert_contains "$ORCHESTRATOR_SKILL" "agent-memory" "skill orchestrator remite al volcado de memoria"
+assert_contains "$REPO_ROOT/skills/pr-workflow/SKILL.md" "agent-memory" "skill pr-workflow §2 remite al volcado de memoria"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---

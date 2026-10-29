@@ -91,9 +91,10 @@ El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` r
 3. **Consolida y registra**: el orchestrator es el único escritor del registro — ningún reviewer lo toca (tienen `Write`/`Edit` prohibidos). Consolidas los reportes **después de que vuelvan todos**, con el "Formato de reporte de review", guardado local (sin commit) en `.planning/reviews/<feature-slug>.md`
 4. **Mientras haya un reviewer corriendo, el árbol no se mueve.** Espera a que vuelvan todos antes de aplicar nada. Vale igual para un dev en paralelo: si un lote y un review tocan los mismos archivos, no van juntos
 5. **Si hay bloqueantes**: fixes por el dev correspondiente en un lote de fixes nuevo (ver "Fase 2"), sin push (schema/migración va a `backend-dev` con `rulebooks/db-migrations.md`). Re-lanza solo los reviewers que marcaron issues, acotados al delta local. Sugerencias baratas: aplicadas antes del push (skill `pr-workflow`, §2)
-6. **Veredictos limpios**: `phases.review = done` y `review_sha` al SHA de HEAD, avanza a Fase 2.7. Fixes, sugerencias y registro viajan en el push inicial: **el PR nace revisado**
+6. **Memoria de los reviewers** (tras consolidar): vuelca las entradas de `### Memoria` de cada reviewer en `.claude/agent-memory/methodology-<agente>/MEMORY.md` con el formato de `rulebooks/reviewer-common.md` §9, manteniéndolo bajo 200 líneas / 25 KB (el detalle va en archivos aparte del mismo directorio), y commitea `memory: actualizar memoria de <agente>` en el mismo branch. Eres el único escritor; sin propuestas, no hay commit
+7. **Veredictos limpios**: `phases.review = done` y `review_sha` al SHA de HEAD, avanza a Fase 2.7. Fixes, sugerencias, memoria y registro viajan en el push inicial: **el PR nace revisado**
 
-**En tier liviano**, el paso 2 se sustituye por un review simple: invoca la skill nativa `code-review` con la tool `Skill`, sin bajar el nivel de esfuerzo de la sesión, con la instrucción "skip style, concéntrate en correctitud" y sin `--fix` (read-only). Corre en background: espera su resultado antes de tocar el árbol (paso 4). Suma `security-reviewer`, con el handoff habitual sobre el diff local, solo si el diff toca auth, crypto, secrets o pagos. Consolidas el reporte en `.planning/reviews/<feature-slug>.md` y cierras igual que en el paso 6: `phases.review = done` y `review_sha` al SHA de HEAD (así `post-pr-create.sh` no cambia). Fallback: si `code-review` no figura en la lista de skills de la sesión, o la invocación devuelve que no existe o está deshabilitada (`-p`, entornos sin feature flags), lanza `qa-backend` o `qa-frontend` según la capa tocada ("Clasificación del diff por capa"), con el handoff de siempre: un solo review, read-only. Los fixes los aplica el orchestrator dentro de su límite de edición directa o un lote de dev.
+**En tier liviano**, el paso 2 se sustituye por un review simple: invoca la skill nativa `code-review` con la tool `Skill`, sin bajar el nivel de esfuerzo de la sesión, con la instrucción "skip style, concéntrate en correctitud" y sin `--fix` (read-only). Corre en background: espera su resultado antes de tocar el árbol (paso 4). Suma `security-reviewer`, con el handoff habitual sobre el diff local, solo si el diff toca auth, crypto, secrets o pagos. Consolidas el reporte en `.planning/reviews/<feature-slug>.md` y cierras igual que en el paso 7: `phases.review = done` y `review_sha` al SHA de HEAD (así `post-pr-create.sh` no cambia). Fallback: si `code-review` no figura en la lista de skills de la sesión, o la invocación devuelve que no existe o está deshabilitada (`-p`, entornos sin feature flags), lanza `qa-backend` o `qa-frontend` según la capa tocada ("Clasificación del diff por capa"), con el handoff de siempre: un solo review, read-only. Los fixes los aplica el orchestrator dentro de su límite de edición directa o un lote de dev.
 
 ### Fase 2.7: Push + PR
 
@@ -449,6 +450,9 @@ El mismo formato sirve para las dos rondas: **pre-PR** (Fase 2.6 — no hay PR t
 ### QA Backend
 [Hallazgos del qa-backend — contratos, datos, tests, migraciones. Omitir si no se lanzó]
 [Criterios de aceptación del brief: cubiertos N de M (lista los no cubiertos). Solo si BRIEF.md los trae; no bloquea por sí solo.]
+
+### Memoria
+[Por reviewer: entradas propuestas para su `MEMORY.md` (formato de `reviewer-common.md` §9) o "sin cambios"]
 
 ### Veredicto
 **[APROBADO / CAMBIOS REQUERIDOS]**
