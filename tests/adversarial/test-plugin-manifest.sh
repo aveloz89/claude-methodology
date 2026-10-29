@@ -1221,6 +1221,10 @@ if [ -f "$CS_WORKFLOW" ]; then
   assert_contains "$CODE_SWEEP" '--body-file -' "agente code-sweep crea issues con --body-file -"
   assert_contains "$CS_WORKFLOW" "<<'CS_ISSUE_BODY'" "code-sweep.js usa heredoc con delimitador entre comillas simples"
   assert_contains "$CODE_SWEEP" "<<'CS_ISSUE_BODY'" "agente code-sweep usa heredoc con delimitador entre comillas simples"
+  # [lote 10, tarea 2] discover/audit/verify sin Bash: la restricción es de tools, no solo de prompt.
+  assert_contains "$CS_WORKFLOW" 'disallowedTools: \["Write", "Edit", "NotebookEdit", "Bash"\]' "code-sweep.js: los agentes de lectura vedan Bash en disallowedTools"
+  assert_contains "$CS_WORKFLOW" 'CRÍTICOS sin verificar' "code-sweep.js lista los CRÍTICOS sin verificar de pre-release en su propia sección"
+  assert_contains "$CS_WORKFLOW" 'sin evidencia' "code-sweep.js degrada a unverified un confirmed sin evidencia"
 
   if command -v node > /dev/null 2>&1; then
     # El runtime ejecuta el script como cuerpo de una función async (con
