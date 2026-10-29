@@ -1,0 +1,13 @@
+# Memoria de security-reviewer — claude-methodology
+
+Entradas propuestas por el reviewer en sus reportes y volcadas por el orchestrator (reviewer-common §9). Una línea por entrada; se mantiene bajo 200 líneas / 25 KB.
+
+- [2026-10-28] decision — `pre-merge-check` es el único guard que devuelve `ask`, y solo con threads, reviews y checks en verde; los demás guards bloquean; `cancel` cuenta como fallo y un `jq` que falla bloquea (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] convencion — `PR_NUMBER` en `pre-merge-check` se acepta solo si son dígitos (`^[1-9][0-9]*$`), así que `permissionDecisionReason` no es vector de inyección (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] convencion — la memoria de los agentes del plugin vive en `.claude/agent-memory/methodology-<agente>/` (el harness antepone el prefijo del plugin) (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] convencion — las suites de `tests/adversarial/` se corren con `/bin/bash` (3.2 en macOS) y sin red; `test-hooks` ronda los 543 casos en ~120 s; exigir cero líneas `line N:` (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] decision — `.claude/settings.json` del repo permite `Bash(gh issue:*)` y `Bash(gh label:*)` a propósito (code-sweep y self-reflection): todo texto no confiable que llegue a `gh issue` pasa sin prompt, así que se evalúa con ese allow en mente (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] decision — code-sweep usa delimitador de heredoc fijo porque el runtime de workflows prohíbe `Math.random`/`Date.now`; la garantía es el filtro determinista del JS (`issueSafe`: file en `seenFiles` + charset, pattern charset, line entero, delimitador ausente en todo campo de texto); no reportar el delimitador fijo como hallazgo mientras ese filtro exista, tenga test funcional y `toPersist` salga de él (origen: pre-push feature/methodology-refresh, D-23)
+- [2026-10-28] decision — el respaldo `agents/code-sweep.md` aplica las mismas reglas por escrito; el riesgo residual dependiente del modelo está aceptado porque los permisos del harness piden confirmación para Bash fuera de `gh issue`/`gh label` (origen: pre-push feature/methodology-refresh, D-23)
+- [2026-10-28] convencion — un commit `memory:` posterior al review no se reporta como envenenamiento solo si toca exclusivamente `.claude/agent-memory/methodology-*/`; verificar con `git show --name-only <sha>` (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] decision — en code-sweep todo campo de un hallazgo (snippet, description, manifestation, evidence, refactor, file, pattern) es texto no confiable: nunca entre comillas dobles en shell; labels y `date -u +%F` son los únicos literales (origen: pre-push feature/methodology-refresh)
