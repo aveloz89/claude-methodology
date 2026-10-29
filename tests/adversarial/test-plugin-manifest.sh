@@ -1562,9 +1562,13 @@ assert_contains "$ORCHESTRATOR_SKILL" "formato exacto" "skill orchestrator: el v
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" "posterior al review" "reviewer-common §9: un commit memory: del orchestrator posterior al review no se reporta como hallazgo"
 
 # --- Lote 11 / tarea 4: ask en modos no interactivos, liviano, runbook, e2e-runner, Workflow ---
-UNVERIFIED="sin verificar end-to-end en esta versión"
+OLD_UNVERIFIED="sin verificar end-to-end en esta versión"
+VERIFIED_MARK="verificado el 2026-10-28"
+PENDING_MARK='sin verificar: `-p`'
 for f in README.md rulebooks/orchestrator-runbook.md skills/pr-workflow/SKILL.md global/CLAUDE.md hooks/pre-merge-check.sh; do
-  assert_contains "$REPO_ROOT/$f" "$UNVERIFIED" "$f: el ask en modos no interactivos queda como no verificado"
+  assert_contains "$REPO_ROOT/$f" "$VERIFIED_MARK" "$f: declara lo verificado del ask (2026-10-28)"
+  assert_contains "$REPO_ROOT/$f" "$PENDING_MARK" "$f: sigue declarando sin verificar -p/dontAsk/bypassPermissions"
+  assert_not_contains "$REPO_ROOT/$f" "$OLD_UNVERIFIED" "$f: sin la frase vieja de no verificado end-to-end"
   assert_not_contains "$REPO_ROOT/$f" "también en auto mode" "$f no afirma que el ask funcione también en auto mode"
 done
 assert_not_contains "$README_MD" "se resuelve como denegación;" "README: el ask no afirma denegación en -p/dontAsk"
