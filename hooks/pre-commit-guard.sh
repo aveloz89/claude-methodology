@@ -151,7 +151,7 @@ guard_init "pre-commit-guard"
 # matcheaban porque el regex solo toleraba "NOMBRE=valor" pegado
 # directamente a "git" — el binario "env" (con o sin flags cortas, ej.
 # "-i") de por medio dejaba pasar el commit real sin correr tests.
-GIT_COMMIT_RE="${GUARD_ANCHOR}(env(\s+-\S+)*\s+)?([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*git\s+${GUARD_GIT_OPTS}commit(\s|\$|[;&|)])"
+GIT_COMMIT_RE="${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}commit(\s|\$|[;&|)])"
 if ! echo "$SANITIZED_COMMAND" | grep -qE "$GIT_COMMIT_RE"; then
   exit 0
 fi
@@ -189,7 +189,7 @@ fi
 if echo "$SANITIZED_COMMAND" | grep -qE "(^|\s|;|&&|\|)(GIT_DIR|GIT_WORK_TREE)="; then
   _guard_block_tree "GIT_DIR/GIT_WORK_TREE como prefijo de entorno en el comando no se resuelven"
 fi
-if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+-C\s"; then
+if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+-C\s"; then
   _guard_block_tree "'git -C' no se resuelve"
 fi
 

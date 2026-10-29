@@ -912,6 +912,69 @@ assert_allowed_cmd "block-force-push: barra invertida y push normal pasa (contro
   "block-force-push.sh" 'git push origin feat\ure/x' "$PATH" "$SANDBOX_REPO"
 assert_allowed_cmd "block-admin-merge: gh pr merge sin --admin con barra invertida pasa (control, #120)" \
   "block-admin-merge.sh" 'gh pr mer\ge 5 --squash' "$PATH" "$SANDBOX_REPO"
+
+# #118 (ronda 1 de review): wrappers delante de git (time, nohup, exec, command,
+# env, timeout, xargs, coproc) y redireccion con "&" dentro del segmento
+# (2>&1, &>log). RED con 85f002c: todos los bloqueos de abajo daban exit 0.
+for WRAP in 'time' 'time -p' 'nohup' 'exec' 'command' 'env' 'env -i' 'env FOO=1' 'env -i FOO=1 BAR=2' \
+  'timeout 60' 'timeout -s KILL 60' 'timeout --preserve-status 5s' 'time nohup' 'exec env FOO=1' 'FOO=1 time' 'coproc'; do
+  assert_blocked_cmd "pre-push-guard: wrapper '$WRAP' y push a main bloquea (#118)" \
+    "pre-push-guard.sh" "$WRAP git push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-force-push: wrapper '$WRAP' y push --force bloquea (#118)" \
+    "block-force-push.sh" "$WRAP git push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-hard-reset: wrapper '$WRAP' y reset --hard bloquea (#118)" \
+    "block-hard-reset.sh" "$WRAP git reset --hard" "$PATH" "$SANDBOX_REPO"
+  assert_allowed_cmd "pre-push-guard: wrapper '$WRAP' y push a feature/x pasa (control, #118)" \
+    "pre-push-guard.sh" "$WRAP git push origin feature/x" "$PATH" "$SANDBOX_REPO"
+done
+for WRAP in 'xargs' 'xargs -n 1' 'xargs -I {}' 'xargs -r time'; do
+  assert_blocked_cmd "pre-push-guard: tras pipe, wrapper '$WRAP' y push a main bloquea (#118)" \
+    "pre-push-guard.sh" "echo a | $WRAP git push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-force-push: tras pipe, wrapper '$WRAP' y push --force bloquea (#118)" \
+    "block-force-push.sh" "echo a | $WRAP git push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-hard-reset: tras pipe, wrapper '$WRAP' y reset --hard bloquea (#118)" \
+    "block-hard-reset.sh" "echo a | $WRAP git reset --hard" "$PATH" "$SANDBOX_REPO"
+done
+assert_blocked_cmd "pre-push-guard: wrapper y opciones de git (time git -c a=b push) bloquea (#118)" \
+  "pre-push-guard.sh" "time git -c a=b push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: wrapper y -C bloquea por redireccion (#118)" \
+  "pre-push-guard.sh" "time git -C /tmp push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: 'echo time git push origin main' no es un push (fijado, #118)" \
+  "pre-push-guard.sh" "echo time git push origin main" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: 'echo nohup git reset --hard' no es un reset (fijado, #118)" \
+  "block-hard-reset.sh" "echo nohup git reset --hard" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: 'echo xargs git push --force' no es un push (fijado, #118)" \
+  "block-force-push.sh" "echo xargs git push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: wrapper y reset --soft pasa (control, #118)" \
+  "block-hard-reset.sh" "time git reset --soft HEAD~1" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: 'command -v git' sin push pasa (control, #118)" \
+  "pre-push-guard.sh" "command -v git && git status" "$PATH" "$SANDBOX_REPO"
+
+# Redireccion con "&" dentro del segmento: "2>&1" y "&>log" no separan comandos,
+# el "&" de background si.
+assert_blocked_cmd "block-hard-reset: redireccion 2>&1 antes de --hard bloquea (#118)" \
+  "block-hard-reset.sh" "git reset 2>&1 --hard" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: redireccion &>log antes de --hard bloquea (#118)" \
+  "block-hard-reset.sh" "git reset &>log --hard" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: redireccion 2>&1 antes del refspec a main bloquea (#118)" \
+  "pre-push-guard.sh" "git push origin 2>&1 HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: redireccion >&2 antes del refspec a main bloquea (#118)" \
+  "pre-push-guard.sh" "git push origin >&2 HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: redireccion &>log antes del refspec a main bloquea (#118)" \
+  "pre-push-guard.sh" "git push origin &>log HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: redireccion 2>&1 antes de --force bloquea (#118)" \
+  "block-force-push.sh" "git push 2>&1 --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: redireccion 2>&1 entre push y force con rama bloquea (#118)" \
+  "block-force-push.sh" "git push --force 2>&1 origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: el & de background separa, main del siguiente comando no cuenta (control, #118)" \
+  "pre-push-guard.sh" "git push origin feature/x & echo main" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: el & de background separa, --hard del siguiente comando no cuenta (control, #118)" \
+  "block-hard-reset.sh" "git reset HEAD~1 & echo --hard" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: el & de background separa, -f del siguiente comando no cuenta (control, #118)" \
+  "block-force-push.sh" "git push origin feature/x & echo -f" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: redireccion 2>&1 y push a feature/x pasa (control, #118)" \
+  "pre-push-guard.sh" "git push origin feature/x 2>&1 | tail -1" "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""
@@ -1636,6 +1699,31 @@ assert_blocked_cmd "pre-commit-guard: comillas vacias pegadas a commit se interc
 assert_blocked_cmd "pre-commit-guard: comillas dobles vacias antes de git se interceptan (#120)" \
   "pre-commit-guard.sh" \
   '""git commit -m x' \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+# #118 (ronda 1 de review): wrappers delante de git commit. RED con 85f002c:
+# exit 0 (el commit real pasaba sin correr la suite roja).
+for WRAP in 'time' 'time -p' 'nohup' 'exec' 'command' 'timeout 60' 'timeout -s KILL 60' 'env FOO=1' 'coproc' 'time nohup env -i X=1'; do
+  assert_blocked_cmd "pre-commit-guard: wrapper '$WRAP' y git commit se intercepta (#118)" \
+    "pre-commit-guard.sh" \
+    "$WRAP git commit -m x" \
+    "$FAKE_PYTEST_TERM_DIR:$PATH" \
+    "$PCG_TERM_DIR"
+done
+assert_blocked_cmd "pre-commit-guard: tras pipe, xargs y git commit se intercepta (#118)" \
+  "pre-commit-guard.sh" \
+  "echo a | xargs git commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+assert_blocked_cmd "pre-commit-guard: wrapper y git -C no se resuelve y bloquea (#118)" \
+  "pre-commit-guard.sh" \
+  "time git -C /tmp commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+assert_allowed_cmd "pre-commit-guard: echo time git commit no se intercepta (control, #118)" \
+  "pre-commit-guard.sh" \
+  "echo time git commit -m x" \
   "$FAKE_PYTEST_TERM_DIR:$PATH" \
   "$PCG_TERM_DIR"
 

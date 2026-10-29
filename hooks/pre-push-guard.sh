@@ -6,8 +6,9 @@
 # hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
 # latencia, no reemplaza la validación de abajo, que sigue mirando el
 # comando completo. NO verificado de punta a punta: que ese "if" dispare el
-# hook para comandos que no empiezan por git (backtick, echo, "(") — lo
-# probado es el script con el comando por stdin.
+# hook para comandos que no empiezan por git (backtick, echo, "(") o que
+# empiezan por un wrapper (time, env, nohup, …) — lo probado es el script
+# con el comando por stdin.
 #
 # Matching endurecido (D-07, #77): el match se sanea (spans quoted/heredoc)
 # y se ancla a posición de comando en vez de "^\s*git\s+push" sobre el
@@ -84,11 +85,11 @@ fi
 # ORIGEN (main:feature/x) no bloquea: su destino es otro. La excepción del
 # merge commit de arriba es solo para la rama main local — un merge commit
 # en HEAD de feature/x no habilita empujarlo a main. Fuera de alcance
-# (README, "Fuera de alcance"; misma clase que la flag quoted y la
-# redirección en block-force-push.sh): el refspec entre comillas (el saneo
-# vacía el span) y una redirección con "&" antes del refspec ("2>&1
-# HEAD:main" corta el segmento en "&"). "HEAD:main>log" y "HEAD:main</dev/null"
-# SÍ bloquean: "<" y ">" cierran el token (GUARD_TOKEN_END).
+# (README, "Fuera de alcance"): el refspec entero entre comillas (el saneo lo
+# reemplaza por el placeholder Q). Una redirección con "&" antes del refspec
+# ("2>&1 HEAD:main") SÍ bloquea desde #118: GUARD_SEGMENT_END no corta en el "&"
+# de una redirección. "HEAD:main>log" y "HEAD:main</dev/null" SÍ bloquean: "<"
+# y ">" cierran el token (GUARD_TOKEN_END).
 # Segmentos "git push ..." del comando saneado, extraídos una sola vez para los
 # chequeos de abajo (destino main, --all/--mirror, config, refspec vacío).
 PUSH_SEGMENTS=$(echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}")

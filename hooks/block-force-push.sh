@@ -4,8 +4,9 @@
 # hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
 # latencia, no reemplaza la validación de abajo, que sigue mirando el
 # comando completo. NO verificado de punta a punta: que ese "if" dispare el
-# hook para comandos que no empiezan por git (backtick, echo, "(") — lo
-# probado es el script con el comando por stdin.
+# hook para comandos que no empiezan por git (backtick, echo, "(") o que
+# empiezan por un wrapper (time, env, nohup, …) — lo probado es el script
+# con el comando por stdin.
 LIB="${0%/*}/lib/guard-matching.sh"
 [ -r "$LIB" ] || { echo "BLOCKED: block-force-push no operativo: falta hooks/lib/guard-matching.sh" >&2; exit 2; }
 # shellcheck source=lib/guard-matching.sh

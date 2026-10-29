@@ -35,20 +35,24 @@
 #     eval, bash -c '...'/sh -c, alias y funciones de git/gh definidas en
 #     el mismo comando o en uno anterior (w() { gh "$@"; }; w pr merge 5
 #     pasa);
-#   - la palabra del binario alterada o disfrazada: "gh", env git …,
-#     /usr/bin/git …, command git … (el "if" de hooks.json tampoco
-#     dispara para las tres últimas: compara cada subcomando por prefijo
-#     y solo descarta asignaciones VAR=x al frente; ver la tabla "Bash if
-#     matching" de la doc de hooks);
-#   - block-force-push.sh: la flag entre comillas (`git push origin
-#     "--force"`, `git push '-f'`) y una redirección honesta (2>&1, >&2,
-#     &>log) o un ";" escapado antes de la flag de force;
-#   - pre-push-guard.sh: el refspec entre comillas (`git push origin
-#     "HEAD:main"`: el saneo vacía el span antes del match del destino) y
-#     una redirección con "&" antes del refspec (`git push origin 2>&1
-#     HEAD:main`: el segmento se corta en "&"). Una redirección pegada al
-#     refspec (`HEAD:main>log`, `HEAD:main</dev/null`) SÍ bloquea: "<" y ">"
-#     sin comillas cierran el token (GUARD_TOKEN_END).
+#   - la palabra del binario alterada o disfrazada: "gh" y /usr/bin/git …
+#     (el "if" de hooks.json tampoco dispara para la ruta absoluta: compara
+#     cada subcomando por prefijo y solo descarta asignaciones VAR=x al
+#     frente; ver la tabla "Bash if matching" de la doc de hooks). Los
+#     wrappers time, nohup, exec, command, env, timeout, xargs y coproc SÍ
+#     los cubre el script de los guards de git (GUARD_ENV_PREFIX, #118);
+#     sudo, nice, ionice, stdbuf, watch y otros siguen fuera;
+#   - block-force-push.sh: la flag entera entre comillas (`git push origin
+#     "--force"`, `git push '-f'`) y un ";" escapado antes de la flag de force.
+#     Una redirección honesta (2>&1, >&2, &>log) SÍ se tolera desde #118: el
+#     "&" de la redirección no corta el segmento (GUARD_SEGMENT_END), el "&"
+#     de background sí;
+#   - pre-push-guard.sh: el refspec entero entre comillas (`git push origin
+#     "HEAD:main"`: el saneo lo reemplaza por el placeholder Q antes del match
+#     del destino). Las comillas vacías pegadas (HEAD:main'') y la barra
+#     invertida dentro del token (HEAD:ma\in) SÍ bloquean desde #120. Una
+#     redirección pegada al refspec (`HEAD:main>log`, `HEAD:main</dev/null`)
+#     bloquea: "<" y ">" sin comillas cierran el token (GUARD_TOKEN_END).
 #   - pre-push-guard.sh: un refspec glob entre comillas (`git push origin
 #     '*:*'`, `'refs/heads/*'`; el saneo deja el placeholder Q y el glob no se ve). El glob sin comillas SÍ bloquea cuando
 #     su destino cuelga de refs/heads/, no lleva prefijo refs/ o su prefijo
@@ -67,9 +71,11 @@
 #     ref o la flag (git push origin $(git branch --show-current)) no se
 #     evalúa; el guard solo ve tokens literales del comando;
 #   - que el "if": "Bash(git *)" de hooks.json dispare el hook para
-#     comandos que no empiezan por git (backtick, echo, "(") NO está
-#     verificado de punta a punta: lo probado es el script con el comando
-#     por stdin.
+#     comandos que no empiezan por git (backtick, echo, "(") o que empiezan
+#     por un wrapper (time, env, nohup, …) NO está verificado de punta a
+#     punta: lo probado es el script con el comando por stdin. Según la tabla
+#     "Bash if matching" el "if" compara por prefijo, así que es probable que
+#     el hook no se invoque con un wrapper al frente.
 # Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá:
 # la salida es escribir el comando en su forma directa.
 
@@ -96,18 +102,35 @@ GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&|\))\s*((then|do|else|elif|if|while|
 # shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh, pre-push-guard.sh y pre-commit-guard.sh
 GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--config-env)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
 
-# Prefijo de entorno antes de "git" ("VAR=valor git push ..."): cero o más
-# asignaciones. Sin él, "X=matching git --config-env=push.default=X push
-# origin" ni siquiera se reconocía como un push (el hook salía 0 sin evaluarlo).
-# shellcheck disable=SC2034 # se usa en pre-push-guard.sh, block-force-push.sh y block-hard-reset.sh
-GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'
+# Prefijo antes de "git": cero o más asignaciones de entorno ("VAR=valor git
+# push ...") y cero o más WRAPPERS que ejecutan el comando que les sigue, cada
+# uno con sus asignaciones opcionales detrás (#118, ronda 1 de review). Sin él,
+# "X=matching git --config-env=push.default=X push origin" ni siquiera se
+# reconocía como un push (el hook salía 0 sin evaluarlo), y "time git push
+# origin HEAD:main" tampoco. Wrappers cubiertos, con sus opciones simples:
+#   - time, nohup, exec, command, coproc  (+ opciones: "time -p", "command -p");
+#   - env  (+ opciones, "-u NOMBRE" y asignaciones: "env -i FOO=1 git ...");
+#   - timeout [opciones] <duración>  ("timeout 60", "timeout -s KILL 60",
+#     "timeout --preserve-status 5s");
+#   - xargs  (+ opciones, con valor solo "{}", un número o una letra:
+#     "xargs -n 1", "xargs -I {}"): "echo a | xargs git push ...".
+# Se encadenan ("time nohup env FOO=1 git ..."). Fuera de alcance: sudo, nice,
+# ionice, stdbuf, watch y demás wrappers; opciones con valor que no sean las de
+# arriba (xargs -I FOO queda dentro: una letra). Solo ancla tras el separador de
+# comando: "echo time git push origin main" NO es un push.
+# NO verificado de punta a punta: que el "if": "Bash(git *)" de hooks.json
+# dispare el hook para un comando que EMPIEZA por un wrapper (time, env, ...);
+# lo probado es el script por stdin. Ver "Fuera de alcance" del README.
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh, block-force-push.sh, block-hard-reset.sh y pre-commit-guard.sh
+GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(((time|nohup|exec|command|coproc)(\s+-\S+)*\s+|env(\s+(-u\s+\S+|-\S*|[A-Za-z_][A-Za-z0-9_]*=\S*))*\s+|timeout(\s+-\S+(\s+[A-Za-z0-9]+)?)*\s+[0-9.]+[smhd]?\s+|xargs(\s+-\S+(\s+(\{\}|[0-9]+|[A-Za-z]))?)*\s+)([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)*'
 
 # Inventario de delimitadores (lo verificado, no un absoluto). Tres listas
 # distintas, cada una con su propio papel:
 #   - el ANCLA (GUARD_ANCHOR) ABRE un comando tras: inicio de string/línea,
 #     "&&", "||", ";", "|", "$(", backtick, "(", "{" y "&";
 #   - el SEGMENTO "git push ..." (GUARD_SEGMENT_END) CIERRA solo en "&", "|"
-#     y ";". NO cierra en ")" ni en backtick: una sustitución DENTRO del push
+#     y ";", salvo que el "&" sea parte de una redirección ("2>&1", ">&2",
+#     "&>log": el "&" de background sí cierra, #118). NO cierra en ")" ni en backtick: una sustitución DENTRO del push
 #     ("git push origin $(true) HEAD:main", "git push origin `true` main")
 #     esconde lo que sigue si el segmento se corta ahí (regresión de la
 #     ronda 2 de #117, verificada contra dev). Coste asumido del trade-off:
@@ -120,7 +143,7 @@ GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'
 # Van entre comillas simples: el backtick es literal en la asignación y al
 # expandirlas dentro de comillas dobles no se vuelve a evaluar.
 # shellcheck disable=SC2016,SC2034 # backtick literal; se usan en pre-push-guard.sh y block-force-push.sh
-GUARD_SEGMENT_END='[^&|;]*'
+GUARD_SEGMENT_END='([^&|;]|>&[0-9-]?|&>)*'
 # shellcheck disable=SC2016,SC2034
 GUARD_TOKEN_END='([[:space:]]|[)`<>]|$)'
 
