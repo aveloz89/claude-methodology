@@ -121,7 +121,7 @@ fi
 # el bloqueo es un falso positivo, en dirección segura: no se distingue si hay
 # refspec porque el config solo importa cuando falta.
 if echo "$PUSH_SEGMENTS" | grep -qiE "$GUARD_PUSH_CONFIG_RE"; then
-  echo "BLOCKED: git -c push.default=matching / remote.<x>.mirror=true / remote.<x>.push=... empuja main sin nombrarla. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
+  echo "BLOCKED: la config push.default=matching|upstream|tracking, remote.<x>.mirror o remote.<x>.push (por -c o --config-env) empuja main sin nombrarla. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
   exit 2
 fi
 if echo "$PUSH_SEGMENTS" | grep -qE "$GUARD_PUSH_EMPTY_REFSPEC_RE"; then
