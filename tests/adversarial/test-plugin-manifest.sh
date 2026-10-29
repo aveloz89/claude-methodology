@@ -1598,6 +1598,8 @@ assert_contains "$RUNBOOK" 'sexto archivo' "runbook: umbral del sexto archivo en
 assert_contains "$GLOBAL_CLAUDE_MD" 'Piden confirmación' "global: lista lo que pide confirmación"
 assert_contains "$RUNBOOK" 'toque exclusivamente' "runbook señal 4: la excepción memory: vale solo si el commit toca exclusivamente agent-memory"
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" 'git show --name-only' "reviewer-common §9: el reviewer comprueba el commit memory: con git show --name-only"
+assert_contains "$RUNBOOK" 'Muestra al usuario, en el reporte de fase' "runbook Fase 2.6 paso 6: el orchestrator muestra al usuario las líneas de memoria que persiste"
+assert_contains "$REPO_ROOT/skills/orchestrator/SKILL.md" 'Muestras al usuario, en el reporte de fase' "SKILL orchestrator: muestra al usuario las líneas de memoria que persiste"
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" '200 líneas' "reviewer-common §9: tope de 200 líneas de MEMORY.md"
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" '25 KB' "reviewer-common §9: tope de 25 KB de MEMORY.md"
 for rv in security-reviewer qa-backend qa-frontend; do
