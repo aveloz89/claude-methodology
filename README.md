@@ -83,7 +83,7 @@ Idea → Brainstorming (orchestrator pregunta: ¿vale la pena?, resultado espera
   → Veredictos limpios → Push + PR (nace revisado) → CI → Merge con confirmación del usuario
 ```
 
-El merge pide confirmación: cuando `gh pr merge` pasa las verificaciones, el hook `pre-merge-check` devuelve `ask` y el prompt de permiso te lo consulta; en la app de escritorio en auto mode el prompt se resolvió sin diálogo visible y había aprobación previa en la conversación (verificado el 2026-10-28; mecanismo no verificado), por eso esa aprobación precede siempre al merge; sin verificar: `-p`/`dontAsk` (la doc dice denegación), `bypassPermissions`, la app sin aprobación previa y una sesión de CLI en Manual.
+El merge pide confirmación: cuando `gh pr merge` pasa las verificaciones, el hook `pre-merge-check` devuelve `ask` y el prompt de permiso te lo consulta; una regla `allow` no se lo salta (verificado el 2026-10-28). El diálogo visible no está garantizado: en auto mode se mostró en dos merges (uno por Remote Control, otro en la app de escritorio) y en otro de la misma app se resolvió sin diálogo, siempre con aprobación previa en la conversación (mecanismo no verificado), por eso esa aprobación precede siempre al merge; sin verificar: `-p`/`dontAsk` (la doc dice denegación), `bypassPermissions`, la app sin aprobación previa y una sesión de CLI en Manual.
 
 ## Reglas enforced
 
