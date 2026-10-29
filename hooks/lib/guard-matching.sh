@@ -22,10 +22,15 @@
 # protegen errores honestos del orchestrator, no evasión adversarial.
 #
 # Fuera de alcance de los guards (documentado, no parcheado — #77, D-05).
-# Los guards de hooks/ protegen errores honestos del orchestrator y los
-# devs: formas que alguien escribe de buena fe. No son un parser de shell
-# ni un control de evasión. Verificado contra los hooks reales
-# (2026-09-27), estas formas pasan sin bloquear y quedan así por decisión:
+# El límite: los guards leen el texto del comando y frenan errores honestos
+# (push directo a main, force push, reset destructivo, commit sin tests, merge
+# sin verificación). No frenan la evasión deliberada (scripts, otros lenguajes,
+# alias de git, formas de shell que no estén en la lista de abajo): para eso
+# está la branch protection de GitHub en main, que /new-project configura. Una
+# forma nueva que aparezca se agrega a la lista de abajo, salvo que sea un
+# error honesto plausible. No son un parser de shell ni un control de evasión.
+# Verificado contra los hooks reales, estas formas pasan sin bloquear y quedan
+# así por decisión:
 #   - comillas partidas o escapadas que rompen el emparejamiento del
 #     saneo: echo \'; gh pr merge 5; echo \', $'it\'s' && gh pr merge 5;
 #   - heredoc con delimitador comillado a medias (<<E"OF"), delimitador
@@ -36,10 +41,14 @@
 #     el mismo comando o en uno anterior (w() { gh "$@"; }; w pr merge 5
 #     pasa);
 #   - la palabra del binario alterada o disfrazada: "gh" y /usr/bin/git …
-#     (el anclado exige "git" como palabra de comando). Los
-#     wrappers time, nohup, exec, command, env, timeout, xargs y coproc SÍ
-#     los cubre el script de los guards de git (GUARD_ENV_PREFIX, #118);
-#     sudo, nice, ionice, stdbuf, watch y otros siguen fuera;
+#     (el anclado exige "git" como palabra de comando). Los wrappers time,
+#     nohup, exec, command, env, timeout, xargs, coproc, sudo, doas, nice,
+#     ionice, stdbuf, caffeinate, chrt, taskset y arch SÍ los cubre el script de
+#     los guards de git (GUARD_ENV_PREFIX, #118); watch y otros siguen fuera,
+#     igual que sudo/doas con opciones de valor distintas a -u (sudo -g grupo);
+#   - scripts e intérpretes que arman el comando por dentro (python -c, node
+#     -e, un .sh que hace el push), alias de git (git p) y cualquier otra forma
+#     de shell que no esté en esta lista;
 #   - block-force-push.sh: la flag entera entre comillas (`git push origin
 #     "--force"`, `git push '-f'`) y un ";" escapado antes de la flag de force.
 #     Una redirección honesta (2>&1, >&2, &>log) SÍ se tolera desde #118: el
@@ -51,9 +60,14 @@
 #     origin main) y pegadas con contenido no simple (espacios, $, *). Las
 #     comillas pegadas con contenido simple (HEAD:main'', HEAD:"main",
 #     --for"ce") se unen como el shell y SÍ bloquean desde #120, igual que la
-#     barra invertida dentro del token (HEAD:ma\in). Una
+#     barra invertida dentro del token (HEAD:ma\in). La forma $'…'/$"…" sí se
+#     une aunque sea la palabra entera (git $'commit', reset $'--hard'); la
+#     palabra entera con comillas normales (git 'commit') sigue fuera. Una
 #     redirección pegada al refspec (`HEAD:main>log`, `HEAD:main</dev/null`)
 #     bloquea: "<" y ">" sin comillas cierran el token (GUARD_TOKEN_END).
+#   - block-force-push.sh: la excepción de --force-with-lease no aplica si el
+#     trozo del push, limpio de comillas, barras y $, las lleva (fail-closed):
+#     git push --force-with-lease origin 'feature/x' bloquea aunque sea honesto;
 #   - pre-push-guard.sh: un refspec glob entre comillas (`git push origin
 #     '*:*'`, `'refs/heads/*'`; el saneo deja el placeholder Q y el glob no se ve). El glob sin comillas SÍ bloquea cuando
 #     su destino cuelga de refs/heads/, no lleva prefijo refs/ o su prefijo
