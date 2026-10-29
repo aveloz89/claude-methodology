@@ -811,6 +811,56 @@ assert_blocked_cmd "block-admin-merge: gh con dos -R entre comillas y --admin si
 assert_blocked_cmd "block-admin-merge: gh con flags y valores entre comillas antes de pr merge --admin bloquea (#120)" \
   "block-admin-merge.sh" 'gh --repo "a/b" "x" pr merge 5 --admin' "$PATH" "$SANDBOX_REPO"
 
+# #120 (ronda 1 de review): el shell une las comillas pegadas con la palabra
+# vecina (--force'' es --force, ""git es git). El placeholder Q las deformaba y
+# el guard dejaba pasar el comando; el reemplazo ahora depende de la palabra
+# entera: Q solo si el span es la palabra completa, nada si va pegado a texto.
+# RED con 85f002c: todos los bloqueos de abajo daban exit 0.
+assert_blocked_cmd "block-force-push: --force con comillas vacias pegadas bloquea (#120)" \
+  "block-force-push.sh" "git push origin feature/x --force''" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: --force con comillas dobles vacias pegadas bloquea (#120)" \
+  "block-force-push.sh" 'git push --force"" origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: comillas vacias pegadas a push bloquea (#120)" \
+  "block-force-push.sh" "git ''push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: comillas vacias dentro de git bloquea (#120)" \
+  "block-force-push.sh" "g''it push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: comillas dobles vacias antes de git bloquea (#120)" \
+  "block-force-push.sh" '""git push --force origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: HEAD:main con comillas simples pegadas bloquea (#120)" \
+  "pre-push-guard.sh" "git push origin HEAD:main''" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: HEAD:main con comillas dobles pegadas bloquea (#120)" \
+  "pre-push-guard.sh" 'git push origin HEAD:main""' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: comillas vacias pegadas a push bloquea (#120)" \
+  "pre-push-guard.sh" "git ''push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: comillas dobles vacias antes de git bloquea (#120)" \
+  "pre-push-guard.sh" '""git push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: --all con comillas pegadas bloquea (#120)" \
+  "pre-push-guard.sh" "git push --all''" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: comillas vacias antes de main bloquea (#120)" \
+  "pre-push-guard.sh" "git push origin ''main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: cd con comillas pegadas bloquea por redireccion (#120)" \
+  "pre-push-guard.sh" "cd'' /tmp && git push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: --hard con comillas pegadas bloquea (#120)" \
+  "block-hard-reset.sh" "git reset --hard''" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: comillas vacias pegadas a reset bloquea (#120)" \
+  "block-hard-reset.sh" "git ''reset --hard" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: comillas dobles vacias antes de git bloquea (#120)" \
+  "block-hard-reset.sh" '""git reset --hard' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: comillas vacias antes de --hard bloquea (#120)" \
+  "block-hard-reset.sh" "git reset ''--hard" "$PATH" "$SANDBOX_REPO"
+# Controles: el span que ES la palabra entera sigue siendo Q (el -c de #120) y
+# una palabra vacia suelta no deforma nada.
+assert_blocked_cmd "pre-push-guard: -c con valor entre comillas y push a main sigue bloqueando (control, #120)" \
+  "pre-push-guard.sh" "git -c 'user.name=x' push origin main" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: palabra vacia suelta en un push a feature/x pasa (control, #120)" \
+  "pre-push-guard.sh" "git push origin feature/x ''" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: palabra vacia suelta en reset --soft pasa (control, #120)" \
+  "block-hard-reset.sh" "git reset --soft '' HEAD~1" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: --admin con comillas pegadas sigue bloqueando (control, #120)" \
+  "block-admin-merge.sh" "gh pr merge 5 --admin''" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: dos -R entre comillas y --admin sigue bloqueando (control 2, #120)" \
+  "block-admin-merge.sh" 'gh -R "a/b" -R "c/d" pr merge 5 --admin' "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""
@@ -1518,6 +1568,26 @@ assert_blocked_cmd "pre-commit-guard: env -i HUSKY=0 git commit se intercepta" \
 # Negativo: la mención de "env HUSKY=0 git commit" dentro de un string
 # double-quoted (argumento literal de "echo") no es una invocación real —
 # el saneo compartido ya la vacía antes de que este regex la vea.
+# #120 (ronda 1 de review): comillas vacias pegadas a la palabra (el shell las
+# une: commit'' es commit, ''commit es commit). RED con 85f002c: exit 0.
+assert_blocked_cmd "pre-commit-guard: commit con comillas vacias pegadas se intercepta (#120)" \
+  "pre-commit-guard.sh" \
+  "git commit'' -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_blocked_cmd "pre-commit-guard: comillas vacias pegadas a commit se interceptan (#120)" \
+  "pre-commit-guard.sh" \
+  "git ''commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_blocked_cmd "pre-commit-guard: comillas dobles vacias antes de git se interceptan (#120)" \
+  "pre-commit-guard.sh" \
+  '""git commit -m x' \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
 assert_allowed_cmd "pre-commit-guard: echo \"env HUSKY=0 git commit\" no se intercepta" \
   "pre-commit-guard.sh" \
   'echo "env HUSKY=0 git commit"' \

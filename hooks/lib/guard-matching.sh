@@ -285,12 +285,29 @@ guard_sanitize() {
     # tokens entre "gh"/"pr"/"merge", y con "Q" cada valor quoted cuenta como
     # token ('gh -R "a/b" -R "c/d" pr merge 5 --admin' dejaba de bloquear;
     # verificado ejecutando block-admin-merge con el placeholder).
+    # El reemplazo depende de la PALABRA entera, porque el shell une las
+    # comillas pegadas con el texto vecino (--force'' es --force, ""git es git,
+    # g''it es git): una racha de spans quoted contiguos que es la palabra
+    # completa (delimitada por espacio, ; & | ( ) { } < > backtick, el inicio o
+    # el fin) va como el placeholder; si va pegada a texto sin comillas, se
+    # borra sin poner nada, como el shell (#120, ronda 1 de review: con "Q"
+    # pegado, "git push origin feature/x --force''" quedaba "--forceQ" y pasaba).
+    # Solo se borra si los spans están VACÍOS ('' o ""): con contenido, pegado
+    # a texto, el placeholder queda y marca que la palabra cambió (+"feature/x"
+    # sigue siendo "+Q", un refspec forzado; "--force"x"" no es --force).
+    # Con el placeholder " " (guards de gh) el reemplazo no cambia: ya separa.
     local sanitized status placeholder="${2:- }"
     sanitized=$(printf '%s' "$1" | GUARD_SANITIZE_PH="$placeholder" perl -0777 -pe '
       BEGIN { alarm 5 }
       s/\\\n\s*/ /g;
       s/<<-?[ \t]*[\x27"]?([A-Za-z0-9_-]+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1[ \t]*$)[^\n]*\n)*?[ \t]*\1(?:\n|$)/\n/gsm;
-      s/\x27[^\x27]*\x27|"(?:[^"\\]|\\.)*"/$ENV{GUARD_SANITIZE_PH}/g;
+      s{((?:\x27[^\x27]*\x27|"(?:[^"\\]|\\.)*")+)}{
+        my ($run, $ph, $d) = ($1, $ENV{GUARD_SANITIZE_PH}, q{[\s;&|(){}<>\x60]});
+        my $pre = $-[0] > 0 ? substr($_, $-[0] - 1, 1) : q{};
+        my $post = $+[0] < length($_) ? substr($_, $+[0], 1) : q{};
+        my $attached = ($pre ne q{} && $pre !~ m{$d}) || ($post ne q{} && $post !~ m{$d});
+        ($ph eq q{ } || !$attached || $run !~ m{\A(?:\x27\x27|"")+\z}) ? $ph : q{};
+      }ge;
     ')
     status=$?
     # Red de seguridad para cualquier patológico futuro no anticipado por
