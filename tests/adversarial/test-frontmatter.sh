@@ -7,7 +7,8 @@
 #   (b) valores de memory/effort/model dentro de su enum.
 #   (c) name == nombre del archivo (sin .md).
 #   (d) allowed-tools de skills: toda entrada Agent(x) tiene forma
-#       Agent(methodology:<agente>) con <agente> existente en agents/.
+#       Agent(methodology:<agente>) con <agente> existente en agents/,
+#       salvo la excepción exacta Agent(general-purpose) (#106).
 #   (e) disable-model-invocation: true obligatorio en new-project,
 #       ausente en pr-workflow y review-pr.
 #   (f) toda referencia methodology:<x> en agents/ rulebooks/ skills/
