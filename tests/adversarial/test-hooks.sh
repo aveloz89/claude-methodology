@@ -6356,13 +6356,23 @@ echo "--- post-pr-create.sh ---"
 # review) vs CASO B (PR fuera del flujo: instruir review dual) — así que
 # los casos capturan el output inline (como session-start-context.sh) en
 # vez de usar assert_exit0. El stdin replica el JSON PostToolUse real:
-# tool_input.command + stdout del comando ejecutado.
+# tool_input.command + tool_response.stdout (la salida del comando vive
+# dentro de tool_response, no en la raíz del payload — #111).
 # Todos los casos corren en sandbox con branch explícito y state.json
 # sembrado EN el sandbox (decisión ARCHITECTURE 2026-08-14).
 
-# postpr_input: arma el JSON PostToolUse para el hook (comando + stdout).
+# postpr_input: arma el JSON PostToolUse para el hook con la forma real del
+# payload (#111): la salida del comando vive en tool_response.stdout, con
+# los demás campos del tool_response de Bash (stderr, interrupted, isImage)
+# como los manda el harness. La versión anterior ponía stdout en la raíz,
+# igual que el hook lo leía: fixture autoconfirmante que nunca atrapó el
+# WARNING que el hook emitía en cada "gh pr create" real.
 postpr_input() {
-  jq -n --arg cmd "$1" --arg out "$2" '{tool_input: {command: $cmd}, stdout: $out}'
+  jq -n --arg cmd "$1" --arg out "$2" '{
+    hook_event_name: "PostToolUse", tool_name: "Bash",
+    tool_input: {command: $cmd},
+    tool_response: {stdout: $out, stderr: "", interrupted: false, isImage: false}
+  }'
 }
 
 # postpr_seed_state: escribe .planning/state.json en el sandbox con el
@@ -6419,6 +6429,38 @@ POSTPR_HEAD_SHA=$(cd "$SANDBOX_REPO" && git rev-parse HEAD)
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$POSTPR_HEAD_SHA"
 assert_postpr_caso_a "post-pr-create CASO A: review=done + branch coincide + review_sha == HEAD → checkpoint de PR revisado, sin ACCIÓN REQUERIDA" \
   "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
+sandbox_cleanup
+
+# Caso (#111): payload real de PostToolUse — con los campos de nivel
+# superior que manda el harness (session_id, transcript_path, cwd,
+# permission_mode, hook_event_name, tool_name, tool_use_id) y la salida del
+# comando en tool_response.stdout. El hook leía ".stdout" en la raíz y caía
+# siempre al WARNING (4 de 4 PRs en la sesión del 2026-10-28): este caso es
+# RED con esa lectura y GREEN con ".tool_response.stdout".
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_REAL_PAYLOAD=$(jq -n --arg out "$POSTPR_URL" --arg cwd "$SANDBOX_REPO" '{
+  session_id: "abc123",
+  transcript_path: "/home/user/.claude/projects/x/transcript.jsonl",
+  cwd: $cwd, permission_mode: "default", hook_event_name: "PostToolUse",
+  tool_name: "Bash", tool_use_id: "toolu_01ABC123",
+  tool_input: {command: "gh pr create --base dev --title \"feat: checkpoint\" --body \"...\"", description: "Crear PR"},
+  tool_response: {stdout: ($out + "\n"), stderr: "", interrupted: false, isImage: false}
+}')
+assert_postpr_caso_a "post-pr-create #111: payload real de PostToolUse (URL en tool_response.stdout) → CASO A, no WARNING" \
+  "$POSTPR_REAL_PAYLOAD"
+sandbox_cleanup
+
+# Caso (#111, compatibilidad): la forma previa del fixture — stdout en la
+# raíz del JSON — sigue resolviendo la URL (el hook lee
+# ".tool_response.stdout // .stdout"), así un harness que mande la salida
+# en la raíz no pierde el checkpoint.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+assert_postpr_caso_a "post-pr-create #111: stdout en la raíz (forma legacy) → sigue extrayendo la URL, CASO A" \
+  "$(jq -n --arg out "$POSTPR_URL" '{tool_input: {command: "gh pr create --base dev"}, stdout: $out}')"
 sandbox_cleanup
 
 # assert_postpr_caso_b: corre el hook en el sandbox con el input dado y

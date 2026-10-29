@@ -13,7 +13,12 @@
 #     conservado).
 # Ante cualquier ambigüedad falla hacia CASO B (el costo del falso negativo
 # es un review redundante; el del falso positivo sería un PR sin review).
-# Recibe JSON en stdin con tool_input y stdout del comando ejecutado.
+# Recibe JSON en stdin con tool_input y tool_response: la salida del comando
+# vive en tool_response.stdout (PostToolUse de Bash: stdout, stderr,
+# interrupted, isImage), no en la raíz. #111: leer ".stdout" en la raíz
+# dejaba PR_URL vacío siempre y el hook caía al WARNING en cada PR real
+# (4 de 4 en la sesión del 2026-10-28). Se acepta también ".stdout" en la
+# raíz por compatibilidad con un harness que mande la salida así.
 # Siempre exit 0 (checkpoint, no guard). Sin jq en PATH: no-op limpio
 # (degradación estándar de hooks de observabilidad, ARCHITECTURE 2026-08-14).
 # NOTA: Este hook NO ejecuta agentes directamente — emite instrucciones en stdout
@@ -31,7 +36,9 @@ fi
 
 # Extraer la URL del PR del stdout del comando (head -1: si el stdout trae
 # más de una URL de PR, solo la primera es la del comando recién ejecutado)
-PR_URL=$(echo "$INPUT" | jq -r '.stdout // empty' | grep -oE 'https://github.com/[^ ]+/pull/[0-9]+' | head -1)
+# El "?" evita que un tool_response que no sea objeto (otra tool, otro
+# harness) corte jq con error: cae a la alternativa y, sin URL, al WARNING.
+PR_URL=$(echo "$INPUT" | jq -r '.tool_response.stdout? // .stdout? // empty' | grep -oE 'https://github.com/[^ ]+/pull/[0-9]+' | head -1)
 
 if [ -n "$PR_URL" ]; then
   TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
