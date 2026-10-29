@@ -343,7 +343,8 @@ rm -f "$CHECKS_STDERR_FILE"
 if [ -z "$CHECKS_OUTPUT" ] && [ "$NO_CHECKS_CONFIGURED" = false ]; then
   block "Blocked: no pude consultar los CI checks del PR #${PR_NUMBER}. Reintenta — el guard no verifica a ciegas."
 fi
-FAILED_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -cE '\bfail\b|\berror\b' || true)
+# cancel/cancelled cuenta como fallo: una corrida cancelada no es un check verde.
+FAILED_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -cE '\bfail\b|\berror\b|\bcancel(led)?\b' || true)
 PENDING_CHECKS=$(echo "$CHECKS_OUTPUT" | grep -cE '\bpending\b|\bqueued\b' || true)
 if [ "$FAILED_CHECKS" -gt 0 ]; then
   ERRORS="${ERRORS}  - Hay ${FAILED_CHECKS} CI check(s) fallando\n"
@@ -362,6 +363,15 @@ fi
 # Único camino de éxito: las tres verificaciones pasaron (incluido "sin
 # checks configurados"). Estado "ask": exit 0 + JSON, para que el usuario
 # confirme el merge. En -p/dontAsk el ask se resuelve como denegación.
-jq -nc --arg reason "pre-merge-check: PR #${PR_NUMBER} verificado (sin threads abiertos, sin CHANGES_REQUESTED, checks en verde). Confirma el merge." \
-  '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: $reason}}'
+if [ "$NO_CHECKS_CONFIGURED" = true ]; then
+  CHECKS_TEXT="sin checks configurados"
+else
+  CHECKS_TEXT="checks en verde"
+fi
+# Si jq falla, no hay JSON: bloquear en vez de salir 0 sin `ask` (silencio
+# = el comando pasaría sin que nadie confirme el merge).
+ASK_JSON=$(jq -nc --arg reason "pre-merge-check: PR #${PR_NUMBER} verificado (sin threads abiertos, sin CHANGES_REQUESTED, ${CHECKS_TEXT}). Confirma el merge." \
+  '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: $reason}}') \
+  || block "pre-merge-check: no pude construir la decisión ask"
+echo "$ASK_JSON"
 exit 0

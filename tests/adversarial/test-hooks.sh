@@ -3618,7 +3618,11 @@ case "$1 $2" in
     echo "owner/repo"
     ;;
   "pr view")
-    echo '{"reviewDecision":null}'
+    if [ "$FAKE_GH_MODE" = "changes_requested" ]; then
+      echo '{"reviewDecision":"CHANGES_REQUESTED"}'
+    else
+      echo '{"reviewDecision":null}'
+    fi
     ;;
   "api graphql")
     case "$FAKE_GH_MODE" in
@@ -3627,6 +3631,9 @@ case "$1 $2" in
         # renombrado, error con HTTP 200) — jq falla al indexar .pullRequest
         # sobre null.
         echo '{"data":{"repository":null}}'
+        ;;
+      threads_open)
+        echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":true},{"isResolved":false}]}}}}}'
         ;;
       *)
         echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
@@ -3642,6 +3649,12 @@ case "$1 $2" in
       checks_fail)
         echo "gh: unexpected error connecting to api.github.com" >&2
         exit 1
+        ;;
+      checks_pending)
+        printf 'some-check\tpass\t1s\nslow-check\tpending\t0\n'
+        ;;
+      checks_cancelled)
+        printf 'some-check\tpass\t1s\nold-run\tcancel\t2s\n'
         ;;
       *)
         printf 'some-check\tpass\t1s\n'
@@ -3785,6 +3798,49 @@ assert_pre_merge_blocked "Genuine CI checks query failure still blocks" "gh pr m
 # quedaba vacío, y "${UNRESOLVED:-0}" lo convertía en "cero threads sin
 # resolver": el guard pasaba en silencio (fail-open) en vez de bloquear.
 assert_pre_merge_blocked "GraphQL body with null repository still blocks (fail-closed)" "gh pr merge 45" "no pude parsear los threads de review" "threads_null_repo"
+
+# Caso 5e [lote 10, B4]: el bloque ERRORS (threads abiertos,
+# CHANGES_REQUESTED, checks pendientes o cancelados) bloquea con exit 2,
+# el motivo en stderr y stdout vacío; antes ningún test lo ejercía y un
+# `ask` emitido ahí pasaba la suite.
+assert_pre_merge_blocked "Unresolved review threads block (exit 2, no stdout)" "gh pr merge 45" "1 thread(s) de review sin resolver" "threads_open"
+assert_pre_merge_blocked "CHANGES_REQUESTED review blocks (exit 2, no stdout)" "gh pr merge 45" "CHANGES_REQUESTED" "changes_requested"
+assert_pre_merge_blocked "Pending CI check blocks (exit 2, no stdout)" "gh pr merge 45" "1 CI check(s) pendientes" "checks_pending"
+assert_pre_merge_blocked "Cancelled CI check counts as failing and blocks" "gh pr merge 45" "1 CI check(s) fallando" "checks_cancelled"
+
+# Caso 5f [lote 10]: si jq no puede construir el JSON final, el hook
+# bloquea en vez de salir 0 sin `ask`. El wrapper falla solo con `-nc`.
+JQ_REAL=$(command -v jq)
+FAKE_JQ_DIR=$(mktemp -d)
+cat > "$FAKE_JQ_DIR/jq" <<FAKE_JQ_EOF
+#!/bin/bash
+[ "\$1" = "-nc" ] && exit 1
+exec "$JQ_REAL" "\$@"
+FAKE_JQ_EOF
+chmod +x "$FAKE_JQ_DIR/jq"
+TOTAL=$((TOTAL + 1))
+JQFAIL_EXIT=0
+JQFAIL_STDOUT=$(echo '{"tool_input":{"command":"gh pr merge 45"}}' | PATH="$FAKE_JQ_DIR:$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="" bash "$HOOKS_DIR/pre-merge-check.sh" 2>"$FAKE_JQ_DIR/stderr") || JQFAIL_EXIT=$?
+if [ "$JQFAIL_EXIT" -eq 2 ] && [ -z "$JQFAIL_STDOUT" ] && grep -qF "no pude construir la decisión ask" "$FAKE_JQ_DIR/stderr"; then
+  echo -e "${GREEN}PASS${NC}: jq fallando en el JSON final bloquea (exit 2, sin ask)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: jq fallando en el JSON final bloquea (exit: $JQFAIL_EXIT, stdout: $JQFAIL_STDOUT, stderr: $(cat "$FAKE_JQ_DIR/stderr"))"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$FAKE_JQ_DIR"
+
+# Caso 5g [lote 10]: "checks en verde" solo cuando los hay; sin checks
+# configurados el motivo del ask lo dice.
+TOTAL=$((TOTAL + 1))
+NOCHECKS_REASON=$(echo '{"tool_input":{"command":"gh pr merge 45"}}' | PATH="$FAKE_GH_DIR:$PATH" FAKE_GH_MODE="checks_none" bash "$HOOKS_DIR/pre-merge-check.sh" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecisionReason')
+if echo "$NOCHECKS_REASON" | grep -qF "sin checks configurados" && ! echo "$NOCHECKS_REASON" | grep -qF "checks en verde"; then
+  echo -e "${GREEN}PASS${NC}: el ask sin checks configurados no dice \"checks en verde\""
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: el ask sin checks configurados no dice \"checks en verde\" (motivo: $NOCHECKS_REASON)"
+  FAIL=$((FAIL + 1))
+fi
 
 # Caso 5d: el caso normal (JSON válido con 0 threads sin resolver) sigue
 # pasando — jq -e no vuelve falsy un `length` de 0 (jq -e solo distingue
