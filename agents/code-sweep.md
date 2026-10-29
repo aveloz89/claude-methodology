@@ -41,10 +41,13 @@ Con `gh issue list --label <label>`: `legacy-violation`, `controversial-fix` (qu
 Para cada hallazgo **CRÍTICO** o **ALTO** confirmado, antes de crear el issue verifica que no exista uno duplicado: `gh issue list --label "latent-bug" --search "<archivo:línea>"`. Si existe, menciónalo en el reporte como "issue existente #N".
 
 ```bash
-gh issue create --label "latent-bug" --label "<severity:critical|severity:high>" \
-  --title "[latent-bug][<patrón>] <descripción corta>" \
-  --body "Severidad / Ubicación path:línea / Snippet / Descripción / Cómo se manifestaría"
+gh issue create --label latent-bug --label <severity:critical|severity:high> \
+  --title '[latent-bug][<patrón del rulebook>] <file:line>' --body-file - <<'CS_ISSUE_BODY'
+Severidad / Ubicación path:línea / Snippet / Descripción / Cómo se manifestaría
+CS_ISSUE_BODY
 ```
+
+Regla: el cuerpo nunca va en `--body` entre comillas dobles ni el título en `--title` entre comillas dobles. Snippet y descripción salen de código no confiable: con el delimitador `'CS_ISSUE_BODY'` entre comillas simples, `$(...)`, backticks y `$VAR` no se expanden. El título se arma solo con campos controlados (patrón del rulebook y `file:line`), sin la descripción libre.
 
 Si un patrón es vulnerabilidad de seguridad (ej: shell injection), etiqueta también `security` para que `security-reviewer` lo priorice. MEDIO y BAJO se listan en el reporte, sin crear issue (evita ruido). En modo `smells` no se crean issues — el reporte es la entrega completa.
 

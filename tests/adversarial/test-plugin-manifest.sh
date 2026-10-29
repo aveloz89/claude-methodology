@@ -1214,6 +1214,13 @@ if [ -f "$CS_WORKFLOW" ]; then
   assert_contains "$CS_WORKFLOW" 'gh issue list --label "latent-bug"' "code-sweep.js deduplica issues con gh issue list --label \"latent-bug\""
   assert_contains "$CS_WORKFLOW" 'date -u' "code-sweep.js obtiene la fecha con date -u (no Date.now)"
   assert_contains "$CS_WORKFLOW" 'BLOQUEANTE PRE-RELEASE' "code-sweep.js marca BLOQUEANTE PRE-RELEASE"
+  # [lote 10, tarea 1] Los issues no se crean con texto de hallazgos entre comillas dobles.
+  assert_not_contains "$CS_WORKFLOW" '--body "' "code-sweep.js no pasa el cuerpo del issue en --body \"...\" (inyección de shell)"
+  assert_not_contains "$CODE_SWEEP" '--body "' "agente code-sweep no pasa el cuerpo del issue en --body \"...\" (inyección de shell)"
+  assert_contains "$CS_WORKFLOW" '--body-file -' "code-sweep.js crea issues con --body-file -"
+  assert_contains "$CODE_SWEEP" '--body-file -' "agente code-sweep crea issues con --body-file -"
+  assert_contains "$CS_WORKFLOW" "<<'CS_ISSUE_BODY'" "code-sweep.js usa heredoc con delimitador entre comillas simples"
+  assert_contains "$CODE_SWEEP" "<<'CS_ISSUE_BODY'" "agente code-sweep usa heredoc con delimitador entre comillas simples"
 
   if command -v node > /dev/null 2>&1; then
     # El runtime ejecuta el script como cuerpo de una función async (con
