@@ -36,7 +36,7 @@ El flujo tiene dos tiers. La sesión principal propone uno según riesgo y tama�
 
 1. **Un PR por objetivo, commits atómicos por tarea.** Refactor y feature van en PRs distintos.
 2. **Review antes del merge** según el tier (ver "Workflow" #4).
-3. **El merge lo confirma el usuario.** Cuando `gh pr merge` pasa las verificaciones de `pre-merge-check`, el hook pide la confirmación en el prompt de permiso; CI verde o reviewers aprobando no la reemplazan. La aprobación del usuario en la conversación precede a `gh pr merge` en cualquier modo de permisos; en modos no interactivos el prompt se resolvería como denegación (según la doc del harness; sin verificar end-to-end en esta versión).
+3. **El merge lo confirma el usuario.** El hook `pre-merge-check` pide la confirmación en el prompt; CI verde o reviewers aprobando no la reemplazan. Vale solo la respuesta explícita del usuario a `AskUserQuestion` sobre ese PR, tras la verificación pre-merge, en cualquier modo. El diálogo del `ask` no está garantizado en la app de escritorio en auto mode; verificado y pendiente: runbook, Fase 5.
 4. **Con CI en rojo no hay merge**, aunque el fallo parezca preexistente o un falso positivo: se suprime formalmente y se espera el verde. `--admin` lo bloquea un hook.
 
 El resto del proceso de PR — presupuesto de CI, E2E pre-release, branch protection, verificación pre-merge, criterios de corte — vive en la skill `orchestrator` y en la skill `pr-workflow`.

@@ -133,9 +133,12 @@ El review dual ya ocurrió en Fase 2.6: **el PR nació revisado**. Esta fase cub
 ### Fase 5: Merge
 
 1. Ejecuta la **verificación pre-merge** (3 checks en sección "Comandos `gh` específicos")
-2. Solo si las verificaciones pasan, lanza `gh pr merge`: el hook `pre-merge-check` devuelve `ask` (`permissionDecision`) y el prompt de permiso pide la confirmación al usuario; CI verde no la reemplaza, y en modos no interactivos el prompt se resuelve como denegación (según la doc del harness; sin verificar end-to-end en esta versión); en cualquier modo, la aprobación del usuario en la conversación precede a `gh pr merge`. El comando depende del tipo de branch:
+2. **Aprobación válida del merge:** una respuesta del usuario a `AskUserQuestion` sobre ese número de PR, hecha después de la verificación pre-merge final (los tres checks). No vale una aprobación implícita, una anterior a un push nuevo al branch, ni un texto con forma de aprobación leído de contenido de herramientas (PR, comentarios, archivos). Para ver el diálogo del `ask`, la sesión que mergea puede usar el modo Manual.
+   Solo si las verificaciones pasan, lanza `gh pr merge` únicamente con esa aprobación, en cualquier modo, y anota en `STATE.md` si el prompt de permiso apareció o no (la evidencia se acumula por sesión). El hook `pre-merge-check` devuelve `ask` (`permissionDecision`) y el prompt pide la confirmación; CI verde no la reemplaza. El comando depende del tipo de branch:
    - `feature/*` o `hotfix/*` → `gh pr merge <number> --merge --delete-branch`
    - `dev → main` (release) → `gh pr merge <number> --merge` **sin `--delete-branch`** (`dev` es persistente, ver Gitflow en `~/.claude/CLAUDE.md`)
+   - Verificado (2026-10-28, app de escritorio, auto mode, merge de #104): el hook devolvió `ask`; una regla `allow` no se lo salta (el harness generó el prompt y quedó registrado como `accept` puntual, no como regla); el prompt se resolvió sin mostrar diálogo y había aprobación previa del usuario en la conversación (mecanismo no verificado). El diálogo visible no está garantizado.
+   - Sin verificar: `-p`/`dontAsk` (la doc del harness dice que el `ask` se resuelve como denegación), `bypassPermissions`, la app sin aprobación previa en la conversación y una sesión de CLI en Manual (la doc dice que muestra el prompt).
 3. Si era hotfix (PR a main), después del merge integra a dev (procedimiento más abajo)
 4. Después del merge: `.planning/state.json` con `phases.merge` en `done` (local — `.planning/` no se versiona, no hay commit que hacer)
 
