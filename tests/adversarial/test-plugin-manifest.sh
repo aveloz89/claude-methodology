@@ -1525,13 +1525,13 @@ assert_contains "$ORCHESTRATOR_SKILL" "agent-memory" "skill orchestrator remite 
 assert_contains "$REPO_ROOT/skills/pr-workflow/SKILL.md" "agent-memory" "skill pr-workflow §2 remite al volcado de memoria"
 
 # --- Lote 11 / tarea 3: señales de riesgo del tier ---
-assert_contains "$RUNBOOK" "PII" "runbook: la señal 1 incluye PII"
+assert_contains "$RUNBOOK" "^1\. Toca auth.*pagos, PII, CORS" "runbook: la señal 1 (línea numerada) incluye PII"
 assert_contains "$RUNBOOK" "deserializa" "runbook: señal 8 de input externo que se deserializa"
 assert_contains "$RUNBOOK" "settings del harness o \`.claude/agent-memory/\`" "runbook: señal 4 incluye .claude/agent-memory/"
-assert_contains "$RUNBOOK" "phases.docs" "runbook: la escalada vuelve phases.docs a pending"
+assert_contains "$RUNBOOK" "phases.design = \"pending\"\` y \`phases.docs = \"pending\"" "runbook: la escalada vuelve phases.design y phases.docs a pending"
 assert_contains "$RUNBOOK" "8 señales" "runbook cuenta 8 señales"
 assert_not_contains "$RUNBOOK" "7 señales" "runbook ya no cuenta 7 señales"
-assert_contains "$ORCHESTRATOR_SKILL" "phases.docs" "skill orchestrator: la escalada vuelve phases.docs a pending"
+assert_contains "$ORCHESTRATOR_SKILL" "phases.design = \"pending\"\` y \`phases.docs = \"pending\"" "skill orchestrator: la escalada vuelve phases.design y phases.docs a pending"
 assert_contains "$GLOBAL_CLAUDE_MD" "seis pasos" "global: la edición directa aplica los seis pasos pre-commit"
 assert_contains "$ORCHESTRATOR_SKILL" "seis pasos" "skill orchestrator: la edición directa aplica los seis pasos pre-commit"
 assert_contains "$README_MD" "señales 1, 4 u 8" "README: condición del security-reviewer en liviano (señales 1, 4 u 8)"

@@ -45,6 +45,14 @@ done | grep -cE 'tests/adversarial/[a-z-]+\.sh: line [0-9]+:'   # debe imprimir 
 
 `test-plugin-manifest.sh` además verifica de forma estática que ninguna suite use `declare -A`, `mapfile`, `readarray`, `${var,,}` ni `${var^^}`.
 
+### Checks agregados en los lotes 10 a 12
+
+- **`test-hooks.sh`, `pre-merge-check.sh`**: el fake `gh` suma modos (`threads_null_repo` para un `.pullRequest` nulo en GraphQL, `checks_cancelled` para un check cancelado que cuenta como fallo) y un wrapper de `jq` que falla solo al construir el JSON final (`jq -nc`), para probar que el hook bloquea con exit 2 en vez de dejar pasar el merge.
+- **`test-plugin-manifest.sh`, `code-sweep.js` y `agents/code-sweep.md`**: `assert_not_contains` de `--body "` y `--search "` (inyección de shell por comillas dobles) y de `CS_ISSUE_BODY_2`; `assert_contains` del heredoc con delimitador entre comillas simples (`<<'CS_ISSUE_BODY'`) y de `--body-file -`; vedado de `Bash` a los agentes de lectura; `Workflow(methodology:code-sweep)` en `allowed-tools` de la skill orchestrator.
+- **Filtro de issues del workflow**: `SAFE_FILE_RE`, `SAFE_PATTERN_RE`, `seenFiles.has` y `excluido de issues` por `assert_contains`, más un test funcional: el script extrae con `grep`/`awk` las constantes y las funciones puras `issueExclusionReason`/`issueSafe` a un directorio temporal y las evalúa en `node` (sin el runtime). Casos: hallazgo válido, `file` con `'` o `$(`, `file` fuera de `seenFiles`, `pattern` con backtick y campos con una línea igual al delimitador. El agente de respaldo lleva las mismas reglas por escrito (`A-Za-z0-9`, `excluido de issues`, `depende del modelo`).
+- **`dangling_grep`**: sonda que verifica que un patrón inválido da FAIL con el mensaje de grep en vez de pasar en vacío.
+- **Asserts anclados**: los de PII (señal 1) y `phases.docs` (escalada) del runbook y la skill apuntan a frases únicas (`^1\. Toca auth.*pagos, PII, CORS`, `phases.design = "pending"` y `phases.docs = "pending"` juntos); verificado por mutación: quitar `PII` de la señal 1 o `phases.docs` de la escalada da FAIL. Lo mismo con la condición del `security-reviewer` en liviano (`señales 1, 4 u 8`) y el filtro del volcado de memoria (`formato exacto`, `ghp_`).
+
 ## Cuándo ejecutar
 
 - Antes de releases
