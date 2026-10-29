@@ -10,10 +10,10 @@
 #     verificaciones en verde (threads, CHANGES_REQUESTED, checks; "sin
 #     checks configurados" cuenta como verde). Lo verificado el 2026-10-28
 #     (app de escritorio, auto mode): el harness genera el prompt aunque
-#     una regla allow cubra el comando, y la app pudo resolverlo sin
-#     diálogo por la aprobación ya presente en la conversación; queda
-#     sin verificar: `-p`/`dontAsk` (la doc dice denegación),
-#     bypassPermissions.
+#     una regla allow cubra el comando, y la app lo resolvió sin diálogo
+#     con aprobación previa en la conversación (mecanismo no verificado);
+#     queda sin verificar: `-p`/`dontAsk` (la doc dice denegación),
+#     bypassPermissions, la app sin aprobación previa.
 #
 # Forma aceptada, anclada de punta a punta sobre el texto CRUDO: "gh pr
 # merge <N> [flag ...]", sola en el comando y en una línea. <N> =
@@ -367,9 +367,9 @@ fi
 # Único camino de éxito: las tres verificaciones pasaron (incluido "sin
 # checks configurados"). Estado "ask": exit 0 + JSON, para que el usuario
 # confirme el merge. Lo verificado el 2026-10-28 (app de escritorio, auto
-# mode): el prompt se genera aunque haya una regla allow y la app puede
-# resolverlo sin diálogo; queda sin verificar: `-p`/`dontAsk`,
-# bypassPermissions.
+# mode): el prompt se genera aunque haya una regla allow y la app lo
+# resolvió sin diálogo (mecanismo no verificado); queda sin verificar:
+# `-p`/`dontAsk`, bypassPermissions, la app sin aprobación previa.
 if [ "$NO_CHECKS_CONFIGURED" = true ]; then
   CHECKS_TEXT="sin checks configurados"
 else

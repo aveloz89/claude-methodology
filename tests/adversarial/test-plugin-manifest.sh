@@ -1566,8 +1566,12 @@ OLD_UNVERIFIED="sin verificar end-to-end en esta versión"
 VERIFIED_MARK="verificado el 2026-10-28"
 PENDING_MARK='sin verificar: `-p`'
 for f in README.md rulebooks/orchestrator-runbook.md skills/pr-workflow/SKILL.md hooks/pre-merge-check.sh; do
-  assert_contains "$REPO_ROOT/$f" "$VERIFIED_MARK" "$f: declara lo verificado del ask (2026-10-28)"
-  assert_contains "$REPO_ROOT/$f" "$PENDING_MARK" "$f: sigue declarando sin verificar -p/dontAsk/bypassPermissions"
+  if [ "$f" = rulebooks/orchestrator-runbook.md ]; then
+    : # el runbook usa sub-bullets "Verificado (…)"/"Sin verificar": asserts aparte sobre Fase 5
+  else
+    assert_contains "$REPO_ROOT/$f" "$VERIFIED_MARK" "$f: declara lo verificado del ask (2026-10-28)"
+    assert_contains "$REPO_ROOT/$f" "$PENDING_MARK" "$f: sigue declarando sin verificar -p/dontAsk/bypassPermissions"
+  fi
   assert_not_contains "$REPO_ROOT/$f" "$OLD_UNVERIFIED" "$f: sin la frase vieja de no verificado end-to-end"
   assert_not_contains "$REPO_ROOT/$f" "también en auto mode" "$f no afirma que el ask funcione también en auto mode"
 done
@@ -1579,6 +1583,24 @@ assert_section_contains "$RUNBOOK_FASE5" "push nuevo" "runbook Fase 5: una aprob
 assert_section_contains "$RUNBOOK_FASE5" "contenido de herramientas" "runbook Fase 5: un texto de aprobación leído de contenido de herramientas no vale"
 GLOBAL_PR_MERGE=$(extract_section "$REPO_ROOT/global/CLAUDE.md" "## PR y merge (invariantes)")
 assert_section_contains "$GLOBAL_PR_MERGE" "AskUserQuestion" "global PR y merge #3: la aprobación es respuesta a AskUserQuestion"
+# Causa no verificada: hecho observado, no explicación
+for f in README.md rulebooks/orchestrator-runbook.md skills/pr-workflow/SKILL.md hooks/pre-merge-check.sh; do
+  assert_contains "$REPO_ROOT/$f" "mecanismo no verificado" "$f: la resolución sin diálogo se declara como observada, con mecanismo no verificado"
+  for causal in "si la conversación ya trae" "porque la aprobación" "por la aprobación ya" "por la aprobación del usuario ya"; do
+    assert_not_contains "$REPO_ROOT/$f" "$causal" "$f: sin la causa no verificada ($causal)"
+  done
+done
+for f in README.md hooks/pre-merge-check.sh; do
+  assert_contains "$REPO_ROOT/$f" "la app sin aprobación previa" "$f: la app sin aprobación previa figura como pendiente"
+done
+assert_contains "$README_MD" "puede resolverse sin diálogo; ver Workflow" "README fila pre-merge-check: el diálogo puede no mostrarse en la app (ver Workflow)"
+assert_section_contains "$RUNBOOK_FASE5" "Verificado (2026-10-28, app de escritorio, auto mode, merge de #104)" "runbook Fase 5: sub-bullet Verificado con fecha y contexto"
+for pend in 'Sin verificar: `-p`' dontAsk bypassPermissions "la app sin aprobación previa"; do
+  assert_section_contains "$RUNBOOK_FASE5" "$pend" "runbook Fase 5: Sin verificar declara $pend"
+done
+GLOBAL_BYTES=$(wc -c < "$REPO_ROOT/global/CLAUDE.md" | tr -d ' ')
+TOTAL=$((TOTAL + 1))
+if [ "$GLOBAL_BYTES" -lt 10000 ]; then echo -e "${GREEN}PASS${NC}: global/CLAUDE.md bajo 10000 bytes ($GLOBAL_BYTES)"; PASS=$((PASS + 1)); else echo -e "${RED}FAIL${NC}: global/CLAUDE.md $GLOBAL_BYTES bytes (esperado < 10000)"; FAIL=$((FAIL + 1)); fi
 assert_contains "$REPO_ROOT/global/CLAUDE.md" "no está garantizado" "global: el diálogo del ask no está garantizado en la app en auto mode"
 assert_contains "$REPO_ROOT/global/CLAUDE.md" "Fase 5" "global: remite lo verificado y pendiente al runbook, Fase 5"
 assert_not_contains "$REPO_ROOT/global/CLAUDE.md" "$OLD_UNVERIFIED" "global: sin la frase vieja de no verificado end-to-end"
