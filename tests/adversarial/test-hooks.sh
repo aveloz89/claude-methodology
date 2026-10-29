@@ -1314,6 +1314,57 @@ assert_allowed_cmd "block-hard-reset: --hard en OTRO comando tras && no dispara 
 assert_allowed_cmd "block-hard-reset: ruta que empieza por --hard- no dispara (control)" "block-hard-reset.sh" "git reset -- --hard-notes.md"
 assert_allowed_cmd "block-hard-reset: --hard entre comillas en un mensaje no dispara (control)" "block-hard-reset.sh" "git commit -m 'git reset --hard'"
 
+# #121 (ronda 1 de review): "git reset --merge" descarta lo que esta en el indice
+# (medido con git real abajo) y "--keep" no pierde nada. RED con 85f002c: los
+# bloqueos de --merge daban exit 0. Los dos primeros tests miden git de verdad en
+# un repo temporal: si algun dia git cambia, el control avisa antes que el guard.
+RESET_MODE_DIR=$(mktemp -d)
+(
+  cd "$RESET_MODE_DIR" || exit 1
+  git init -q -b main . && git config user.email a@b && git config user.name t
+  printf '1\n' > g && printf 'a\n' > f && git add . && git commit -qm one
+  printf 'a\nb\n' > f && git commit -qam two
+) > /dev/null 2>&1
+# reset_mode_keeps_staged <modo>: 0 si "git reset <modo> HEAD~1" conserva el
+# cambio staged de g, 1 si lo pierde.
+reset_mode_keeps_staged() {
+  (
+    cd "$RESET_MODE_DIR" || exit 1
+    git reset -q --hard main > /dev/null 2>&1
+    printf 'x\n' >> g && git add g
+    git reset -q "$1" HEAD~1 > /dev/null 2>&1
+    grep -q x g
+  )
+}
+TOTAL=$((TOTAL + 1))
+if reset_mode_keeps_staged --merge; then
+  echo -e "${RED}FAIL${NC}: git real: reset --merge conserva lo staged (si git cambio, revisar block-hard-reset)"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "${GREEN}PASS${NC}: git real: reset --merge pierde lo staged (por eso block-hard-reset lo bloquea, #121)"
+  PASS=$((PASS + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if reset_mode_keeps_staged --keep; then
+  echo -e "${GREEN}PASS${NC}: git real: reset --keep conserva lo staged (por eso block-hard-reset lo deja pasar, #121)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: git real: reset --keep pierde lo staged (si git cambio, bloquearlo en block-hard-reset)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$RESET_MODE_DIR"
+assert_blocked_cmd "block-hard-reset: reset --merge bloquea (#121)" "block-hard-reset.sh" "git reset --merge"
+assert_blocked_cmd "block-hard-reset: reset --merge HEAD~1 bloquea (#121)" "block-hard-reset.sh" "git reset --merge HEAD~1"
+assert_blocked_cmd "block-hard-reset: prefijo --merg de la opcion bloquea (#121)" "block-hard-reset.sh" "git reset --merg HEAD~1"
+assert_blocked_cmd "block-hard-reset: prefijo --mer de la opcion bloquea (#121)" "block-hard-reset.sh" "git reset --mer HEAD~1"
+assert_blocked_cmd "block-hard-reset: prefijo --me de la opcion bloquea (#121)" "block-hard-reset.sh" "git reset --me HEAD~1"
+assert_blocked_cmd "block-hard-reset: commit antes de --merge bloquea (#121)" "block-hard-reset.sh" "git reset HEAD~1 --merge"
+assert_blocked_cmd "block-hard-reset: wrapper y reset --merge bloquea (#121, #118)" "block-hard-reset.sh" "time git reset --merge"
+assert_allowed_cmd "block-hard-reset: reset --keep pasa (control, #121)" "block-hard-reset.sh" "git reset --keep HEAD~1"
+assert_allowed_cmd "block-hard-reset: prefijo --ke de --keep pasa (control, #121)" "block-hard-reset.sh" "git reset --ke HEAD~1"
+assert_allowed_cmd "block-hard-reset: reset --mixed pasa (control, #121)" "block-hard-reset.sh" "git reset --mixed HEAD~1"
+assert_allowed_cmd "block-hard-reset: ruta que empieza por --merge- no dispara (control, #121)" "block-hard-reset.sh" "git reset -- --merge-notes.md"
+
 # Fail-closed sin jq (revisión pre-push, security MEDIUM): mismo hueco que
 # en block-force-push.sh — sin jq, COMMAND queda vacío y un
 # "git reset --hard" real pasa en silencio.

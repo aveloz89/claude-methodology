@@ -22,8 +22,8 @@ guard_init "block-hard-reset"
 # o | (GUARD_SEGMENT_END: el & de una redirección 2>&1, >&2 o &>log no corta,
 # #118) y como token completo ("--hard=x" lo rechaza git, "--hard-notes.md" es
 # una ruta); el token cierra también en ; & | (git reset --hard;).
-if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}reset\s+(${GUARD_SEGMENT_END}[[:space:]])?--h(a(rd?)?)?(${GUARD_TOKEN_END}|[;&|])"; then
-  echo "BLOCKED: git reset --hard descarta cambios irreversiblemente. Usa git stash o git reset --soft." >&2
+if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}reset\s+(${GUARD_SEGMENT_END}[[:space:]])?--(h(a(rd?)?)?|me(r(ge?)?)?)(${GUARD_TOKEN_END}|[;&|])"; then
+  echo "BLOCKED: git reset --hard (o --merge) descarta cambios irreversiblemente. Usa git stash, git reset --soft o git reset --keep." >&2
   exit 2
 fi
 
