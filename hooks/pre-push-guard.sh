@@ -76,14 +76,17 @@ fi
 # actual sea feature/x; antes salían en 0 sin evaluarse. Se mira cada
 # segmento "git push ..." del comando saneado (anclado con PUSH_RE, hasta el
 # primer &&/;/|), no solo el primero, y de cada token su DESTINO: lo que
-# sigue al último ":" o el token entero si no lo tiene, con el "+" opcional
+# sigue al ":" o el token entero si no lo tiene, con el "+" opcional
 # del refspec forzado. "refs/heads/(main|master)" cuenta como main;
 # "refs/tags/..." y un nombre de tag suelto no. Un refspec con main como
 # ORIGEN (main:feature/x) no bloquea: su destino es otro. La excepción del
 # merge commit de arriba es solo para la rama main local — un merge commit
-# en HEAD de feature/x no habilita empujarlo a main. Un refspec entre
-# comillas queda fuera de alcance (el saneo vacía el span), igual que la
-# flag quoted en block-force-push.sh (README, "Fuera de alcance").
+# en HEAD de feature/x no habilita empujarlo a main. Fuera de alcance
+# (README, "Fuera de alcance"; misma clase que la flag quoted y la
+# redirección en block-force-push.sh): el refspec entre comillas (el saneo
+# vacía el span) y una redirección antes del refspec o pegada a él ("2>&1
+# HEAD:main" corta el segmento en "&"; "HEAD:main>log" deja el ">" pegado
+# al nombre y rompe el borde del token).
 DST_MAIN_RE='(^|[[:space:]])\+?([^[:space:]:]*:)?(refs/heads/)?(main|master)([[:space:]]|$)'
 if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}[^&|;]*" | grep -qE "$DST_MAIN_RE"; then
   echo "BLOCKED: No push directo a main: el refspec apunta a main/master (HEAD:main, dev:main, refs/heads/main o la rama local main). Usa un PR desde dev o feature branch." >&2

@@ -432,8 +432,8 @@ assert_nul_blocked_cwd "pre-push-guard: bloquea NUL en el comando (B2)" "$SANDBO
 # rama actual, así que desde feature/x un push cuyo DESTINO es main pasaba
 # sin evaluarse (exit 0): "HEAD:main", "dev:main", "refs/heads/main" o el
 # refspec pelado "main" (empuja la rama local main). Ahora evalúa también
-# el destino de cada refspec del segmento push — lo que sigue al último
-# ":" o el token entero si no hay ":" —, con el "+" opcional del refspec
+# el destino de cada refspec del segmento push — lo que sigue al ":" o
+# el token entero si no hay ":" —, con el "+" opcional del refspec
 # forzado y "refs/heads/main" contado como main; mira todos los segmentos
 # "git push" del comando, no solo el primero. Los tags (refs/tags/... o
 # un nombre de tag suelto), un refspec con main como ORIGEN y las ramas
@@ -452,6 +452,15 @@ assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin main' (ram
   "pre-push-guard.sh" "git push origin main" "$PATH" "$SANDBOX_REPO"
 assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin feature/x && git push origin HEAD:main' bloquea (segundo push, #112)" \
   "pre-push-guard.sh" "git push origin feature/x && git push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+# Review (code-review, cobertura): las ramas "\+?" y origen vacío de
+# DST_MAIN_RE, y el borrado de la main remota, quedan en la suite y no solo
+# en probes a mano.
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin +main' bloquea (refspec forzado con destino main, #112)" \
+  "pre-push-guard.sh" "git push origin +main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin :main' bloquea (borra la main remota, #112)" \
+  "pre-push-guard.sh" "git push origin :main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --delete origin main' bloquea (borra la main remota, #112)" \
+  "pre-push-guard.sh" "git push --delete origin main" "$PATH" "$SANDBOX_REPO"
 # Negativos: un destino que no es main/master sigue pasando desde feature/*.
 assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin refs/tags/v1.0.0' pasa (tag, #112)" \
   "pre-push-guard.sh" "git push origin refs/tags/v1.0.0" "$PATH" "$SANDBOX_REPO"
