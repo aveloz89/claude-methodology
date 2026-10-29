@@ -1695,10 +1695,10 @@ assert_not_contains "$REPO_ROOT/agents/backend-dev.md" '(ver CLAUDE.md raíz)' "
 assert_not_contains "$REPO_ROOT/agents/backend-dev.md" 'ver CLAUDE.md raíz para exclusiones' "backend-dev (~41) remite las exclusiones a ~/.claude/CLAUDE.md"
 assert_contains "$REPO_ROOT/agents/architect.md" 'Leer `CLAUDE.md` raíz' "architect (~35) sigue leyendo el CLAUDE.md del proyecto"
 # [#105] "CLAUDE.md raíz" solo queda donde habla del CLAUDE.md del proyecto (architect:35, runbook:373).
-RAIZ_HITS=$(cd "$REPO_ROOT" && git ls-files -z -- agents rulebooks skills rules | xargs -0 /usr/bin/grep -nE 'CLAUDE\.md`? raíz' /dev/null 2>/dev/null) && RAIZ_RC=0 || RAIZ_RC=$?
+RAIZ_HITS=$(cd "$REPO_ROOT" && git grep -nE 'CLAUDE\.md`? raíz' -- agents rulebooks skills rules) && RAIZ_RC=0 || RAIZ_RC=$?
 RAIZ_FILES=$(printf '%s\n' "$RAIZ_HITS" | cut -d: -f1 | sort -u | tr '\n' ' ')
 TOTAL=$((TOTAL + 1))
-if [ "$RAIZ_RC" -le 1 ] && [ "$RAIZ_FILES" = "agents/architect.md rulebooks/orchestrator-runbook.md " ]; then
+if [ "$RAIZ_RC" -eq 0 ] && [ "$RAIZ_FILES" = "agents/architect.md rulebooks/orchestrator-runbook.md " ]; then
   echo -e "${GREEN}PASS${NC}: 'CLAUDE.md raíz' solo aparece en architect.md y orchestrator-runbook.md (#105)"
   PASS=$((PASS + 1))
 else
