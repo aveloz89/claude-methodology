@@ -89,6 +89,8 @@ guard_force_with_lease_allowed() {
     # El refspec ":" / "+:" suelto empuja las ramas coincidentes (incluida
     # main) sin nombrarla: tampoco lo cubre la excepción.
     echo "$push_segment" | grep -qE "$GUARD_PUSH_EMPTY_REFSPEC_RE" && return 1
+    # Un refspec glob (#119) empuja main sin nombrarla: tampoco lo cubre.
+    guard_push_has_glob_dst "$push_segment" && return 1
     echo "$push_segment" | grep -qE "(^|[[:space:]:])(main|master|dev)(:|${GUARD_TOKEN_END})|refs/heads/(main|master|dev)(:|${GUARD_TOKEN_END})" && return 1
   done <<< "$push_segments"
   return 0

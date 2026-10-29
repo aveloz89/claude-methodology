@@ -49,6 +49,10 @@
 #     HEAD:main`: el segmento se corta en "&"). Una redirección pegada al
 #     refspec (`HEAD:main>log`, `HEAD:main</dev/null`) SÍ bloquea: "<" y ">"
 #     sin comillas cierran el token (GUARD_TOKEN_END).
+#   - pre-push-guard.sh: un refspec glob entre comillas (`git push origin
+#     '*:*'`; el saneo vacía el span). El glob sin comillas SÍ bloquea cuando
+#     su destino cuelga de refs/heads/ o no lleva prefijo refs/ (#119, ver
+#     GUARD_PUSH_GLOB_RE); `refs/tags/*:refs/tags/*` pasa.
 #   - pre-push-guard.sh y block-force-push.sh: push.default=matching o
 #     remote.<x>.mirror/push fijados en el config del repo o global (solo se
 #     ven los "-c" y "--config-env" literales y sin comillas del comando),
@@ -159,6 +163,39 @@ GUARD_PUSH_CONFIG_RE="(^|[[:space:]])(-c[[:space:]]+(push\.default=(matching|ups
 # block-force-push.sh (que nunca cubre pushes de todo).
 # shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
 GUARD_PUSH_EMPTY_REFSPEC_RE="(^|[[:space:]])\+?:${GUARD_TOKEN_END}"
+
+# Refspec glob (#119): un token cuyo DESTINO contiene "*" expande a todas las
+# ramas que casan, main incluida, sin nombrarla. Verificado contra un remoto
+# bare (git 2.54): 'refs/heads/*:refs/heads/*', '*:*' y el glob de un solo
+# lado 'refs/heads/*' (el destino es el propio token) empujan main. El regex
+# extrae el token con "*" en el destino (con "+" y origen opcionales);
+# guard_push_has_glob_dst decide si ese destino cuenta: BLOQUEA el que cuelga
+# de "refs/heads/" o no lleva prefijo "refs/" (git lo completa a refs/heads/);
+# deja pasar el que cuelga de otro "refs/..." (refs/tags/*:refs/tags/*).
+# Falso positivo asumido (dirección segura): refs/heads/feature/*:refs/heads/
+# feature/* tampoco toca main, pero no se distingue de refs/heads/*. Fuera de
+# alcance: el refspec entre comillas ('*:*'), que el saneo vacía.
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
+GUARD_PUSH_GLOB_RE="(^|[[:space:]])\+?([^[:space:]:]*:)?[^[:space:]:]*\*[^[:space:]:]*${GUARD_TOKEN_END}"
+
+# guard_push_has_glob_dst <segmentos>: 0 si algún token del texto es un refspec
+# glob peligroso (ver GUARD_PUSH_GLOB_RE), 1 si no. Los tokens que empiezan por
+# "-" son opciones, no refspecs.
+guard_push_has_glob_dst() {
+  local tok dst
+  while IFS= read -r tok; do
+    tok="${tok#"${tok%%[![:space:]]*}"}"
+    case "$tok" in -*) continue ;; esac
+    dst="${tok##*:}"
+    dst="${dst#+}"
+    case "$dst" in
+      refs/heads/*) return 0 ;;
+      refs/*) ;;
+      *) return 0 ;;
+    esac
+  done < <(printf '%s\n' "$1" | grep -oE "$GUARD_PUSH_GLOB_RE")
+  return 1
+}
 
 # Fragmento de regex ERE que reconoce "gh ... pr ... merge" tolerando hasta
 # 2 tokens entre "gh"/"pr" y entre "pr"/"merge" (formas como "gh -R x pr

@@ -129,4 +129,12 @@ if echo "$PUSH_SEGMENTS" | grep -qE "$GUARD_PUSH_EMPTY_REFSPEC_RE"; then
   exit 2
 fi
 
+# #119: un refspec glob ("refs/heads/*:refs/heads/*", "*:*", "refs/heads/*")
+# empuja todas las ramas que casan, main incluida, sin nombrarla. Regla y
+# alcance (qué destinos cuentan, qué queda fuera) en guard-matching.sh.
+if guard_push_has_glob_dst "$PUSH_SEGMENTS"; then
+  echo "BLOCKED: un refspec glob (destino con '*' bajo refs/heads/ o sin prefijo refs/) empuja todas las ramas que casan, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
+  exit 2
+fi
+
 exit 0

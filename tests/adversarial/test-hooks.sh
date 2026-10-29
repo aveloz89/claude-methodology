@@ -721,6 +721,43 @@ assert_allowed_cmd "block-force-push: 'echo do git push --force' pasa, no es un 
 assert_allowed_cmd "block-hard-reset: 'echo else git reset --hard' pasa, no es un reset (fijado, #118)" \
   "block-hard-reset.sh" 'echo else git reset --hard' "$PATH" "$SANDBOX_REPO"
 
+# #119: un refspec glob cuyo destino contiene "*" expande a todas las ramas
+# (main incluida) sin nombrarla; verificado contra un remoto bare (git 2.54):
+# 'refs/heads/*:refs/heads/*', '*:*' y el glob de un solo lado 'refs/heads/*'
+# empujan main. RED con el guard anterior: los bloqueos daban exit 0.
+assert_blocked_cmd "pre-push-guard: refspec glob refs/heads/*:refs/heads/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/heads/*:refs/heads/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob forzado +refs/heads/*:refs/heads/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin +refs/heads/*:refs/heads/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob sin comillas *:* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin *:*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob +*:* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin +*:*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob de un solo lado refs/heads/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/heads/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob feature/*:feature/* sin prefijo refs/ bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin feature/*:feature/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob parcial main*:main* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin main*:main*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob con origen tag y destino refs/heads/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/tags/*:refs/heads/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob tras && bloquea (#119)" \
+  "pre-push-guard.sh" 'git status && git push origin refs/heads/*:refs/heads/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con refspec glob refs/heads/*:refs/heads/* no alcanza la excepcion (#119)" \
+  "block-force-push.sh" 'git push --force-with-lease origin refs/heads/*:refs/heads/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec glob de tags refs/tags/*:refs/tags/* pasa (control, #119)" \
+  "pre-push-guard.sh" 'git push origin refs/tags/*:refs/tags/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec glob de tags de un solo lado pasa (control, #119)" \
+  "pre-push-guard.sh" 'git push origin refs/tags/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: origen glob heads y destino tags pasa (control, #119)" \
+  "pre-push-guard.sh" 'git push origin refs/heads/*:refs/tags/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec sin glob feature/x:feature/x pasa (control, #119)" \
+  "pre-push-guard.sh" 'git push origin feature/x:feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec entre comillas '*:*' queda fuera de alcance y pasa (fijado, #119)" \
+  "pre-push-guard.sh" "git push origin '*:*'" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: un asterisco en otro segmento no bloquea el push a feature/x (control, #119)" \
+  "pre-push-guard.sh" 'git push origin feature/x && ls *.md' "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""
