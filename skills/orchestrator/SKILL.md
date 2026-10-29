@@ -2,7 +2,7 @@
 name: orchestrator
 description: Manual de la sesión principal para coordinar una feature o un fix de punta a punta — fases 0 a 5, qué subagente invocar en cada una, lotes y handoff, tracker de sesión, pause/resume. Cargar al iniciar cualquier trabajo que termine en un PR, antes de delegar el primer lote.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner), Agent(methodology:code-sweep), Skill(code-review)
+allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner), Agent(methodology:code-sweep), Skill(code-review), Workflow
 argument-hint: "[feature|fix] <descripción corta>"
 ---
 
@@ -74,7 +74,7 @@ En cualquier duda, brainstormeas igual. Con confirmación explícita, escribes `
 | `qa-frontend` | sonnet | UX, accesibilidad, componentes, tests frontend, coverage. Bloqueante si toca frontend | Diff con archivos de UI | completo; en liviano solo como fallback de `/code-review` |
 | `qa-backend` | sonnet | Contratos API, lógica, datos, tests backend, coverage. Bloqueante si toca backend | Diff con archivos de servidor | completo; en liviano solo como fallback de `/code-review` |
 | `e2e-runner` | sonnet | Tests E2E con Playwright. Modo A: usuario, branch propio. Modo B: pre-release a `main`, branch del PR | Pre-release o invocación directa | ambos (PR a `main` o pedido directo) |
-| `code-sweep` | sonnet | Escanea el repo: modo `bugs` (issues `latent-bug`) o `smells` (reporte). Read-only | Pedido del usuario, o Fase 3 en PR a `main` | ambos (pedido del usuario) |
+| `code-sweep` | sonnet | Escanea el repo: modo `bugs` (issues `latent-bug`) o `smells` (reporte). Read-only. Default: workflow `/methodology:code-sweep <bugs\|smells> [pre-release] <paths>` (tool `Skill`/`Workflow`, lo que exponga el harness); fallback: este agente si el comando no figura o devuelve «Dynamic workflows are disabled by managed settings» / «Dynamic workflows are not enabled for this session». En pre-release, `BLOQUEANTE PRE-RELEASE` del workflow equivale al bloqueo del agente | Pedido del usuario, o Fase 3 en PR a `main` | ambos (pedido del usuario) |
 | `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después del último lote, antes del push + PR | completo |
 
 **Modelo no disponible.** Lo resuelve el setting `fallbackModel` del harness (hasta tres modelos, en orden; recomendado `["opus", "sonnet"]` con aliases), no tú. El modelo de cada agente vive en el frontmatter de su archivo en `agents/`.

@@ -124,7 +124,7 @@ Si falla algún check: lee logs (`gh run view <run-id> --log-failed`), asigna el
 El review dual ya ocurrió en Fase 2.6: **el PR nació revisado**. Esta fase cubre solo lo que requiere el PR abierto:
 
 1. **Re-review condicional**: solo si la Fase 2.8 obligó fixes sobre código ya revisado. Acotado al delta, re-lanzando solo los reviewers de la capa afectada (skill `pr-workflow`, §2). Append al registro local. Si CI pasó a la primera, no-op
-2. **Si el PR es a `main`**: invoca `e2e-runner` Modo B antes de la verificación pre-merge (ver "Pre-release E2E"); opcionalmente `code-sweep` modo `bugs` sobre el diff
+2. **Si el PR es a `main`**: invoca `e2e-runner` Modo B antes de la verificación pre-merge (ver "Pre-release E2E"); opcionalmente `code-sweep` modo `bugs` sobre el diff: default el workflow `/methodology:code-sweep bugs pre-release <paths>` con los paths del diff (`git diff --name-only <base>...HEAD`, o los directorios que los contienen), invocado con la tool `Skill`/`Workflow` según lo exponga el harness; fallback al agente `code-sweep` si el comando no figura o la invocación devuelve «Dynamic workflows are disabled by managed settings» / «Dynamic workflows are not enabled for this session» (el agente recibe la lista de archivos del diff). El marcador `BLOQUEANTE PRE-RELEASE` del workflow equivale al bloqueo del agente
 3. Sin nada pendiente, avanza a **Fase 5**
 
 **PRs fuera del flujo** (sin review pre-push, señalado por `post-pr-create`): skill `review-pr`.

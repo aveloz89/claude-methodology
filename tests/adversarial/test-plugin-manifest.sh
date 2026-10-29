@@ -1231,6 +1231,12 @@ if [ -f "$CS_WORKFLOW" ]; then
   assert_not_contains "$CS_RULEBOOK" 'coverage X%' "rulebook ya no pide coverage X% por archivo en el reporte smells"
   assert_contains "$CS_RULEBOOK" 'no medido' "rulebook declara el coverage como no medido por el workflow"
   assert_contains "$CS_RULEBOOK" '"refactor"' "rulebook documenta el campo opcional refactor en el schema"
+  # [lote 10, tarea 5] enrutamiento donde lo lee el orchestrator.
+  assert_contains "$ORCHESTRATOR_SKILL" '/methodology:code-sweep' "skill orchestrator §4 enruta code-sweep al workflow /methodology:code-sweep"
+  assert_contains "$RUNBOOK" '/methodology:code-sweep' "runbook Fase 3 enruta code-sweep al workflow /methodology:code-sweep"
+  assert_contains "$RUNBOOK" 'Dynamic workflows are not enabled' "runbook documenta el mensaje de workflows no habilitados como disparador del fallback"
+  assert_contains "$RUNBOOK" 'Dynamic workflows are disabled by managed settings' "runbook documenta el mensaje de workflows apagados por managed settings"
+  assert_contains "$ORCHESTRATOR_SKILL" '^allowed-tools:.*Workflow' "skill orchestrator permite la tool Workflow"
 
   if command -v node > /dev/null 2>&1; then
     # El runtime ejecuta el script como cuerpo de una función async (con
