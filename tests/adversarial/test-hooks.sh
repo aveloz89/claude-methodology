@@ -1058,6 +1058,29 @@ assert_allowed_cmd "pre-push-guard: redireccion <&0 y push a feature/x pasa (con
   "pre-push-guard.sh" 'git push origin feature/x <&0' "$PATH" "$SANDBOX_REPO"
 assert_allowed_cmd "pre-push-guard: redireccion >| seguida de otro comando con main pasa (control, cierre)" \
   "pre-push-guard.sh" 'git push origin feature/x >|/dev/null; echo main' "$PATH" "$SANDBOX_REPO"
+
+# Grupo C: wrappers delante de git. RED con 7e45e70: todos los bloqueos de abajo
+# daban exit 0.
+for _w in "sudo" "sudo -u root" "sudo -E" "sudo -n" "doas" "doas -u root" "nice" "nice -n 5" "ionice -c 3" "ionice -c 2 -n 7" "stdbuf -oL" "stdbuf -o0 -e0" "caffeinate -i" "chrt -i 0" "taskset 0x1" "taskset -c 0" "arch -arm64" "arch -x86_64" "exec -a NAME" "env -C /tmp" "env -i -u FOO" "timeout 1m30s" "timeout 1h" "timeout -k 5 10" "timeout -s KILL 60" "xargs -I WORD" "xargs -I {}" "xargs -n 1"; do
+  assert_blocked_cmd "pre-push-guard: wrapper $_w delante de git push a main bloquea (cierre)" \
+    "pre-push-guard.sh" "$_w git push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-hard-reset: wrapper $_w delante de git reset --hard bloquea (cierre)" \
+    "block-hard-reset.sh" "$_w git reset --hard" "$PATH" "$SANDBOX_REPO"
+done
+assert_blocked_cmd "block-force-push: sudo -u root delante de git push -f bloquea (cierre)" \
+  "block-force-push.sh" 'sudo -u root git push -f origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-commit-guard: nice -n 5 delante de git commit se reconoce (cierre)" \
+  "pre-commit-guard.sh" 'nice -n 5 git commit -m x --work-tree=/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: sudo git push a feature/x pasa (control, cierre)" \
+  "pre-push-guard.sh" 'sudo git push origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: nice -n 5 npm run build pasa (control, cierre)" \
+  "pre-push-guard.sh" 'nice -n 5 npm run build' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: echo sudo git push origin main no es un push (control, cierre)" \
+  "pre-push-guard.sh" 'echo sudo git push origin main' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: timeout 1m30s git reset --soft pasa (control, cierre)" \
+  "block-hard-reset.sh" 'timeout 1m30s git reset --soft HEAD~1' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: sudo con opcion no listada sigue fuera de alcance y pasa (fijado, cierre)" \
+  "pre-push-guard.sh" 'sudo -g staff git push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
 # Fin ronda de cierre
 
 sandbox_cleanup_pushrepo

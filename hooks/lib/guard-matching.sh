@@ -116,21 +116,28 @@ GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--namespace|--config-env|--attr-sour
 # "X=matching git --config-env=push.default=X push origin" ni siquiera se
 # reconocía como un push (el hook salía 0 sin evaluarlo), y "time git push
 # origin HEAD:main" tampoco. Wrappers cubiertos, con sus opciones simples:
-#   - time, nohup, exec, command, coproc  (+ opciones: "time -p", "command -p");
-#   - env  (+ opciones, "-u NOMBRE" y asignaciones: "env -i FOO=1 git ...");
+#   - time, nohup, command, coproc  (+ opciones: "time -p", "command -p");
+#   - exec  (+ opciones y "-a NOMBRE": "exec -a x git ...");
+#   - env  (+ opciones, "-u NOMBRE", "-C DIR" y asignaciones: "env -i FOO=1 git ...");
 #   - timeout [opciones] <duración>  ("timeout 60", "timeout -s KILL 60",
-#     "timeout --preserve-status 5s");
-#   - xargs  (+ opciones, con valor solo "{}", un número o una letra:
-#     "xargs -n 1", "xargs -I {}"): "echo a | xargs git push ...".
-# Se encadenan ("time nohup env FOO=1 git ..."). Fuera de alcance: sudo, nice,
-# ionice, stdbuf, watch y demás wrappers; opciones con valor que no sean las de
-# arriba (xargs -I FOO queda dentro: una letra). Solo ancla tras el separador de
+#     "timeout --preserve-status 5s", "timeout 1m30s": duraciones con sufijo y
+#     compuestas);
+#   - xargs  (+ opciones; con valor separado -I, -L, -n, -P, -s, -d, -E, -J:
+#     "xargs -n 1", "xargs -I WORD", "xargs -I {}"): "echo a | xargs git push ...";
+#   - sudo, doas  (+ "-u USUARIO" y opciones sin valor: "sudo -E", "sudo -n");
+#   - nice  (+ "-n N"), ionice  (+ "-c N", "-n N"), stdbuf  (+ "-oN", "-o N"),
+#     caffeinate  (+ "-i", "-t N"), chrt  (+ opciones y la prioridad), taskset
+#     (+ opciones y la máscara), arch  (+ "-arm64", "-x86_64").
+# Se encadenan ("time nohup env FOO=1 git ..."). Fuera de alcance: watch y demás
+# wrappers; sudo/doas con opciones de valor distintas a "-u" ("sudo -g grupo",
+# "sudo -h host"), y las opciones con valor de los wrappers de arriba que no
+# estén en esa lista. Solo ancla tras el separador de
 # comando: "echo time git push origin main" NO es un push.
 # Los guards de git no llevan "if" en hooks.json (corren en cada Bash), así que
 # el wrapper al frente sí llega al script; verificado con claude -p, ver
 # "Fuera de alcance" del README.
 # shellcheck disable=SC2034 # se usa en pre-push-guard.sh, block-force-push.sh, block-hard-reset.sh y pre-commit-guard.sh
-GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(((time|nohup|exec|command|coproc)(\s+-\S+)*\s+|env(\s+(-u\s+\S+|-\S*|[A-Za-z_][A-Za-z0-9_]*=\S*))*\s+|timeout(\s+-\S+(\s+[A-Za-z0-9]+)?)*\s+[0-9.]+[smhd]?\s+|xargs(\s+-\S+(\s+(\{\}|[0-9]+|[A-Za-z]))?)*\s+)([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)*'
+GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(((time|nohup|command|coproc)(\s+-\S+)*\s+|exec(\s+(-a\s+\S+|-\S+))*\s+|env(\s+(-[uC]\s+\S+|-\S*|[A-Za-z_][A-Za-z0-9_]*=\S*))*\s+|timeout(\s+-\S+(\s+[A-Za-z0-9]+)?)*\s+[0-9.]+[smhd]?([0-9.]+[smhd])*\s+|xargs(\s+(-[ILnPsdEJ]\s+\S+|-\S+))*\s+|(sudo|doas)(\s+(-u\s+\S+|-\S+))*\s+|nice(\s+(-n\s+\S+|-\S+))*\s+|ionice(\s+(-[cnp]\s+\S+|-\S+))*\s+|stdbuf(\s+(-[ioe]\s+\S+|-\S+))*\s+|caffeinate(\s+(-[tw]\s+\S+|-\S+))*\s+|chrt(\s+-\S+)*\s+[0-9]+\s+|taskset(\s+-\S+)*\s+[0-9A-Fa-fx,-]+\s+|arch(\s+-\S+)*\s+)([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)*'
 
 # Inventario de delimitadores (lo verificado, no un absoluto). Tres listas
 # distintas, cada una con su propio papel:
