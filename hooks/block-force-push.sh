@@ -1,11 +1,11 @@
 #!/bin/bash
 # Bloquea git push --force / -f que puede sobrescribir historia remota.
 #
-# hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
-# latencia, no reemplaza la validación de abajo, que sigue mirando el
-# comando completo. NO verificado de punta a punta: que ese "if" dispare el
-# hook para comandos que no empiezan por git (backtick, echo, "(") — lo
-# probado es el script con el comando por stdin.
+# hooks.json registra este guard SIN "if" (decisión del usuario, ronda 1 de
+# review): corre en cada Bash. Con "Bash(git *)" el harness no lo invocaba para
+# comandos que empiezan por un wrapper ("time git push origin HEAD:main" movía
+# main, verificado en un sandbox con claude -p), un if/then ni un backtick. La
+# validación de abajo mira el comando completo; sin "git" en el comando sale 0.
 LIB="${0%/*}/lib/guard-matching.sh"
 [ -r "$LIB" ] || { echo "BLOCKED: block-force-push no operativo: falta hooks/lib/guard-matching.sh" >&2; exit 2; }
 # shellcheck source=lib/guard-matching.sh
@@ -34,6 +34,33 @@ guard_init "block-force-push"
 # mismo comando no lo redirige acá, lo bloquea pre-push-guard.sh (mismo
 # criterio que ese guard) antes de que este código corra.
 #
+# guard_raw_push_has_quote: 0 si algún trozo del comando CRUDO que es un "git
+# push" lleva una comilla, una barra invertida o un "$". No depende del ancla
+# literal "git" sobre el texto crudo (g''it, g\it o "git" partido por una
+# continuación de línea no la matchean): cada trozo se limpia de comillas,
+# barras y "$" y se busca el push sobre el texto limpio. Se parte en ";", "&&",
+# "||", "|" (no en ">|") y newline; un "&" suelto NO parte, para que una
+# redirección (2>&1) no corte el segmento a la mitad: partir de menos solo
+# agranda el trozo (más bloqueo, dirección segura). Una barra+newline se une
+# antes de partir.
+guard_raw_push_has_quote() {
+  local joined piece clean
+  # Barra+newline se une solo si las barras son impares (una cantidad par son
+  # barras literales y el newline separa comandos), igual que guard_sanitize.
+  joined=$(printf '%s' "$COMMAND" | perl -0777 -pe 'BEGIN { alarm 5 } s/(?<!\\)((?:\\\\)*)\\\n/$1/g')
+  joined="${joined//>|/>$'\001'}"
+  joined="${joined//&&/;}"
+  joined="${joined//||/;}"
+  while IFS= read -r piece; do
+    # Solo esconden un nombre literal las comillas, la barra invertida y $'/$"
+    # (que ya llevan comilla): un $VAR o $(...) sin comillas no lo esconden.
+    [ "$(printf '%s' "$piece" | tr -d "'\"\\\\")" = "$piece" ] && continue
+    clean=$(printf '%s' "$piece" | tr -d "'\"\\\\\$")
+    printf '%s' "$clean" | grep -qE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b" && return 0
+  done < <(printf '%s\n' "$joined" | tr ';|' '\n')
+  return 1
+}
+
 # guard_force_with_lease_allowed: 0 (permitido) solo si el branch actual
 # (de guard_session_dir) NO es main/master/dev y el segmento del "git ...
 # push ..." real (anclado a posición de comando con GUARD_ANCHOR, hasta el
@@ -50,28 +77,20 @@ guard_init "block-force-push"
 # segmento evaluado — coló un push a rama protegida (review ronda 1,
 # security MEDIUM).
 guard_force_with_lease_allowed() {
-  local dir branch push_segment push_segments raw_push_segments
+  local dir branch push_segment push_segments
   dir=$(guard_session_dir) || return 1
   branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2> /dev/null) || return 1
   case "$branch" in
     main | master | dev) return 1 ;;
   esac
-  # El saneo (guard_sanitize) vacía los spans quoted antes de que
-  # SANITIZED_COMMAND llegue acá: "origin 'main'" queda como "origin " y el
-  # token "main" desaparece del segmento, así que el check de abajo (que
-  # busca "main"/"dev" como palabra suelta) no lo ve y la excepción de
-  # --force-with-lease se cuela. El segmento sobre $COMMAND crudo (sin
-  # sanear) SÍ conserva las comillas: si aparecen dentro del segmento del
-  # push real, no hay forma barata de saber qué token queda adentro sin
-  # parsear el shell de verdad — la excepción no aplica y bloquea
-  # fail-closed, en vez de confiar en un match que puede estar mirando un
-  # segmento vaciado por el saneo.
-  # Se evalúan TODOS los segmentos "git push" del comando, no solo el
-  # primero (H3, ronda 1): "git push --force-with-lease origin feature/x &&
-  # git push --force-with-lease origin dev" colaba el segundo. Con comillas
-  # en cualquiera de los segmentos crudos, bloquea (fail-closed).
-  raw_push_segments=$(echo "$COMMAND" | grep -oE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}")
-  echo "$raw_push_segments" | grep -q "['\"]" && return 1
+  # El saneo (guard_sanitize) reemplaza los spans quoted por el placeholder Q:
+  # "origin 'main'" queda como "origin Q" y el token "main" desaparece del
+  # segmento, así que el check de abajo (que busca "main"/"dev" como palabra
+  # suelta) no lo ve y la excepción de --force-with-lease se cuela. El comando
+  # CRUDO sí conserva las comillas: si el push con lease lleva cualquiera, no
+  # hay forma barata de saber qué token queda adentro sin parsear el shell de
+  # verdad — la excepción no aplica y bloquea fail-closed (guard_raw_push_has_quote).
+  guard_raw_push_has_quote && return 1
   push_segments=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}")
   # La excepción aplica a los segmentos que llevan --force-with-lease: cada
   # uno tiene que cumplirla; si cualquiera falla, bloquea. Un segmento sin
@@ -89,6 +108,8 @@ guard_force_with_lease_allowed() {
     # El refspec ":" / "+:" suelto empuja las ramas coincidentes (incluida
     # main) sin nombrarla: tampoco lo cubre la excepción.
     echo "$push_segment" | grep -qE "$GUARD_PUSH_EMPTY_REFSPEC_RE" && return 1
+    # Un refspec glob (#119) empuja main sin nombrarla: tampoco lo cubre.
+    guard_push_has_glob_dst "$push_segment" && return 1
     echo "$push_segment" | grep -qE "(^|[[:space:]:])(main|master|dev)(:|${GUARD_TOKEN_END})|refs/heads/(main|master|dev)(:|${GUARD_TOKEN_END})" && return 1
   done <<< "$push_segments"
   return 0

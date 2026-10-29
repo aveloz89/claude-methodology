@@ -8,7 +8,10 @@ LIB="${0%/*}/lib/guard-matching.sh"
 [ -r "$LIB" ] || { echo "BLOCKED: block-admin-merge no operativo: falta hooks/lib/guard-matching.sh" >&2; exit 2; }
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
-guard_init "block-admin-merge"
+# Los guards de gh conservan el espacio como saneo de spans quoted (ver
+# guard_sanitize en la lib): con "Q" cambiaría el conteo de tokens de
+# GUARD_GH_PR_MERGE_RE.
+guard_init "block-admin-merge" " "
 
 # GUARD_GH_PR_MERGE_RE (lib) tolera hasta 2 tokens entre "gh"/"pr" y entre
 # "pr"/"merge" — detecta "gh -R o/r pr merge --admin" y "gh pr -R o/r merge

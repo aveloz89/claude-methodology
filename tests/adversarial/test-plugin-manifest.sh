@@ -130,12 +130,44 @@ assert_hook_if() {
   fi
 }
 
-assert_hook_if "block-force-push.sh" "Bash(git *)"
-assert_hook_if "block-hard-reset.sh" "Bash(git *)"
-assert_hook_if "pre-push-guard.sh" "Bash(git *)"
-assert_hook_if "pre-commit-guard.sh" "Bash(git *)"
+# Los 4 guards de git NO llevan "if": con "Bash(git *)" el harness no los
+# invocaba para comandos que empiezan por un wrapper (time, env, ...), un
+# if/then, un backtick o un "(" (decisión del usuario, ronda 1 de review). Cada
+# script valida el comando completo; medido, "echo hola" sale 0 en ~15 ms.
+for GIT_GUARD in block-force-push.sh block-hard-reset.sh pre-push-guard.sh pre-commit-guard.sh; do
+  assert_hook_if "$GIT_GUARD" "MISSING"
+done
 assert_hook_if "block-admin-merge.sh" "Bash(gh *)"
 assert_hook_if "pre-merge-check.sh" "Bash(gh *)"
+
+# Paridad: el resto de las entradas de hooks.json no cambió (evento, matcher,
+# script, if y timeout de las 11); solo los 4 guards de git perdieron el "if".
+# Los campos se unen con US (0x1f), no con "|": el matcher de SessionStart
+# ("startup|resume|clear|compact") ya trae "|" y con ese separador un campo
+# podía confundirse con otro.
+US=$'\x1f'
+EXPECTED_HANDLERS=$(printf '%s\n' \
+  "PreToolUse${US}Bash${US}block-admin-merge.sh${US}Bash(gh *)${US}10" \
+  "PreToolUse${US}Bash${US}block-force-push.sh${US}-${US}10" \
+  "PreToolUse${US}Bash${US}block-hard-reset.sh${US}-${US}10" \
+  "PreToolUse${US}Bash${US}pre-push-guard.sh${US}-${US}10" \
+  "PreToolUse${US}Bash${US}pre-merge-check.sh${US}Bash(gh *)${US}30" \
+  "PreToolUse${US}Bash${US}pre-commit-guard.sh${US}-${US}600" \
+  "PostToolUse${US}Bash${US}post-pr-create.sh${US}-${US}15" \
+  "PostToolUse${US}Bash${US}docker-refresh.sh${US}-${US}15" \
+  "SessionStart${US}startup|resume|clear|compact${US}session-start-context.sh${US}-${US}15" \
+  "PreCompact${US}${US}pre-compact-snapshot.sh${US}-${US}15" \
+  "SubagentStop${US}${US}subagent-stop-log.sh${US}-${US}10")
+ACTUAL_HANDLERS=$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | .matcher as $m | .hooks[] | [$e, ($m // ""), (.command | sub(".*/"; "") | sub("\"$"; "")), (.if // "-"), (.timeout // "-" | tostring)] | join("\u001f")' "$HOOKS_JSON")
+TOTAL=$((TOTAL + 1))
+if [ "$ACTUAL_HANDLERS" = "$EXPECTED_HANDLERS" ]; then
+  echo -e "${GREEN}PASS${NC}: las 11 entradas de hooks.json coinciden (evento, matcher, script, if, timeout)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: las entradas de hooks.json cambiaron"
+  diff <(echo "$EXPECTED_HANDLERS") <(echo "$ACTUAL_HANDLERS") | head -10
+  FAIL=$((FAIL + 1))
+fi
 
 TOTAL=$((TOTAL + 1))
 SESSION_START_MATCHER=$(jq -r '.hooks.SessionStart[0].matcher' "$HOOKS_JSON")

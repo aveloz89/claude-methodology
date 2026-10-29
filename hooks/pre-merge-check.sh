@@ -53,7 +53,10 @@ if [ ! -r "$LIB" ]; then
 fi
 # shellcheck source=lib/guard-matching.sh
 source "$LIB"
-guard_init "pre-merge-check"
+# Los guards de gh conservan el espacio como saneo de spans quoted (ver
+# guard_sanitize en la lib): con "Q" cambiaría el conteo de tokens de
+# GUARD_GH_PR_MERGE_RE.
+guard_init "pre-merge-check" " "
 
 # "perl falló en tiempo de ejecución" y "perl ausente" (chequeado arriba,
 # antes de leer stdin) son el mismo estado para este guard: bloquea. Los
