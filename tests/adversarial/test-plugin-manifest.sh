@@ -1256,6 +1256,7 @@ if [ -f "$CS_WORKFLOW" ]; then
   assert_contains "$CS_WORKFLOW" 'SAFE_PATTERN_RE' "code-sweep.js declara SAFE_PATTERN_RE (pattern permitido para issues)"
   assert_contains "$CS_WORKFLOW" 'seenFiles\.has' "code-sweep.js exige que el file del issue esté en seenFiles"
   assert_contains "$CS_WORKFLOW" 'excluido de issues' "code-sweep.js declara en NO CUBIERTO los hallazgos excluidos de issues"
+  assert_contains "$CS_WORKFLOW" '^const toPersist = .*issueSafe(' "code-sweep.js: toPersist (lo que crea issues) se construye con issueSafe("
   assert_not_contains "$CS_WORKFLOW" '--search "' "code-sweep.js no pasa --search entre comillas dobles (inyección de shell)"
   assert_not_contains "$CS_WORKFLOW" 'CS_ISSUE_BODY_2' "code-sweep.js ya no delega al modelo cambiar el delimitador (CS_ISSUE_BODY_2)"
 
@@ -1294,6 +1295,10 @@ const cases = [
   ["pattern con backtick", { ...base, pattern: "null`id`" }, false],
   ["snippet con linea delimitador", { ...base, snippet: "a\n" + ISSUE_DELIMITER + "\nb" }, false],
   ["description que contiene el delimitador", { ...base, description: "xx " + ISSUE_DELIMITER + " yy" }, false],
+  ["line string", { ...base, line: "42" }, false],
+  ["line no entero", { ...base, line: 4.5 }, false],
+  ["pattern con comilla simple", { ...base, pattern: "null'deref" }, false],
+  ["evidence con linea delimitador", { ...base, evidence: "a\n" + ISSUE_DELIMITER + "\nb" }, false],
 ]
 let bad = 0
 for (const [name, f, want] of cases) {
