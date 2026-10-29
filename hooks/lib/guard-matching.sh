@@ -88,6 +88,10 @@
 # push origin HEAD:main; fi", "for b in x; do …", "! git push …". Van pegadas
 # al separador, no sueltas: "echo then git push origin main" NO es un push
 # ("then" ahí es un argumento de echo) y sigue sin anclar.
+# El ")" suelto del ancla (para el patrón de un "case") ancla tras CUALQUIER
+# ")": "echo $(date) git reset --hard" bloquea aunque ahí "git reset --hard" son
+# argumentos de echo. Es un falso positivo asumido, en dirección segura (#118,
+# ronda 1 de review); fijado con un control en test-hooks.sh.
 # shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
 GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&|\))\s*((then|do|else|elif|if|while|until|!)\s+)*'
 

@@ -1364,6 +1364,10 @@ assert_allowed_cmd "block-hard-reset: reset --keep pasa (control, #121)" "block-
 assert_allowed_cmd "block-hard-reset: prefijo --ke de --keep pasa (control, #121)" "block-hard-reset.sh" "git reset --ke HEAD~1"
 assert_allowed_cmd "block-hard-reset: reset --mixed pasa (control, #121)" "block-hard-reset.sh" "git reset --mixed HEAD~1"
 assert_allowed_cmd "block-hard-reset: ruta que empieza por --merge- no dispara (control, #121)" "block-hard-reset.sh" "git reset -- --merge-notes.md"
+# El ")" suelto del ancla (patron de case) ancla tras cualquier ")": falso
+# positivo asumido y documentado en GUARD_ANCHOR (#118), fijado aqui.
+assert_blocked_cmd "block-hard-reset: echo con sustitucion cerrada y git reset --hard como argumentos bloquea por el parentesis del ancla (falso positivo fijado, #118)" "block-hard-reset.sh" 'echo $(date) git reset --hard'
+assert_allowed_cmd "block-hard-reset: echo date git reset --hard sin parentesis no ancla y pasa (control, #118)" "block-hard-reset.sh" 'echo date git reset --hard'
 
 # Fail-closed sin jq (revisión pre-push, security MEDIUM): mismo hueco que
 # en block-force-push.sh — sin jq, COMMAND queda vacío y un

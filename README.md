@@ -53,6 +53,8 @@ Los guards de `hooks/` protegen errores honestos del orchestrator y los devs: fo
 - en `pre-push-guard` y `block-force-push`: la config peligrosa dentro de un `-c` con el valor entre comillas (`git -c 'push.default=matching' push origin`): el saneo reemplaza el span por un placeholder `Q` y el contenido no se ve. `git -c 'user.name=x' push origin main` sí bloquea desde #120 (antes el saneo vaciaba el span y `-c\s+\S+` se tragaba `push`).
 - que el `if: Bash(git *)` de `hooks/hooks.json` dispare los guards de git para comandos que no empiezan por `git` (backtick, `echo`, `(`) o que empiezan por un wrapper (`time git push …`, `env git push …`, `nohup git push …`) está **sin verificar de punta a punta**: lo probado es el script con el comando por stdin. Según la tabla "Bash if matching" el `if` compara por prefijo, así que es probable que el hook NO se invoque para un comando que empieza por un wrapper; cambiar ese `if` es config del harness y se decide aparte.
 
+Falsos positivos asumidos (bloquean sin ser una invocación real, dirección segura): el `)` del ancla del patrón de un `case` ancla tras cualquier `)` (`echo $(date) git reset --hard` bloquea) y `refs/heads/feature/*:refs/heads/feature/*` también bloquea (#118, #119).
+
 Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá: la salida es escribir el comando en su forma directa.
 
 ### Skills (4)
