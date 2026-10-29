@@ -1749,22 +1749,79 @@ else
 fi
 
 # --- Backticks sin escapar en nombres de test (#117) ---
-# Un nombre entre comillas dobles con un backtick sin escapar se evalúa como
-# sustitución de comando en el shell de la suite: ejecutó `git push` reales al
-# correr test-hooks.sh. Aplica a toda línea "palabra "texto..." de las tres suites.
-BT_RE='^[A-Za-z_][A-Za-z_0-9]* "([^"\\`]|\\.)*`'
+# Un backtick sin escapar dentro de comillas dobles se evalúa como sustitución
+# de comando en el shell de la suite: ejecutó `git push` reales al correr
+# test-hooks.sh. El escáner recorre cada línea cuyo primer token (tras espacios)
+# es un identificador (assert_*, neg, pos, check…), quita los spans '...', los
+# escapes \. y los comentarios, y marca cualquier "..." restante con un
+# backtick, en cualquier argumento. Salta los cuerpos de heredoc comillado
+# (<<'EOF'): son texto literal. No mira "$(": check "$(grep ...)" es
+# intencional en test-frontmatter.sh.
+BT_TMP=$(mktemp -d)
+cat > "$BT_TMP/scan.pl" <<'PERL'
+use strict; use warnings;
+my $term;
+while (my $line = <>) {
+  chomp $line;
+  if (defined $term) { $term = undef if $line =~ /^\s*\Q$term\E\s*$/; next; }
+  if ($line =~ /<<-?\s*(["\x27])(\w+)\1/) { $term = $2; }
+  next unless $line =~ /^\s*[A-Za-z_][A-Za-z_0-9]*\s/;
+  my ($i, $n, $st, $hit) = (0, length $line, "n", 0);
+  while ($i < $n) {
+    my $c = substr($line, $i, 1);
+    if ($st eq "n") {
+      if ($c eq "\\") { $i += 2; next; }
+      if ($c eq "\x27") { $st = "s"; }
+      elsif ($c eq "\"") { $st = "d"; }
+      elsif ($c eq "#" && ($i == 0 || substr($line, $i - 1, 1) =~ /\s/)) { last; }
+    } elsif ($st eq "s") {
+      $st = "n" if $c eq "\x27";
+    } else {
+      if ($c eq "\\") { $i += 2; next; }
+      if ($c eq "\"") { $st = "n"; }
+      elsif ($c eq "`") { $hit = 1; last; }
+    }
+    $i++;
+  }
+  print "$.:$line\n" if $hit;
+}
+PERL
+# Fixtures del propio escáner: las tres primeras líneas deben marcarse; el resto no.
+cat > "$BT_TMP/fixture.sh" <<'FIXTURE'
+assert_contains "$FILE" 'pat' "name with `bt`"
+  assert_blocked_cmd "indented `bt`" "x"
+assert_blocked_cmd "ok" "hook" "cmd `bt`"
+assert_x "ok \`esc\`"
+assert_x 'lit `bt`'
+# assert_x "comentario `bt`"
+assert_x "ok" # nota `bt`
+cat <<'EOF'
+assert_x "dentro de heredoc `bt`"
+EOF
+check "$(grep -c x file)"
+FIXTURE
+BT_FIX_HITS=$(perl "$BT_TMP/scan.pl" "$BT_TMP/fixture.sh" | cut -d: -f1 | tr '\n' ' ')
+TOTAL=$((TOTAL + 1))
+if [ "$BT_FIX_HITS" = "1 2 3 " ]; then
+  echo -e "${GREEN}PASS${NC}: el escáner de backticks marca las tres formas y deja pasar escapes, spans, comentarios y heredocs"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: el escáner de backticks marcó las líneas '$BT_FIX_HITS' (esperado '1 2 3 ')"
+  FAIL=$((FAIL + 1))
+fi
 for suite in test-hooks.sh test-plugin-manifest.sh test-frontmatter.sh; do
   BT_RC=0
-  BT_HITS=$(grep -nE -- "$BT_RE" "$REPO_ROOT/tests/adversarial/$suite" 2>&1) || BT_RC=$?
+  BT_HITS=$(perl "$BT_TMP/scan.pl" "$REPO_ROOT/tests/adversarial/$suite" 2>&1) || BT_RC=$?
   TOTAL=$((TOTAL + 1))
-  if [ "$BT_RC" -eq 1 ]; then
-    echo -e "${GREEN}PASS${NC}: $suite sin backticks sin escapar en nombres entre comillas dobles"
+  if [ "$BT_RC" -eq 0 ] && [ -z "$BT_HITS" ]; then
+    echo -e "${GREEN}PASS${NC}: $suite sin backticks sin escapar en comillas dobles"
     PASS=$((PASS + 1))
   else
-    echo -e "${RED}FAIL${NC}: $suite tiene backticks sin escapar en comillas dobles o grep falló (rc=$BT_RC): $BT_HITS"
+    echo -e "${RED}FAIL${NC}: $suite tiene backticks sin escapar en comillas dobles o perl falló (rc=$BT_RC): $BT_HITS"
     FAIL=$((FAIL + 1))
   fi
 done
+rm -rf "$BT_TMP"
 
 # --- /code-sweep tests ---
 
