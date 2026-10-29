@@ -1704,6 +1704,24 @@ assert_contains "$RUNBOOK" 'toque exclusivamente' "runbook señal 4: la excepci�
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" 'git show --name-only' "reviewer-common §9: el reviewer comprueba el commit memory: con git show --name-only"
 assert_contains "$RUNBOOK" 'Muestra al usuario, en el reporte de fase' "runbook Fase 2.6 paso 6: el orchestrator muestra al usuario las líneas de memoria que persiste"
 assert_contains "$REPO_ROOT/skills/orchestrator/SKILL.md" 'Muestras al usuario, en el reporte de fase' "SKILL orchestrator: muestra al usuario las líneas de memoria que persiste"
+
+# --- Cierre de contrato (#106, #108, #113): textos de las fases del runbook, la skill y el README ---
+runbook_phase() { awk -v h="### Fase $1:" 'index($0, h)==1 {f=1; print; next} /^### / {f=0} f {print}' "$RUNBOOK"; }
+README_MD_PATH="$REPO_ROOT/README.md"
+RB_F26=$(runbook_phase 2.6)
+RB_F3=$(runbook_phase 3)
+RB_F5=$(runbook_phase 5)
+SK_ROW26=$(/usr/bin/grep -E '^\| 2\.6\. ' "$ORCHESTRATOR_SKILL" || true)
+assert_section_contains "$RB_F26" 'general-purpose' "runbook Fase 2.6: el review simple se lanza desde un subagente general-purpose (#106)"
+assert_section_contains "$RB_F26" 'forked execution' "runbook Fase 2.6: explica por qué forked execution exige el subagente (#106)"
+assert_section_contains "$SK_ROW26" 'general-purpose' "skill orchestrator fila 2.6: menciona general-purpose (#106)"
+assert_contains "$PR_WORKFLOW_SKILL" 'general-purpose' "skill pr-workflow: el review simple del tier liviano usa general-purpose (#106)"
+assert_section_contains "$RB_F5" 'Observado después (#108)' "runbook Fase 5: registra la observación del diálogo del ask (#108)"
+assert_section_contains "$RB_F5" '#115' "runbook Fase 5: cita #115 en la observación del diálogo (#108)"
+assert_section_contains "$RB_F5" 'Remote Control' "runbook Fase 5: cita Remote Control en la observación (#108)"
+assert_section_contains "$RB_F3" 'scriptPath' "runbook Fase 3: documenta el lanzamiento por scriptPath (#113)"
+assert_contains "$README_MD_PATH" 'scriptPath' "README: documenta el lanzamiento de code-sweep por scriptPath (#113)"
+assert_contains "$README_MD_PATH" 'gh label create --force' "README: documenta que el consolidador asegura los labels con gh label create --force (#113)"
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" '200 líneas' "reviewer-common §9: tope de 200 líneas de MEMORY.md"
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" '25 KB' "reviewer-common §9: tope de 25 KB de MEMORY.md"
 for rv in security-reviewer qa-backend qa-frontend; do
