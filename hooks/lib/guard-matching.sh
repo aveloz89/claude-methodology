@@ -68,9 +68,15 @@
 
 # Fragmento de regex ERE que ancla el match a posición de comando: inicio
 # de string/línea, o justo después de un separador de comandos (&&, ||, ;,
-# |, $(, backtick, "(", "{", &).
+# |, $(, backtick, "(", "{", &, ")" de un patrón de case).
+# Tras el separador acepta, cero o más veces, las palabras clave de shell que
+# abren otra posición de comando (then, do, else, elif, if, while, until y "!"),
+# cada una como palabra completa seguida de espacio (#118): "if true; then git
+# push origin HEAD:main; fi", "for b in x; do …", "! git push …". Van pegadas
+# al separador, no sueltas: "echo then git push origin main" NO es un push
+# ("then" ahí es un argumento de echo) y sigue sin anclar.
 # shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
-GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
+GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&|\))\s*((then|do|else|elif|if|while|until|!)\s+)*'
 
 # Fragmento de regex ERE que consume, cero o más veces y EN CUALQUIER ORDEN,
 # las opciones de git que pueden aparecer entre "git" y el subcomando

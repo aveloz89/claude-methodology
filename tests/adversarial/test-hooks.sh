@@ -668,6 +668,59 @@ assert_allowed_cmd "block-force-push: dos --force-with-lease a ramas feature pas
 assert_blocked_cmd "block-force-push: push normal seguido de --force bloquea (comportamiento fijado, #117)" \
   "block-force-push.sh" "git push origin feature/x && git push --force origin feature/y" "$PATH" "$SANDBOX_REPO"
 
+# #118: GUARD_ANCHOR no reconocía las palabras clave de shell que abren una
+# posición de comando (then, do, else, elif, if, while, until, "!") ni el ")"
+# que cierra un patrón de case. RED con el ancla anterior: todos los
+# bloqueos de abajo daban exit 0 (verificado ejecutando los tres hooks).
+assert_blocked_cmd "pre-push-guard: push a main dentro de then bloquea (#118)" \
+  "pre-push-guard.sh" 'if true; then git push origin HEAD:main; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main dentro de do bloquea (#118)" \
+  "pre-push-guard.sh" 'for b in x; do git push origin HEAD:main; done' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main tras negacion ! bloquea (#118)" \
+  "pre-push-guard.sh" '! git push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main dentro de else bloquea (#118)" \
+  "pre-push-guard.sh" 'if false; then :; else git push origin HEAD:main; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main como condicion de if bloquea (#118)" \
+  "pre-push-guard.sh" 'if git push origin HEAD:main; then echo ok; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main dentro de elif bloquea (#118)" \
+  "pre-push-guard.sh" 'if false; then :; elif git push origin HEAD:main; then :; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main dentro de while bloquea (#118)" \
+  "pre-push-guard.sh" 'while git push origin HEAD:main; do :; done' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main en un if anidado bloquea (#118)" \
+  "pre-push-guard.sh" 'if true; then if true; then git push origin HEAD:main; fi; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main con then en linea propia bloquea (#118)" \
+  "pre-push-guard.sh" $'if true\nthen\n  git push origin HEAD:main\nfi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main en un patron de case bloquea (#118)" \
+  "pre-push-guard.sh" 'case x in x) git push origin HEAD:main;; esac' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: force push dentro de else bloquea (#118)" \
+  "block-force-push.sh" 'if false; then :; else git push --force origin feature/x; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: force push dentro de then bloquea (#118)" \
+  "block-force-push.sh" 'if true; then git push -f origin feature/x; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: force push dentro de do bloquea (#118)" \
+  "block-force-push.sh" 'for b in x; do git push --force origin feature/x; done' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: reset --hard dentro de do bloquea (#118)" \
+  "block-hard-reset.sh" 'while false; do git reset --hard; done' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: reset --hard dentro de then bloquea (#118)" \
+  "block-hard-reset.sh" 'if true; then git reset --hard HEAD~1; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: reset --hard tras negacion ! bloquea (#118)" \
+  "block-hard-reset.sh" '! git reset --hard' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x dentro de then pasa (control, #118)" \
+  "pre-push-guard.sh" 'if true; then git push origin feature/x; fi' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x dentro de do pasa (control, #118)" \
+  "pre-push-guard.sh" 'for b in x; do git push origin feature/x; done' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x tras ! pasa (control, #118)" \
+  "pre-push-guard.sh" '! git push origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: push normal dentro de else pasa (control, #118)" \
+  "block-force-push.sh" 'if false; then :; else git push origin feature/x; fi' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: reset --soft dentro de do pasa (control, #118)" \
+  "block-hard-reset.sh" 'while false; do git reset --soft HEAD~1; done' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: 'echo then git push origin main' pasa, no es un push (fijado, #118)" \
+  "pre-push-guard.sh" 'echo then git push origin main' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: 'echo do git push --force' pasa, no es un push (fijado, #118)" \
+  "block-force-push.sh" 'echo do git push --force' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: 'echo else git reset --hard' pasa, no es un reset (fijado, #118)" \
+  "block-hard-reset.sh" 'echo else git reset --hard' "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""
