@@ -66,8 +66,14 @@
 #     redirección pegada al refspec (`HEAD:main>log`, `HEAD:main</dev/null`)
 #     bloquea: "<" y ">" sin comillas cierran el token (GUARD_TOKEN_END).
 #   - block-force-push.sh: la excepción de --force-with-lease no aplica si el
-#     trozo del push, limpio de comillas, barras y $, las lleva (fail-closed):
-#     git push --force-with-lease origin 'feature/x' bloquea aunque sea honesto;
+#     trozo del push lleva comillas, barra invertida o $'/$" (fail-closed):
+#     git push --force-with-lease origin 'feature/x' bloquea aunque sea honesto.
+#     El código revisa el trozo CRUDO para esos caracteres y el trozo limpio de
+#     comillas, barras y $ para reconocer el push; un $VAR o $(...) sin comillas
+#     no la desactiva. Falsos positivos asumidos: un "&" suelto con comilla en un
+#     comando posterior en background (… feature/x & echo "done"), git --help
+#     push --force (el comodín de opciones largas acepta --help/--version) y git
+#     push --force-if-includes --force-with-lease …;
 #   - pre-push-guard.sh: un refspec glob entre comillas (`git push origin
 #     '*:*'`, `'refs/heads/*'`; el saneo deja el placeholder Q y el glob no se ve). El glob sin comillas SÍ bloquea cuando
 #     su destino cuelga de refs/heads/, no lleva prefijo refs/ o su prefijo
