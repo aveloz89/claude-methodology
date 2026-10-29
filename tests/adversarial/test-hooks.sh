@@ -7058,10 +7058,12 @@ sandbox_cleanup
 # Caso: modo degradado — sin hooks/lib/guard-matching.sh el hook no tiene
 # guard_session_dir con qué resolver el árbol → CASO B (dirección segura:
 # un review redundante), nunca el árbol del proceso aunque ahí haya un
-# CASO A válido; exit 0 y sin "command not found" ni la ruta de la lib en
-# el output. Copia de hooks/ con la lib renombrada (nunca se toca el
-# hooks/ real). RED con la regla replicada dentro del hook (no dependía de
-# la lib y daba CASO A).
+# CASO A válido; exit 0, con un diagnóstico que NOMBRA la lib (degradación
+# visible: si no, todo PR caería a CASO B sin que nadie supiera por qué
+# dejó de haber CASO A) y sin "command not found". Copia de hooks/ con la
+# lib renombrada (nunca se toca el hooks/ real). RED con la regla replicada
+# dentro del hook (no dependía de la lib y daba CASO A) y RED otra vez con
+# el diagnóstico genérico.
 POSTPR_DEGRADED_HOOKS_DIR=$(mktemp -d)
 cp -R "$HOOKS_DIR/." "$POSTPR_DEGRADED_HOOKS_DIR/"
 mv "$POSTPR_DEGRADED_HOOKS_DIR/lib/guard-matching.sh" "$POSTPR_DEGRADED_HOOKS_DIR/lib/guard-matching.sh.disabled"
@@ -7076,15 +7078,39 @@ sandbox_cleanup
 rm -rf "$POSTPR_DEGRADED_HOOKS_DIR"
 TOTAL=$((TOTAL + 1))
 if [ "$POSTPR_EXIT_NOLIB" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_NOLIB" | grep -qF "No se pudo resolver el árbol de la sesión (falta hooks/lib/guard-matching.sh) — se trata como PR fuera del flujo." \
   && echo "$POSTPR_OUTPUT_NOLIB" | grep -qF "ACCIÓN REQUERIDA: Revisa este PR: $POSTPR_URL" \
   && ! echo "$POSTPR_OUTPUT_NOLIB" | grep -qF "Review dual pre-push verificado" \
-  && ! echo "$POSTPR_OUTPUT_NOLIB" | grep -qiE "command not found|no such file|guard-matching|error"; then
-  echo -e "${GREEN}PASS${NC}: post-pr-create modo degradado: sin hooks/lib/guard-matching.sh → CASO B (nunca el árbol del proceso), exit 0 sin ruido"
+  && ! echo "$POSTPR_OUTPUT_NOLIB" | grep -qiE "command not found|no such file|error"; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create modo degradado: sin hooks/lib/guard-matching.sh → CASO B con diagnóstico que nombra la lib (nunca el árbol del proceso), exit 0 sin ruido"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: post-pr-create modo degradado: sin hooks/lib/guard-matching.sh → CASO B (nunca el árbol del proceso), exit 0 sin ruido (exit: $POSTPR_EXIT_NOLIB, output: $POSTPR_OUTPUT_NOLIB)"
+  echo -e "${RED}FAIL${NC}: post-pr-create modo degradado: sin hooks/lib/guard-matching.sh → CASO B con diagnóstico que nombra la lib (nunca el árbol del proceso), exit 0 sin ruido (exit: $POSTPR_EXIT_NOLIB, output: $POSTPR_OUTPUT_NOLIB)"
   FAIL=$((FAIL + 1))
 fi
+
+# Caso: el escenario real que motiva el fix — un git worktree del MISMO
+# repo. El proceso del hook corre en el checkout principal (otro branch,
+# sin state.json) y ".cwd" es el worktree, con state.json sembrado ahí y
+# CASO A válido para el branch del worktree → CASO A del worktree. Los
+# pares de sandboxes anteriores son repos independientes; este comparte
+# .git (archivo gitdir) y el mismo HEAD en ambos árboles, así que solo el
+# branch y el state.json distinguen el árbol correcto.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1
+POSTPR_WT_PARENT=$(mktemp -d)
+POSTPR_WT_PARENT=$(cd "$POSTPR_WT_PARENT" && pwd -P)
+POSTPR_WT="$POSTPR_WT_PARENT/wt"
+(cd "$SANDBOX_REPO" && git worktree add -q -b feature/checkpoint-flow "$POSTPR_WT") > /dev/null 2>&1
+POSTPR_MAIN_REPO="$SANDBOX_REPO"
+SANDBOX_REPO="$POSTPR_WT"
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$POSTPR_WT" && git rev-parse HEAD)"
+SANDBOX_REPO="$POSTPR_MAIN_REPO"
+assert_postpr_caso_a "post-pr-create árbol de la sesión: .cwd es un git worktree del mismo repo + proceso en el checkout principal sin evidencia → CASO A del worktree" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$POSTPR_WT")"
+(cd "$POSTPR_MAIN_REPO" && git worktree remove --force "$POSTPR_WT") > /dev/null 2>&1
+rm -rf "$POSTPR_WT_PARENT"
+sandbox_cleanup
 
 # Caso: degradación — state.json malformado (JSON inválido) → CASO B, y el
 # error de parseo de jq NO se filtra al output (el orchestrator recibe el
