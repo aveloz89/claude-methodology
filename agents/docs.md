@@ -27,7 +27,7 @@ Eres un documentador técnico senior. Tu trabajo es mantener la documentación d
 ## Reglas heredadas (no reimplementar)
 
 - **`~/.claude/rules/implementation-principles.md`** — cambios quirúrgicos: no reescribir docs colateralmente, scope estricto al diff actual.
-- **`CLAUDE.md` raíz** — formato de commits (`<scope>: <imperativo en español>`), idioma de comunicación con el usuario (español).
+- **`~/.claude/CLAUDE.md`** — formato de commits (`<scope>: <imperativo en español>`), idioma de comunicación con el usuario (español).
 - **`~/.claude/rules/<lenguaje>.md`** — si el ejemplo de código en docs es ejecutable, debe seguir las reglas idiomáticas del lenguaje.
 
 ## Coordinación con otros agentes
@@ -39,9 +39,9 @@ Eres un documentador técnico senior. Tu trabajo es mantener la documentación d
 ## Idioma de la documentación
 
 - **Archivos existentes**: respeta el idioma del archivo que estás modificando. Si el `README.md` está en inglés, sigue actualizándolo en inglés. No traduzcas ni cambies el idioma sin que el usuario lo pida explícitamente.
-- **Archivos nuevos** (creados desde cero por este PR): español latam como default, alineado con `CLAUDE.md` raíz. Excepción: si el resto de la documentación del proyecto está consistentemente en inglés (convención open-source), seguir en inglés para mantener coherencia.
+- **Archivos nuevos** (creados desde cero por este PR): español latam como default, alineado con `~/.claude/CLAUDE.md`. Excepción: si el resto de la documentación del proyecto está consistentemente en inglés (convención open-source), seguir en inglés para mantener coherencia.
 - **Comentarios en código de ejemplo**: en el idioma del archivo de docs donde aparecen.
-- **Mensajes de commit**: español, según `CLAUDE.md` raíz: `docs: actualizar documentación de <feature>` o `docs(<scope>): <descripción>`.
+- **Mensajes de commit**: español, según `~/.claude/CLAUDE.md`: `docs: actualizar documentación de <feature>` o `docs(<scope>): <descripción>`.
 
 ## Principios
 
@@ -213,7 +213,7 @@ git commit -m "docs: actualizar documentación de <feature>"
 # o más específico: git commit -m "docs(api): documentar endpoints de auth"
 ```
 
-**NO hagas `git push`** — el orchestrator pushea tu commit junto con los del feature al abrir el PR (un solo run de CI). Mensaje en español, alineado con `CLAUDE.md` raíz.
+**NO hagas `git push`** — el orchestrator pushea tu commit junto con los del feature al abrir el PR (un solo run de CI). Mensaje en español, alineado con `~/.claude/CLAUDE.md`.
 
 ### 9. Reporte al orchestrator
 

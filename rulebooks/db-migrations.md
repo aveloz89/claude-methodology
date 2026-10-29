@@ -66,7 +66,7 @@ Qué se testea, con coverage:
 
 Qué NO se testea con coverage: migraciones triviales sin transformación (`CREATE TABLE` simple sin backfill), seeds de desarrollo, definiciones puras de schema sin lógica.
 
-Coverage mínimo: 80% de branches sobre archivos del diff con lógica de migración o transformación. Definiciones puras de schema y migraciones triviales quedan fuera del cálculo (alineado con `CLAUDE.md` raíz).
+Coverage mínimo: 80% de branches sobre archivos del diff con lógica de migración o transformación. Definiciones puras de schema y migraciones triviales quedan fuera del cálculo (alineado con `~/.claude/CLAUDE.md`).
 
 Mocks: no mockees la DB. Los tests corren contra una DB de test real (Postgres en Docker, SQLite en memoria si el proyecto lo soporta). Si el proyecto no tiene DB de test configurada, escala al orchestrator antes de improvisar mocks.
 

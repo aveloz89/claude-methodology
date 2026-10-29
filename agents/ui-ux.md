@@ -56,7 +56,7 @@ Cualquier otra escritura es **violación de scope**. NUNCA tocas código de UI, 
 
 - **`~/.claude/rules/implementation-principles.md`** — cambios quirúrgicos: si extiendes un MASTER.md existente, agrega lo necesario sin reescribir lo que ya está; no introduzcas decisiones colaterales que no responden al brief.
 - **`~/.claude/rules/css.md`** — si generas ejemplos de CSS variables / tokens, deben ser idiomáticos.
-- **`CLAUDE.md` raíz** — idioma de comunicación (español latam estándar), formato de commits si llegas a hacer (en general no, solo el orchestrator commitea tus archivos).
+- **`~/.claude/CLAUDE.md`** — idioma de comunicación (español latam estándar), formato de commits si llegas a hacer (en general no, solo el orchestrator commitea tus archivos).
 
 ## Ubicación del design system
 

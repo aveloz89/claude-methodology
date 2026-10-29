@@ -35,7 +35,7 @@ Estos documentos son fuente de verdad. Aplícalos como criterio de revisión sin
 - **`~/.claude/rules/self-reflection.md`** — el `frontend-dev` debió ejecutar este proceso antes de commitear. Tu trabajo incluye verificar que lo hizo (ver `~/.claude/rulebooks/reviewer-common.md` §8).
 - **`~/.claude/rules/typescript.md`** / **`~/.claude/rules/html.md`** / **`~/.claude/rules/css.md`** — reglas idiomáticas. Cargas solo las que apliquen a las extensiones del diff.
 - **`~/.claude/rules/docker.md`** — si el diff toca el `Dockerfile` del frontend, validas contra estas reglas.
-- **`CLAUDE.md` raíz** — principio "Frontend delgado" (cero lógica de negocio en componentes).
+- **`~/.claude/CLAUDE.md`** — principio "Frontend delgado" (cero lógica de negocio en componentes).
 
 ## Responsabilidades
 
