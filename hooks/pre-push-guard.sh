@@ -5,7 +5,9 @@
 #
 # hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
 # latencia, no reemplaza la validación de abajo, que sigue mirando el
-# comando completo.
+# comando completo. NO verificado de punta a punta: que ese "if" dispare el
+# hook para comandos que no empiezan por git (backtick, echo, "(") — lo
+# probado es el script con el comando por stdin.
 #
 # Matching endurecido (D-07, #77): el match se sanea (spans quoted/heredoc)
 # y se ancla a posición de comando en vez de "^\s*git\s+push" sobre el
@@ -30,7 +32,7 @@ guard_init "pre-push-guard"
 # push real a main pasaba SIN EVALUAR (exit 0) en vez de bloquear por ser
 # push directo a main; un orden distinto al fijo de antes ("git -C . -c
 # a=b push") tampoco. Ver hooks/lib/guard-matching.sh.
-PUSH_RE="${GUARD_ANCHOR}((GIT_DIR|GIT_WORK_TREE)=\S*\s+)*git\s+${GUARD_GIT_OPTS}push\b"
+PUSH_RE="${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b"
 if ! echo "$SANITIZED_COMMAND" | grep -qE "$PUSH_RE"; then
   exit 0
 fi
@@ -75,7 +77,7 @@ fi
 # "main" (empuja la rama local main) son push directo a main aunque la rama
 # actual sea feature/x; antes salían en 0 sin evaluarse. Se mira cada
 # segmento "git push ..." del comando saneado (anclado con PUSH_RE, hasta el
-# primer &&/;/|), no solo el primero, y de cada token su DESTINO: lo que
+# primer &, ; o |: GUARD_SEGMENT_END), no solo el primero, y de cada token su DESTINO: lo que
 # sigue al ":" o el token entero si no lo tiene, con el "+" opcional
 # del refspec forzado. "refs/heads/(main|master)" cuenta como main;
 # "refs/tags/..." y un nombre de tag suelto no. Un refspec con main como
@@ -84,12 +86,46 @@ fi
 # en HEAD de feature/x no habilita empujarlo a main. Fuera de alcance
 # (README, "Fuera de alcance"; misma clase que la flag quoted y la
 # redirección en block-force-push.sh): el refspec entre comillas (el saneo
-# vacía el span) y una redirección antes del refspec o pegada a él ("2>&1
-# HEAD:main" corta el segmento en "&"; "HEAD:main>log" deja el ">" pegado
-# al nombre y rompe el borde del token).
-DST_MAIN_RE='(^|[[:space:]])\+?([^[:space:]:]*:)?(refs/heads/)?(main|master)([[:space:]]|$)'
-if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}[^&|;]*" | grep -qE "$DST_MAIN_RE"; then
+# vacía el span) y una redirección con "&" antes del refspec ("2>&1
+# HEAD:main" corta el segmento en "&"). "HEAD:main>log" y "HEAD:main</dev/null"
+# SÍ bloquean: "<" y ">" cierran el token (GUARD_TOKEN_END).
+# Segmentos "git push ..." del comando saneado, extraídos una sola vez para los
+# chequeos de abajo (destino main, --all/--mirror, config, refspec vacío).
+PUSH_SEGMENTS=$(echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}")
+DST_MAIN_RE="(^|[[:space:]])\+?([^[:space:]:]*:)?(refs/heads/)?(main|master)${GUARD_TOKEN_END}"
+if echo "$PUSH_SEGMENTS" | grep -qE "$DST_MAIN_RE"; then
   echo "BLOCKED: No push directo a main: el refspec apunta a main/master (HEAD:main, dev:main, refs/heads/main o la rama local main). Usa un PR desde dev o feature branch." >&2
+  exit 2
+fi
+
+# #117: "--all", "--mirror" y "--branches" (y cualquier prefijo único de ellas,
+# ver GUARD_PUSH_ALL_RE) empujan todas las ramas locales (incluida main)
+# sin nombrarla en el comando, así que el chequeo de destino de arriba no
+# los ve. Se bloquean desde cualquier rama, con el mismo regex y la misma
+# segmentación (GUARD_SEGMENT_END: hasta el primer &, ; o |) que usa
+# block-force-push.sh. El ")" y el backtick cierran el TOKEN (GUARD_TOKEN_END),
+# no el segmento: "(git push origin HEAD:main)" bloquea y una sustitución
+# dentro del push ("git push origin $(true) HEAD:main") no esconde lo que sigue.
+if echo "$PUSH_SEGMENTS" | grep -qE "$GUARD_PUSH_ALL_RE"; then
+  echo "BLOCKED: git push --all/--mirror empuja todas las ramas locales, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
+  exit 2
+fi
+
+# #117 ronda 2 (MEDIO): formas que empujan main sin nombrarla ni usar --all.
+# (a) "-c push.default=matching", "-c remote.<x>.mirror=true" y
+# "-c remote.<x>.push=..." (GUARD_PUSH_CONFIG_RE) vuelven "git push origin"
+# un push de todas las ramas coincidentes; (b) el refspec ":" suelto
+# (GUARD_PUSH_EMPTY_REFSPEC_RE) hace lo mismo. ":rama" borra una rama remota
+# y sigue pasando. Mismo segmento que el chequeo de --all.
+# Con refspec explícito ("git -c push.default=matching push origin feature/x")
+# el bloqueo es un falso positivo, en dirección segura: no se distingue si hay
+# refspec porque el config solo importa cuando falta.
+if echo "$PUSH_SEGMENTS" | grep -qiE "$GUARD_PUSH_CONFIG_RE"; then
+  echo "BLOCKED: la config push.default=matching|upstream|tracking, remote.<x>.mirror o remote.<x>.push (por -c o --config-env) empuja main sin nombrarla. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
+  exit 2
+fi
+if echo "$PUSH_SEGMENTS" | grep -qE "$GUARD_PUSH_EMPTY_REFSPEC_RE"; then
+  echo "BLOCKED: el refspec ':' suelto empuja las ramas coincidentes, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
   exit 2
 fi
 

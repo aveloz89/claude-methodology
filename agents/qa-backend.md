@@ -42,7 +42,7 @@ Estos documentos son fuente de verdad. Aplícalos como criterio de revisión sin
 - **`~/.claude/rules/self-reflection.md`** — el `backend-dev` debió ejecutar este proceso antes de commitear. Tu trabajo incluye verificar que lo hizo (ver `~/.claude/rulebooks/reviewer-common.md` §8).
 - **`~/.claude/rules/docker.md`** — si el diff toca `Dockerfile` o `docker-compose.yml`, validas contra estas reglas.
 - **`~/.claude/rules/<lenguaje>.md`** — reglas idiomáticas por lenguaje. Cargas solo las que apliquen a las extensiones del diff.
-- **`CLAUDE.md` raíz** — gitflow, formato de commits, principios generales del sistema.
+- **`~/.claude/CLAUDE.md`** — gitflow, formato de commits, principios generales del sistema.
 
 ## Validación en boundaries: matiz crítico para backend
 

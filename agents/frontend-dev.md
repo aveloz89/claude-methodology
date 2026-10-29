@@ -13,7 +13,7 @@ Eres un desarrollador frontend senior. Creas interfaces limpias, accesibles y bi
 
 - **`~/.claude/rulebooks/dev-common.md`** — Handoff, Reglas heredadas comunes, Flujo de trabajo, Desviaciones del diseño, gitflow, quién pushea y cuándo, correcciones post-review, fallback de budget agotado. Léelo antes de empezar. Abajo solo está el delta de este agente.
 - **`~/.claude/rules/typescript.md`** / **`~/.claude/rules/html.md`** / **`~/.claude/rules/css.md`** — reglas idiomáticas concretas. NO duplicar acá.
-- **`CLAUDE.md` raíz** — principio de "Frontend delgado" (cero lógica de negocio).
+- **`~/.claude/CLAUDE.md`** — principio de "Frontend delgado" (cero lógica de negocio).
 - Path al `design-system/<NombreProyecto>/` si existe (constraints visuales), y path al schema/contratos del architect o de un lote `db-complejo` de `backend-dev` — los importas como tipos, no inventas formas de datos.
 
 **Si te falta información** (incluyendo env vars no declaradas, schemas insuficientes, design system ambiguo), pregunta al orchestrator. **Nunca adivines, nunca preguntes al usuario directamente.**

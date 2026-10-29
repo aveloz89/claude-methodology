@@ -38,6 +38,15 @@ Con `gh issue list --label <label>`: `legacy-violation`, `controversial-fix` (qu
 
 ## Persistencia (solo modo `bugs`)
 
+Los labels se aseguran solo si hay hallazgos CRÍTICOS o ALTOS confirmados que van a issue; sin candidatos no se crea ningún label. Antes del primer `gh issue create`, asegura los labels con estos comandos literales (sin ningún texto de hallazgo; textos y colores de `skills/new-project/SKILL.md`, paso 10, más `--force` para que sea idempotente):
+
+```bash
+gh label create latent-bug --force --color D93F0B --description 'Bug latente detectado por code-sweep o durante desarrollo; lo procesa code-sweep'
+gh label create severity:critical --force --color B60205 --description 'Severidad de un latent-bug; la asigna code-sweep'
+gh label create severity:high --force --color D93F0B --description 'Severidad de un latent-bug; la asigna code-sweep'
+gh label create security --force --color B60205 --description 'Hallazgo de seguridad (review o scan)'
+```
+
 Para cada hallazgo **CRÍTICO** o **ALTO** confirmado, antes de crear el issue verifica que no exista uno duplicado: `gh issue list --label "latent-bug" --search '<archivo:línea>'`. Si existe, menciónalo en el reporte como "issue existente #N".
 
 ```bash
@@ -49,7 +58,7 @@ CS_ISSUE_BODY
 
 Reglas (equivalen al filtro `SAFE_FILE_RE`/`SAFE_PATTERN_RE` del workflow; los campos de un hallazgo salen de código no confiable):
 
-- **No crees el issue** si `file` trae algún carácter fuera de `A-Za-z0-9._/@+-`, si `pattern` trae alguno fuera de `A-Za-z0-9 _.-`, si `line` no es un entero, si `file` no es un archivo que escaneaste, o si alguna línea de cualquier campo de texto (snippet, descripción, manifestación, evidencia, refactor, pattern, file) es igual al delimitador `CS_ISSUE_BODY` o lo contiene.
+- **No crees el issue** si `file` trae algún carácter fuera de `A-Za-z0-9._/@+-`, si `pattern` trae alguno fuera de letras (ASCII, con tilde y ñ), dígitos, espacio y `_ . - / ( ) { } : , ! =`, si `line` no es un entero, si `file` no es un archivo que escaneaste, o si alguna línea de cualquier campo de texto (snippet, descripción, manifestación, evidencia, refactor, pattern, file) es igual al delimitador `CS_ISSUE_BODY` o lo contiene.
 - Esos hallazgos van igual al reporte, y bajo `NO CUBIERTO` con una línea `hallazgo <id> excluido de issues: <motivo>`.
 - `--search '<archivo:línea>'` va entre comillas simples; el cuerpo nunca va en `--body` ni el título en `--title` entre comillas dobles. Con el delimitador `'CS_ISSUE_BODY'` entre comillas simples, `$(...)`, backticks y `$VAR` del snippet no se expanden.
 - El título lleva solo `pattern` y `file:line`, ya validados; nunca la descripción libre.

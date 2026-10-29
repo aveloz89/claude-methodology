@@ -3,7 +3,9 @@
 #
 # hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
 # latencia, no reemplaza la validación de abajo, que sigue mirando el
-# comando completo.
+# comando completo. NO verificado de punta a punta: que ese "if" dispare el
+# hook para comandos que no empiezan por git (backtick, echo, "(") — lo
+# probado es el script con el comando por stdin.
 LIB="${0%/*}/lib/guard-matching.sh"
 [ -r "$LIB" ] || { echo "BLOCKED: block-force-push no operativo: falta hooks/lib/guard-matching.sh" >&2; exit 2; }
 # shellcheck source=lib/guard-matching.sh
@@ -21,8 +23,9 @@ guard_init "block-force-push"
 # matchea la "f" de un token que no es una flag, como el sufijo de
 # "fix/login-form" o "feature/add-feature-flags".
 #
-# El "[^&|;]*" entre "push\b" y la flag no cruza un separador de comando
-# real (&&, ;, |): sin esto, "git push origin x && echo -f" (sin
+# El GUARD_SEGMENT_END entre "push\b" y la flag no cruza un separador de
+# comando real (&, ; ni |; el ")" y el backtick cierran el token, no el
+# segmento, ver GUARD_TOKEN_END en la lib): sin esto, "git push origin x && echo -f" (sin
 # --force) bloquearía igual, porque el charset se estiraría hasta la
 # "-f" de un comando distinto después del separador.
 
@@ -34,7 +37,7 @@ guard_init "block-force-push"
 # guard_force_with_lease_allowed: 0 (permitido) solo si el branch actual
 # (de guard_session_dir) NO es main/master/dev y el segmento del "git ...
 # push ..." real (anclado a posición de comando con GUARD_ANCHOR, hasta el
-# primer &&/;/|) no lleva --all/--mirror ni menciona main/master/dev como
+# primer &, ; o |: GUARD_SEGMENT_END) no lleva --all/--mirror ni menciona main/master/dev como
 # token, refspec (x:main, main:x) o destino "refs/heads/(main|master|dev)".
 # Fuera de un repo git, o sin poder resolver el branch, bloquea
 # (fail-closed) — no hay forma segura de asumir "no es main".
@@ -47,7 +50,7 @@ guard_init "block-force-push"
 # segmento evaluado — coló un push a rama protegida (review ronda 1,
 # security MEDIUM).
 guard_force_with_lease_allowed() {
-  local dir branch push_segment raw_push_segment
+  local dir branch push_segment push_segments raw_push_segments
   dir=$(guard_session_dir) || return 1
   branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2> /dev/null) || return 1
   case "$branch" in
@@ -63,14 +66,32 @@ guard_force_with_lease_allowed() {
   # parsear el shell de verdad — la excepción no aplica y bloquea
   # fail-closed, en vez de confiar en un match que puede estar mirando un
   # segmento vaciado por el saneo.
-  raw_push_segment=$(echo "$COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*" | head -1)
-  echo "$raw_push_segment" | grep -q "['\"]" && return 1
-  push_segment=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*" | head -1)
-  # --all y --mirror empujan TODOS los refs remotos (o los espejan) sin
-  # importar qué otro ref aparezca en el resto del comando: la excepción de
-  # --force-with-lease no los cubre, siempre bloquean.
-  echo "$push_segment" | grep -qE '(^|[[:space:]])--(all|mirror)([[:space:]]|$)' && return 1
-  ! echo "$push_segment" | grep -qE '(^|[[:space:]:])(main|master|dev)([[:space:]:]|$)|refs/heads/(main|master|dev)([[:space:]:]|$)'
+  # Se evalúan TODOS los segmentos "git push" del comando, no solo el
+  # primero (H3, ronda 1): "git push --force-with-lease origin feature/x &&
+  # git push --force-with-lease origin dev" colaba el segundo. Con comillas
+  # en cualquiera de los segmentos crudos, bloquea (fail-closed).
+  raw_push_segments=$(echo "$COMMAND" | grep -oE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}")
+  echo "$raw_push_segments" | grep -q "['\"]" && return 1
+  push_segments=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}")
+  # La excepción aplica a los segmentos que llevan --force-with-lease: cada
+  # uno tiene que cumplirla; si cualquiera falla, bloquea. Un segmento sin
+  # la flag no es force por sí mismo (si lo fuera, LEASE_STRIPPED_COMMAND
+  # ya habría bloqueado antes de llegar acá).
+  while IFS= read -r push_segment; do
+    echo "$push_segment" | grep -q -- '--force-with-lease' || continue
+    # --all y --mirror (y --branches y los prefijos únicos, GUARD_PUSH_ALL_RE)
+    # empujan TODOS los refs remotos (o los espejan) sin importar qué otro ref
+    # aparezca en el resto del comando: la excepción nunca los cubre.
+    echo "$push_segment" | grep -qE "$GUARD_PUSH_ALL_RE" && return 1
+    # Los "-c" que vuelven el push un push de todo (GUARD_PUSH_CONFIG_RE) tampoco
+    # los cubre la excepción: empujarían main sin nombrarla.
+    echo "$push_segment" | grep -qiE "$GUARD_PUSH_CONFIG_RE" && return 1
+    # El refspec ":" / "+:" suelto empuja las ramas coincidentes (incluida
+    # main) sin nombrarla: tampoco lo cubre la excepción.
+    echo "$push_segment" | grep -qE "$GUARD_PUSH_EMPTY_REFSPEC_RE" && return 1
+    echo "$push_segment" | grep -qE "(^|[[:space:]:])(main|master|dev)(:|${GUARD_TOKEN_END})|refs/heads/(main|master|dev)(:|${GUARD_TOKEN_END})" && return 1
+  done <<< "$push_segments"
+  return 0
 }
 
 # El ref del refspec forzado se cierra con "[^[:space:]:]+", no con
@@ -78,7 +99,7 @@ guard_force_with_lease_allowed() {
 # "espacio" sino los caracteres "\" y "s", así que un ref que empieza con
 # "s" (+staging, +stable, +support/x) no matcheaba y pasaba sin bloqueo;
 # +main, +dev y +feature/x sí bloqueaban, por eso no se notó (#112).
-FORCE_PATTERN="${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^[:space:]:]+)"
+FORCE_PATTERN="${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}push\b${GUARD_SEGMENT_END}((-f|--force)\b|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*${GUARD_TOKEN_END}|\s\+[^[:space:]:]+|\s\+:${GUARD_TOKEN_END})"
 
 # --force-with-lease no puede reescribir un ref que otro ya movió (falla si
 # el remoto no coincide con lo que el cliente esperaba) — a diferencia de

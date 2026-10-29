@@ -1220,6 +1220,15 @@ if [ -f "$CS_WORKFLOW" ]; then
   assert_not_contains "$CS_WORKFLOW" 'Math\.random(' "code-sweep.js no usa Math.random() (rompe resume)"
 
   assert_contains "$CS_WORKFLOW" 'MAX_CONCURRENT = 8' "code-sweep.js limita la concurrencia con MAX_CONCURRENT = 8"
+  # [#113] los labels se aseguran con comandos literales antes del primer gh issue create
+  for lbl in critical high; do
+    assert_contains "$CS_WORKFLOW" "gh label create severity:$lbl --force" "code-sweep.js asegura el label severity:$lbl con --force (#113)"
+    assert_contains "$CODE_SWEEP" "gh label create severity:$lbl --force" "agents/code-sweep.md asegura el label severity:$lbl con --force (#113)"
+  done
+  assert_contains "$CS_WORKFLOW" 'toPersist.length > 0 ? `' "code-sweep.js incluye el paso de labels solo si toPersist.length > 0 (#113)"
+  assert_contains "$CS_WORKFLOW" 'Hallazgo de seguridad (review o scan)' "code-sweep.js usa la descripción canónica del label security de new-project (#113)"
+  assert_contains "$CODE_SWEEP" 'Hallazgo de seguridad (review o scan)' "agents/code-sweep.md usa la descripción canónica del label security de new-project (#113)"
+  assert_contains "$CODE_SWEEP" 'solo si hay hallazgos CRÍTICOS o ALTOS' "agents/code-sweep.md condiciona el paso de labels a que haya candidatos (#113)"
   assert_contains "$CS_WORKFLOW" '"verdict"' "code-sweep.js define el schema de hallazgo (verdict)"
   assert_contains "$CS_WORKFLOW" '"manifestation"' "code-sweep.js define el schema de hallazgo (manifestation)"
   assert_contains "$CS_WORKFLOW" 'code-sweep-common.md' "code-sweep.js apunta los prompts al rulebook común"
@@ -1299,6 +1308,22 @@ const cases = [
   ["line no entero", { ...base, line: 4.5 }, false],
   ["pattern con comilla simple", { ...base, pattern: "null'deref" }, false],
   ["evidence con linea delimitador", { ...base, evidence: "a\n" + ISSUE_DELIMITER + "\nb" }, false],
+  ["pattern catch {} del rulebook (#113)", { ...base, pattern: "catch {}" }, true],
+  ["pattern .unwrap()/.expect() fuera de tests (#113)", { ...base, pattern: ".unwrap()/.expect() fuera de tests" }, true],
+  ["pattern con dos puntos y coma", { ...base, pattern: "a: b, c" }, true],
+  ["pattern panic!() en libraries (#113)", { ...base, pattern: "panic!() en libraries" }, true],
+  ["pattern subprocess/os.system con string y shell=True (#113)", { ...base, pattern: "subprocess/os.system con string y shell=True" }, true],
+  ["pattern catch {}/catch { alert(...) } vacíos con tilde (#113)", { ...base, pattern: "catch {}/catch { alert(...) } vacíos" }, true],
+  ["pattern con ñ y mayúscula acentuada (#113)", { ...base, pattern: "Año Ámbito" }, true],
+  ["pattern a!b$c", { ...base, pattern: "a!b$c" }, false],
+  ["pattern con $", { ...base, pattern: "a$b" }, false],
+  ["pattern con backslash", { ...base, pattern: "a\\b" }, false],
+  ["pattern con ;", { ...base, pattern: "a;b" }, false],
+  ["pattern con |", { ...base, pattern: "a|b" }, false],
+  ["pattern con &", { ...base, pattern: "a&b" }, false],
+  ["pattern con <", { ...base, pattern: "a<b" }, false],
+  ["pattern con >", { ...base, pattern: "a>b" }, false],
+  ["pattern con salto de linea", { ...base, pattern: "a\nb" }, false],
 ]
 let bad = 0
 for (const [name, f, want] of cases) {
@@ -1318,6 +1343,40 @@ JSEOF
       FAIL=$((FAIL + 1))
     fi
     rm -rf "$CS_FILTER_DIR"
+
+    # [#113] parseArgs: el modo sale SOLO del primer token; pre-release vale en cualquier posición.
+    CS_ARGS_DIR=$(mktemp -d)
+    CS_ARGS_JS="$CS_ARGS_DIR/args.js"
+    {
+      grep -E '^const MODES ' "$CS_WORKFLOW" || true
+      awk '/^function parseArgs\(/ {f=1} f {print} f && /^}/ {f=0}' "$CS_WORKFLOW"
+      cat <<'JSEOF'
+const cases = [
+  ["bugs pre-release hooks/", { mode: "bugs", preRelease: true, paths: ["hooks/"] }],
+  ["hooks/ bugs", { mode: "bugs", preRelease: false, paths: ["hooks/", "bugs"] }],
+  ["smells bugs", { mode: "smells", preRelease: false, paths: ["bugs"] }],
+  [["bugs", "pre-release", "hooks/"], { mode: "bugs", preRelease: true, paths: ["hooks/"] }],
+  ['["bugs","pre-release","hooks/"]', { mode: "bugs", preRelease: true, paths: ["hooks/"] }],
+  ["", { mode: "bugs", preRelease: false, paths: ["."] }],
+  ["hooks/ smells pre-release", { mode: "bugs", preRelease: true, paths: ["hooks/", "smells"] }],
+]
+let bad = 0
+for (const [input, want] of cases) {
+  const got = parseArgs(input)
+  if (JSON.stringify(got) !== JSON.stringify(want)) { bad++; console.log("MISMATCH " + JSON.stringify(input) + ": " + JSON.stringify(got)) }
+}
+process.exit(bad === 0 ? 0 : 1)
+JSEOF
+    } > "$CS_ARGS_JS"
+    TOTAL=$((TOTAL + 1))
+    if CS_ARGS_OUT=$(node "$CS_ARGS_JS" 2>&1); then
+      echo -e "${GREEN}PASS${NC}: parseArgs de code-sweep.js toma el modo solo del primer token (#113)"
+      PASS=$((PASS + 1))
+    else
+      echo -e "${RED}FAIL${NC}: parseArgs de code-sweep.js no se comporta como se espera: $CS_ARGS_OUT"
+      FAIL=$((FAIL + 1))
+    fi
+    rm -rf "$CS_ARGS_DIR"
   else
     echo "SKIP: 'node' no está en PATH — se omite node --check de code-sweep.js"
   fi
@@ -1635,6 +1694,17 @@ assert_not_contains "$REPO_ROOT/agents/architect.md" 'definido en CLAUDE.md raí
 assert_not_contains "$REPO_ROOT/agents/backend-dev.md" '(ver CLAUDE.md raíz)' "backend-dev (~20) remite el escape hatch de TDD a ~/.claude/CLAUDE.md"
 assert_not_contains "$REPO_ROOT/agents/backend-dev.md" 'ver CLAUDE.md raíz para exclusiones' "backend-dev (~41) remite las exclusiones a ~/.claude/CLAUDE.md"
 assert_contains "$REPO_ROOT/agents/architect.md" 'Leer `CLAUDE.md` raíz' "architect (~35) sigue leyendo el CLAUDE.md del proyecto"
+# [#105] "CLAUDE.md raíz" solo queda donde habla del CLAUDE.md del proyecto (architect:35, runbook:373).
+RAIZ_HITS=$(cd "$REPO_ROOT" && git grep -nE 'CLAUDE\.md`? raíz' -- agents rulebooks skills rules) && RAIZ_RC=0 || RAIZ_RC=$?
+RAIZ_FILES=$(printf '%s\n' "$RAIZ_HITS" | cut -d: -f1 | sort -u | tr '\n' ' ')
+TOTAL=$((TOTAL + 1))
+if [ "$RAIZ_RC" -eq 0 ] && [ "$RAIZ_FILES" = "agents/architect.md rulebooks/orchestrator-runbook.md " ]; then
+  echo -e "${GREEN}PASS${NC}: 'CLAUDE.md raíz' solo aparece en architect.md y orchestrator-runbook.md (#105)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: 'CLAUDE.md raíz' aparece fuera de architect.md/orchestrator-runbook.md (rc=$RAIZ_RC): $RAIZ_FILES"
+  FAIL=$((FAIL + 1))
+fi
 assert_contains "$RUNBOOK" '≤10 archivos' "runbook: umbral de ≤10 archivos del tier liviano"
 assert_contains "$RUNBOOK" '300 líneas' "runbook: umbral de 300 líneas del tier liviano"
 assert_contains "$RUNBOOK" 'sexto archivo' "runbook: umbral del sexto archivo en edición directa"
@@ -1643,6 +1713,24 @@ assert_contains "$RUNBOOK" 'toque exclusivamente' "runbook señal 4: la excepci�
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" 'git show --name-only' "reviewer-common §9: el reviewer comprueba el commit memory: con git show --name-only"
 assert_contains "$RUNBOOK" 'Muestra al usuario, en el reporte de fase' "runbook Fase 2.6 paso 6: el orchestrator muestra al usuario las líneas de memoria que persiste"
 assert_contains "$REPO_ROOT/skills/orchestrator/SKILL.md" 'Muestras al usuario, en el reporte de fase' "SKILL orchestrator: muestra al usuario las líneas de memoria que persiste"
+
+# --- Cierre de contrato (#106, #108, #113): textos de las fases del runbook, la skill y el README ---
+runbook_phase() { awk -v h="### Fase $1:" 'index($0, h)==1 {f=1; print; next} /^##+ / {f=0} f {print}' "$RUNBOOK"; }
+README_MD_PATH="$REPO_ROOT/README.md"
+RB_F26=$(runbook_phase 2.6)
+RB_F3=$(runbook_phase 3)
+RB_F5=$(runbook_phase 5)
+SK_ROW26=$(/usr/bin/grep -E '^\| 2\.6\. ' "$ORCHESTRATOR_SKILL" || true)
+assert_section_contains "$RB_F26" 'general-purpose' "runbook Fase 2.6: el review simple se lanza desde un subagente general-purpose (#106)"
+assert_section_contains "$RB_F26" 'forked execution' "runbook Fase 2.6: explica por qué forked execution exige el subagente (#106)"
+assert_section_contains "$SK_ROW26" 'general-purpose' "skill orchestrator fila 2.6: menciona general-purpose (#106)"
+assert_contains "$PR_WORKFLOW_SKILL" 'general-purpose' "skill pr-workflow: el review simple del tier liviano usa general-purpose (#106)"
+assert_section_contains "$RB_F5" 'Observado después (#108)' "runbook Fase 5: registra la observación del diálogo del ask (#108)"
+assert_section_contains "$RB_F5" '#115' "runbook Fase 5: cita #115 en la observación del diálogo (#108)"
+assert_section_contains "$RB_F5" 'Remote Control' "runbook Fase 5: cita Remote Control en la observación (#108)"
+assert_section_contains "$RB_F3" 'scriptPath' "runbook Fase 3: documenta el lanzamiento por scriptPath (#113)"
+assert_contains "$README_MD_PATH" 'scriptPath' "README: documenta el lanzamiento de code-sweep por scriptPath (#113)"
+assert_contains "$README_MD_PATH" 'gh label create --force' "README: documenta que el consolidador asegura los labels con gh label create --force (#113)"
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" '200 líneas' "reviewer-common §9: tope de 200 líneas de MEMORY.md"
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" '25 KB' "reviewer-common §9: tope de 25 KB de MEMORY.md"
 for rv in security-reviewer qa-backend qa-frontend; do
@@ -1659,6 +1747,81 @@ else
   echo -e "${RED}FAIL${NC}: dangling_grep devolvió \"$INVALID_HITS\" ante un patrón inválido (esperado: mensaje \"grep falló\")"
   FAIL=$((FAIL + 1))
 fi
+
+# --- Backticks sin escapar en nombres de test (#117) ---
+# Un backtick sin escapar dentro de comillas dobles se evalúa como sustitución
+# de comando en el shell de la suite: ejecutó `git push` reales al correr
+# test-hooks.sh. El escáner recorre cada línea cuyo primer token (tras espacios)
+# es un identificador (assert_*, neg, pos, check…), quita los spans '...', los
+# escapes \. y los comentarios, y marca cualquier "..." restante con un
+# backtick, en cualquier argumento. Salta los cuerpos de heredoc comillado
+# (<<'EOF'): son texto literal. No mira "$(": check "$(grep ...)" es
+# intencional en test-frontmatter.sh.
+BT_TMP=$(mktemp -d)
+cat > "$BT_TMP/scan.pl" <<'PERL'
+use strict; use warnings;
+my $term;
+while (my $line = <>) {
+  chomp $line;
+  if (defined $term) { $term = undef if $line =~ /^\s*\Q$term\E\s*$/; next; }
+  if ($line =~ /<<-?\s*(["\x27])(\w+)\1/) { $term = $2; }
+  next unless $line =~ /^\s*[A-Za-z_][A-Za-z_0-9]*\s/;
+  my ($i, $n, $st, $hit) = (0, length $line, "n", 0);
+  while ($i < $n) {
+    my $c = substr($line, $i, 1);
+    if ($st eq "n") {
+      if ($c eq "\\") { $i += 2; next; }
+      if ($c eq "\x27") { $st = "s"; }
+      elsif ($c eq "\"") { $st = "d"; }
+      elsif ($c eq "#" && ($i == 0 || substr($line, $i - 1, 1) =~ /\s/)) { last; }
+    } elsif ($st eq "s") {
+      $st = "n" if $c eq "\x27";
+    } else {
+      if ($c eq "\\") { $i += 2; next; }
+      if ($c eq "\"") { $st = "n"; }
+      elsif ($c eq "`") { $hit = 1; last; }
+    }
+    $i++;
+  }
+  print "$.:$line\n" if $hit;
+}
+PERL
+# Fixtures del propio escáner: las tres primeras líneas deben marcarse; el resto no.
+cat > "$BT_TMP/fixture.sh" <<'FIXTURE'
+assert_contains "$FILE" 'pat' "name with `bt`"
+  assert_blocked_cmd "indented `bt`" "x"
+assert_blocked_cmd "ok" "hook" "cmd `bt`"
+assert_x "ok \`esc\`"
+assert_x 'lit `bt`'
+# assert_x "comentario `bt`"
+assert_x "ok" # nota `bt`
+cat <<'EOF'
+assert_x "dentro de heredoc `bt`"
+EOF
+check "$(grep -c x file)"
+FIXTURE
+BT_FIX_HITS=$(perl "$BT_TMP/scan.pl" "$BT_TMP/fixture.sh" | cut -d: -f1 | tr '\n' ' ')
+TOTAL=$((TOTAL + 1))
+if [ "$BT_FIX_HITS" = "1 2 3 " ]; then
+  echo -e "${GREEN}PASS${NC}: el escáner de backticks marca las tres formas y deja pasar escapes, spans, comentarios y heredocs"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: el escáner de backticks marcó las líneas '$BT_FIX_HITS' (esperado '1 2 3 ')"
+  FAIL=$((FAIL + 1))
+fi
+for suite in test-hooks.sh test-plugin-manifest.sh test-frontmatter.sh; do
+  BT_RC=0
+  BT_HITS=$(perl "$BT_TMP/scan.pl" "$REPO_ROOT/tests/adversarial/$suite" 2>&1) || BT_RC=$?
+  TOTAL=$((TOTAL + 1))
+  if [ "$BT_RC" -eq 0 ] && [ -z "$BT_HITS" ]; then
+    echo -e "${GREEN}PASS${NC}: $suite sin backticks sin escapar en comillas dobles"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $suite tiene backticks sin escapar en comillas dobles o perl falló (rc=$BT_RC): $BT_HITS"
+    FAIL=$((FAIL + 1))
+  fi
+done
+rm -rf "$BT_TMP"
 
 # --- /code-sweep tests ---
 

@@ -7,7 +7,8 @@
 #   (b) valores de memory/effort/model dentro de su enum.
 #   (c) name == nombre del archivo (sin .md).
 #   (d) allowed-tools de skills: toda entrada Agent(x) tiene forma
-#       Agent(methodology:<agente>) con <agente> existente en agents/.
+#       Agent(methodology:<agente>) con <agente> existente en agents/,
+#       salvo la excepción exacta Agent(general-purpose) (#106).
 #   (e) disable-model-invocation: true obligatorio en new-project,
 #       ausente en pr-workflow y review-pr.
 #   (f) toda referencia methodology:<x> en agents/ rulebooks/ skills/
@@ -281,6 +282,24 @@ check "$(grep -q 'global/CLAUDE.md' "$REVIEWER_COMMON" && echo 1 || echo 0)" \
 echo ""
 echo "--- skills/*/SKILL.md: Agent(...) namespaced y existente, disable-model-invocation ---"
 
+# Única excepción a Agent(methodology:<agente>): Agent(general-purpose) (#106).
+# El review simple del tier liviano se lanza desde un subagente general-purpose
+# que invoca Skill(code-review); la skill orchestrator lo necesita pre-aprobado.
+# Cualquier otro Agent(<no methodology>) sigue fallando.
+agent_ref_form() {
+  case "$1" in
+    methodology:*) echo methodology ;;
+    general-purpose) echo exception ;;
+    *) echo invalid ;;
+  esac
+}
+check "$([ "$(agent_ref_form general-purpose)" = "exception" ] && echo 0 || echo 1)" \
+  "Agent(general-purpose) es la excepción admitida (#106)"
+for bad_inner in general-purpose-x other foo:general-purpose Explore ""; do
+  check "$([ "$(agent_ref_form "$bad_inner")" = "invalid" ] && echo 0 || echo 1)" \
+    "Agent($bad_inner) no es admitido: solo general-purpose es excepción (#106)"
+done
+
 for skill_file in "$SKILLS_DIR"/*/SKILL.md; do
   skill_name="$(basename "$(dirname "$skill_file")")"
   allowed_tools_line=$(frontmatter_block "$skill_file" | grep -E "^allowed-tools:" | head -1)
@@ -302,7 +321,11 @@ for skill_file in "$SKILLS_DIR"/*/SKILL.md; do
           fi
           ;;
         *)
-          fail "$skill_name: $ref no tiene la forma Agent(methodology:<agente>)"
+          if [ "$(agent_ref_form "$inner")" = "exception" ]; then
+            pass "$skill_name: $ref es la excepción admitida (#106)"
+          else
+            fail "$skill_name: $ref no tiene la forma Agent(methodology:<agente>)"
+          fi
           ;;
       esac
     done <<< "$agent_refs"

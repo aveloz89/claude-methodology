@@ -107,7 +107,7 @@ APROBADO / CAMBIOS NECESARIOS, vinculante en tu capa. Devuelves el reporte como 
 
 Severidad: scope creep severo → **bloqueante**; scope creep leve → **sugerencia**.
 
-**Coverage: 80% de branches mínimo sobre archivos del diff** (exclusiones en `CLAUDE.md` raíz). Si no se alcanza → **bloqueante**.
+**Coverage: 80% de branches mínimo sobre archivos del diff** (exclusiones en `~/.claude/CLAUDE.md`). Si no se alcanza → **bloqueante**.
 
 ## 9. Memoria del agente
 

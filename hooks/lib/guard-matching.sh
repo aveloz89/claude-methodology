@@ -45,9 +45,24 @@
 #     &>log) o un ";" escapado antes de la flag de force;
 #   - pre-push-guard.sh: el refspec entre comillas (`git push origin
 #     "HEAD:main"`: el saneo vacía el span antes del match del destino) y
-#     una redirección antes del refspec o pegada a él (`git push origin
-#     2>&1 HEAD:main`, `git push origin HEAD:main>log`: el segmento se
-#     corta en "&", o el ">" queda pegado al nombre).
+#     una redirección con "&" antes del refspec (`git push origin 2>&1
+#     HEAD:main`: el segmento se corta en "&"). Una redirección pegada al
+#     refspec (`HEAD:main>log`, `HEAD:main</dev/null`) SÍ bloquea: "<" y ">"
+#     sin comillas cierran el token (GUARD_TOKEN_END).
+#   - pre-push-guard.sh y block-force-push.sh: push.default=matching o
+#     remote.<x>.mirror/push fijados en el config del repo o global (solo se
+#     ven los "-c" y "--config-env" literales y sin comillas del comando),
+#     remote.pushDefault y un "-c" escrito en una variable;
+#   - pre-push-guard.sh y block-force-push.sh: un "-c" con el valor entre
+#     comillas (`git -c 'user.name=x' push origin main`) anula ambos guards:
+#     el saneo vacía el span y "-c\s+\S+" se traga "push" (issue #120);
+#   - pre-push-guard.sh y block-force-push.sh: una sustitución que PRODUCE el
+#     ref o la flag (git push origin $(git branch --show-current)) no se
+#     evalúa; el guard solo ve tokens literales del comando;
+#   - que el "if": "Bash(git *)" de hooks.json dispare el hook para
+#     comandos que no empiezan por git (backtick, echo, "(") NO está
+#     verificado de punta a punta: lo probado es el script con el comando
+#     por stdin.
 # Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá:
 # la salida es escribir el comando en su forma directa.
 
@@ -60,13 +75,84 @@ GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
 # Fragmento de regex ERE que consume, cero o más veces y EN CUALQUIER ORDEN,
 # las opciones de git que pueden aparecer entre "git" y el subcomando
 # vigilado (push, reset --hard, commit): opciones de árbol ("-C <ruta>",
-# "--git-dir"/"--work-tree" con o sin "="), "-c <clave=valor>", "--no-pager"
-# y "-P". Una sola alternancia repetida en vez de fragmentos concatenados en
+# "--git-dir"/"--work-tree" con o sin "="), "-c <clave=valor>",
+# "--config-env=<clave>=<VAR>" (con o sin "="), "--no-pager" y "-P". Una sola alternancia repetida en vez de fragmentos concatenados en
 # un orden fijo: "git -C /x -c a=b push --force" (árbol después de "-c") no
 # matchearía un fragmento que solo tolerase un orden. git acepta estas
 # opciones en cualquier orden antes del subcomando; el regex también.
 # shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh, pre-push-guard.sh y pre-commit-guard.sh
-GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
+GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--config-env)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
+
+# Prefijo de entorno antes de "git" ("VAR=valor git push ..."): cero o más
+# asignaciones. Sin él, "X=matching git --config-env=push.default=X push
+# origin" ni siquiera se reconocía como un push (el hook salía 0 sin evaluarlo).
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
+GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'
+
+# Inventario de delimitadores (lo verificado, no un absoluto). Tres listas
+# distintas, cada una con su propio papel:
+#   - el ANCLA (GUARD_ANCHOR) ABRE un comando tras: inicio de string/línea,
+#     "&&", "||", ";", "|", "$(", backtick, "(", "{" y "&";
+#   - el SEGMENTO "git push ..." (GUARD_SEGMENT_END) CIERRA solo en "&", "|"
+#     y ";". NO cierra en ")" ni en backtick: una sustitución DENTRO del push
+#     ("git push origin $(true) HEAD:main", "git push origin `true` main")
+#     esconde lo que sigue si el segmento se corta ahí (regresión de la
+#     ronda 2 de #117, verificada contra dev). Coste asumido del trade-off:
+#     un push dentro de "$(...)" absorbe lo que sigue al cierre en el mismo
+#     comando simple ("echo $(git push origin feature/x) -f" bloquea, exit 2);
+#   - el TOKEN (GUARD_TOKEN_END) se cierra en espacio, ")", backtick, "<", ">"
+#     o fin de string ("<" y ">" sin comillas son siempre redirección). Así
+#     "(git push origin HEAD:main)" y "`git push origin HEAD:main`" cierran
+#     el borde del token "main" sin cortar el segmento.
+# Van entre comillas simples: el backtick es literal en la asignación y al
+# expandirlas dentro de comillas dobles no se vuelve a evaluar.
+# shellcheck disable=SC2016,SC2034 # backtick literal; se usan en pre-push-guard.sh y block-force-push.sh
+GUARD_SEGMENT_END='[^&|;]*'
+# shellcheck disable=SC2016,SC2034
+GUARD_TOKEN_END='([[:space:]]|[)`<>]|$)'
+
+# Fragmento de regex ERE que reconoce las opciones de "git push" que empujan
+# todas las ramas locales (incluida main) sin nombrarla: --all, --mirror y
+# --branches (alias de --all), más CUALQUIER prefijo único de ellas, porque
+# git acepta prefijos de opciones largas. Verificado contra un remoto bare
+# (git 2.54): se aceptan --al, --all, --b..--branches y --m..--mirror; "--a"
+# es ambiguo (all/atomic, exit 129) y "--all="/"--mirror=" se rechazan
+# (129, "takes no value"), por eso el regex exige token completo (espacio,
+# ")", backtick o fin) después.
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
+GUARD_PUSH_ALL_RE="(^|[[:space:]])--(al|all|b|br|bra|bran|branc|branch|branche|branches|m|mi|mir|mirr|mirro|mirror)${GUARD_TOKEN_END}"
+
+# Fragmento de regex ERE que reconoce la configuración por línea de comando
+# que vuelve un "git push" sin refspec equivalente a "--all"/"--mirror"
+# (empuja main sin nombrarla). Cubre, con "-c <clave>=<valor>":
+#   - push.default=matching, y también =upstream y =tracking (alias): empujan
+#     al upstream de la rama actual, que puede ser main;
+#   - remote.<x>.mirror verdadero: la clave SIN "=" (git la toma como true),
+#     o =true/yes/on o un entero distinto de 0 (=2, =01); "=false/no/off/0" y
+#     el valor vacío NO cuentan;
+#   - remote.<x>.push=<algo>;
+# y con "--config-env=<clave>=<VAR>" (o "--config-env <clave>=<VAR>") las mismas
+# claves, sin mirar el valor: viene de una variable, así que se bloquea
+# conservadoramente. Verificado en un sandbox (git 2.54, desde feature/x): con
+# cada una, "git push origin" actualiza main del remoto. git no distingue
+# mayúsculas en la clave (sección ni nombre): quien aplique este regex debe
+# usar "grep -iE" (pre-push-guard.sh y block-force-push.sh lo hacen); con -i
+# "push.default=MATCHING" también bloquea aunque git lo rechace (128):
+# dirección segura. Se aplica al segmento "git ... push ..." ya extraído.
+# Cubre solo la config literal del comando, no el config del repo ni el global
+# (ver "Fuera de alcance" del README).
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
+GUARD_PUSH_CONFIG_RE="(^|[[:space:]])(-c[[:space:]]+(push\.default=(matching|upstream|tracking)|remote\.[^=[:space:]]+\.(mirror(=(true|yes|on|-?[0-9]*[1-9][0-9]*))?|push=[^[:space:]]*))${GUARD_TOKEN_END}|--config-env(=|[[:space:]]+)(push\.default|remote\.[^=[:space:]]+\.(mirror|push))=)"
+
+# Refspec "git push origin :" (token exactamente ":", con "+" opcional):
+# verificado en git 2.54, el ":" suelto empuja las ramas que coinciden en el
+# remoto, incluida main, SIN configurar nada (no hace falta push.default=
+# matching). ":rama" (borrar una rama remota) NO matchea: el ":" va seguido
+# de un nombre.
+# La usan pre-push-guard.sh y la excepción de --force-with-lease de
+# block-force-push.sh (que nunca cubre pushes de todo).
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
+GUARD_PUSH_EMPTY_REFSPEC_RE="(^|[[:space:]])\+?:${GUARD_TOKEN_END}"
 
 # Fragmento de regex ERE que reconoce "gh ... pr ... merge" tolerando hasta
 # 2 tokens entre "gh"/"pr" y entre "pr"/"merge" (formas como "gh -R x pr

@@ -27,7 +27,7 @@ Tu revisión es **transversal** (puede tocar frontend, backend e infra) pero est
 - **Memoria (`reviewer-common.md` §9)** — consulta `.claude/agent-memory/methodology-security-reviewer/` al empezar y propone actualizaciones en `### Memoria`; no la escribes.
 - **`~/.claude/rules/docker.md`** — para Dockerfiles y compose, las reglas de seguridad (USER nonroot, no hardcodear secrets, multi-stage, pinear versiones) están ahí. Tú validas contra ese documento, no redefines reglas.
 - **`~/.claude/rules/implementation-principles.md`** — para entender qué cuenta como "validación en boundary" (que SÍ es legítima, no es defensive code).
-- **`CLAUDE.md` raíz** — gitflow y convenciones generales.
+- **`~/.claude/CLAUDE.md`** — gitflow y convenciones generales.
 
 ## Severidad y veredicto
 
