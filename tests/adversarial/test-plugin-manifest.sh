@@ -1329,6 +1329,40 @@ JSEOF
       FAIL=$((FAIL + 1))
     fi
     rm -rf "$CS_FILTER_DIR"
+
+    # [#113] parseArgs: el modo sale SOLO del primer token; pre-release vale en cualquier posición.
+    CS_ARGS_DIR=$(mktemp -d)
+    CS_ARGS_JS="$CS_ARGS_DIR/args.js"
+    {
+      grep -E '^const MODES ' "$CS_WORKFLOW" || true
+      awk '/^function parseArgs\(/ {f=1} f {print} f && /^}/ {f=0}' "$CS_WORKFLOW"
+      cat <<'JSEOF'
+const cases = [
+  ["bugs pre-release hooks/", { mode: "bugs", preRelease: true, paths: ["hooks/"] }],
+  ["hooks/ bugs", { mode: "bugs", preRelease: false, paths: ["hooks/", "bugs"] }],
+  ["smells bugs", { mode: "smells", preRelease: false, paths: ["bugs"] }],
+  [["bugs", "pre-release", "hooks/"], { mode: "bugs", preRelease: true, paths: ["hooks/"] }],
+  ['["bugs","pre-release","hooks/"]', { mode: "bugs", preRelease: true, paths: ["hooks/"] }],
+  ["", { mode: "bugs", preRelease: false, paths: ["."] }],
+  ["hooks/ smells pre-release", { mode: "bugs", preRelease: true, paths: ["hooks/", "smells"] }],
+]
+let bad = 0
+for (const [input, want] of cases) {
+  const got = parseArgs(input)
+  if (JSON.stringify(got) !== JSON.stringify(want)) { bad++; console.log("MISMATCH " + JSON.stringify(input) + ": " + JSON.stringify(got)) }
+}
+process.exit(bad === 0 ? 0 : 1)
+JSEOF
+    } > "$CS_ARGS_JS"
+    TOTAL=$((TOTAL + 1))
+    if CS_ARGS_OUT=$(node "$CS_ARGS_JS" 2>&1); then
+      echo -e "${GREEN}PASS${NC}: parseArgs de code-sweep.js toma el modo solo del primer token (#113)"
+      PASS=$((PASS + 1))
+    else
+      echo -e "${RED}FAIL${NC}: parseArgs de code-sweep.js no se comporta como se espera: $CS_ARGS_OUT"
+      FAIL=$((FAIL + 1))
+    fi
+    rm -rf "$CS_ARGS_DIR"
   else
     echo "SKIP: 'node' no está en PATH — se omite node --check de code-sweep.js"
   fi

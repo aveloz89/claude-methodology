@@ -38,9 +38,10 @@ function parseArgs(raw) {
   let mode = null
   let preRelease = false
   const paths = []
+  // El modo sale solo del primer token; un `bugs`/`smells` posterior es un path.
+  if (tokens.length > 0 && MODES.includes(tokens[0])) mode = tokens.shift()
   for (const token of tokens) {
-    if (mode === null && MODES.includes(token)) mode = token
-    else if (token === "pre-release") preRelease = true
+    if (token === "pre-release") preRelease = true
     else paths.push(token)
   }
   return { mode: mode || "bugs", preRelease, paths: paths.length > 0 ? paths : ["."] }
