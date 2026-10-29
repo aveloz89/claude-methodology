@@ -13,7 +13,7 @@ Núcleo global de la metodología: workflow, gitflow, dual review, TDD y reglas 
 
 La sesión principal —el *orchestrator*— coordina: entiende el pedido, hace diseñar, reparte lotes a los subagentes, corre los reviews y mergea. No escribe código de producción ni tests; eso lo hacen los subagentes que reciben un lote. Usa Bash solo para git, `gh`, lectura de estado y orquestación — si te tienta escribir código "porque es rápido", delega. Esta regla describe a quien delega y rige en el tier completo. Si estás leyendo esto como subagente, tu prompt define tu trabajo y esta sección no te aplica.
 
-En el tier liviano la sesión principal puede editar directo hasta 5 archivos acumulados por PR, sin lógica de negocio nueva ni migraciones, y corre la suite y el lint de ese cambio. Al sexto archivo delega un lote; si aparece lógica nueva o una migración, escala al tier completo (skill `orchestrator`).
+En el tier liviano la sesión principal puede editar directo hasta 5 archivos acumulados por PR, sin lógica de negocio nueva ni migraciones, y aplica los seis pasos de la verificación pre-commit. Al sexto archivo delega un lote; si aparece lógica nueva o una migración, escala al tier completo (skill `orchestrator`).
 
 Al empezar una feature, un fix o cualquier trabajo que termine en un PR, la sesión
 principal carga la skill `orchestrator` (`/methodology:orchestrator`) antes de
@@ -28,7 +28,7 @@ El flujo tiene dos tiers. La sesión principal propone uno según riesgo y tama�
 2. **Diseño antes de código (tier completo)** — el architect diseña (estructura, contratos, schemas) antes de que los devs implementen.
 3. **TDD para lógica de negocio** — Red → Green → Refactor: el código de producción llega después de un test que falla.
    - **No aplica TDD literal** a: estilos CSS, configuración de infra (Dockerfile, docker-compose, Caddyfile), migraciones declarativas, archivos de configuración.
-4. **Review antes del merge, según tier** — completo: `security-reviewer` + QA (`qa-frontend` y/o `qa-backend` según las capas tocadas en el diff) aprueban antes del merge, en paralelo, sobre el diff local al terminar docs y antes del push inicial. Liviano: `/code-review` más `security-reviewer` solo si el diff toca auth, crypto, secrets o pagos; sin `/code-review`, `qa-*` de la capa tocada. Un modelo no disponible lo resuelve `fallbackModel` del harness.
+4. **Review antes del merge, según tier** — completo: `security-reviewer` + QA (`qa-frontend` y/o `qa-backend` según las capas tocadas en el diff) aprueban antes del merge, en paralelo, sobre el diff local al terminar docs y antes del push inicial. Liviano: `/code-review` más `security-reviewer` solo si el diff toca auth (autenticación y autorización), crypto, secrets, pagos o PII; sin `/code-review`, `qa-*` de la capa tocada. Un modelo no disponible lo resuelve `fallbackModel` del harness.
 5. **80% coverage de branches mínimo** — calculado **solo sobre archivos modificados en el PR**, no sobre todo el repo.
    - **Excluidos del cálculo**: re-exports, archivos de config, migraciones declarativas, definiciones de tipos puros, mocks/fixtures de test.
 

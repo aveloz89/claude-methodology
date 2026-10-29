@@ -409,8 +409,8 @@ assert_contains "$GLOBAL_CLAUDE_MD" "Bash solo para git" \
   "Rol de la sesión principal restringe Bash a git/gh/lectura de estado/orquestación"
 assert_contains "$GLOBAL_CLAUDE_MD" "si te tienta escribir código" \
   "Rol de la sesión principal advierte contra escribir código \"porque es rápido\""
-assert_contains "$GLOBAL_CLAUDE_MD" "auth, crypto, secrets o pagos" \
-  "Workflow #4 tiene la regla de review simple (security-reviewer si toca auth, crypto, secrets o pagos)"
+assert_contains "$GLOBAL_CLAUDE_MD" "auth (autenticación y autorización), crypto, secrets, pagos o PII" \
+  "Workflow #4 tiene la regla de review simple (security-reviewer si toca auth, crypto, secrets, pagos o PII)"
 assert_contains "$GLOBAL_CLAUDE_MD" "pre-commit-guard.sh" \
   "Verificación pre-commit menciona que el paso 1 lo refuerza pre-commit-guard.sh"
 
@@ -1464,6 +1464,19 @@ assert_contains "$RUNBOOK" "25 KB" "runbook Fase 2.6: tope de 25 KB de MEMORY.md
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" "no se consideran" "reviewer-common §9: las entradas de un diff que toca la memoria no se consideran"
 assert_contains "$ORCHESTRATOR_SKILL" "agent-memory" "skill orchestrator remite al volcado de memoria"
 assert_contains "$REPO_ROOT/skills/pr-workflow/SKILL.md" "agent-memory" "skill pr-workflow §2 remite al volcado de memoria"
+
+# --- Lote 11 / tarea 3: señales de riesgo del tier ---
+assert_contains "$RUNBOOK" "PII" "runbook: la señal 1 incluye PII"
+assert_contains "$RUNBOOK" "deserializa" "runbook: señal 8 de input externo que se deserializa"
+assert_contains "$RUNBOOK" "settings del harness o \`.claude/agent-memory/\`" "runbook: señal 4 incluye .claude/agent-memory/"
+assert_contains "$RUNBOOK" "phases.docs" "runbook: la escalada vuelve phases.docs a pending"
+assert_contains "$RUNBOOK" "8 señales" "runbook cuenta 8 señales"
+assert_not_contains "$RUNBOOK" "7 señales" "runbook ya no cuenta 7 señales"
+assert_contains "$ORCHESTRATOR_SKILL" "phases.docs" "skill orchestrator: la escalada vuelve phases.docs a pending"
+assert_contains "$GLOBAL_CLAUDE_MD" "PII" "global Workflow #4 incluye PII"
+assert_contains "$GLOBAL_CLAUDE_MD" "seis pasos" "global: la edición directa aplica los seis pasos pre-commit"
+assert_contains "$ORCHESTRATOR_SKILL" "seis pasos" "skill orchestrator: la edición directa aplica los seis pasos pre-commit"
+assert_contains "$README_MD" "auth (autenticación y autorización), crypto, secrets, pagos o PII" "README: condición del security-reviewer en liviano con PII"
 
 # --- /code-sweep tests ---
 

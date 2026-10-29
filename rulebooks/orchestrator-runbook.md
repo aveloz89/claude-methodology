@@ -94,7 +94,7 @@ El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` r
 6. **Memoria de los reviewers** (tras consolidar): vuelca las entradas de `### Memoria` de cada reviewer en `.claude/agent-memory/methodology-<agente>/MEMORY.md` con el formato de `rulebooks/reviewer-common.md` §9, manteniéndolo bajo 200 líneas / 25 KB (el detalle va en archivos aparte del mismo directorio), y commitea `memory: actualizar memoria de <agente>` en el mismo branch. Eres el único escritor; sin propuestas, no hay commit
 7. **Veredictos limpios**: `phases.review = done` y `review_sha` al SHA de HEAD, avanza a Fase 2.7. Fixes, sugerencias, memoria y registro viajan en el push inicial: **el PR nace revisado**
 
-**En tier liviano**, el paso 2 se sustituye por un review simple: invoca la skill nativa `code-review` con la tool `Skill`, sin bajar el nivel de esfuerzo de la sesión, con la instrucción "skip style, concéntrate en correctitud" y sin `--fix` (read-only). Corre en background: espera su resultado antes de tocar el árbol (paso 4). Suma `security-reviewer`, con el handoff habitual sobre el diff local, solo si el diff toca auth, crypto, secrets o pagos. Consolidas el reporte en `.planning/reviews/<feature-slug>.md` y cierras igual que en el paso 7: `phases.review = done` y `review_sha` al SHA de HEAD (así `post-pr-create.sh` no cambia). Fallback: si `code-review` no figura en la lista de skills de la sesión, o la invocación devuelve que no existe o está deshabilitada (`-p`, entornos sin feature flags), lanza `qa-backend` o `qa-frontend` según la capa tocada ("Clasificación del diff por capa"), con el handoff de siempre: un solo review, read-only. Los fixes los aplica el orchestrator dentro de su límite de edición directa o un lote de dev.
+**En tier liviano**, el paso 2 se sustituye por un review simple: invoca la skill nativa `code-review` con la tool `Skill`, sin bajar el nivel de esfuerzo de la sesión, con la instrucción "skip style, concéntrate en correctitud" y sin `--fix` (read-only). Corre en background: espera su resultado antes de tocar el árbol (paso 4). Suma `security-reviewer`, con el handoff habitual sobre el diff local, solo si el diff toca auth (autenticación y autorización), crypto, secrets, pagos o PII. Es condicional porque esas señales ya mandan a `completo`: aplica cuando el usuario eligió `liviano` pese a una señal o el diff final las toca. Consolidas el reporte en `.planning/reviews/<feature-slug>.md` y cierras igual que en el paso 7: `phases.review = done` y `review_sha` al SHA de HEAD (así `post-pr-create.sh` no cambia). Fallback: si `code-review` no figura en la lista de skills de la sesión, o la invocación devuelve que no existe o está deshabilitada (`-p`, entornos sin feature flags), lanza `qa-backend` o `qa-frontend` según la capa tocada ("Clasificación del diff por capa"), con el handoff de siempre: un solo review, read-only. Los fixes los aplica el orchestrator dentro de su límite de edición directa o un lote de dev.
 
 ### Fase 2.7: Push + PR
 
@@ -147,19 +147,20 @@ El orchestrator propone el tier al cerrar Fase 0 (o como primera pregunta, si se
 
 **Tamaño (las tres):** ≤10 archivos tocados, ≤300 líneas estimadas (sumando altas y bajas) y cabe en un solo lote de ≤5 tareas.
 
-**Señales de riesgo (cualquiera → `completo`):**
+**8 señales de riesgo (cualquiera → `completo`):**
 
-1. Toca auth, crypto, secrets o pagos.
+1. Toca auth (autenticación y autorización), crypto, secrets, pagos, PII, CORS/cookies/headers de seguridad.
 2. Migración o cambio de schema de DB.
 3. Cambia un contrato público: endpoint, schema exportado, props de componente exportado, flags de CLI, o el formato de un archivo que otro proceso lee.
-4. Toca hooks, permisos, CI/CD, branch protection o settings del harness.
+4. Toca hooks, permisos, CI/CD, branch protection, settings del harness o `.claude/agent-memory/`.
 5. Dependencia nueva, cambio de major o downgrade.
 6. Lógica de negocio nueva (regla, cálculo o validación de dominio que no existía); ajustar una existente no cuenta.
 7. Scripts que tocan datos (backfill, fixes de datos en producción).
+8. Input externo que construye comandos, queries o rutas, o que se deserializa.
 
-**Edición directa en `liviano`:** el orchestrator edita hasta 5 archivos acumulados por PR, sin lógica de negocio nueva ni migración. Corre la suite y el lint de lo que tocó antes de commitear. Al sexto archivo delega un único lote a un dev (`last_batch=true`). Si haría falta un segundo lote, ya no es `liviano`.
+**Edición directa en `liviano`:** el orchestrator edita hasta 5 archivos acumulados por PR, sin lógica de negocio nueva ni migración. Antes de commitear aplica los seis pasos de la verificación pre-commit (`~/.claude/CLAUDE.md`), no solo suite y lint. Al sexto archivo delega un único lote a un dev (`last_batch=true`). Si haría falta un segundo lote, ya no es `liviano`.
 
-**Escalada a `completo`** (en cualquier momento): el cambio supera el tamaño, aparece una señal de riesgo o el usuario lo pide. El orchestrator lo dice, registra `[D-NN] escalada: <motivo>` en `STATE.md`, pone `tier = "completo"` y `phases.design = "pending"`, y sigue desde Fase 1 con lo ya commiteado como insumo del `architect`. Si el usuario eligió `liviano` pese a una señal de riesgo, queda registrado en `STATE.md`, y `security-reviewer` corre si el diff toca auth, crypto, secrets o pagos.
+**Escalada a `completo`** (en cualquier momento): el cambio supera el tamaño, aparece una señal de riesgo o el usuario lo pide. El orchestrator lo dice, registra `[D-NN] escalada: <motivo>` en `STATE.md`, pone `tier = "completo"`, `phases.design = "pending"` y `phases.docs = "pending"`, y sigue desde Fase 1 con lo ya commiteado como insumo del `architect`. Si el usuario eligió `liviano` pese a una señal de riesgo, queda registrado en `STATE.md`, y `security-reviewer` corre si el diff toca auth (autenticación y autorización), crypto, secrets, pagos o PII.
 
 Fase 0 no cambia. En `liviano`, `BRIEF.md` puede ser corto (objetivo, alcance, criterios).
 
