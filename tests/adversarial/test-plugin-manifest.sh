@@ -409,8 +409,8 @@ assert_contains "$GLOBAL_CLAUDE_MD" "Bash solo para git" \
   "Rol de la sesión principal restringe Bash a git/gh/lectura de estado/orquestación"
 assert_contains "$GLOBAL_CLAUDE_MD" "si te tienta escribir código" \
   "Rol de la sesión principal advierte contra escribir código \"porque es rápido\""
-assert_contains "$GLOBAL_CLAUDE_MD" "auth (autenticación y autorización), crypto, secrets, pagos o PII" \
-  "Workflow #4 tiene la regla de review simple (security-reviewer si toca auth, crypto, secrets, pagos o PII)"
+assert_contains "$GLOBAL_CLAUDE_MD" "señales 1, 4 u 8" \
+  "Workflow #4 tiene la regla de review simple (security-reviewer si toca las señales 1, 4 u 8 del runbook)"
 assert_contains "$GLOBAL_CLAUDE_MD" "pre-commit-guard.sh" \
   "Verificación pre-commit menciona que el paso 1 lo refuerza pre-commit-guard.sh"
 
@@ -1532,10 +1532,19 @@ assert_contains "$RUNBOOK" "phases.docs" "runbook: la escalada vuelve phases.doc
 assert_contains "$RUNBOOK" "8 señales" "runbook cuenta 8 señales"
 assert_not_contains "$RUNBOOK" "7 señales" "runbook ya no cuenta 7 señales"
 assert_contains "$ORCHESTRATOR_SKILL" "phases.docs" "skill orchestrator: la escalada vuelve phases.docs a pending"
-assert_contains "$GLOBAL_CLAUDE_MD" "PII" "global Workflow #4 incluye PII"
 assert_contains "$GLOBAL_CLAUDE_MD" "seis pasos" "global: la edición directa aplica los seis pasos pre-commit"
 assert_contains "$ORCHESTRATOR_SKILL" "seis pasos" "skill orchestrator: la edición directa aplica los seis pasos pre-commit"
-assert_contains "$README_MD" "auth (autenticación y autorización), crypto, secrets, pagos o PII" "README: condición del security-reviewer en liviano con PII"
+assert_contains "$README_MD" "señales 1, 4 u 8" "README: condición del security-reviewer en liviano (señales 1, 4 u 8)"
+
+# --- Lote 12 / tarea 3: condición del security-reviewer en liviano = señales 1, 4 u 8 ---
+for f in global/CLAUDE.md skills/orchestrator/SKILL.md skills/pr-workflow/SKILL.md rulebooks/orchestrator-runbook.md README.md; do
+  assert_contains "$REPO_ROOT/$f" "señales 1, 4 u 8" "$f: security-reviewer en liviano si el diff toca las señales 1, 4 u 8"
+done
+for f in global/CLAUDE.md skills/orchestrator/SKILL.md skills/pr-workflow/SKILL.md rulebooks/orchestrator-runbook.md README.md; do
+  assert_not_contains "$REPO_ROOT/$f" "pagos o PII" "$f ya no usa la condición vieja (auth, crypto, secrets, pagos o PII)"
+done
+assert_contains "$RUNBOOK" "no cuentan para" "runbook: los archivos del commit memory: no cuentan para el tamaño ni disparan la señal 4"
+assert_contains "$RUNBOOK" "viaja en el push consolidado" "runbook Fase 2.6 paso 6: con el PR abierto el commit memory: viaja en el push consolidado de la ronda"
 
 # --- Lote 11 / tarea 4: ask en modos no interactivos, liviano, runbook, e2e-runner, Workflow ---
 UNVERIFIED="sin verificar end-to-end en esta versión"

@@ -28,7 +28,7 @@ El flujo tiene dos tiers. La sesión principal propone uno según riesgo y tama�
 2. **Diseño antes de código (tier completo)** — el architect diseña (estructura, contratos, schemas) antes de que los devs implementen.
 3. **TDD para lógica de negocio** — Red → Green → Refactor: el código de producción llega después de un test que falla.
    - **No aplica TDD literal** a: estilos CSS, configuración de infra (Dockerfile, docker-compose, Caddyfile), migraciones declarativas, archivos de configuración.
-4. **Review antes del merge, según tier** — completo: `security-reviewer` + QA (`qa-frontend` y/o `qa-backend` según las capas tocadas en el diff) aprueban antes del merge, en paralelo, sobre el diff local al terminar docs y antes del push inicial. Liviano: `/code-review` más `security-reviewer` solo si el diff toca auth (autenticación y autorización), crypto, secrets, pagos o PII; sin `/code-review`, `qa-*` de la capa tocada. Un modelo no disponible lo resuelve `fallbackModel` del harness.
+4. **Review antes del merge, según tier** — completo: `security-reviewer` + QA (`qa-frontend` y/o `qa-backend` según las capas tocadas en el diff) aprueban antes del merge, en paralelo, sobre el diff local al terminar docs y antes del push inicial. Liviano: `/code-review` más `security-reviewer` solo si el diff toca las señales 1, 4 u 8 del runbook; sin `/code-review`, `qa-*` de la capa tocada. Un modelo no disponible lo resuelve `fallbackModel` del harness.
 5. **80% coverage de branches mínimo** — calculado **solo sobre archivos modificados en el PR**, no sobre todo el repo.
    - **Excluidos del cálculo**: re-exports, archivos de config, migraciones declarativas, definiciones de tipos puros, mocks/fixtures de test.
 
