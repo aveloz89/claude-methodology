@@ -89,8 +89,11 @@ fi
 # vacía el span) y una redirección con "&" antes del refspec ("2>&1
 # HEAD:main" corta el segmento en "&"). "HEAD:main>log" y "HEAD:main</dev/null"
 # SÍ bloquean: "<" y ">" cierran el token (GUARD_TOKEN_END).
+# Segmentos "git push ..." del comando saneado, extraídos una sola vez para los
+# chequeos de abajo (destino main, --all/--mirror, config, refspec vacío).
+PUSH_SEGMENTS=$(echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}")
 DST_MAIN_RE="(^|[[:space:]])\+?([^[:space:]:]*:)?(refs/heads/)?(main|master)${GUARD_TOKEN_END}"
-if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}" | grep -qE "$DST_MAIN_RE"; then
+if echo "$PUSH_SEGMENTS" | grep -qE "$DST_MAIN_RE"; then
   echo "BLOCKED: No push directo a main: el refspec apunta a main/master (HEAD:main, dev:main, refs/heads/main o la rama local main). Usa un PR desde dev o feature branch." >&2
   exit 2
 fi
@@ -103,7 +106,7 @@ fi
 # block-force-push.sh. El ")" y el backtick cierran el TOKEN (GUARD_TOKEN_END),
 # no el segmento: "(git push origin HEAD:main)" bloquea y una sustitución
 # dentro del push ("git push origin $(true) HEAD:main") no esconde lo que sigue.
-if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}" | grep -qE "$GUARD_PUSH_ALL_RE"; then
+if echo "$PUSH_SEGMENTS" | grep -qE "$GUARD_PUSH_ALL_RE"; then
   echo "BLOCKED: git push --all/--mirror empuja todas las ramas locales, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
   exit 2
 fi
@@ -114,7 +117,6 @@ fi
 # un push de todas las ramas coincidentes; (b) el refspec ":" suelto
 # (GUARD_PUSH_EMPTY_REFSPEC_RE) hace lo mismo. ":rama" borra una rama remota
 # y sigue pasando. Mismo segmento que el chequeo de --all.
-PUSH_SEGMENTS=$(echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}")
 # Con refspec explícito ("git -c push.default=matching push origin feature/x")
 # el bloqueo es un falso positivo, en dirección segura: no se distingue si hay
 # refspec porque el config solo importa cuando falta.
