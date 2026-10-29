@@ -2,17 +2,17 @@
 name: orchestrator
 description: Manual de la sesión principal para coordinar una feature o un fix de punta a punta — fases 0 a 5, qué subagente invocar en cada una, lotes y handoff, tracker de sesión, pause/resume. Cargar al iniciar cualquier trabajo que termine en un PR, antes de delegar el primer lote.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner), Agent(methodology:code-sweep)
+allowed-tools: Read, Grep, Glob, Agent(methodology:architect), Agent(methodology:ui-ux), Agent(methodology:backend-dev), Agent(methodology:frontend-dev), Agent(methodology:docs), Agent(methodology:security-reviewer), Agent(methodology:qa-frontend), Agent(methodology:qa-backend), Agent(methodology:e2e-runner), Agent(methodology:code-sweep), Skill(code-review), Workflow(methodology:code-sweep)
 argument-hint: "[feature|fix] <descripción corta>"
 ---
 
 # Orchestrator
 
-Manual operativo de la sesión principal. El rol y sus invariantes viven en `global/CLAUDE.md` ("Rol de la sesión principal", "Workflow obligatorio", "PR y merge", "Gitflow") — acá está el cómo, fase por fase.
+Manual operativo de la sesión principal. El rol y sus invariantes viven en `~/.claude/CLAUDE.md` ("Rol de la sesión principal", "Workflow", "PR y merge", "Gitflow") — acá está el cómo, fase por fase.
 
 ## 1. Rol y alcance
 
-El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesión principal" — no lo redefinimos acá para que no diverja. Carga esta skill al empezar cualquier feature, fix o trabajo que termine en un PR, antes de delegar el primer lote. Si ya estás a mitad de un flujo y no la cargaste, cárgala ahora, no esperes al siguiente lote.
+El rol y sus invariantes viven en `~/.claude/CLAUDE.md`, sección "Rol de la sesión principal" — no lo redefinimos acá para que no diverja. Carga esta skill al empezar cualquier feature, fix o trabajo que termine en un PR, antes de delegar el primer lote. Si ya estás a mitad de un flujo y no la cargaste, cárgala ahora, no esperes al siguiente lote.
 
 ## 2. Mapa del flujo
 
@@ -23,25 +23,31 @@ El rol y sus invariantes viven en `global/CLAUDE.md`, sección "Rol de la sesió
 | 1. Diseño | El `architect` diseña y parte en lotes | `.planning/DESIGN.md` | "Fase 1" |
 | 2. Implementación | Invocas devs por lote, con `last_batch=true|false` | commits locales | "Fase 2" |
 | 2.5. Documentación | Invocas `docs` sobre el diff local, sin push; salta `docs` si el diff no toca superficie pública (registra el salto en el body del PR); cambios en hooks, permisos, auth o controles de seguridad siempre invocan `docs` | docs actualizados | "Fase 2.5" |
-| 2.6. Review dual local | `security-reviewer` + `qa-*` en paralelo sobre el diff local; fixes sin push hasta veredictos limpios | `.planning/reviews/<slug>.md` | skill `pr-workflow` |
+| 2.6. Review dual local | `security-reviewer` + `qa-*` en paralelo sobre el diff local; fixes sin push hasta veredictos limpios. En `liviano`: review simple con la skill nativa `code-review` vía tool `Skill` (sin bajar el esfuerzo de la sesión, "skip style, concéntrate en correctitud", sin `--fix`, en background; esperas su resultado antes de tocar el árbol); `security-reviewer` solo si toca las señales 1, 4 u 8 del runbook; mismo cierre (`phases.review = done` + `review_sha`). Si `code-review` no está disponible, un `qa-*` según la capa | `.planning/reviews/<slug>.md` | skill `pr-workflow` |
 | 2.7. Push + PR | Push + `gh pr create` (lo haces tú) | PR abierto | "Comandos `gh` específicos" |
 | 2.8. Monitoreo CI | `gh pr checks --watch --fail-fast` | CI verde | "Fase 2.8" |
 | 3. Post-PR | Re-reviews solo si CI obligó fixes sobre código ya revisado; `e2e-runner` Modo B si el PR va a `main` | reviews actualizados | "Fase 3" |
 | 5. Merge | Verificación pre-merge + merge; `state.json` local con `phases.merge=done` después del merge | PR mergeado | "Fase 5" |
 
+**Variante `liviano`** (criterio en el runbook, "Tier del flujo"): quedan Fase 0 breve, creación del branch, implementación (edición directa tuya o un solo lote), review simple, push + PR, CI y merge. No hay 0.5, 1 (sin `architect` ni `DESIGN.md`), 2.5 (sin `docs`) ni review dual. El `tier` vive en `state.json` (ausente = `completo`).
+
 **Reglas clave** (detalle en el runbook, sección "Fase 2: Implementación", y en la skill `pr-workflow`):
 
+- En `liviano` editas directo hasta 5 archivos acumulados por PR, sin lógica de negocio nueva ni migración, y antes de commitear aplicas los seis pasos de la verificación pre-commit; al sexto archivo delegas un único lote (`last_batch=true`). Si haría falta un segundo lote, ya no es liviano.
+- Escalada a `completo` (supera el tamaño, aparece una señal de riesgo o el usuario lo pide): lo dices, registras `[D-NN] escalada: <motivo>` en `STATE.md`, pones `tier = "completo"`, `phases.design = "pending"` y `phases.docs = "pending"`, y sigues desde Fase 1 con lo commiteado como insumo del `architect`. Nunca se vuelve de `completo` a `liviano`.
 - Creas el branch una sola vez (`git checkout dev && git checkout -b feature/<slug>`); los devs trabajan sobre ese branch existente.
 - La `description` de cada dev empieza con `Lote N: ` (§5); los lotes de fixes se añaden a `state.json` antes de lanzar al dev (§5).
 - Modo single-PR por default: todos los lotes en el mismo branch, último lote con `last_batch=true`. Modo multi-PR solo si el `architect` lo justificó — cada grupo con su branch + PR propio.
 - Un push por ronda de review (las de Fase 2.6 no pushean); docs va en el push inicial.
+- Tras consolidar la review, vuelcas las `### Memoria` de los reviewers en `.claude/agent-memory/methodology-<agente>/MEMORY.md` y commiteas `memory:` (runbook, Fase 2.6, paso 6). Filtras: solo líneas con el formato exacto de §9, sin secrets ni código del diff, `falso-positivo` solo si lo confirmaste tú o el usuario, nada si el diff tocó `.claude/agent-memory/**`. Muestras al usuario, en el reporte de fase, las líneas que persistes.
 - Cuando un lote de `backend-dev` es `db-complejo`: va primero (schema), el resto de `backend-dev` lo consume, luego `frontend-dev`. Back/front pueden paralelizarse si son archivos disjuntos.
+- Lotes paralelos solo con archivos disjuntos. Con `worktree.baseRef = "head"` en `.claude/settings.json` del proyecto, `isolation: "worktree"` por llamada y merge de cada rama `worktree-*` desde el checkout principal; sin ese setting, mismo checkout con commits por pathspec (`git add <paths>`, `git commit -- <paths>`, nunca `-a`/`-A`). Un conflicto al integrar significa lotes no disjuntos: detienes y escalas (`governance-playbook.md` §11). Receta: runbook, "Fase 2".
 - Fixes de review siempre en el mismo PR/branch — nunca un branch nuevo.
 - Re-lanzas solo los reviewers que marcaron issues, no los que aprobaron.
 - Conflicto entre reviewers: security gana en seguridad, QA gana en UX/accesibilidad/contratos; zona gris → escalas al usuario (`governance-playbook.md` §7).
 - Máximo 3 intentos de fix automático en CI por PR, después escalas al usuario (matices en "Fase 2.8" del runbook).
 - E2E flaky: un re-run automático por test fallido; dos fallos seguidos es fallo real y bloquea el merge; flakeo repetido → issue `flaky-test` (lo trackea `e2e-runner`).
-- Si el PR cambia una regla de flujo, hooks o formatos de `.planning/`: grep de los términos afectados en `global/CLAUDE.md`, `README.md`, `rulebooks/`, `agents/`, `skills/` y reconcilia cada mención; enuncia una vez y remite el resto.
+- Si el PR cambia una regla de flujo, hooks o formatos de `.planning/`: grep de los términos afectados en `~/.claude/CLAUDE.md`, `README.md`, `rulebooks/`, `agents/`, `skills/` y reconcilia cada mención; enuncia una vez y remite el resto.
 - Una lección accionable se convierte al momento en cambio de regla o en issue — no se guarda para después.
 
 ## 3. Brainstorming
@@ -55,22 +61,24 @@ Preguntas en rondas (alcance, edge cases, integraciones, prioridad) hasta tener 
 
 En cualquier duda, brainstormeas igual. Con confirmación explícita, escribes `.planning/BRIEF.md` (formato en el runbook) y avanzas.
 
+**Tier del flujo.** La pregunta de cierre de Fase 0 (o la primera, si se saltó) propone el tier con `AskUserQuestion`: la recomendada primero y la consecuencia de cada opción en una línea (`liviano`: sin architect ni `DESIGN.md`, sin `docs`, review simple; `completo`: fases 0 a 5). En duda, recomiendas `completo`. Criterio de tamaño y señales de riesgo: runbook, "Tier del flujo". Confirmado el tier, lo escribes en `state.json` antes de crear el branch. En `liviano`, `BRIEF.md` puede ser corto (objetivo, alcance, criterios).
+
 ## 4. Equipo de subagentes
 
-| Agente | Modelo | Rol | Cuándo invocar |
-|--------|--------|-----|----------------|
-| `architect` | fable (fallback: opus) | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva |
-| `ui-ux` | opus | Genera design system y valida flujos | Después del brainstorming, ANTES del architect, si hay UI |
-| `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples y complejas (lotes `db-complejo`) | Lotes con trabajo server-side |
-| `frontend-dev` | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) | Lotes con trabajo client-side |
-| `security-reviewer` | opus | Auditoría OWASP, secrets, dependencias (read-only). Bloqueante | Fase 2.6 y re-reviews post-PR |
-| `qa-frontend` | sonnet | UX, accesibilidad, componentes, tests frontend, coverage. Bloqueante si toca frontend | Diff con archivos de UI |
-| `qa-backend` | sonnet | Contratos API, lógica, datos, tests backend, coverage. Bloqueante si toca backend | Diff con archivos de servidor |
-| `e2e-runner` | sonnet | Tests E2E con Playwright. Modo A: usuario, branch propio. Modo B: pre-release a `main`, branch del PR | Pre-release o invocación directa |
-| `code-sweep` | sonnet | Escanea el repo: modo `bugs` (issues `latent-bug`) o `smells` (reporte). Read-only | Pedido del usuario, o Fase 3 en PR a `main` |
-| `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después del último lote, antes del push + PR |
+| Agente | Modelo | Rol | Cuándo invocar | Tier |
+|--------|--------|-----|----------------|------|
+| `architect` | fable | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva | completo |
+| `ui-ux` | opus | Genera design system y valida flujos | Después del brainstorming, ANTES del architect, si hay UI | completo (si hay UI) |
+| `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples y complejas (lotes `db-complejo`) | Lotes con trabajo server-side | ambos (en liviano, un solo lote al sexto archivo) |
+| `frontend-dev` | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) | Lotes con trabajo client-side | ambos (en liviano, un solo lote al sexto archivo) |
+| `security-reviewer` | opus | Auditoría OWASP, secrets, dependencias (read-only). Bloqueante | Fase 2.6 y re-reviews post-PR | completo; en liviano solo si toca las señales 1, 4 u 8 del runbook |
+| `qa-frontend` | sonnet | UX, accesibilidad, componentes, tests frontend, coverage. Bloqueante si toca frontend | Diff con archivos de UI | completo; en liviano solo como fallback de `/code-review` |
+| `qa-backend` | sonnet | Contratos API, lógica, datos, tests backend, coverage. Bloqueante si toca backend | Diff con archivos de servidor | completo; en liviano solo como fallback de `/code-review` |
+| `e2e-runner` | sonnet | Tests E2E con Playwright. Modo A: usuario, branch propio. Modo B: pre-release a `main`, branch del PR | Pre-release o invocación directa | ambos (PR a `main` o pedido directo) |
+| `code-sweep` | sonnet | Escanea el repo: modo `bugs` (issues `latent-bug`) o `smells` (reporte). Read-only. Default: workflow `/methodology:code-sweep <bugs\|smells> [pre-release] <paths>` (tool `Skill`/`Workflow`, lo que exponga el harness); fallback: este agente si el comando no figura o devuelve «Dynamic workflows are disabled by managed settings» / «Dynamic workflows are not enabled for this session». En pre-release, `BLOQUEANTE PRE-RELEASE` del workflow equivale al bloqueo del agente | Pedido del usuario, o Fase 3 en PR a `main` | ambos (pedido del usuario) |
+| `docs` | sonnet | Genera/actualiza documentación a partir del diff | Después del último lote, antes del push + PR | completo |
 
-**Degradación de modelo cuando opus está rate-limited:** `security-reviewer` → sonnet solo si el PR no toca auth/crypto/secrets/pagos; `ui-ux` → sonnet aceptable siempre. El `architect` nunca degrada a sonnet: si fable no está disponible, sube a opus (el plan de lotes es la decisión de mayor apalancamiento del flujo).
+**Modelo no disponible.** Lo resuelve el setting `fallbackModel` del harness (hasta tres modelos, en orden; recomendado `["opus", "sonnet"]` con aliases), no tú. El modelo de cada agente vive en el frontmatter de su archivo en `agents/`.
 
 **Cuándo un lote es `db-complejo`:** backfill, cambio de tipo, particionamiento, queries lentas, >1M filas, constraints sobre datos existentes — lo sigue haciendo `backend-dev`, marcado y ordenado primero en el plan. Lo simple (tabla nueva sin datos, columna nullable, índice simple, FK) es un lote normal. Criterios completos: runbook, "Cuándo un lote es DB complejo".
 
@@ -78,7 +86,7 @@ En cualquier duda, brainstormeas igual. Con confirmación explícita, escribes `
 
 Un lote agrupa hasta 5 tareas atómicas que un dev ejecuta como unidad — el cap es budget de invocación (`rulebooks/agent-budget.md`). Un lote no es un PR: varios lotes pueden vivir en el mismo PR (modo single-PR, el default). El `architect` valida su propio plan (cada lote ≤5 tareas); si no cumple, hasta 3 reintentos y después escalas al usuario.
 
-**Context isolation en el handoff:** cada subagente recibe un paquete que armas tú — documento(s) relevantes + descripción específica de la tarea —, nunca el historial completo ni outputs de fases ya cerradas. Los devs no se autoinvocan. Si un agente necesita algo que no recibió, te lo pide; no adivina ni le pregunta al usuario.
+**Handoff, dos modos.** *Paquete mínimo* (el default para lotes de implementación y para todo reviewer): armas un paquete con el documento(s) relevantes + la descripción específica de la tarea, sin outputs de fases ya cerradas. Un fork hereda el pool de tools de la sesión, así que no sirve para agentes read-only ni para lotes que deben arrancar limpios. *`subagent_type: fork`*: cuando la conversación es el insumo (fixes de review sobre lo recién discutido, un cambio acotado sobre lo que se acaba de analizar) y la sesión no es larga. Los devs no se autoinvocan. Si un agente necesita algo que no recibió, te lo pide; no adivina ni le pregunta al usuario.
 
 **Clave del lote en la invocación.** Toda invocación de `backend-dev` o `frontend-dev` lleva en la `description` del `Agent` el prefijo exacto `Lote N: ` (mayúscula, espacio, entero, dos puntos, espacio) seguido de un resumen corto, con `N` = `batches[].id` de `state.json`. Vale también para relanzar el mismo lote (CI, build) y para los lotes de fixes de review o de CI, que se **añaden** a `batches[]` **antes de lanzar al dev**, con id = máximo `id` existente + 1 (único en todo el archivo, también en multi-PR; un id nunca se reutiliza). Es la llave con la que `agent-radar` enlaza la tarjeta del subagente con su lote; sin ella el radar solo puede adivinar por `agent`.
 
@@ -86,7 +94,7 @@ Template exacto del paquete de handoff a devs: runbook, sección de handoff.
 
 ## 6. Tracker de sesión
 
-Al cerrar el diseño con el `architect`, **si el harness expone `TaskCreate`/`TaskUpdate`** (el CLI sí; la app de escritorio no, verificado en 2.1.286), creas el tracker visible con esas herramientas, con dependencias entre tareas:
+Al cerrar el diseño con el `architect`, **si el harness expone `TaskCreate`/`TaskUpdate`** (no todos los harness las exponen: la app de escritorio no, verificado en 2.1.286; comprueba tu lista de herramientas), creas el tracker visible con esas herramientas, con dependencias entre tareas:
 
 1. Una tarea por lote.
 2. Una tarea de review dual local por PR del plan, bloqueada por los lotes que contiene.

@@ -1,0 +1,14 @@
+# Memoria de qa-backend — claude-methodology
+
+Entradas propuestas por el reviewer en sus reportes y volcadas por el orchestrator (reviewer-common §9). Una línea por entrada; se mantiene bajo 200 líneas / 25 KB.
+
+- [2026-10-28] convencion — correr las suites de `tests/adversarial/` con `/bin/bash` (bash 3.2) y exigir cero líneas `tests/adversarial/*.sh: line N:`; las suites no usan red ni `gh` real (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] convencion — grep BSD: los patrones con `**` o `+` se escapan o se anclan; `assert_contains`/`assert_not_contains` usan BRE y un exit 2 de grep es FAIL; `dangling_grep` sondea el patrón antes de barrer (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] decision — e2e-runner conserva `memory: project` sin citar `agent-memory/methodology-` en el cuerpo (D-18); el check (i) de `test-frontmatter.sh` lo exceptúa explícitamente (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] decision — la ruta real de la memoria es `.claude/agent-memory/methodology-<agente>/` (prefijo del plugin, D-21); un reviewer no escribe ahí ni por Bash (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] convencion — fake `gh` de `test-hooks.sh` (`FAKE_GH_MODE`): `threads_null_repo`, `threads_open`, `changes_requested`, `checks_none`, `checks_pending`, `checks_cancelled`, `checks_fail`; el bloque `ERRORS` de `pre-merge-check` se cubre con `assert_pre_merge_blocked` (exit 2, stdout vacío, motivo en stderr) (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] convencion — para validar que un test protege una rama de un hook: mutar en un `git worktree` desechable (p. ej. emitir `ask` antes del `exit 2`) y comprobar que el test falla; sin la mutación el assert no cuenta (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] convencion — un assert de texto normativo sobre una frase que aparece más de una vez en el archivo no discrimina: anclar a una frase única (p. ej. la línea numerada de la señal, o dos claves juntas) (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] decision — las menciones restantes de "CLAUDE.md raíz" en agents/rulebooks se evalúan caso por caso: varias refieren al CLAUDE.md del proyecto (el architect lo lee a propósito); las ambiguas tienen issue de seguimiento, no bloquean (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] convencion — `node --check` de `workflows/code-sweep.js` solo con el cuerpo envuelto en una función async (el runtime lo ejecuta así; `return`/`await` de nivel superior); las funciones puras del script se prueban extraídas al sandbox (origen: pre-push feature/methodology-refresh)
+- [2026-10-28] decision — el comportamiento del `ask` en `-p`/`dontAsk`/auto mode y la sintaxis `Workflow(methodology:code-sweep)` en `allowed-tools` quedaron sin verificar end-to-end; los textos lo declaran (origen: pre-push feature/methodology-refresh)

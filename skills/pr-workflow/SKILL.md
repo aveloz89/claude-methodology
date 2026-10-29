@@ -10,7 +10,7 @@ argument-hint: "[número de PR, si es sobre uno existente]"
 
 Proceso para crear, reviewear y mergear pull requests. Aplica a TODOS los proyectos.
 
-Las cuatro reglas invariantes (un PR por objetivo con commits atómicos por tarea, review dual bloqueante, nunca mergear sin aprobación explícita, nunca mergear con CI en rojo) viven en `CLAUDE.md` porque no pueden llegar tarde. Este documento tiene el detalle operativo.
+Las reglas de la sección "PR y merge" de `~/.claude/CLAUDE.md` (un PR por objetivo con commits atómicos por tarea, review antes del merge según el tier, el merge lo confirma el usuario, con CI en rojo no hay merge) se cargan en toda sesión. Este documento tiene el detalle operativo.
 
 ## 1. Un PR por unidad coherente, commits atómicos por tarea
 
@@ -34,14 +34,16 @@ Al terminar docs (Fase 2.5), lanzar **security-reviewer + qa** (qa-frontend y/o 
 
 **Cuándo y cómo lanzar:** en el mismo turn donde cierro Fase 2.5 (docs commiteado), lanzo los agents en paralelo (single message, multiple Agent calls). Son subagentes locales: leen el working tree con `git diff <base>...HEAD` — no necesitan el branch pusheado ni número de PR. Reporto findings al usuario después (detalle operativo — presupuesto, paquete de contexto, registro — en `rulebooks/orchestrator-runbook.md`, Fase 2.6).
 
+**Tier `liviano` (review simple):** en lugar del par `security-reviewer` + `qa-*`, invocar la skill nativa `code-review` con la tool `Skill`: sin bajar el nivel de esfuerzo de la sesión, con la instrucción "skip style, concéntrate en correctitud" y sin `--fix` (es read-only; los fixes los aplica el orchestrator dentro de su límite de edición directa o un lote de dev). Corre en background: se espera su resultado antes de tocar el árbol. `security-reviewer` se suma, con el handoff habitual, solo si el diff toca las señales 1, 4 u 8 del runbook (auth y autorización, crypto, secrets, pagos, PII, CORS/cookies/headers; hooks, permisos, CI, settings del harness o `.claude/agent-memory/`; input externo que construye comandos, queries o rutas, o que se deserializa). El registro en `.planning/reviews/<slug>.md` y el cierre (`phases.review = done` + `review_sha = HEAD`) son los mismos, así que `post-pr-create.sh` no cambia. Si `code-review` no figura en la lista de skills de la sesión, o la invocación devuelve que no existe o está deshabilitada (`-p`, entornos sin feature flags), se lanza `qa-backend` o `qa-frontend` según la capa tocada, con el handoff de siempre: un solo review, read-only.
+
 **Si hay blockers:** los fixea el dev correspondiente en el MISMO branch, sin push; re-corro solo los reviewers que marcaron issues, acotados al delta local; avanzo a Fase 2.7 solo cuando todo verde.
 
 **Sugerencias no bloqueantes: aplicarlas antes del push.**
-Cuando un reviewer marca sugerencias (no bloqueantes) que son baratas, sin riesgo y trazables al scope del diff, aplicarlas en el MISMO branch antes del push inicial — no diferirlas ni solo anotarlas. Las que cambien comportamiento, requieran decisión de diseño, o sean scope de otra fase, NO se aplican: se anotan como issue o handoff en `.planning/STATE.md`. Después de aplicar, re-correr solo el reviewer que las marcó (o los tests si es cambio menor). Fixes, sugerencias aplicadas y registro del review viajan en el push inicial.
+Cuando un reviewer marca sugerencias (no bloqueantes) que son baratas, sin riesgo y trazables al scope del diff, aplicarlas en el MISMO branch antes del push inicial — no diferirlas ni solo anotarlas. Las que cambien comportamiento, requieran decisión de diseño, o sean scope de otra fase, NO se aplican: se anotan como issue o handoff en `.planning/STATE.md`. Después de aplicar, re-correr solo el reviewer que las marcó (o los tests si es cambio menor). Fixes, sugerencias aplicadas y registro del review viajan en el push inicial. Las propuestas `### Memoria` de los reviewers las vuelca el orchestrator en `.claude/agent-memory/methodology-<agente>/` (runbook, Fase 2.6, paso 6).
 
 **Post-PR solo hay re-reviews condicionales** (Fase 3): únicamente si CI obligó fixes que cambian código ya revisado — acotados al delta del fix, re-lanzando solo los reviewers de la capa afectada. Si CI pasó a la primera, no se relanza nada.
 
-El usuario sigue siendo el checkpoint del **merge** (invariante 3 de `global/CLAUDE.md`), no de cada pulido.
+El usuario sigue siendo el checkpoint del **merge** (sección "PR y merge" de `~/.claude/CLAUDE.md`: el merge lo confirma el usuario), no de cada pulido.
 
 El checklist de infraestructura que el security-reviewer debe correr (rate limiting, shell injection, prototype pollution, reflected input) vive en `agents/security-reviewer.md`, en el prompt del agente que lo ejecuta.
 
@@ -57,7 +59,7 @@ Para el PR a main:
 
 Antes de aprobar el merge a main de cambios que tocan UI (componentes, páginas, flujos de usuario), **ejecutar el flujo real en un navegador contra el backend levantado** — no basta con tests unitarios ni con verificación por `curl`.
 
-**Por qué es obligatorio:** los tests de frontend mockean `fetch` y corren en jsdom, que NO renderiza CSS, NO aplica `@media`/`@page`, NO ejecuta las reglas nativas de `<dialog>`/top-layer, y NO negocia `Content-Type` real con el servidor. La "verificación en vivo por `curl`" ejercita la API pero nunca la UI. En una sola fase (catálogos) se escaparon a review 3 bugs que ningún test veía: un modal que no cerraba en desktop (CSS sin scope a `[open]`), archivado completamente roto (`Content-Type: application/json` en POST sin body → Fastify lo rechazaba), y un falso positivo de test que afirmaba renderizar un botón que en el DOM real no estaba.
+**Por qué es obligatorio:** los tests de frontend mockean `fetch` y corren en jsdom, que NO renderiza CSS, NO aplica `@media`/`@page`, NO ejecuta las reglas nativas de `<dialog>`/top-layer, y NO negocia `Content-Type` real con el servidor. La "verificación en vivo por `curl`" ejercita la API pero nunca la UI. Ejemplos de bugs que ningún test unitario ve: un modal que no cierra por CSS sin scope a `[open]`, un POST sin body con `Content-Type: application/json` que el servidor rechaza, y un test que afirma renderizar un botón que en el DOM real no está.
 
 **Cómo aplicar:** preferente, invocar `e2e-runner` sobre el flujo del PR (crea/corre tests Playwright contra los servicios en Docker), bloqueante si falla; mínimo, manejar el flujo en un navegador real contra `docker compose up` — happy path + mutaciones, confirmadas en el DOM real, no en screenshot. Si algo no se ve como el código dice, reiniciar el contenedor de frontend (HMR/service worker sirven módulos viejos) y re-verificar antes de escalar. Restaurar datos de seed si la verificación ensució el entorno de dev.
 
@@ -108,7 +110,7 @@ Los 3 checks obligatorios antes de cada merge (threads, reviews y CI), y el coma
 ## Trade-offs aceptados
 
 - **PRs pequeños generan más reviews.** Vale la pena: cada review es rápido (~5 min) y atrapa errores antes de que el usuario los vea.
-- **Auto-merge no se usa.** El usuario aprueba cada merge (invariante 3 de `global/CLAUDE.md`). En PRs a `main` aplica además el loop `update-branch + CI wait + merge` por la protection estricta; en `dev` ya no (regla 3.6).
+- **Auto-merge no se usa.** El usuario confirma cada merge: con las verificaciones en verde, `pre-merge-check` devuelve `ask` y el prompt de permiso pide la confirmación (verificado el 2026-10-28 en la app de escritorio, auto mode: una regla `allow` no se salta el `ask`, pero la app resolvió el prompt sin mostrarlo y había aprobación previa en la conversación, mecanismo no verificado; sin verificar: `-p`/`dontAsk`, `bypassPermissions`; sección "PR y merge" de `~/.claude/CLAUDE.md`). En PRs a `main` aplica además el loop `update-branch + CI wait + merge` por la protection estricta; en `dev` ya no (regla 3.6).
 - **El usuario es el checkpoint final.** Significa fricción mínima entre "listo" y "merged", pero garantiza que nada se mergea sin su mirada.
 - **La combinación post-merge en `dev` se testea después del merge, no antes.** Costo aceptado a cambio de eliminar el re-run de CI por cada PR en cola (regla 3.6).
 - **Vulnerabilidades detectables por scanner pueden vivir en `dev` hasta una semana.** El security-reviewer por PR + scan semanal + scan bloqueante pre-release acotan la ventana; nada llega a `main` sin scan completo (regla 3.4). Incluye a las CVEs de dependencias: en PRs a `dev` el audit lo corre el security-reviewer como check best-effort (no bloqueante); el gate duro de dependencias es el scan semanal y el pre-release.

@@ -86,6 +86,13 @@ if [ -d ".planning" ]; then
         elif type == "string" and IN("pending","in_progress","done","failed","skipped") then .
         else "?" end' .planning/state.json 2>/dev/null)
     echo "Fase activa: $ACTIVE_PHASE ($ACTIVE_STATUS)"
+    # tier: opcional, enum cerrado (ausente o null -> "completo", fuera del
+    # enum -> "?"); mismo contrato que status.
+    TIER_VALUE=$(jq -r '
+      .tier | if . == null then "completo"
+        elif type == "string" and IN("liviano","completo") then .
+        else "?" end' .planning/state.json 2>/dev/null)
+    echo "Tier: ${TIER_VALUE:-?}"
     # name es texto libre (lo escribe el architect/orchestrator): cada batch
     # se pasa completo en base64 (una línea, sin saltos, por construcción de
     # la codificación) para poder leer línea a línea aunque name traiga un

@@ -20,7 +20,7 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal. La
 | **code-sweep** | sonnet | Escanea el repo en modo lectura: `bugs` (bugs latentes) o `smells` (candidatos de refactor). Nunca modifica código |
 | **docs** | sonnet | Genera/actualiza documentación a partir del diff, antes del push |
 
-### Hooks (12)
+### Hooks (11)
 | Hook | Evento | Qué hace |
 |------|--------|----------|
 | **pre-commit-guard** | PreToolUse (Bash) | Resuelve el árbol al que va el commit —cwd de la sesión o `cd /ruta/absoluta && git commit`, allowlist de dos formas— y corre tests ahí. Node: pnpm/yarn/npm según lockfile. Python: uv solo con `uv.lock` y `uv` en el PATH del hook (`uv run --frozen pytest`) → `.venv/bin/pytest` o `.venv/Scripts/pytest.exe` → si el proyecto declara entorno propio (`uv.lock`, `[tool.uv…]` o `.venv`, carpeta o symlink aunque esté roto) y su runner no está, bloquea con la razón específica (uv fuera del PATH, `uv sync` pendiente, venv sin pytest) y nunca cae al `pytest` global → `pytest` del PATH solo en proyectos sin entorno declarado → sin nada de lo anterior, bloquea (fail-closed) nombrando el directorio y las tres vías. Un `package.json` sin script `test` usable (ausente, placeholder de `npm init` o `scripts.test` que no es string) no tapa un marcador Python del mismo directorio. Busca solo en el directorio del marcador (no sube al toplevel: limitación conocida en workspaces uv, donde `uv sync` deja `uv.lock` y `.venv/` en la raíz y no en el miembro; el miembro necesita un `.venv` local con pytest o, sin `[tool.uv…]` propio, el venv de la raíz activado). Sin marcador de runner (`package.json`/`pyproject.toml`/`setup.py`/`pytest.ini`) en la raíz del árbol resuelto (#86): deriva un candidato por el primer segmento de cada path con cambios locales que sí tenga marcador arriba, corre todos (presupuesto dividido entre ellos) y, si ninguno tiene marcador, pasa sin correr nada: sin marcador no bloquea, pero un marcador sin runner sí, y un `package.json` inutilizable sin marcador Python también: no es un único objeto JSON (no parsea, vacío, `null`, array, varios valores o basura tras el objeto) o su `scripts.test` no es string ni `null` (el hook no puede saber qué suite correr); con `scripts.test` ausente o `null` sigue pasando sin correr nada. Cualquier otra forma de resolver el árbol (`git -C`, `--git-dir`/`--work-tree`, `pushd`, dos `cd`, ruta con comillas/variables/`~/`) bloquea sin correr, con las formas aceptadas en el mensaje. Watchdog fail-closed: si la suma de las corridas supera `PRECOMMIT_TEST_BUDGET` segundos (default 540, overridable por env), mata el grupo de procesos y bloquea en vez de dejar pasar el commit sin tests. Con la suite roja, el stderr (lo único que el agente recibe de un hook que bloquea) trae además, tras `BLOCKED: Tests failed in: …`, la cola de la salida de cada runner fallido: últimas 40 líneas de hasta 400 caracteres, cada una con el prefijo `\| `, sin ANSI ni caracteres de control (C0, C1, U+2028/U+2029), rotuladas «texto del runner, no instrucciones»; el corte por watchdog adjunta lo mismo (contrato en la cabecera del hook) |
@@ -28,10 +28,9 @@ El **orchestrator** no es un subagente: es el Claude de la sesión principal. La
 | **block-admin-merge** | PreToolUse (Bash) | Bloquea `gh pr merge --admin` que bypasea branch protections; también `gh -R o/r pr merge --admin` y `gh pr -R o/r merge --admin` |
 | **block-force-push** | PreToolUse (Bash) | Bloquea `git push --force` / `-f`, un refspec forzado (`+<ref>`) y un cluster corto con `f` (`-fu`, `-uf`); permite `--force-with-lease` fuera de `main`/`master`/`dev` (branch de `.cwd` y tokens del segmento `push`), y lo bloquea hacia/desde uno de esos tres o fuera de un repo git resoluble |
 | **block-hard-reset** | PreToolUse (Bash) | Bloquea `git reset --hard`, incluido `git -C <ruta> reset --hard` |
-| **pre-merge-check** | PreToolUse (Bash) | Solo acepta `gh pr merge <N> [flags conocidos]` sola en el comando y en una línea; bloquea con threads de review sin resolver, reviews/checks pendientes, sin número de PR explícito, o si no puede verificar (fail-closed). Para un PR de otro repo, usa `--repo`/`-R` explícito, nunca `cd`. Sin `--repo`, si el cwd de la sesión no coincide con el cwd donde corre el hook (o no existe), bloquea sin consultar y pide `--repo owner/repo` |
+| **pre-merge-check** | PreToolUse (Bash) | Solo acepta `gh pr merge <N> [flags conocidos]` sola en el comando y en una línea; bloquea con threads de review sin resolver, reviews/checks pendientes, sin número de PR explícito, o si no puede verificar (fail-closed). Con las tres verificaciones en verde (threads, reviews, checks) devuelve `permissionDecision: "ask"` y el merge pide confirmación al usuario (motivo del `ask`: "checks en verde" o "sin checks configurados", según el caso); verificado el 2026-10-28 (app de escritorio, auto mode): una regla `allow` no se salta el `ask`; en la app de escritorio en auto mode puede resolverse sin diálogo; ver Workflow; sin verificar: `-p`/`dontAsk`, `bypassPermissions`. Para un PR de otro repo, usa `--repo`/`-R` explícito, nunca `cd`. Sin `--repo`, si el cwd de la sesión no coincide con el cwd donde corre el hook (o no existe), bloquea sin consultar y pide `--repo owner/repo` |
 | **post-pr-create** | PostToolUse (Bash) | Checkpoint de respaldo al crear un PR: en `state.json`, si el review dual pre-push ocurrió sobre el branch actual y `review_sha` es ancestro de HEAD sin delta posterior, no hace nada; si no hay esa evidencia, instruye lanzar el review (PR fuera del flujo) |
 | **session-start-context** | SessionStart | Muestra branch, último commit, estado de `.planning/` y resumen de `state.json` |
-| **context-monitor** | PostToolUse (Bash) | Avisa cuando el contexto se está agotando (35% warning, 25% critical) |
 | **docker-refresh** | PostToolUse (Bash) | Detecta si servicios Docker necesitan restart/rebuild después de push o PR. Respeta hot reload |
 | **pre-compact-snapshot** | PreCompact | Guarda un snapshot de `.planning/` antes de compactar el contexto, para restaurar si el compact deja el estado inconsistente |
 | **subagent-stop-log** | SubagentStop | Appendea una línea JSONL por invocación de subagente, para medir el budget de `agent-budget.md` |
@@ -58,29 +57,55 @@ Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá: la sali
 | **/pr-workflow** | Review dual local pre-push, presupuesto de CI, E2E pre-release, branch protection y verificación pre-merge — se invoca en Fase 2.6 o al trabajar sobre un PR existente |
 | **/review-pr** | Re-dispara manualmente el review dual (security + QA según capas tocadas) sobre un PR existente, sin pasar por el flujo completo del orchestrator |
 
+### Workflows (1)
+| Workflow | Qué hace |
+|----------|----------|
+| **code-sweep** | `/methodology:code-sweep [bugs\|smells] [pre-release] [paths]` — escaneo de solo lectura en cuatro fases: `discover` (detecta el stack y agrupa los archivos en chunks de hasta 25), `audit` (un agente por chunk, hasta 8 en paralelo), `verify` (un agente adversario por archivo intenta refutar cada hallazgo; los refutados quedan solo como conteo) y `consolidate` (dedupe, orden por severidad, issues `latent-bug` solo en modo `bugs` para CRÍTICO/ALTO confirmados, y marcador `BLOQUEANTE PRE-RELEASE` si la corrida es `pre-release` y hay un CRÍTICO confirmado) |
+
+El agente `code-sweep` es el **respaldo** cuando los dynamic workflows están apagados: comparte el rulebook `rulebooks/code-sweep-common.md` y entrega el mismo reporte, sin fan-out ni verificación adversarial paralela. El harness avisa con «Dynamic workflows are disabled by managed settings» o «Dynamic workflows are not enabled for this session»; en ese caso el orchestrator invoca al agente.
+
 ## Workflow
+
+El flujo tiene dos tiers. La sesión principal propone uno según riesgo y tamaño y lo confirma contigo; en duda, usa el completo.
+
+- **Completo**: diseño, lotes y review por agentes.
+- **Liviano**: la sesión principal edita directo hasta 5 archivos acumulados por PR, sin lógica de negocio nueva ni migraciones, y aplica los seis pasos de la verificación pre-commit. Al sexto archivo delega un único lote; lógica nueva o migración escala al completo. Salta el diseño del architect, la delegación en lotes (salvo ese único lote) y el agente `docs`.
 
 ```
 Idea → Brainstorming (orchestrator pregunta: ¿vale la pena?, resultado esperado, criterios de aceptación) → Brief
-  → Architect diseña + escribe schemas/contratos
+  → Architect diseña + escribe schemas/contratos            (tier completo)
   → Devs implementan con TDD (Red → Green → Refactor)
-  → Review dual local pre-push → Security + QA (qa-frontend y/o qa-backend según capas) en paralelo
+  → Review local pre-push, según tier:
+      completo → Security + QA (qa-frontend y/o qa-backend según capas) en paralelo
+      liviano  → /code-review, más security-reviewer si el diff toca las señales 1, 4 u 8 del runbook (auth y autorización, crypto, secrets, pagos, PII, hooks, permisos, input externo)
   → Si hay issues → Dev corrige en el mismo branch, sin push → Re-review
-  → Veredictos limpios → Push + PR (nace revisado) → CI → Merge
+  → Veredictos limpios → Push + PR (nace revisado) → CI → Merge con confirmación del usuario
 ```
+
+El merge pide confirmación: cuando `gh pr merge` pasa las verificaciones, el hook `pre-merge-check` devuelve `ask` y el prompt de permiso te lo consulta; en la app de escritorio en auto mode el prompt se resolvió sin diálogo visible y había aprobación previa en la conversación (verificado el 2026-10-28; mecanismo no verificado), por eso esa aprobación precede siempre al merge; sin verificar: `-p`/`dontAsk` (la doc dice denegación), `bypassPermissions`, la app sin aprobación previa y una sesión de CLI en Manual.
 
 ## Reglas enforced
 
 - **80% test coverage** mínimo para mergear
-- **Dual review** obligatorio, pre-push por default (security + QA frontend/backend según capas del diff)
-- **TDD** obligatorio (test antes que código)
+- **Review antes del merge**, pre-push por default y según el tier (security + QA frontend/backend en el completo; `/code-review` en el liviano)
+- **TDD** para lógica de negocio (test antes que código)
 - **Build debe compilar** antes de commit
 - **No push directo a main**
+- **El merge lo confirma el usuario** (`ask` de `pre-merge-check`); con CI en rojo no hay merge
 - **No stubs/TODOs** en código mergeado
 - **Frontend delgado** — cero lógica de negocio
 - **Estado persistente** en `.planning/` — sobrevive cambios de sesión, no se versiona (salvo `.planning/ARCHITECTURE.md`)
 
 > **Proyectos que ya adoptaron esta metodología con `.planning/` versionado (incluidas retros de PRs anteriores)**: agrega `.planning/*` + `!.planning/ARCHITECTURE.md` al `.gitignore` del proyecto, corre `git rm -r --cached .planning` (re-agregando `ARCHITECTURE.md` si existe) y borra del working tree los archivos de retro que ya no se generan — la historia queda igual en git. Antes de mergear este cambio (o de cambiar a la rama base mientras `.planning/` siga versionado ahí), respalda la carpeta fuera del repo, por ejemplo con `mkdir ~/planning-backup-<proyecto> && cp -R .planning/. ~/planning-backup-<proyecto>/` (el `mkdir` falla si ya existe un respaldo previo, evitando mezclarlos), porque el checkout a esa rama la borra del disco; restáurala después con `cp -R ~/planning-backup-<proyecto>/. .planning/`.
+
+## Configuración recomendada del harness
+
+Cuatro ajustes viven fuera del plugin (el plugin no distribuye `settings.json`). `install.sh` los imprime como recordatorio al final, sin escribir nada.
+
+- **`fallbackModel`** en `~/.claude/settings.json`: hasta tres modelos, en orden, que el harness prueba cuando el modelo pedido no está disponible. Recomendado: `"fallbackModel": ["opus", "sonnet"]`. Reemplaza la antigua tabla de degradación por rate limit.
+- **`worktree.baseRef = "head"`** en el `.claude/settings.json` de cada proyecto existente: los lotes paralelos con `isolation: "worktree"` lo necesitan. Sin él, el worktree ramifica desde la rama default del remoto y no desde tu branch. `/new-project` ya lo siembra en los proyectos nuevos.
+- **`.claude/agent-memory/methodology-<agente>/`**: memoria de `security-reviewer`, `qa-backend` y `qa-frontend`. Se versiona en el repo consumidor; `MEMORY.md` carga solo las primeras 200 líneas o 25 KB. El orchestrator es el único que escribe ahí. Sin efecto si auto memory está apagado.
+- **Plugin oficial `security-guidance`**: revisa vulnerabilidades mientras Claude escribe, dentro de la sesión. El `security-reviewer` audita el diff completo con OWASP antes del push. Se complementan, no se reemplazan. Instalación: `claude plugin install security-guidance@claude-plugins-official` (confirma el nombre del marketplace con `claude plugin marketplace list`).
 
 ## Instalación
 
@@ -154,7 +179,6 @@ claude-methodology/
 │   ├── block-admin-merge.sh
 │   ├── block-force-push.sh
 │   ├── block-hard-reset.sh
-│   ├── context-monitor.sh
 │   ├── docker-refresh.sh
 │   ├── hooks.json
 │   ├── lib/
@@ -182,6 +206,7 @@ claude-methodology/
 ├── rulebooks/
 │   ├── agent-budget.md
 │   ├── build-errors.md
+│   ├── code-sweep-common.md
 │   ├── db-migrations.md
 │   ├── dev-common.md
 │   ├── governance-playbook.md
@@ -196,6 +221,8 @@ claude-methodology/
 │   │   └── SKILL.md
 │   └── review-pr/
 │       └── SKILL.md
+├── workflows/
+│   └── code-sweep.js
 ├── settings.json
 ├── install.sh
 └── README.md

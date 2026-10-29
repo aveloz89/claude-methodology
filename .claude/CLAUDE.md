@@ -2,22 +2,19 @@
 
 La metodología operativa (workflow, gitflow, dual review, TDD, formato de commits, hooks, `.planning/`, reglas por lenguaje) vive en [`global/CLAUDE.md`](global/CLAUDE.md), instalada como `~/.claude/CLAUDE.md` — ya está cargada en esta sesión junto con este archivo. Este documento cubre solo lo que es específico de este repo: cómo se edita a sí mismo y cómo se desarrolla/libera el plugin. **Prohibido duplicar contenido de `global/CLAUDE.md` aquí.**
 
-## `rules/` vs `rulebooks/` — al editar ESTE repo
+## `rules/` — al editar ESTE repo
 
-- `rules/` → reglas idiomáticas por lenguaje + principios de implementación que aplican al código.
-- `rulebooks/` → procesos meta del sistema de agentes (budget, governance, validación, runbook). Aplican al *cómo trabajan los agentes*, no al código en sí.
-
-**Cómo se cargan las `rules/`** (no obvio, y determina el costo de contexto): `~/.claude/rules/*.md` se carga solo. El frontmatter `paths:` decide cuándo — **con** `paths:` entra al tocar archivos que matchean; **sin** `paths:` entra en todas las sesiones de todos los proyectos. Un archivo nuevo en `rules/` sin frontmatter se vuelve contexto permanente sin que nadie lo note. Los `rulebooks/` no se cargan solos: se leen bajo demanda.
+Un archivo nuevo en `rules/` sin frontmatter `paths:` entra en todas las sesiones de todos los proyectos: es contexto permanente que nadie nota. Declara siempre `paths:`. Cómo se cargan `rules/` y `rulebooks/`: `global/CLAUDE.md`, "Convenciones generales".
 
 ## Desarrollo del plugin
 
 Este repo es plugin y marketplace de Claude Code a la vez (`.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json`; hooks registrados en `hooks/hooks.json` vía `${CLAUDE_PLUGIN_ROOT}`). Reglas al tocarlo:
 
 - **Paridad hooks.json**: cada `hooks/*.sh` (salvo `hooks/lib/`) debe estar registrado exactamente una vez en `hooks/hooks.json`, con el mismo evento/matcher/timeout. `tests/adversarial/test-plugin-manifest.sh` lo verifica; agregar/quitar un hook sin actualizar `hooks.json` rompe el registro del plugin en silencio.
-- **Transición del registro de hooks**: `settings.json` en este repo ya **no** tiene bloque `hooks` — el registro vive únicamente en `hooks/hooks.json` (vía plugin). `settings.json` queda como config de referencia del autor (`model`, `statusLine`, `effortLevel`, etc.), **ya no se distribuye/instala** por `install.sh`; ver `install.sh` §"Materializando settings.json" para la migración puntual de instalaciones legacy.
+- **Registro de hooks**: vive únicamente en `hooks/hooks.json` (vía plugin); `settings.json` no tiene bloque `hooks`. `settings.json` es config de referencia del autor (`model`, `statusLine`, `effortLevel`, etc.) y `install.sh` no lo distribuye; ver `install.sh` §"Materializando settings.json" para migrar instalaciones legacy.
 - **Autor (dev-loop)**: se desarrolla con el symlink `~/.claude/skills/methodology` → raíz de este repo (`install.sh` lo crea), que carga en vivo como `methodology@skills-dir` sin version bump. No instalar el plugin propio vía marketplace en la misma máquina — duplicaría la carga.
 - **Terceros**: instalan vía `claude plugin marketplace add` + `claude plugin install methodology@claude-methodology`, y corren `./install.sh` para el residual que el plugin no cubre (`global/CLAUDE.md`, `rules/`, `rulebooks/`, `statusline.sh`).
-- **Para contribuir necesitas los guards activos**: si vas a tocar este repo sin el plugin instalado ni el symlink dev-loop (`./install.sh`), trabajas sin ningún hook — `settings.json` ya no los registra.
+- **Para contribuir necesitas los guards activos**: sin el plugin instalado ni el symlink dev-loop (`./install.sh`) trabajas sin ningún hook, porque `settings.json` no los registra.
 - **Release**: bump de `version` en `.claude-plugin/plugin.json` → `claude plugin tag` (valida consistencia plugin.json ↔ marketplace.json y crea el tag `methodology--v<version>`) → push del tag.
 - **Validar antes de commitear cambios de manifest o agentes**: `claude plugin validate --strict .claude-plugin/plugin.json` (valida el plugin en sí, incluido este archivo) **y** `claude plugin validate --strict .` (con `marketplace.json` presente, valida solo el marketplace — son dos comandos distintos, no uno solo).
 

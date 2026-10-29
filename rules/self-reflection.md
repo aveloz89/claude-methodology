@@ -41,7 +41,7 @@ Si una regla aparece duplicada entre este documento y `rules/`, la versión en `
 
 ### 1. Mapear archivos del diff a sus rules
 
-Ejecutar `git diff --cached --name-only` (o sin `--cached` si nada está staged) y, para cada archivo modificado, identificar el `rules/<lenguaje>.md` correspondiente según extensión (la tabla está en el `CLAUDE.md` raíz, sección Stack).
+Ejecutar `git diff --cached --name-only` (o sin `--cached` si nada está staged) y, para cada archivo modificado, identificar el `rules/<lenguaje>.md` correspondiente según extensión (lista en la sección "Reglas por lenguaje" de `~/.claude/CLAUDE.md`).
 
 Si una extensión no tiene archivo de rules, el archivo se revisa solo contra principios generales del proyecto (`implementation-principles.md`) y se omite la revisión idiomática.
 
@@ -53,7 +53,7 @@ Si el PR es grande (>15 archivos modificados o >2 lenguajes distintos), revisar 
 
 ### 3. Revisar el diff
 
-Para cada archivo modificado, revisar **solo las líneas del diff** contra las rules cargadas. No revisar el archivo completo — eso es scope de `code-sweep` (modo `smells`), no de self-reflection.
+Para cada archivo modificado, revisar **solo las líneas del diff** contra las rules cargadas. No revisar el archivo completo — eso es candidato para el reporte de `code-sweep` (modo `smells`), no scope de self-reflection.
 
 Excepción: si una línea del diff modifica una función, revisar la función completa (porque el cambio puede haber roto la coherencia interna). **Tope:** si la función pasa de ~50 líneas, mantener la revisión a las líneas del diff y reportar el resto como issue legacy si hay violaciones visibles — no expandir el scope al revisar funciones largas heredadas.
 
