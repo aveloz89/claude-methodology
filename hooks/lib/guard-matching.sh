@@ -337,25 +337,34 @@ guard_sanitize() {
     # HEAD:main. Con otro contenido pegado a texto (espacios, $, *, ...) queda
     # el placeholder: no se expone un mensaje entre comillas.
     # Con el placeholder " " (guards de gh) una racha SUELTA no cambia: ya separa.
+    # Un "$" pegado delante de un span ($'main', $"main") es la forma ANSI-C /
+    # localizada del mismo span: se acepta y se descarta al unir, y una racha
+    # que empieza por "$" cuenta siempre como pegada a texto (git $'commit' es
+    # git commit). Una barra invertida seguida de newline se quita sin dejar
+    # espacio (el shell une las dos líneas: HEAD:ma\<nl>in es HEAD:main) y una
+    # barra final se descarta (#118, ronda de cierre).
     # Después de las comillas, la barra invertida SIN comillas se quita como
-    # hace el shell: \X pasa a X cuando X es alfanumérico o uno de ._/:+-
-    # (HEAD:ma\in es HEAD:main, --forc\e es --force, g\it es git). No toca
-    # \; \& \| ni \' (documentados en "Fuera de alcance"). Los guards de gh
-    # lo reciben igual: g\h pr merge --admin ahora bloquea, como en el shell.
+    # hace el shell: \X pasa a X para cualquier X salvo los caracteres que
+    # cambian el parseo (; & | ' " < > ( ) $, backtick, espacio, barra,
+    # newline): HEAD:ma\in es HEAD:main, --forc\e es --force, g\it es git y
+    # push.default\=matching es push.default=matching. No toca \; \& \| ni \'
+    # (documentados en "Fuera de alcance"). Los guards de gh lo reciben igual:
+    # g\h pr merge --admin ahora bloquea, como en el shell.
     local sanitized status placeholder="${2:- }"
     sanitized=$(printf '%s' "$1" | GUARD_SANITIZE_PH="$placeholder" perl -0777 -pe '
       BEGIN { alarm 5 }
-      s/\\\n\s*/ /g;
+      s/\\\n//g;
+      s/\\\z//;
       s/<<-?[ \t]*[\x27"]?([A-Za-z0-9_-]+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1[ \t]*$)[^\n]*\n)*?[ \t]*\1(?:\n|$)/\n/gsm;
-      s{((?:\x27[^\x27]*\x27|"(?:[^"\\]|\\.)*")+)}{
+      s{((?:\$?\x27[^\x27]*\x27|\$?"(?:[^"\\]|\\.)*")+)}{
         my ($run, $ph, $d) = ($1, $ENV{GUARD_SANITIZE_PH}, q{[\s;&|(){}<>\x60]});
         my $pre = $-[0] > 0 ? substr($_, $-[0] - 1, 1) : q{};
         my $post = $+[0] < length($_) ? substr($_, $+[0], 1) : q{};
-        my $attached = ($pre ne q{} && $pre !~ m{$d}) || ($post ne q{} && $post !~ m{$d});
-        my $text = join q{}, map { substr($_, 1, length($_) - 2) } ($run =~ m{\x27[^\x27]*\x27|"(?:[^"\\]|\\.)*"}g);
+        my $attached = ($pre ne q{} && $pre !~ m{$d}) || ($post ne q{} && $post !~ m{$d}) || $run =~ m{\A\$};
+        my $text = join q{}, map { my $t = $_; $t =~ s/\A\$//; substr($t, 1, length($t) - 2) } ($run =~ m{\$?\x27[^\x27]*\x27|\$?"(?:[^"\\]|\\.)*"}g);
         ($attached && $text =~ m{\A[A-Za-z0-9._/:+=@%,-]*\z}) ? $text : $ph;
       }ge;
-      s{\\([A-Za-z0-9._/:+-])}{$1}g;
+      s{\\([^;&|\x27"<>()\$\x60\s\\])}{$1}g;
     ')
     status=$?
     # Red de seguridad para cualquier patológico futuro no anticipado por

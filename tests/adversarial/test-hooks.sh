@@ -991,6 +991,42 @@ assert_allowed_cmd "block-force-push: el & de background separa, -f del siguient
 assert_allowed_cmd "pre-push-guard: redireccion 2>&1 y push a feature/x pasa (control, #118)" \
   "pre-push-guard.sh" "git push origin feature/x 2>&1 | tail -1" "$PATH" "$SANDBOX_REPO"
 
+# --- Ronda de cierre (#118, #120, #121): formas de escribir lo mismo ---
+# Grupo A: el saneo une como el shell las formas $'..' y $".." (el "$" delante
+# del span se descarta), la barra invertida + newline sin dejar un espacio, la
+# barra final y \X con X fuera de [A-Za-z0-9._/:+-].
+assert_blocked_cmd "pre-push-guard: HEAD:\$'main' bloquea (cierre)" \
+  "pre-push-guard.sh" "git push origin HEAD:\$'main'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: HEAD:\$\"main\" bloquea (cierre)" \
+  "pre-push-guard.sh" 'git push origin HEAD:$"main"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: reset \$'--hard' bloquea (cierre)" \
+  "block-hard-reset.sh" "git reset \$'--hard'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: reset \$\"--hard\" bloquea (cierre)" \
+  "block-hard-reset.sh" 'git reset $"--hard"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: git \$'push' bloquea (cierre)" \
+  "pre-push-guard.sh" "git \$'push' origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-commit-guard: git \$'commit' se reconoce como commit (cierre)" \
+  "pre-commit-guard.sh" "git \$'commit' -m x --work-tree=/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec partido con barra invertida y newline bloquea (cierre)" \
+  "pre-push-guard.sh" $'git push origin HEAD:ma\\\nin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: flag partida con barra invertida y newline bloquea (cierre)" \
+  "block-force-push.sh" $'git push --for\\\nce origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-commit-guard: commit partido con barra invertida y newline se reconoce (cierre)" \
+  "pre-commit-guard.sh" $'git com\\\nmit -m x --work-tree=/x' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: barra invertida final tras el refspec bloquea (cierre)" \
+  "pre-push-guard.sh" 'git push origin HEAD:main\' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: gh pr merge con continuacion e indentacion y --admin sigue bloqueando (cierre)" \
+  "block-admin-merge.sh" $'gh pr merge 5 \\\n  --admin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c push.default\\=matching bloquea (cierre)" \
+  "pre-push-guard.sh" 'git -c push.default\=matching push origin' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: continuacion de linea en un push a feature/x pasa (control, cierre)" \
+  "pre-push-guard.sh" $'git push origin \\\n  feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: \$'feature/x' entre comillas ANSI-C pasa (control, cierre)" \
+  "pre-push-guard.sh" "git push origin \$'feature/x'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec entero con \$'' de contenido simple bloquea (cierre)" \
+  "pre-push-guard.sh" "git push origin \$'HEAD:main'" "$PATH" "$SANDBOX_REPO"
+# Fin ronda de cierre
+
 sandbox_cleanup_pushrepo
 
 echo ""
@@ -5760,8 +5796,9 @@ assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla simple sin termi
 # tiene.
 UNTERMINATED_DOUBLE_QUOTE_LARGE="echo \"$(printf 'a\%.0s' $(seq 1 50000))"
 # Sin cierre ningun span matchea y la comilla queda; las barras sin comillas
-# se quitan como en el shell (#120: \a pasa a a, la ultima barra queda sola).
-UNTERMINATED_DOUBLE_QUOTE_LARGE_UNESCAPED="echo \"$(printf 'a%.0s' $(seq 1 50000))\\"
+# se quitan como en el shell (#120: \a pasa a a; la barra final tambien se
+# descarta, cierre de #118).
+UNTERMINATED_DOUBLE_QUOTE_LARGE_UNESCAPED="echo \"$(printf 'a%.0s' $(seq 1 50000))"
 assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla doble sin terminar con backslashes (50k pares) no cuelga, conserva la comilla y quita las barras" \
   "$UNTERMINATED_DOUBLE_QUOTE_LARGE" \
   "$UNTERMINATED_DOUBLE_QUOTE_LARGE_UNESCAPED"
@@ -5782,7 +5819,7 @@ assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla simple grande qu
 # continuaciones se unan (no solo la primera o la última).
 CONT_LINES=$(printf 'seg%s\\\n' $(seq 1 20000))
 CONTINUATION_CHAIN_LARGE="${CONT_LINES}"$'\n'"end"
-CONTINUATION_CHAIN_EXPECTED=$(printf 'seg%s ' $(seq 1 20000))"end"
+CONTINUATION_CHAIN_EXPECTED=$(printf 'seg%s' $(seq 1 20000))"end"
 assert_guard_sanitize_bounded "guard_sanitize [continuations]: cadena larga de continuaciones (20k) no cuelga y se unen todas" \
   "$CONTINUATION_CHAIN_LARGE" \
   "$CONTINUATION_CHAIN_EXPECTED"
