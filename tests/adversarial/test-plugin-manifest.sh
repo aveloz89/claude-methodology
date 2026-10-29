@@ -1561,7 +1561,7 @@ assert_section_contains "$RUNBOOK_MEM_STEP" "agent-memory/\*\*" "runbook paso 6:
 assert_contains "$ORCHESTRATOR_SKILL" "formato exacto" "skill orchestrator: el volcado de memoria filtra por formato exacto"
 assert_contains "$REPO_ROOT/rulebooks/reviewer-common.md" "posterior al review" "reviewer-common §9: un commit memory: del orchestrator posterior al review no se reporta como hallazgo"
 
-# --- Lote 11 / tarea 4: ask en modos no interactivos, liviano, runbook, e2e-runner, Workflow ---
+# --- ask de pre-merge-check: verificado y pendiente declarados (README, runbook, pr-workflow, global, hook); liviano, e2e-runner, Workflow ---
 OLD_UNVERIFIED="sin verificar end-to-end en esta versión"
 VERIFIED_MARK="verificado el 2026-10-28"
 PENDING_MARK='sin verificar: `-p`'
@@ -1592,6 +1592,11 @@ for f in README.md rulebooks/orchestrator-runbook.md skills/pr-workflow/SKILL.md
 done
 for f in README.md hooks/pre-merge-check.sh; do
   assert_contains "$REPO_ROOT/$f" "la app sin aprobación previa" "$f: la app sin aprobación previa figura como pendiente"
+done
+README_WORKFLOW_ASK=$(awk '/^## Workflow/{f=1;next} f&&/^## /{exit} f' "$REPO_ROOT/README.md")
+assert_section_contains "$README_WORKFLOW_ASK" "El merge pide confirmación" "README Workflow: párrafo del ask presente"
+for pend in 'sin verificar: `-p`/`dontAsk`' bypassPermissions "la app sin aprobación previa"; do
+  assert_section_contains "$README_WORKFLOW_ASK" "$pend" "README Workflow: el pendiente declara $pend"
 done
 assert_contains "$README_MD" "puede resolverse sin diálogo; ver Workflow" "README fila pre-merge-check: el diálogo puede no mostrarse en la app (ver Workflow)"
 assert_section_contains "$RUNBOOK_FASE5" "Verificado (2026-10-28, app de escritorio, auto mode, merge de #104)" "runbook Fase 5: sub-bullet Verificado con fecha y contexto"
