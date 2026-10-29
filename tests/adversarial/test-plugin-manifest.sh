@@ -132,13 +132,37 @@ assert_hook_if() {
 
 # Los 4 guards de git NO llevan "if": con "Bash(git *)" el harness no los
 # invocaba para comandos que empiezan por un wrapper (time, env, ...), un
-# if/then, un backtick o un "(" (decisión del usuario, ronda 1 de review). El
-# filtro de latencia lo hace cada script con su salida temprana.
+# if/then, un backtick o un "(" (decisión del usuario, ronda 1 de review). Cada
+# script valida el comando completo; medido, "echo hola" sale 0 en ~15 ms.
 for GIT_GUARD in block-force-push.sh block-hard-reset.sh pre-push-guard.sh pre-commit-guard.sh; do
   assert_hook_if "$GIT_GUARD" "MISSING"
 done
 assert_hook_if "block-admin-merge.sh" "Bash(gh *)"
 assert_hook_if "pre-merge-check.sh" "Bash(gh *)"
+
+# Paridad: el resto de las entradas de hooks.json no cambió (evento, matcher,
+# script, if y timeout de las 11); solo los 4 guards de git perdieron el "if".
+EXPECTED_HANDLERS='PreToolUse|Bash|block-admin-merge.sh|Bash(gh *)|10
+PreToolUse|Bash|block-force-push.sh|-|10
+PreToolUse|Bash|block-hard-reset.sh|-|10
+PreToolUse|Bash|pre-push-guard.sh|-|10
+PreToolUse|Bash|pre-merge-check.sh|Bash(gh *)|30
+PreToolUse|Bash|pre-commit-guard.sh|-|600
+PostToolUse|Bash|post-pr-create.sh|-|15
+PostToolUse|Bash|docker-refresh.sh|-|15
+SessionStart|startup|resume|clear|compact|session-start-context.sh|-|15
+PreCompact||pre-compact-snapshot.sh|-|15
+SubagentStop||subagent-stop-log.sh|-|10'
+ACTUAL_HANDLERS=$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | .matcher as $m | .hooks[] | [$e, ($m // ""), (.command | sub(".*/"; "") | sub("\"$"; "")), (.if // "-"), (.timeout // "-" | tostring)] | join("|")' "$HOOKS_JSON")
+TOTAL=$((TOTAL + 1))
+if [ "$ACTUAL_HANDLERS" = "$EXPECTED_HANDLERS" ]; then
+  echo -e "${GREEN}PASS${NC}: las 11 entradas de hooks.json coinciden (evento, matcher, script, if, timeout)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: las entradas de hooks.json cambiaron"
+  diff <(echo "$EXPECTED_HANDLERS") <(echo "$ACTUAL_HANDLERS") | head -10
+  FAIL=$((FAIL + 1))
+fi
 
 TOTAL=$((TOTAL + 1))
 SESSION_START_MATCHER=$(jq -r '.hooks.SessionStart[0].matcher' "$HOOKS_JSON")
