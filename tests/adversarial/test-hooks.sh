@@ -428,6 +428,42 @@ assert_nul_blocked_cwd() {
 }
 assert_nul_blocked_cwd "pre-push-guard: bloquea NUL en el comando (B2)" "$SANDBOX_REPO"
 
+# #112 (BAJO, code-sweep pre-release v4.0.0): el guard decidía solo por la
+# rama actual, así que desde feature/x un push cuyo DESTINO es main pasaba
+# sin evaluarse (exit 0): "HEAD:main", "dev:main", "refs/heads/main" o el
+# refspec pelado "main" (empuja la rama local main). Ahora evalúa también
+# el destino de cada refspec del segmento push — lo que sigue al último
+# ":" o el token entero si no hay ":" —, con el "+" opcional del refspec
+# forzado y "refs/heads/main" contado como main; mira todos los segmentos
+# "git push" del comando, no solo el primero. Los tags (refs/tags/... o
+# un nombre de tag suelto), un refspec con main como ORIGEN y las ramas
+# feature/* siguen pasando desde cualquier rama. RED con el guard viejo
+# (los seis bloqueos).
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/refspec-dst "$PUSH_INITIAL_COMMIT")
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin HEAD:main' bloquea (destino main, #112)" \
+  "pre-push-guard.sh" "git push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin dev:main' bloquea (destino main, #112)" \
+  "pre-push-guard.sh" "git push origin dev:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin refs/heads/main' bloquea (destino main, #112)" \
+  "pre-push-guard.sh" "git push origin refs/heads/main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin HEAD:refs/heads/master' bloquea (destino master, #112)" \
+  "pre-push-guard.sh" "git push origin HEAD:refs/heads/master" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin main' (rama local main) bloquea (destino main, #112)" \
+  "pre-push-guard.sh" "git push origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin feature/x && git push origin HEAD:main' bloquea (segundo push, #112)" \
+  "pre-push-guard.sh" "git push origin feature/x && git push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+# Negativos: un destino que no es main/master sigue pasando desde feature/*.
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin refs/tags/v1.0.0' pasa (tag, #112)" \
+  "pre-push-guard.sh" "git push origin refs/tags/v1.0.0" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin methodology--v4.0.1' pasa (tag por nombre, #112)" \
+  "pre-push-guard.sh" "git push origin methodology--v4.0.1" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin main:feature/backup' pasa (main es origen, no destino, #112)" \
+  "pre-push-guard.sh" "git push origin main:feature/backup" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push -u origin feature/refspec-dst' pasa (#112)" \
+  "pre-push-guard.sh" "git push -u origin feature/refspec-dst" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin feature/main-page' pasa (main como fragmento, #112)" \
+  "pre-push-guard.sh" "git push origin feature/main-page" "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""
