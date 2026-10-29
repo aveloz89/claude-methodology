@@ -6670,6 +6670,30 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Caso (review de seguridad, LOW): la URL del PR se interpola en el texto
+# del checkpoint, así que el patrón que la extrae acota owner y repo a
+# [A-Za-z0-9._-] en vez de "[^ ]+" — una URL con otro carácter (comillas,
+# tab) no se extrae y el hook cae al WARNING sin interpolarla. RED con el
+# patrón "[^ ]+" (interpolaba la URL con la comilla).
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_BAD_URL='https://github.com/acme/widgets"evil/pull/7'
+POSTPR_EXIT_BADURL=0
+POSTPR_OUTPUT_BADURL=$(cd "$SANDBOX_REPO" && postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_BAD_URL" \
+  | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_BADURL=$?
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_BADURL" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_BADURL" | grep -qF "WARNING: Se detectó 'gh pr create' pero no se pudo extraer la URL del PR del output." \
+  && ! echo "$POSTPR_OUTPUT_BADURL" | grep -qF 'widgets"evil'; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create sanitización: URL con carácter fuera de la allowlist de owner/repo → WARNING, no se interpola"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create sanitización: URL con carácter fuera de la allowlist de owner/repo → WARNING, no se interpola (exit: $POSTPR_EXIT_BADURL, output: $POSTPR_OUTPUT_BADURL)"
+  FAIL=$((FAIL + 1))
+fi
+
 # Caso: branch con un carácter fuera de la allowlist [A-Za-z0-9/_-] (git
 # permite el punto) — el CASO A se mantiene (la comparación de branch es
 # exacta, no depende del label) pero el nombre no se interpola en el

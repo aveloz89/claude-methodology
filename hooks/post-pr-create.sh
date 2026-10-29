@@ -38,7 +38,10 @@ fi
 # más de una URL de PR, solo la primera es la del comando recién ejecutado)
 # El "?" evita que un tool_response que no sea objeto (otra tool, otro
 # harness) corte jq con error: cae a la alternativa y, sin URL, al WARNING.
-PR_URL=$(echo "$INPUT" | jq -r '.tool_response.stdout? // .stdout? // empty' | grep -oE 'https://github.com/[^ ]+/pull/[0-9]+' | head -1)
+# owner y repo se acotan a [A-Za-z0-9._-] (review de seguridad): la URL se
+# interpola en el texto del checkpoint, y "[^ ]+" dejaba pasar comillas o
+# tabs; una URL con otro carácter no se extrae y el hook cae al WARNING.
+PR_URL=$(echo "$INPUT" | jq -r '.tool_response.stdout? // .stdout? // empty' | grep -oE 'https://github.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+' | head -1)
 
 if [ -n "$PR_URL" ]; then
   TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
