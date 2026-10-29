@@ -1715,7 +1715,7 @@ assert_contains "$RUNBOOK" 'Muestra al usuario, en el reporte de fase' "runbook 
 assert_contains "$REPO_ROOT/skills/orchestrator/SKILL.md" 'Muestras al usuario, en el reporte de fase' "SKILL orchestrator: muestra al usuario las líneas de memoria que persiste"
 
 # --- Cierre de contrato (#106, #108, #113): textos de las fases del runbook, la skill y el README ---
-runbook_phase() { awk -v h="### Fase $1:" 'index($0, h)==1 {f=1; print; next} /^### / {f=0} f {print}' "$RUNBOOK"; }
+runbook_phase() { awk -v h="### Fase $1:" 'index($0, h)==1 {f=1; print; next} /^##+ / {f=0} f {print}' "$RUNBOOK"; }
 README_MD_PATH="$REPO_ROOT/README.md"
 RB_F26=$(runbook_phase 2.6)
 RB_F3=$(runbook_phase 3)
