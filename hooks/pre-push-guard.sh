@@ -88,8 +88,19 @@ fi
 # HEAD:main" corta el segmento en "&"; "HEAD:main>log" deja el ">" pegado
 # al nombre y rompe el borde del token).
 DST_MAIN_RE='(^|[[:space:]])\+?([^[:space:]:]*:)?(refs/heads/)?(main|master)([[:space:]]|$)'
-if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}[^&|;]*" | grep -qE "$DST_MAIN_RE"; then
+if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}[^&|;)]*" | grep -qE "$DST_MAIN_RE"; then
   echo "BLOCKED: No push directo a main: el refspec apunta a main/master (HEAD:main, dev:main, refs/heads/main o la rama local main). Usa un PR desde dev o feature branch." >&2
+  exit 2
+fi
+
+# #117: "--all" y "--mirror" empujan todas las ramas locales (incluida main)
+# sin nombrarla en el comando, así que el chequeo de destino de arriba no
+# los ve. Se bloquean desde cualquier rama, con el mismo regex y la misma
+# segmentación (hasta el primer &&/;/|/")") que usa block-force-push.sh. El
+# ")" corta el segmento para que "(git push origin HEAD:main)" cierre el
+# borde del token main (antes pasaba con exit 0).
+if echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}[^&|;)]*" | grep -qE '(^|[[:space:]])--(all|mirror)([[:space:]]|$)'; then
+  echo "BLOCKED: git push --all/--mirror empuja todas las ramas locales, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
   exit 2
 fi
 

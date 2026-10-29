@@ -63,9 +63,9 @@ guard_force_with_lease_allowed() {
   # parsear el shell de verdad — la excepción no aplica y bloquea
   # fail-closed, en vez de confiar en un match que puede estar mirando un
   # segmento vaciado por el saneo.
-  raw_push_segment=$(echo "$COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*" | head -1)
+  raw_push_segment=$(echo "$COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;)]*" | head -1)
   echo "$raw_push_segment" | grep -q "['\"]" && return 1
-  push_segment=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;]*" | head -1)
+  push_segment=$(echo "$SANITIZED_COMMAND" | grep -oE "${GUARD_ANCHOR}git\s+${GUARD_GIT_OPTS}push\b[^&|;)]*" | head -1)
   # --all y --mirror empujan TODOS los refs remotos (o los espejan) sin
   # importar qué otro ref aparezca en el resto del comando: la excepción de
   # --force-with-lease no los cubre, siempre bloquean.

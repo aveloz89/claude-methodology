@@ -473,6 +473,34 @@ assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push -u origin feature
 assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin feature/main-page' pasa (main como fragmento, #112)" \
   "pre-push-guard.sh" "git push origin feature/main-page" "$PATH" "$SANDBOX_REPO"
 
+# #117: (1) el segmento "git push ..." se tragaba el ")" y el destino "main)"
+# no cerraba el borde de DST_MAIN_RE: "(git push origin HEAD:main)" pasaba con
+# exit 0 mientras la forma directa bloqueaba; (2) --all y --mirror empujan
+# todas las ramas locales (incluida main) sin nombrar main en el comando.
+# RED con el guard anterior (los cuatro bloqueos); los controles siguen en 0.
+assert_blocked_cmd "pre-push-guard: desde feature/x, '(git push origin HEAD:main)' en subshell bloquea (#117)" \
+  "pre-push-guard.sh" "(git push origin HEAD:main)" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --all origin' bloquea (#117)" \
+  "pre-push-guard.sh" "git push --all origin" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push origin --all' bloquea (#117)" \
+  "pre-push-guard.sh" "git push origin --all" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: desde feature/x, 'git push --mirror origin' bloquea (#117)" \
+  "pre-push-guard.sh" "git push --mirror origin" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin dev' pasa (#117)" \
+  "pre-push-guard.sh" "git push origin dev" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push origin feature/x' pasa (#117)" \
+  "pre-push-guard.sh" "git push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, 'git push -u origin feature/x' pasa (#117)" \
+  "pre-push-guard.sh" "git push -u origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: desde feature/x, '(git push origin feature/x)' en subshell pasa (#117)" \
+  "pre-push-guard.sh" "(git push origin feature/x)" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '(git push --force origin main)' en subshell bloquea (#117)" \
+  "block-force-push.sh" "(git push --force origin main)" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '(git push --force-with-lease origin main)' en subshell bloquea (#117)" \
+  "block-force-push.sh" "(git push --force-with-lease origin main)" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: '(git push --force-with-lease --all origin)' en subshell bloquea (#117)" \
+  "block-force-push.sh" "(git push --force-with-lease --all origin)" "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""
