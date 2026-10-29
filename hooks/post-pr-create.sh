@@ -40,8 +40,10 @@
 # solo cuando hay un PR que evaluar, y sourcearla solo define constantes y
 # funciones — no corre guard_init, que es fail-closed sin jq y lo llama
 # cada guard por su cuenta —, así que el no-op sin jq de este hook se
-# conserva. Sin la lib no hay con qué resolver el árbol: CASO B con un
-# diagnóstico que nombra la causa (degradación visible, no silenciosa).
+# conserva. Cuando el árbol no se puede resolver (lib ausente o sin la
+# función, ".cwd" que no es un directorio, directorio fuera de un repo
+# git), CASO B con un diagnóstico que nombra la causa en vez del genérico
+# "no hay evidencia" (degradación visible, no silenciosa).
 # Fuera de alcance (#125): una redirección en el TEXTO del comando ("cd X
 # && gh pr create", "gh pr create -R o/r", "GH_REPO=o/r gh …") crea el PR
 # desde otro repo y la evidencia se sigue evaluando sobre ".cwd".
@@ -74,33 +76,38 @@ if [ -n "$PR_URL" ]; then
   # CADA PostToolUse de Bash y solo los necesita cuando hay un PR que
   # evaluar. guard_session_dir toma INPUT_CWD (la misma variable que deja
   # guard_init en los guards) y devuelve 1 sin imprimir si vino y no es un
-  # directorio; con status 1, SESSION_DIR queda vacío → TOPLEVEL vacío →
-  # CASO B. Sin la función (lib ausente o ilegible), CASO B con un
-  # diagnóstico propio: si no, todo PR caería a CASO B sin que nadie
-  # supiera por qué dejó de haber CASO A. Cada git lleva -C explícito
-  # gateado por -n: con la ruta vacía, "git -C ''" deja el cwd del proceso
-  # sin cambiar (documentado y verificado en git 2.54), justo el árbol al
-  # que no hay que caer.
+  # directorio. Cuando el árbol no se puede resolver — lib ausente, lib sin
+  # la función, ".cwd" que no es un directorio, directorio fuera de un repo
+  # git — el checkpoint cae a CASO B con un diagnóstico que nombra la
+  # causa: el genérico "no hay evidencia de review" mandaría al orchestrator
+  # a buscar una evidencia que el hook nunca miró. Cada git lleva -C
+  # explícito sobre una ruta ya resuelta y no vacía: con la ruta vacía,
+  # "git -C ''" deja el cwd del proceso sin cambiar (documentado y
+  # verificado en git 2.54), justo el árbol al que no hay que caer.
   LIB="${0%/*}/lib/guard-matching.sh"
+  CASO_B_DIAG="No hay evidencia de review dual pre-push para este branch — se trata como PR fuera del flujo."
   if [ -r "$LIB" ]; then
     # shellcheck source=lib/guard-matching.sh
     . "$LIB"
-  fi
-  # shellcheck disable=SC2034 # la lee guard_session_dir (lib sourceada arriba)
-  INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
-  CASO_B_DIAG="No hay evidencia de review dual pre-push para este branch — se trata como PR fuera del flujo."
-  SESSION_DIR=""
-  if type guard_session_dir > /dev/null 2>&1; then
-    SESSION_DIR=$(guard_session_dir 2>/dev/null) || SESSION_DIR=""
   else
     CASO_B_DIAG="No se pudo resolver el árbol de la sesión (falta hooks/lib/guard-matching.sh) — se trata como PR fuera del flujo."
   fi
+  # shellcheck disable=SC2034 # la lee guard_session_dir (lib sourceada arriba)
+  INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
+  SESSION_DIR=""
   TOPLEVEL=""
   CURRENT_BRANCH=""
-  if [ -n "$SESSION_DIR" ]; then
-    TOPLEVEL=$(git -C "$SESSION_DIR" rev-parse --show-toplevel 2>/dev/null)
-  fi
-  if [ -n "$TOPLEVEL" ]; then
+  if ! type guard_session_dir > /dev/null 2>&1; then
+    # Lib legible pero sin la función: lib anterior a guard_session_dir, no
+    # un archivo ausente (ese caso ya dejó su diagnóstico arriba).
+    [ -r "$LIB" ] && CASO_B_DIAG="No se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh no define guard_session_dir: lib desactualizada) — se trata como PR fuera del flujo."
+  elif ! SESSION_DIR=$(guard_session_dir 2>/dev/null) || [ -z "$SESSION_DIR" ]; then
+    SESSION_DIR=""
+    CASO_B_DIAG="No se pudo resolver el árbol de la sesión (el .cwd del payload no es un directorio) — se trata como PR fuera del flujo."
+  elif ! TOPLEVEL=$(git -C "$SESSION_DIR" rev-parse --show-toplevel 2>/dev/null) || [ -z "$TOPLEVEL" ]; then
+    TOPLEVEL=""
+    CASO_B_DIAG="No se pudo resolver el árbol de la sesión (el directorio no está dentro de un repo git) — se trata como PR fuera del flujo."
+  else
     CURRENT_BRANCH=$(git -C "$TOPLEVEL" branch --show-current 2>/dev/null)
   fi
   STATE_FILE="$TOPLEVEL/.planning/state.json"

@@ -6949,8 +6949,9 @@ POSTPR_NONGIT_DIR=$(cd "$POSTPR_NONGIT_DIR" && pwd -P)
 mkdir -p "$POSTPR_NONGIT_DIR/.planning"
 SANDBOX_REPO="$POSTPR_NONGIT_DIR"
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "0123456789abcdef0123456789abcdef01234567"
-assert_postpr_caso_b "post-pr-create CASO B: fuera de un repo git (TOPLEVEL vacío) → falla hacia el review" \
-  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
+assert_postpr_caso_b "post-pr-create CASO B: fuera de un repo git (TOPLEVEL vacío) → falla hacia el review con el diagnóstico de árbol irresoluble" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")" \
+  "No se pudo resolver el árbol de la sesión (el directorio no está dentro de un repo git) — se trata como PR fuera del flujo."
 rm -rf "$POSTPR_NONGIT_DIR"
 
 # --- Árbol de la sesión: ".cwd" del payload vs cwd del proceso del hook ---
@@ -7004,12 +7005,15 @@ rm -rf "$POSTPR_SESSION_REPO" "$POSTPR_SESSION_HOME"
 # proceso en un repo con CASO A válido → CASO B, nunca CASO A: un ".cwd"
 # que no se puede resolver no cae al árbol del proceso (sería evaluar la
 # evidencia del repo equivocado), igual que guard_session_dir devuelve 1
-# en los guards. Sin ruido de git en el output.
+# en los guards. El diagnóstico nombra la causa (".cwd" no es un
+# directorio) en vez del genérico "no hay evidencia": el orchestrator no
+# tiene que buscar una evidencia que el hook nunca miró. Sin ruido de git.
 sandbox_create
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
-assert_postpr_caso_b "post-pr-create árbol de la sesión: .cwd presente pero inexistente + proceso con CASO A válido → CASO B, nunca CASO A" \
-  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$SANDBOX_REPO/no-such-dir")"
+assert_postpr_caso_b "post-pr-create árbol de la sesión: .cwd presente pero inexistente + proceso con CASO A válido → CASO B con diagnóstico, nunca CASO A" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$SANDBOX_REPO/no-such-dir")" \
+  "No se pudo resolver el árbol de la sesión (el .cwd del payload no es un directorio) — se trata como PR fuera del flujo."
 sandbox_cleanup
 
 # Caso: ".cwd" es un directorio válido que NO es un repo git (mktemp -d) con
@@ -7020,8 +7024,9 @@ sandbox_create
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
 POSTPR_NONGIT_CWD=$(mktemp -d)
-assert_postpr_caso_b "post-pr-create árbol de la sesión: .cwd es un directorio que no es repo git + proceso con CASO A válido → CASO B sin 'fatal:' de git" \
-  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$POSTPR_NONGIT_CWD")"
+assert_postpr_caso_b "post-pr-create árbol de la sesión: .cwd es un directorio que no es repo git + proceso con CASO A válido → CASO B con diagnóstico, sin 'fatal:' de git" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$POSTPR_NONGIT_CWD")" \
+  "No se pudo resolver el árbol de la sesión (el directorio no está dentro de un repo git) — se trata como PR fuera del flujo."
 rm -rf "$POSTPR_NONGIT_CWD"
 sandbox_cleanup
 
@@ -7089,26 +7094,61 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Caso: modo degradado — la lib existe y se sourcea pero no define
+# guard_session_dir (instalación con una lib anterior a la función) →
+# CASO B con un diagnóstico que nombra ESA causa, no "falta la lib": el
+# operador buscaría un archivo que sí está. Copia de hooks/ con la lib
+# reemplazada por un archivo vacío (legible, sin funciones).
+POSTPR_STALE_HOOKS_DIR=$(mktemp -d)
+cp -R "$HOOKS_DIR/." "$POSTPR_STALE_HOOKS_DIR/"
+: > "$POSTPR_STALE_HOOKS_DIR/lib/guard-matching.sh"
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_INPUT_STALE=$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")
+POSTPR_EXIT_STALE=0
+POSTPR_OUTPUT_STALE=$(cd "$SANDBOX_REPO" && printf '%s' "$POSTPR_INPUT_STALE" \
+  | bash "$POSTPR_STALE_HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_STALE=$?
+sandbox_cleanup
+rm -rf "$POSTPR_STALE_HOOKS_DIR"
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_STALE" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_STALE" | grep -qF "No se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh no define guard_session_dir: lib desactualizada) — se trata como PR fuera del flujo." \
+  && echo "$POSTPR_OUTPUT_STALE" | grep -qF "ACCIÓN REQUERIDA: Revisa este PR: $POSTPR_URL" \
+  && ! echo "$POSTPR_OUTPUT_STALE" | grep -qF "falta hooks/lib/guard-matching.sh" \
+  && ! echo "$POSTPR_OUTPUT_STALE" | grep -qF "Review dual pre-push verificado" \
+  && ! echo "$POSTPR_OUTPUT_STALE" | grep -qiE "command not found|no such file|error"; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create modo degradado: lib presente sin guard_session_dir → CASO B con diagnóstico de lib desactualizada, no 'falta la lib'"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create modo degradado: lib presente sin guard_session_dir → CASO B con diagnóstico de lib desactualizada, no 'falta la lib' (exit: $POSTPR_EXIT_STALE, output: $POSTPR_OUTPUT_STALE)"
+  FAIL=$((FAIL + 1))
+fi
+
 # Caso: el escenario real que motiva el fix — un git worktree del MISMO
 # repo. El proceso del hook corre en el checkout principal (otro branch,
 # sin state.json) y ".cwd" es el worktree, con state.json sembrado ahí y
 # CASO A válido para el branch del worktree → CASO A del worktree. Los
 # pares de sandboxes anteriores son repos independientes; este comparte
 # .git (archivo gitdir) y el mismo HEAD en ambos árboles, así que solo el
-# branch y el state.json distinguen el árbol correcto.
+# branch y el state.json distinguen el árbol correcto. El setup y el
+# teardown del worktree llevan "|| true": la suite corre con set -e y un
+# fallo ahí debe aparecer como FAIL de la aserción (CASO B en vez de A,
+# con el output), no abortar la suite en silencio saltándose el guard
+# final de repo intacto.
 sandbox_create
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1
 POSTPR_WT_PARENT=$(mktemp -d)
 POSTPR_WT_PARENT=$(cd "$POSTPR_WT_PARENT" && pwd -P)
 POSTPR_WT="$POSTPR_WT_PARENT/wt"
-(cd "$SANDBOX_REPO" && git worktree add -q -b feature/checkpoint-flow "$POSTPR_WT") > /dev/null 2>&1
+(cd "$SANDBOX_REPO" && git worktree add -q -b feature/checkpoint-flow "$POSTPR_WT") > /dev/null 2>&1 || true
 POSTPR_MAIN_REPO="$SANDBOX_REPO"
 SANDBOX_REPO="$POSTPR_WT"
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$POSTPR_WT" && git rev-parse HEAD)"
 SANDBOX_REPO="$POSTPR_MAIN_REPO"
 assert_postpr_caso_a "post-pr-create árbol de la sesión: .cwd es un git worktree del mismo repo + proceso en el checkout principal sin evidencia → CASO A del worktree" \
   "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$POSTPR_WT")"
-(cd "$POSTPR_MAIN_REPO" && git worktree remove --force "$POSTPR_WT") > /dev/null 2>&1
+(cd "$POSTPR_MAIN_REPO" && git worktree remove --force "$POSTPR_WT") > /dev/null 2>&1 || true
 rm -rf "$POSTPR_WT_PARENT"
 sandbox_cleanup
 
