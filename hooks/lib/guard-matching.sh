@@ -51,8 +51,11 @@
 #     sin comillas cierran el token (GUARD_TOKEN_END).
 #   - pre-push-guard.sh y block-force-push.sh: push.default=matching o
 #     remote.<x>.mirror/push fijados en el config del repo o global (solo se
-#     ven los "-c" literales del comando), remote.pushDefault y un "-c"
-#     escrito en una variable;
+#     ven los "-c" y "--config-env" literales y sin comillas del comando),
+#     remote.pushDefault y un "-c" escrito en una variable;
+#   - pre-push-guard.sh y block-force-push.sh: un "-c" con el valor entre
+#     comillas (`git -c 'user.name=x' push origin main`) anula ambos guards:
+#     el saneo vacía el span y "-c\s+\S+" se traga "push" (issue #120);
 #   - pre-push-guard.sh y block-force-push.sh: una sustitución que PRODUCE el
 #     ref o la flag (git push origin $(git branch --show-current)) no se
 #     evalúa; el guard solo ve tokens literales del comando;
@@ -94,10 +97,13 @@ GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'
 #     y ";". NO cierra en ")" ni en backtick: una sustitución DENTRO del push
 #     ("git push origin $(true) HEAD:main", "git push origin `true` main")
 #     esconde lo que sigue si el segmento se corta ahí (regresión de la
-#     ronda 2 de #117, verificada contra dev);
+#     ronda 2 de #117, verificada contra dev). Coste asumido del trade-off:
+#     un push dentro de "$(...)" absorbe lo que sigue al cierre en el mismo
+#     comando simple ("echo $(git push origin feature/x) -f" bloquea, exit 2);
 #   - el TOKEN (GUARD_TOKEN_END) se cierra en espacio, ")", backtick, "<", ">"
-#     o fin de string ("<" y ">" sin comillas son siempre redirección). Así "(git push origin HEAD:main)" y "`git push origin
-#     HEAD:main`" cierran el borde del token "main" sin cortar el segmento.
+#     o fin de string ("<" y ">" sin comillas son siempre redirección). Así
+#     "(git push origin HEAD:main)" y "`git push origin HEAD:main`" cierran
+#     el borde del token "main" sin cortar el segmento.
 # Van entre comillas simples: el backtick es literal en la asignación y al
 # expandirlas dentro de comillas dobles no se vuelve a evaluar.
 # shellcheck disable=SC2016,SC2034 # backtick literal; se usan en pre-push-guard.sh y block-force-push.sh

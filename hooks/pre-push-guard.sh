@@ -115,6 +115,9 @@ fi
 # (GUARD_PUSH_EMPTY_REFSPEC_RE) hace lo mismo. ":rama" borra una rama remota
 # y sigue pasando. Mismo segmento que el chequeo de --all.
 PUSH_SEGMENTS=$(echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}")
+# Con refspec explícito ("git -c push.default=matching push origin feature/x")
+# el bloqueo es un falso positivo, en dirección segura: no se distingue si hay
+# refspec porque el config solo importa cuando falta.
 if echo "$PUSH_SEGMENTS" | grep -qiE "$GUARD_PUSH_CONFIG_RE"; then
   echo "BLOCKED: git -c push.default=matching / remote.<x>.mirror=true / remote.<x>.push=... empuja main sin nombrarla. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
   exit 2

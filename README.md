@@ -48,7 +48,8 @@ Los guards de `hooks/` protegen errores honestos del orchestrator y los devs: fo
 - en `block-force-push`: la flag entre comillas (`git push origin "--force"`, `git push '-f'`) y una redirección honesta (`2>&1`, `>&2`, `&>log`) o un `;` escapado antes de la flag de force;
 - en `pre-push-guard`: el refspec entre comillas (`git push origin "HEAD:main"`: el saneo vacía el span antes del match del destino) y una redirección con `&` antes del refspec (`git push origin 2>&1 HEAD:main`: el segmento se corta en `&`). Una redirección pegada al refspec (`HEAD:main>log`, `HEAD:main</dev/null`) sí bloquea: `<` y `>` sin comillas cierran el token.
 - en `pre-push-guard` y `block-force-push`: una sustitución que PRODUCE el ref o la flag (`git push origin $(git branch --show-current)`) no se evalúa; el guard solo ve tokens literales del comando.
-- en `pre-push-guard` y `block-force-push`: `push.default=matching` o `remote.<x>.mirror`/`remote.<x>.push` fijados en el config del repo o global (solo se ven los `-c` literales del comando), `remote.pushDefault` y un `-c` escrito en una variable.
+- en `pre-push-guard` y `block-force-push`: `push.default=matching` o `remote.<x>.mirror`/`remote.<x>.push` fijados en el config del repo o global (solo se ven los `-c` y `--config-env` literales y sin comillas del comando), `remote.pushDefault` y un `-c` escrito en una variable.
+- en `pre-push-guard` y `block-force-push`: un `-c` con el valor entre comillas (`git -c 'user.name=x' push origin main`) anula ambos guards: el saneo vacía el span y `-c\s+\S+` se traga `push` (issue #120).
 - que el `if: Bash(git *)` de `hooks/hooks.json` dispare `pre-push-guard` y `block-force-push` para comandos que no empiezan por `git` (backtick, `echo`, `(`) está **sin verificar de punta a punta**: lo probado es el script con el comando por stdin.
 
 Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá: la salida es escribir el comando en su forma directa.
