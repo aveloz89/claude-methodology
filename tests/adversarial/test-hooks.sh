@@ -6948,6 +6948,71 @@ assert_postpr_caso_b "post-pr-create CASO B: fuera de un repo git (TOPLEVEL vac�
   "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
 rm -rf "$POSTPR_NONGIT_DIR"
 
+# --- Árbol de la sesión: ".cwd" del payload vs cwd del proceso del hook ---
+# Los guards PreToolUse resuelven el árbol de la sesión desde ".cwd" del
+# payload (guard_session_dir, hooks/lib/guard-matching.sh); el checkpoint
+# lo resolvía desde el cwd del PROCESO del hook (hallazgo fuera de scope
+# del review de #114). Cuando difieren, leía el state.json y el branch de
+# otro árbol y podía emitir CASO A/B del repo equivocado. Cada caso monta
+# DOS sandboxes: el del proceso (donde la aserción hace cd antes de correr
+# el hook) y el de la sesión (el ".cwd" del payload), en branches
+# distintos para que el checkpoint delate de cuál leyó.
+
+# postpr_input_cwd: igual que postpr_input, con ".cwd" en la raíz del
+# payload (3er argumento), donde lo manda el harness.
+postpr_input_cwd() {
+  jq -n --arg cmd "$1" --arg out "$2" --arg cwd "$3" '{
+    hook_event_name: "PostToolUse", tool_name: "Bash", cwd: $cwd,
+    tool_input: {command: $cmd},
+    tool_response: {stdout: $out, stderr: "", interrupted: false, isImage: false}
+  }'
+}
+
+# Caso: ".cwd" apunta a un repo con CASO A válido y el proceso del hook
+# corre en OTRO repo, en otro branch y sin state.json → CASO A del repo de
+# ".cwd" (la aserción exige el branch de la sesión, feature/checkpoint-flow,
+# en el checkpoint). RED con la resolución por cwd del proceso: en ese
+# árbol no hay evidencia y daba CASO B.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_SESSION_REPO="$SANDBOX_REPO"
+POSTPR_SESSION_HOME="$SANDBOX_HOME"
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1
+assert_postpr_caso_a "post-pr-create árbol de la sesión: .cwd con CASO A válido + proceso en otro repo sin evidencia → CASO A del repo de .cwd" \
+  "$(postpr_input_cwd "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$POSTPR_SESSION_REPO")"
+sandbox_cleanup
+rm -rf "$POSTPR_SESSION_REPO" "$POSTPR_SESSION_HOME"
+
+# Caso inverso: el proceso corre en un repo con CASO A válido y ".cwd"
+# apunta a otro repo (otro branch, sin state.json) → CASO B: la evidencia
+# del árbol del proceso no cuenta, el PR se creó desde la sesión. RED con
+# la resolución por cwd del proceso: daba CASO A.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1
+POSTPR_SESSION_REPO="$SANDBOX_REPO"
+POSTPR_SESSION_HOME="$SANDBOX_HOME"
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+assert_postpr_caso_b "post-pr-create árbol de la sesión: proceso con CASO A válido + .cwd en otro repo sin evidencia → CASO B" \
+  "$(postpr_input_cwd "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$POSTPR_SESSION_REPO")"
+sandbox_cleanup
+rm -rf "$POSTPR_SESSION_REPO" "$POSTPR_SESSION_HOME"
+
+# Caso: ".cwd" presente pero inválido (directorio inexistente) con el
+# proceso en un repo con CASO A válido → CASO B, nunca CASO A: un ".cwd"
+# que no se puede resolver no cae al árbol del proceso (sería evaluar la
+# evidencia del repo equivocado), igual que guard_session_dir devuelve 1
+# en los guards. Sin ruido de git en el output.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+assert_postpr_caso_b "post-pr-create árbol de la sesión: .cwd presente pero inexistente + proceso con CASO A válido → CASO B, nunca CASO A" \
+  "$(postpr_input_cwd "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$SANDBOX_REPO/no-such-dir")"
+sandbox_cleanup
+
 # Caso: degradación — state.json malformado (JSON inválido) → CASO B, y el
 # error de parseo de jq NO se filtra al output (el orchestrator recibe el
 # diagnóstico limpio, no un stack de jq).

@@ -19,6 +19,19 @@
 # dejaba PR_URL vacío siempre y el hook caía al WARNING en cada PR real
 # (4 de 4 en la sesión del 2026-10-28). Se acepta también ".stdout" en la
 # raíz por compatibilidad con un harness que mande la salida así.
+# Árbol de la sesión: el repo (toplevel, branch actual, .planning/state.json)
+# se resuelve desde ".cwd" de la raíz del payload cuando viene y es un
+# directorio, y desde el cwd del proceso solo cuando no viene — la misma
+# regla que guard_session_dir (hooks/lib/guard-matching.sh) aplica en los
+# guards PreToolUse (ARCHITECTURE 2026-09-26). Antes se resolvía siempre
+# desde el cwd del PROCESO del hook (hallazgo fuera de scope del review de
+# #114): si difería del de la sesión, el checkpoint leía el state.json y el
+# branch de otro árbol y podía emitir CASO A/B del repo equivocado. Un
+# ".cwd" presente pero inválido cae a CASO B, nunca al árbol del proceso.
+# La regla se replica acá en vez de sourcear la lib: su preámbulo
+# guard_init es fail-closed sin jq (exit 2) y este hook es no-op limpio
+# sin jq; y una lib ausente le sumaría un modo de falla a un checkpoint
+# que no necesita nada más de ella.
 # Siempre exit 0 (checkpoint, no guard). Sin jq en PATH: no-op limpio
 # (degradación estándar de hooks de observabilidad, ARCHITECTURE 2026-08-14).
 # NOTA: Este hook NO ejecuta agentes directamente — emite instrucciones en stdout
@@ -28,6 +41,7 @@ command -v jq > /dev/null 2>&1 || exit 0
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 
 # Solo interceptar gh pr create
 if ! echo "$COMMAND" | grep -qE 'gh\s+pr\s+create'; then
@@ -44,9 +58,27 @@ fi
 PR_URL=$(echo "$INPUT" | jq -r '.tool_response.stdout? // .stdout? // empty' | grep -oE 'https://github.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+' | head -1)
 
 if [ -n "$PR_URL" ]; then
-  TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
+  # Árbol de la SESIÓN (ver header): ".cwd" del payload si vino y es un
+  # directorio, cwd del proceso solo si no vino. Un ".cwd" presente pero
+  # inválido deja SESSION_DIR vacío → TOPLEVEL vacío → CASO B. Cada git
+  # lleva -C explícito y va gateado por -n: con la ruta vacía, "git -C ''"
+  # deja el cwd del proceso sin cambiar (documentado y verificado en git
+  # 2.54) — justo el árbol al que no hay que caer.
+  SESSION_DIR=""
+  if [ -z "$INPUT_CWD" ]; then
+    SESSION_DIR=$(pwd -P)
+  elif [ -d "$INPUT_CWD" ]; then
+    SESSION_DIR=$(cd "$INPUT_CWD" 2>/dev/null && pwd -P)
+  fi
+  TOPLEVEL=""
+  CURRENT_BRANCH=""
+  if [ -n "$SESSION_DIR" ]; then
+    TOPLEVEL=$(git -C "$SESSION_DIR" rev-parse --show-toplevel 2>/dev/null)
+  fi
+  if [ -n "$TOPLEVEL" ]; then
+    CURRENT_BRANCH=$(git -C "$TOPLEVEL" branch --show-current 2>/dev/null)
+  fi
   STATE_FILE="$TOPLEVEL/.planning/state.json"
-  CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
   REVIEW_PHASE=""
   STATE_BRANCH=""
   REVIEW_SHA=""
@@ -68,8 +100,8 @@ if [ -n "$PR_URL" ]; then
     case "$REVIEW_SHA" in
       *[!0-9a-f]* | '') : ;;
       *)
-        if git merge-base --is-ancestor "$REVIEW_SHA" HEAD 2>/dev/null \
-          && git diff --quiet "$REVIEW_SHA" HEAD 2>/dev/null; then
+        if git -C "$TOPLEVEL" merge-base --is-ancestor "$REVIEW_SHA" HEAD 2>/dev/null \
+          && git -C "$TOPLEVEL" diff --quiet "$REVIEW_SHA" HEAD 2>/dev/null; then
           SHA_ANCHOR_OK=true
         fi
         ;;
