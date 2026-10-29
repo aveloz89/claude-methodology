@@ -38,6 +38,16 @@ A diferencia de `DESIGN.md` (que vive solo durante una feature), este archivo pe
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-10-29] `.cwd` ≠ cwd del proceso: fail-closed solo donde el hook no puede actuar sobre `.cwd`
+
+**Contexto:** la entrada del 2026-09-26 dice que un hook que lee `.cwd` «trata una discrepancia con el proceso como fail-closed». Al alinear `post-pr-create.sh` con `guard_session_dir` (hallazgo fuera de scope del review de #114), el review simple leyó esa frase como «ante discrepancia, CASO B». Pero de los hooks que leen `.cwd` solo `pre-merge-check` compara con el cwd del proceso y bloquea, porque `gh repo view` no se puede redirigir; `pre-push-guard`, `pre-commit-guard` y `block-force-push` actúan sobre `.cwd` con `git -C` sin mirar el cwd del proceso. En la app de escritorio una sesión de worktree produce la discrepancia de forma rutinaria: el proceso del hook corre en el checkout principal y `.cwd` es el worktree (observado al mergear #114, cuando `pre-merge-check` bloqueó por eso y pidió `--repo`).
+
+**Decisión:** la discrepancia es fail-closed únicamente cuando el hook no puede actuar sobre `.cwd` (una herramienta sin `-C`, como `gh`). Cuando puede (`git -C`), `.cwd` es el árbol de la sesión y el hook actúa ahí; el cwd del proceso es solo el fallback de un `.cwd` ausente o vacío/null. Un `.cwd` presente, no vacío y que no es un directorio es fail-closed (bloquear en un guard, CASO B en el checkpoint), nunca el árbol del proceso: así lo hacen `pre-commit-guard` y `block-force-push`; `pre-push-guard` todavía cae al cwd del proceso en ese caso (excepción vigente, #126). `post-pr-create.sh` sigue esa regla sourceando la lib y reutilizando `guard_session_dir` sin `guard_init` (sourcear solo define funciones; sin la lib, CASO B con un diagnóstico que nombra la causa).
+
+**Justificación:** caer a CASO B ante cualquier discrepancia haría que el CASO A nunca ocurra en una sesión de worktree (un review redundante en cada PR), que es justo el caso que motivó el fix; y una regla en dos copias (lib y hook) diverge.
+
+**Implicación:** un hook nuevo que dependa del directorio reutiliza `guard_session_dir` y compara con el cwd del proceso solo si la herramienta que invoca no acepta una ruta. Una redirección en el texto del comando (`cd X && gh pr create`, `-R/--repo`, `GH_REPO=`) no la resuelve `.cwd`: queda fuera de alcance del checkpoint (#125). Pendientes de alinear con esta regla: `pre-compact-snapshot` y `subagent-stop-log` (resuelven desde el cwd del proceso) y el fallback de `pre-push-guard` ante un `.cwd` inválido (#126).
+
 ### [2026-10-28] Tier del flujo: `liviano` | `completo`, propuesto por riesgo + tamaño, confirmado por el usuario
 
 **Contexto:** un PR chico pagaba 4+ invocaciones de subagente (architect, dev, docs, security, QA) y el pipeline completo era el único camino. Brief `methodology-refresh`, D-02..D-05.

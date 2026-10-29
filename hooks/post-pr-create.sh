@@ -19,6 +19,34 @@
 # dejaba PR_URL vacío siempre y el hook caía al WARNING en cada PR real
 # (4 de 4 en la sesión del 2026-10-28). Se acepta también ".stdout" en la
 # raíz por compatibilidad con un harness que mande la salida así.
+# Árbol de la sesión: el repo (toplevel, branch actual, .planning/state.json)
+# se resuelve con guard_session_dir (hooks/lib/guard-matching.sh), la
+# función que usan pre-push-guard, pre-commit-guard y block-force-push:
+# ".cwd" de la raíz del payload si viene con un valor no vacío, y el cwd
+# del proceso si no viene o viene vacío/null (".cwd // empty", como
+# guard_init). Un ".cwd" no vacío que no es un directorio → CASO B, nunca
+# el árbol del proceso (en ese caso pre-commit-guard y block-force-push
+# bloquean; pre-push-guard todavía cae al cwd del proceso, #126). Antes se
+# resolvía siempre desde el cwd del PROCESO del hook (hallazgo fuera de
+# scope del review de #114): en una sesión de worktree de la app de
+# escritorio el proceso del hook corre en el checkout principal y ".cwd"
+# es el worktree (observado al mergear #114, cuando pre-merge-check
+# bloqueó por esa misma discrepancia), así que el checkpoint leía el
+# state.json y el branch de otro árbol y podía emitir CASO A/B del repo
+# equivocado. Esa discrepancia NO es ambigüedad acá: git -C actúa sobre
+# ".cwd" igual que en esos guards; el fail-closed ante la discrepancia
+# (ARCHITECTURE 2026-09-26) es el de pre-merge-check, que no puede
+# redirigir "gh repo view" (ARCHITECTURE 2026-10-29). La lib se sourcea
+# solo cuando hay un PR que evaluar, y sourcearla solo define constantes y
+# funciones — no corre guard_init, que es fail-closed sin jq y lo llama
+# cada guard por su cuenta —, así que el no-op sin jq de este hook se
+# conserva. Cuando el árbol no se puede resolver (lib ausente o sin la
+# función, ".cwd" que no es un directorio, directorio fuera de un repo
+# git), CASO B con un diagnóstico que nombra la causa en vez del genérico
+# "no hay evidencia" (degradación visible, no silenciosa).
+# Fuera de alcance (#125): una redirección en el TEXTO del comando ("cd X
+# && gh pr create", "gh pr create -R o/r", "GH_REPO=o/r gh …") crea el PR
+# desde otro repo y la evidencia se sigue evaluando sobre ".cwd".
 # Siempre exit 0 (checkpoint, no guard). Sin jq en PATH: no-op limpio
 # (degradación estándar de hooks de observabilidad, ARCHITECTURE 2026-08-14).
 # NOTA: Este hook NO ejecuta agentes directamente — emite instrucciones en stdout
@@ -44,9 +72,45 @@ fi
 PR_URL=$(echo "$INPUT" | jq -r '.tool_response.stdout? // .stdout? // empty' | grep -oE 'https://github.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+' | head -1)
 
 if [ -n "$PR_URL" ]; then
-  TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
+  # La lib y ".cwd" se cargan acá y no junto a COMMAND: el hook corre en
+  # CADA PostToolUse de Bash y solo los necesita cuando hay un PR que
+  # evaluar. guard_session_dir toma INPUT_CWD (la misma variable que deja
+  # guard_init en los guards) y devuelve 1 sin imprimir si vino y no es un
+  # directorio. Cuando el árbol no se puede resolver — lib ausente, lib sin
+  # la función, ".cwd" que no es un directorio, directorio fuera de un repo
+  # git — el checkpoint cae a CASO B con un diagnóstico que nombra la
+  # causa: el genérico "no hay evidencia de review" mandaría al orchestrator
+  # a buscar una evidencia que el hook nunca miró. Cada git lleva -C
+  # explícito sobre una ruta ya resuelta y no vacía: con la ruta vacía,
+  # "git -C ''" deja el cwd del proceso sin cambiar (documentado y
+  # verificado en git 2.54), justo el árbol al que no hay que caer.
+  LIB="${0%/*}/lib/guard-matching.sh"
+  CASO_B_DIAG="No hay evidencia de review dual pre-push para este branch — se trata como PR fuera del flujo."
+  if [ -r "$LIB" ]; then
+    # shellcheck source=lib/guard-matching.sh
+    . "$LIB"
+  else
+    CASO_B_DIAG="No se pudo resolver el árbol de la sesión (falta hooks/lib/guard-matching.sh) — se trata como PR fuera del flujo."
+  fi
+  # shellcheck disable=SC2034 # la lee guard_session_dir (lib sourceada arriba)
+  INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
+  SESSION_DIR=""
+  TOPLEVEL=""
+  CURRENT_BRANCH=""
+  if ! type guard_session_dir > /dev/null 2>&1; then
+    # Lib legible pero sin la función: lib anterior a guard_session_dir, no
+    # un archivo ausente (ese caso ya dejó su diagnóstico arriba).
+    [ -r "$LIB" ] && CASO_B_DIAG="No se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh no define guard_session_dir: lib desactualizada) — se trata como PR fuera del flujo."
+  elif ! SESSION_DIR=$(guard_session_dir 2>/dev/null) || [ -z "$SESSION_DIR" ]; then
+    SESSION_DIR=""
+    CASO_B_DIAG="No se pudo resolver el árbol de la sesión (el .cwd del payload no es un directorio) — se trata como PR fuera del flujo."
+  elif ! TOPLEVEL=$(git -C "$SESSION_DIR" rev-parse --show-toplevel 2>/dev/null) || [ -z "$TOPLEVEL" ]; then
+    TOPLEVEL=""
+    CASO_B_DIAG="No se pudo resolver el árbol de la sesión (el directorio no está dentro de un repo git) — se trata como PR fuera del flujo."
+  else
+    CURRENT_BRANCH=$(git -C "$TOPLEVEL" branch --show-current 2>/dev/null)
+  fi
   STATE_FILE="$TOPLEVEL/.planning/state.json"
-  CURRENT_BRANCH=$(git branch --show-current 2>/dev/null)
   REVIEW_PHASE=""
   STATE_BRANCH=""
   REVIEW_SHA=""
@@ -57,7 +121,6 @@ if [ -n "$PR_URL" ]; then
     STATE_BRANCH=$(jq -r '.branch // empty' "$STATE_FILE" 2>/dev/null)
     REVIEW_SHA=$(jq -r '.review_sha // empty' "$STATE_FILE" 2>/dev/null)
   fi
-  CASO_B_DIAG="No hay evidencia de review dual pre-push para este branch — se trata como PR fuera del flujo."
   if [ "$REVIEW_PHASE" = "done" ] && [ -n "$CURRENT_BRANCH" ] && [ "$STATE_BRANCH" = "$CURRENT_BRANCH" ]; then
     # Tercera señal (anclaje): review_sha debe ser hex plausible (state.json
     # es input no confiable — nunca se interpola sin validar), ancestro de
@@ -68,8 +131,8 @@ if [ -n "$PR_URL" ]; then
     case "$REVIEW_SHA" in
       *[!0-9a-f]* | '') : ;;
       *)
-        if git merge-base --is-ancestor "$REVIEW_SHA" HEAD 2>/dev/null \
-          && git diff --quiet "$REVIEW_SHA" HEAD 2>/dev/null; then
+        if git -C "$TOPLEVEL" merge-base --is-ancestor "$REVIEW_SHA" HEAD 2>/dev/null \
+          && git -C "$TOPLEVEL" diff --quiet "$REVIEW_SHA" HEAD 2>/dev/null; then
           SHA_ANCHOR_OK=true
         fi
         ;;
