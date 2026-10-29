@@ -1299,6 +1299,17 @@ const cases = [
   ["line no entero", { ...base, line: 4.5 }, false],
   ["pattern con comilla simple", { ...base, pattern: "null'deref" }, false],
   ["evidence con linea delimitador", { ...base, evidence: "a\n" + ISSUE_DELIMITER + "\nb" }, false],
+  ["pattern catch {} del rulebook (#113)", { ...base, pattern: "catch {}" }, true],
+  ["pattern .unwrap()/.expect() fuera de tests (#113)", { ...base, pattern: ".unwrap()/.expect() fuera de tests" }, true],
+  ["pattern con dos puntos y coma", { ...base, pattern: "a: b, c" }, true],
+  ["pattern con $", { ...base, pattern: "a$b" }, false],
+  ["pattern con backslash", { ...base, pattern: "a\\b" }, false],
+  ["pattern con ;", { ...base, pattern: "a;b" }, false],
+  ["pattern con |", { ...base, pattern: "a|b" }, false],
+  ["pattern con &", { ...base, pattern: "a&b" }, false],
+  ["pattern con <", { ...base, pattern: "a<b" }, false],
+  ["pattern con >", { ...base, pattern: "a>b" }, false],
+  ["pattern con salto de linea", { ...base, pattern: "a\nb" }, false],
 ]
 let bad = 0
 for (const [name, f, want] of cases) {

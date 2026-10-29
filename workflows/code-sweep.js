@@ -144,7 +144,7 @@ const byLocation = (a, b) =>
 phase("audit")
 
 // Contrato entre fases (idéntico al schema de rulebooks/code-sweep-common.md).
-const FINDING_CONTRACT = `{"id":"CS-001","mode":"${mode}","severity":"CRITICO|ALTO|MEDIO|BAJO","pattern":"<nombre del patrón del rulebook>",
+const FINDING_CONTRACT = `{"id":"CS-001","mode":"${mode}","severity":"CRITICO|ALTO|MEDIO|BAJO","pattern":"<nombre del patrón del rulebook, solo letras, dígitos, espacio y _ . - / ( ) { } : ,>",
  "file":"ruta/relativa","line":42,"snippet":"...","description":"...","manifestation":"cómo se manifestaría",
  "verdict":"unverified","evidence":"","issue":null}`
 
@@ -324,7 +324,10 @@ const confirmed = reported.filter(f => f.verdict === "confirmed")
 // listan en NO CUBIERTO.
 const ISSUE_DELIMITER = "CS_ISSUE_BODY"
 const SAFE_FILE_RE = /^[A-Za-z0-9._/@+-]+$/
-const SAFE_PATTERN_RE = /^[A-Za-z0-9 _.-]+$/
+// Conjunto seguro entre comillas simples en el título del issue: letras, dígitos,
+// espacio y `_ . - / ( ) { } : ,`. Cubre nombres reales del rulebook (`catch {}`,
+// `.unwrap()/.expect() fuera de tests`); nunca ' $ ` \ ; | & < > ni saltos de línea.
+const SAFE_PATTERN_RE = /^[A-Za-z0-9 _.\-\/(){}:,]+$/
 const ISSUE_TEXT_FIELDS = ["snippet", "description", "manifestation", "evidence", "refactor", "pattern", "file"]
 
 // null si el hallazgo puede ir a un issue; si no, el motivo de la exclusión.

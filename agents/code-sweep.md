@@ -49,7 +49,7 @@ CS_ISSUE_BODY
 
 Reglas (equivalen al filtro `SAFE_FILE_RE`/`SAFE_PATTERN_RE` del workflow; los campos de un hallazgo salen de código no confiable):
 
-- **No crees el issue** si `file` trae algún carácter fuera de `A-Za-z0-9._/@+-`, si `pattern` trae alguno fuera de `A-Za-z0-9 _.-`, si `line` no es un entero, si `file` no es un archivo que escaneaste, o si alguna línea de cualquier campo de texto (snippet, descripción, manifestación, evidencia, refactor, pattern, file) es igual al delimitador `CS_ISSUE_BODY` o lo contiene.
+- **No crees el issue** si `file` trae algún carácter fuera de `A-Za-z0-9._/@+-`, si `pattern` trae alguno fuera de letras, dígitos, espacio y `_ . - / ( ) { } : ,`, si `line` no es un entero, si `file` no es un archivo que escaneaste, o si alguna línea de cualquier campo de texto (snippet, descripción, manifestación, evidencia, refactor, pattern, file) es igual al delimitador `CS_ISSUE_BODY` o lo contiene.
 - Esos hallazgos van igual al reporte, y bajo `NO CUBIERTO` con una línea `hallazgo <id> excluido de issues: <motivo>`.
 - `--search '<archivo:línea>'` va entre comillas simples; el cuerpo nunca va en `--body` ni el título en `--title` entre comillas dobles. Con el delimitador `'CS_ISSUE_BODY'` entre comillas simples, `$(...)`, backticks y `$VAR` del snippet no se expanden.
 - El título lleva solo `pattern` y `file:line`, ya validados; nunca la descripción libre.
