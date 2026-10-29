@@ -1748,6 +1748,24 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# --- Backticks sin escapar en nombres de test (#117) ---
+# Un nombre entre comillas dobles con un backtick sin escapar se evalúa como
+# sustitución de comando en el shell de la suite: ejecutó `git push` reales al
+# correr test-hooks.sh. Aplica a toda línea "palabra "texto..." de las tres suites.
+BT_RE='^[A-Za-z_][A-Za-z_0-9]* "([^"\\`]|\\.)*`'
+for suite in test-hooks.sh test-plugin-manifest.sh test-frontmatter.sh; do
+  BT_RC=0
+  BT_HITS=$(grep -nE -- "$BT_RE" "$REPO_ROOT/tests/adversarial/$suite" 2>&1) || BT_RC=$?
+  TOTAL=$((TOTAL + 1))
+  if [ "$BT_RC" -eq 1 ]; then
+    echo -e "${GREEN}PASS${NC}: $suite sin backticks sin escapar en nombres entre comillas dobles"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $suite tiene backticks sin escapar en comillas dobles o grep falló (rc=$BT_RC): $BT_HITS"
+    FAIL=$((FAIL + 1))
+  fi
+done
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---
