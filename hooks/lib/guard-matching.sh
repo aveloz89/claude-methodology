@@ -57,9 +57,11 @@
 #     remote.<x>.mirror/push fijados en el config del repo o global (solo se
 #     ven los "-c" y "--config-env" literales y sin comillas del comando),
 #     remote.pushDefault y un "-c" escrito en una variable;
-#   - pre-push-guard.sh y block-force-push.sh: un "-c" con el valor entre
-#     comillas (`git -c 'user.name=x' push origin main`) anula ambos guards:
-#     el saneo vacía el span y "-c\s+\S+" se traga "push" (issue #120);
+#   - pre-push-guard.sh y block-force-push.sh: la config peligrosa dentro de un
+#     "-c" con el valor entre comillas (`git -c 'push.default=matching' push
+#     origin`): el saneo deja el placeholder "Q" y el contenido no se ve.
+#     `git -c 'user.name=x' push origin main` SÍ bloquea desde #120 (antes el
+#     saneo vaciaba el span y "-c\s+\S+" se tragaba "push");
 #   - pre-push-guard.sh y block-force-push.sh: una sustitución que PRODUCE el
 #     ref o la flag (git push origin $(git branch --show-current)) no se
 #     evalúa; el guard solo ve tokens literales del comando;
@@ -207,7 +209,8 @@ guard_push_has_glob_dst() {
 GUARD_GH_PR_MERGE_RE='gh\s+(\S+\s+){0,2}pr\s+(\S+\s+){0,2}merge'
 
 # guard_sanitize: recibe el comando crudo como $1 y devuelve por stdout el
-# texto saneado (sin spans quoted ni cuerpos de heredoc). Exit status: 0
+# texto saneado (spans quoted reemplazados por $2, un espacio si se omite, y
+# sin cuerpos de heredoc). Exit status: 0
 # si saneó de verdad, 1 si degradó al fallback (perl ausente o perl falló
 # en tiempo de ejecución) — los guards que solo BLOQUEAN sobre el
 # resultado (block-admin-merge.sh, pre-commit-guard.sh) pueden ignorar el
@@ -269,12 +272,25 @@ guard_sanitize() {
     #      volver a poner "*" greedy creyendo que solo afecta performance,
     #      sin tocar [^\n], y reintroduciría la evasión sin reintroducir
     #      el ReDoS.
-    local sanitized status
-    sanitized=$(printf '%s' "$1" | perl -0777 -pe '
+    # Cada span quoted se reemplaza por $2 (por defecto un espacio). Los
+    # guards de git pasan "Q" vía guard_init (#120): un placeholder PEGADO, sin
+    # espacios alrededor, que sigue siendo UN token. Con el span vacío, "git -c
+    # 'user.name=x' push origin main" quedaba como "git -c push origin main" y
+    # "-c\s+\S+" (GUARD_GIT_OPTS) se tragaba "push" como valor de -c: el guard
+    # salía 0 sin ver el push. Con "Q", "-c" consume el placeholder y "push"
+    # queda como subcomando. El contenido quoted sigue invisible (un "main" o
+    # "--force" entre comillas no se ve; ver "Fuera de alcance"): "Q" no es
+    # ningún token vigilado. Los guards de gh (block-admin-merge,
+    # pre-merge-check) conservan el espacio: GUARD_GH_PR_MERGE_RE tolera solo 2
+    # tokens entre "gh"/"pr"/"merge", y con "Q" cada valor quoted cuenta como
+    # token ('gh -R "a/b" -R "c/d" pr merge 5 --admin' dejaba de bloquear;
+    # verificado ejecutando block-admin-merge con el placeholder).
+    local sanitized status placeholder="${2:- }"
+    sanitized=$(printf '%s' "$1" | GUARD_SANITIZE_PH="$placeholder" perl -0777 -pe '
       BEGIN { alarm 5 }
       s/\\\n\s*/ /g;
       s/<<-?[ \t]*[\x27"]?([A-Za-z0-9_-]+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1[ \t]*$)[^\n]*\n)*?[ \t]*\1(?:\n|$)/\n/gsm;
-      s/\x27[^\x27]*\x27|"(?:[^"\\]|\\.)*"/ /g;
+      s/\x27[^\x27]*\x27|"(?:[^"\\]|\\.)*"/$ENV{GUARD_SANITIZE_PH}/g;
     ')
     status=$?
     # Red de seguridad para cualquier patológico futuro no anticipado por
@@ -327,7 +343,7 @@ guard_block() {
   exit 2
 }
 
-# guard_init <nombre-del-guard>: preámbulo común de los guards PreToolUse.
+# guard_init <nombre-del-guard> [placeholder]: preámbulo común de los guards PreToolUse.
 # Se llama DESPUÉS de sourcear esta lib (el caller ya verificó que la lib
 # existe; sin lib no hay guard_init que llamar — ese check queda en el
 # guard). Fail-closed sin jq ni grep (las dependencias de binarios del
@@ -343,7 +359,7 @@ guard_init() {
   COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
   INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
   guard_command_has_nul "$INPUT" && guard_block "el comando trae un byte NUL"
-  SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
+  SANITIZED_COMMAND=$(guard_sanitize "$COMMAND" "${2-Q}")
   GUARD_SANITIZE_STATUS=$?
 }
 

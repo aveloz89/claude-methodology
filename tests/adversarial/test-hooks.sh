@@ -758,6 +758,59 @@ assert_allowed_cmd "pre-push-guard: refspec entre comillas '*:*' queda fuera de 
 assert_allowed_cmd "pre-push-guard: un asterisco en otro segmento no bloquea el push a feature/x (control, #119)" \
   "pre-push-guard.sh" 'git push origin feature/x && ls *.md' "$PATH" "$SANDBOX_REPO"
 
+# #120: un "-c" con el valor entre comillas anulaba ambos guards: el saneo
+# vaciaba el span y "-c\s+\S+" se tragaba "push". Ahora el saneo deja el
+# placeholder "Q" pegado (el span sigue siendo UN token). RED con el saneo
+# anterior: los cuatro bloqueos de abajo daban exit 0.
+assert_blocked_cmd "pre-push-guard: -c con valor entre comillas simples y push a main bloquea (#120)" \
+  "pre-push-guard.sh" "git -c 'user.name=x' push origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c con valor entre comillas dobles y push a main bloquea (#120)" \
+  "pre-push-guard.sh" 'git -c "user.name=x" push origin main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c con valor parcialmente entre comillas y push a main bloquea (#120)" \
+  "pre-push-guard.sh" "git -c user.name='x y' push origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: -c con valor entre comillas y push --force bloquea (#120)" \
+  "block-force-push.sh" "git -c 'user.name=x' push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: -c con valor entre comillas dobles y push -f bloquea (#120)" \
+  "block-force-push.sh" 'git -c "user.name=x" push -f origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: -c con valor entre comillas y reset --hard bloquea (#120)" \
+  "block-hard-reset.sh" "git -c 'user.name=x' reset --hard" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: dos -c entre comillas y push a main bloquea (#120)" \
+  "pre-push-guard.sh" "git -c 'a.b=1' -c \"c.d=2\" push origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c entre comillas seguido de -C bloquea por redireccion (#120)" \
+  "pre-push-guard.sh" "git -c 'user.name=x' -C /tmp push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c entre comillas dentro de then bloquea (#120, #118)" \
+  "pre-push-guard.sh" "if true; then git -c 'user.name=x' push origin HEAD:main; fi" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: -c sin comillas y push a feature/x pasa (control, #120)" \
+  "pre-push-guard.sh" "git -c user.name=x push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: -c entre comillas y push a feature/x pasa (control, #120)" \
+  "pre-push-guard.sh" "git -c 'user.name=x' push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: -c con valor parcialmente entre comillas y push a feature/x pasa (control, #120)" \
+  "pre-push-guard.sh" "git -c user.name='x y' push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: -c entre comillas y push sin force pasa (control, #120)" \
+  "block-force-push.sh" "git -c 'user.name=x' push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: -c entre comillas y reset --soft pasa (control, #120)" \
+  "block-hard-reset.sh" "git -c 'user.name=x' reset --soft HEAD~1" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: git commit con 'push origin main' en el mensaje no dispara (control, #120)" \
+  "pre-push-guard.sh" "git commit -m 'push origin main'" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: git commit con 'git push origin main' en el mensaje no dispara (control, #120)" \
+  "pre-push-guard.sh" "git commit -m 'git push origin main'" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: git commit con 'git push --force' en el mensaje no dispara (control, #120)" \
+  "block-force-push.sh" 'git commit -m "git push --force"' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec entre comillas sigue fuera de alcance y pasa (fijado, #120)" \
+  "pre-push-guard.sh" 'git push origin "HEAD:main"' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: flag --force entre comillas sigue fuera de alcance y pasa (fijado, #120)" \
+  "block-force-push.sh" 'git push origin "--force"' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: config peligrosa en un -c entre comillas sigue fuera de alcance y pasa (fijado, #120)" \
+  "pre-push-guard.sh" "git -c 'push.default=matching' push origin" "$PATH" "$SANDBOX_REPO"
+# Efecto colateral del placeholder: el refspec forzado con el ref entre comillas
+# (+"feature/x") es un force push real y ahora se ve el "+". RED: exit 0.
+assert_blocked_cmd "block-force-push: refspec forzado con el ref entre comillas bloquea (#120)" \
+  "block-force-push.sh" 'git push origin +"feature/x"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: gh con dos -R entre comillas y --admin sigue bloqueando (#120)" \
+  "block-admin-merge.sh" 'gh -R "a/b" -R "c/d" pr merge 5 --admin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: gh con flags y valores entre comillas antes de pr merge --admin bloquea (#120)" \
+  "block-admin-merge.sh" 'gh --repo "a/b" "x" pr merge 5 --admin' "$PATH" "$SANDBOX_REPO"
+
 sandbox_cleanup_pushrepo
 
 echo ""
