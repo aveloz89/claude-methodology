@@ -668,6 +668,482 @@ assert_allowed_cmd "block-force-push: dos --force-with-lease a ramas feature pas
 assert_blocked_cmd "block-force-push: push normal seguido de --force bloquea (comportamiento fijado, #117)" \
   "block-force-push.sh" "git push origin feature/x && git push --force origin feature/y" "$PATH" "$SANDBOX_REPO"
 
+# #118: GUARD_ANCHOR no reconocía las palabras clave de shell que abren una
+# posición de comando (then, do, else, elif, if, while, until, "!") ni el ")"
+# que cierra un patrón de case. RED con el ancla anterior: todos los
+# bloqueos de abajo daban exit 0 (verificado ejecutando los tres hooks).
+assert_blocked_cmd "pre-push-guard: push a main dentro de then bloquea (#118)" \
+  "pre-push-guard.sh" 'if true; then git push origin HEAD:main; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main dentro de do bloquea (#118)" \
+  "pre-push-guard.sh" 'for b in x; do git push origin HEAD:main; done' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main tras negacion ! bloquea (#118)" \
+  "pre-push-guard.sh" '! git push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main dentro de else bloquea (#118)" \
+  "pre-push-guard.sh" 'if false; then :; else git push origin HEAD:main; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main como condicion de if bloquea (#118)" \
+  "pre-push-guard.sh" 'if git push origin HEAD:main; then echo ok; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main dentro de elif bloquea (#118)" \
+  "pre-push-guard.sh" 'if false; then :; elif git push origin HEAD:main; then :; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main dentro de while bloquea (#118)" \
+  "pre-push-guard.sh" 'while git push origin HEAD:main; do :; done' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main en un if anidado bloquea (#118)" \
+  "pre-push-guard.sh" 'if true; then if true; then git push origin HEAD:main; fi; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main con then en linea propia bloquea (#118)" \
+  "pre-push-guard.sh" $'if true\nthen\n  git push origin HEAD:main\nfi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: push a main en un patron de case bloquea (#118)" \
+  "pre-push-guard.sh" 'case x in x) git push origin HEAD:main;; esac' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: force push dentro de else bloquea (#118)" \
+  "block-force-push.sh" 'if false; then :; else git push --force origin feature/x; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: force push dentro de then bloquea (#118)" \
+  "block-force-push.sh" 'if true; then git push -f origin feature/x; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: force push dentro de do bloquea (#118)" \
+  "block-force-push.sh" 'for b in x; do git push --force origin feature/x; done' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: reset --hard dentro de do bloquea (#118)" \
+  "block-hard-reset.sh" 'while false; do git reset --hard; done' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: reset --hard dentro de then bloquea (#118)" \
+  "block-hard-reset.sh" 'if true; then git reset --hard HEAD~1; fi' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: reset --hard tras negacion ! bloquea (#118)" \
+  "block-hard-reset.sh" '! git reset --hard' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x dentro de then pasa (control, #118)" \
+  "pre-push-guard.sh" 'if true; then git push origin feature/x; fi' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x dentro de do pasa (control, #118)" \
+  "pre-push-guard.sh" 'for b in x; do git push origin feature/x; done' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: push a feature/x tras ! pasa (control, #118)" \
+  "pre-push-guard.sh" '! git push origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: push normal dentro de else pasa (control, #118)" \
+  "block-force-push.sh" 'if false; then :; else git push origin feature/x; fi' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: reset --soft dentro de do pasa (control, #118)" \
+  "block-hard-reset.sh" 'while false; do git reset --soft HEAD~1; done' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: 'echo then git push origin main' pasa, no es un push (fijado, #118)" \
+  "pre-push-guard.sh" 'echo then git push origin main' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: 'echo do git push --force' pasa, no es un push (fijado, #118)" \
+  "block-force-push.sh" 'echo do git push --force' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: 'echo else git reset --hard' pasa, no es un reset (fijado, #118)" \
+  "block-hard-reset.sh" 'echo else git reset --hard' "$PATH" "$SANDBOX_REPO"
+
+# #119: un refspec glob cuyo destino contiene "*" expande a todas las ramas
+# (main incluida) sin nombrarla; verificado contra un remoto bare (git 2.54):
+# 'refs/heads/*:refs/heads/*', '*:*' y el glob de un solo lado 'refs/heads/*'
+# empujan main. RED con el guard anterior: los bloqueos daban exit 0.
+assert_blocked_cmd "pre-push-guard: refspec glob refs/heads/*:refs/heads/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/heads/*:refs/heads/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob forzado +refs/heads/*:refs/heads/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin +refs/heads/*:refs/heads/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob sin comillas *:* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin *:*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob +*:* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin +*:*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob de un solo lado refs/heads/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/heads/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob feature/*:feature/* sin prefijo refs/ bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin feature/*:feature/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob parcial main*:main* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin main*:main*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob con origen tag y destino refs/heads/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/tags/*:refs/heads/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob tras && bloquea (#119)" \
+  "pre-push-guard.sh" 'git status && git push origin refs/heads/*:refs/heads/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con refspec glob refs/heads/*:refs/heads/* no alcanza la excepcion (#119)" \
+  "block-force-push.sh" 'git push --force-with-lease origin refs/heads/*:refs/heads/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec glob de tags refs/tags/*:refs/tags/* pasa (control, #119)" \
+  "pre-push-guard.sh" 'git push origin refs/tags/*:refs/tags/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec glob de tags de un solo lado pasa (control, #119)" \
+  "pre-push-guard.sh" 'git push origin refs/tags/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: origen glob heads y destino tags pasa (control, #119)" \
+  "pre-push-guard.sh" 'git push origin refs/heads/*:refs/tags/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec sin glob feature/x:feature/x pasa (control, #119)" \
+  "pre-push-guard.sh" 'git push origin feature/x:feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec entre comillas '*:*' queda fuera de alcance y pasa (fijado, #119)" \
+  "pre-push-guard.sh" "git push origin '*:*'" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: un asterisco en otro segmento no bloquea el push a feature/x (control, #119)" \
+  "pre-push-guard.sh" 'git push origin feature/x && ls *.md' "$PATH" "$SANDBOX_REPO"
+
+# #120: un "-c" con el valor entre comillas anulaba ambos guards: el saneo
+# vaciaba el span y "-c\s+\S+" se tragaba "push". Ahora el saneo deja el
+# placeholder "Q" pegado (el span sigue siendo UN token). RED con el saneo
+# anterior: los cuatro bloqueos de abajo daban exit 0.
+assert_blocked_cmd "pre-push-guard: -c con valor entre comillas simples y push a main bloquea (#120)" \
+  "pre-push-guard.sh" "git -c 'user.name=x' push origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c con valor entre comillas dobles y push a main bloquea (#120)" \
+  "pre-push-guard.sh" 'git -c "user.name=x" push origin main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c con valor parcialmente entre comillas y push a main bloquea (#120)" \
+  "pre-push-guard.sh" "git -c user.name='x y' push origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: -c con valor entre comillas y push --force bloquea (#120)" \
+  "block-force-push.sh" "git -c 'user.name=x' push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: -c con valor entre comillas dobles y push -f bloquea (#120)" \
+  "block-force-push.sh" 'git -c "user.name=x" push -f origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: -c con valor entre comillas y reset --hard bloquea (#120)" \
+  "block-hard-reset.sh" "git -c 'user.name=x' reset --hard" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: dos -c entre comillas y push a main bloquea (#120)" \
+  "pre-push-guard.sh" "git -c 'a.b=1' -c \"c.d=2\" push origin main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c entre comillas seguido de -C bloquea por redireccion (#120)" \
+  "pre-push-guard.sh" "git -c 'user.name=x' -C /tmp push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c entre comillas dentro de then bloquea (#120, #118)" \
+  "pre-push-guard.sh" "if true; then git -c 'user.name=x' push origin HEAD:main; fi" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: -c sin comillas y push a feature/x pasa (control, #120)" \
+  "pre-push-guard.sh" "git -c user.name=x push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: -c entre comillas y push a feature/x pasa (control, #120)" \
+  "pre-push-guard.sh" "git -c 'user.name=x' push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: -c con valor parcialmente entre comillas y push a feature/x pasa (control, #120)" \
+  "pre-push-guard.sh" "git -c user.name='x y' push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: -c entre comillas y push sin force pasa (control, #120)" \
+  "block-force-push.sh" "git -c 'user.name=x' push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: -c entre comillas y reset --soft pasa (control, #120)" \
+  "block-hard-reset.sh" "git -c 'user.name=x' reset --soft HEAD~1" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: git commit con 'push origin main' en el mensaje no dispara (control, #120)" \
+  "pre-push-guard.sh" "git commit -m 'push origin main'" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: git commit con 'git push origin main' en el mensaje no dispara (control, #120)" \
+  "pre-push-guard.sh" "git commit -m 'git push origin main'" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: git commit con 'git push --force' en el mensaje no dispara (control, #120)" \
+  "block-force-push.sh" 'git commit -m "git push --force"' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec entre comillas sigue fuera de alcance y pasa (fijado, #120)" \
+  "pre-push-guard.sh" 'git push origin "HEAD:main"' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: flag --force entre comillas sigue fuera de alcance y pasa (fijado, #120)" \
+  "block-force-push.sh" 'git push origin "--force"' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: config peligrosa en un -c entre comillas sigue fuera de alcance y pasa (fijado, #120)" \
+  "pre-push-guard.sh" "git -c 'push.default=matching' push origin" "$PATH" "$SANDBOX_REPO"
+# Efecto colateral del placeholder: el refspec forzado con el ref entre comillas
+# (+"feature/x") es un force push real y ahora se ve el "+". RED: exit 0.
+assert_blocked_cmd "block-force-push: refspec forzado con el ref entre comillas bloquea (#120)" \
+  "block-force-push.sh" 'git push origin +"feature/x"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: gh con dos -R entre comillas y --admin sigue bloqueando (#120)" \
+  "block-admin-merge.sh" 'gh -R "a/b" -R "c/d" pr merge 5 --admin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: gh con flags y valores entre comillas antes de pr merge --admin bloquea (#120)" \
+  "block-admin-merge.sh" 'gh --repo "a/b" "x" pr merge 5 --admin' "$PATH" "$SANDBOX_REPO"
+
+# #120 (ronda 1 de review): el shell une las comillas pegadas con la palabra
+# vecina (--force'' es --force, ""git es git). El placeholder Q las deformaba y
+# el guard dejaba pasar el comando; el reemplazo ahora depende de la palabra
+# entera: Q solo si el span es la palabra completa, nada si va pegado a texto.
+# RED con 85f002c: todos los bloqueos de abajo daban exit 0.
+assert_blocked_cmd "block-force-push: --force con comillas vacias pegadas bloquea (#120)" \
+  "block-force-push.sh" "git push origin feature/x --force''" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: --force con comillas dobles vacias pegadas bloquea (#120)" \
+  "block-force-push.sh" 'git push --force"" origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: comillas vacias pegadas a push bloquea (#120)" \
+  "block-force-push.sh" "git ''push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: comillas vacias dentro de git bloquea (#120)" \
+  "block-force-push.sh" "g''it push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: comillas dobles vacias antes de git bloquea (#120)" \
+  "block-force-push.sh" '""git push --force origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: HEAD:main con comillas simples pegadas bloquea (#120)" \
+  "pre-push-guard.sh" "git push origin HEAD:main''" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: HEAD:main con comillas dobles pegadas bloquea (#120)" \
+  "pre-push-guard.sh" 'git push origin HEAD:main""' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: comillas vacias pegadas a push bloquea (#120)" \
+  "pre-push-guard.sh" "git ''push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: comillas dobles vacias antes de git bloquea (#120)" \
+  "pre-push-guard.sh" '""git push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: --all con comillas pegadas bloquea (#120)" \
+  "pre-push-guard.sh" "git push --all''" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: comillas vacias antes de main bloquea (#120)" \
+  "pre-push-guard.sh" "git push origin ''main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: cd con comillas pegadas bloquea por redireccion (#120)" \
+  "pre-push-guard.sh" "cd'' /tmp && git push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: --hard con comillas pegadas bloquea (#120)" \
+  "block-hard-reset.sh" "git reset --hard''" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: comillas vacias pegadas a reset bloquea (#120)" \
+  "block-hard-reset.sh" "git ''reset --hard" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: comillas dobles vacias antes de git bloquea (#120)" \
+  "block-hard-reset.sh" '""git reset --hard' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: comillas vacias antes de --hard bloquea (#120)" \
+  "block-hard-reset.sh" "git reset ''--hard" "$PATH" "$SANDBOX_REPO"
+# Spans con contenido simple pegados a texto: el shell los une (--for"ce" es
+# --force, HEAD:"main" es HEAD:main). RED con 85f002c: exit 0.
+assert_blocked_cmd "pre-push-guard: refspec con el destino entre comillas pegado (HEAD:\"main\") bloquea (#120)" \
+  "pre-push-guard.sh" 'git push origin HEAD:"main"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: destino partido por comillas (HEAD:ma\"\"in) bloquea (#120)" \
+  "pre-push-guard.sh" 'git push origin HEAD:ma""in' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: flag partida por comillas (--for\"ce\") bloquea (#120)" \
+  "block-force-push.sh" 'git push origin feature/x --for"ce"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: opcion partida por comillas (--har\"d\") bloquea (#120)" \
+  "block-hard-reset.sh" 'git reset --har"d"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: flag partida por comillas (--adm\"in\") bloquea (#120)" \
+  "block-admin-merge.sh" 'gh pr merge 5 --adm"in"' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: mensaje con espacios pegado a -m no expone --hard (control, #120)" \
+  "block-hard-reset.sh" 'git commit -m"x --hard"' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: mensaje con espacios pegado a -m no expone el push (control, #120)" \
+  "pre-push-guard.sh" 'git commit -m"push origin main"' "$PATH" "$SANDBOX_REPO"
+# Controles: el span que ES la palabra entera sigue siendo Q (el -c de #120) y
+# una palabra vacia suelta no deforma nada.
+assert_blocked_cmd "pre-push-guard: -c con valor entre comillas y push a main sigue bloqueando (control, #120)" \
+  "pre-push-guard.sh" "git -c 'user.name=x' push origin main" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: palabra vacia suelta en un push a feature/x pasa (control, #120)" \
+  "pre-push-guard.sh" "git push origin feature/x ''" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: palabra vacia suelta en reset --soft pasa (control, #120)" \
+  "block-hard-reset.sh" "git reset --soft '' HEAD~1" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: --admin con comillas pegadas sigue bloqueando (control, #120)" \
+  "block-admin-merge.sh" "gh pr merge 5 --admin''" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: dos -R entre comillas y --admin sigue bloqueando (control 2, #120)" \
+  "block-admin-merge.sh" 'gh -R "a/b" -R "c/d" pr merge 5 --admin' "$PATH" "$SANDBOX_REPO"
+
+# #119 (ronda 1 de review): el "*" de un refspec cubre tambien "/", asi que un
+# glob bajo "refs/" que NO pasa por "refs/heads/" tambien mueve main
+# (refs/*:refs/*, refs/h*:refs/h*, refs/*). Regla: se toma el prefijo literal
+# del destino antes del primer "*" y se bloquea si es prefijo de "refs/heads/",
+# si empieza por "refs/heads/" o si no empieza por "refs/".
+# RED con 85f002c: los bloqueos de abajo daban exit 0.
+assert_blocked_cmd "pre-push-guard: refspec glob refs/*:refs/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/*:refs/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob refs/h*:refs/h* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/h*:refs/h*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob de un solo lado refs/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob refs/heads* sin barra bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin refs/heads*:refs/heads*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec glob forzado +refs/*:refs/* bloquea (#119)" \
+  "pre-push-guard.sh" 'git push origin +refs/*:refs/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con refspec glob refs/*:refs/* no alcanza la excepcion (#119)" \
+  "block-force-push.sh" 'git push --force-with-lease origin refs/*:refs/*' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con refspec glob refs/h*:refs/h* no alcanza la excepcion (#119)" \
+  "block-force-push.sh" 'git push --force-with-lease origin refs/h*:refs/h*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec glob refs/remotes/x/* pasa (control, #119)" \
+  "pre-push-guard.sh" 'git push origin refs/remotes/x/*:refs/remotes/x/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec glob refs/tags/* de un solo lado pasa (control, #119)" \
+  "pre-push-guard.sh" 'git push origin refs/tags/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease con refspec glob refs/tags/* pasa (control, #119)" \
+  "block-force-push.sh" 'git push --force-with-lease origin refs/tags/*:refs/tags/*' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: refspec glob entre comillas refs/heads/* queda fuera de alcance y pasa (fijado, #119)" \
+  "pre-push-guard.sh" "git push origin 'refs/heads/*'" "$PATH" "$SANDBOX_REPO"
+
+# #120 (ronda 1 de review, preexistente): el shell quita la barra invertida
+# dentro de un token sin comillas (HEAD:ma\in es HEAD:main). El saneo ahora
+# cambia \X por X cuando X es alfanumerico o uno de ._/:+- (no toca \; \& \|).
+# RED con 85f002c: los bloqueos de abajo daban exit 0.
+assert_blocked_cmd "pre-push-guard: barra invertida dentro del refspec (HEAD:ma\\in) bloquea (#120)" \
+  "pre-push-guard.sh" 'git push origin HEAD:ma\in' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: barra invertida dentro de la flag (--forc\\e) bloquea (#120)" \
+  "block-force-push.sh" 'git push origin feature/x --forc\e' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: barra invertida dentro de la opcion (--har\\d) bloquea (#120)" \
+  "block-hard-reset.sh" 'git reset --har\d' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: barra invertida dentro del binario (g\\it) bloquea (#120)" \
+  "pre-push-guard.sh" 'g\it push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: barra invertida en el subcomando (re\\set) bloquea (#120)" \
+  "block-hard-reset.sh" 'git re\set --hard' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: barra invertida dentro de la flag (--admi\\n) bloquea (#120)" \
+  "block-admin-merge.sh" 'gh pr merge 5 --admi\n' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: barra invertida dentro de un ref de feature pasa (control, #120)" \
+  "pre-push-guard.sh" 'git push origin feature/\x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: barra invertida y push normal pasa (control, #120)" \
+  "block-force-push.sh" 'git push origin feat\ure/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-admin-merge: gh pr merge sin --admin con barra invertida pasa (control, #120)" \
+  "block-admin-merge.sh" 'gh pr mer\ge 5 --squash' "$PATH" "$SANDBOX_REPO"
+
+# #118 (ronda 1 de review): wrappers delante de git (time, nohup, exec, command,
+# env, timeout, xargs, coproc) y redireccion con "&" dentro del segmento
+# (2>&1, &>log). RED con 85f002c: todos los bloqueos de abajo daban exit 0.
+for WRAP in 'time' 'time -p' 'nohup' 'exec' 'command' 'env' 'env -i' 'env FOO=1' 'env -i FOO=1 BAR=2' \
+  'timeout 60' 'timeout -s KILL 60' 'timeout --preserve-status 5s' 'time nohup' 'exec env FOO=1' 'FOO=1 time' 'coproc'; do
+  assert_blocked_cmd "pre-push-guard: wrapper '$WRAP' y push a main bloquea (#118)" \
+    "pre-push-guard.sh" "$WRAP git push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-force-push: wrapper '$WRAP' y push --force bloquea (#118)" \
+    "block-force-push.sh" "$WRAP git push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-hard-reset: wrapper '$WRAP' y reset --hard bloquea (#118)" \
+    "block-hard-reset.sh" "$WRAP git reset --hard" "$PATH" "$SANDBOX_REPO"
+  assert_allowed_cmd "pre-push-guard: wrapper '$WRAP' y push a feature/x pasa (control, #118)" \
+    "pre-push-guard.sh" "$WRAP git push origin feature/x" "$PATH" "$SANDBOX_REPO"
+done
+for WRAP in 'xargs' 'xargs -n 1' 'xargs -I {}' 'xargs -r time'; do
+  assert_blocked_cmd "pre-push-guard: tras pipe, wrapper '$WRAP' y push a main bloquea (#118)" \
+    "pre-push-guard.sh" "echo a | $WRAP git push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-force-push: tras pipe, wrapper '$WRAP' y push --force bloquea (#118)" \
+    "block-force-push.sh" "echo a | $WRAP git push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-hard-reset: tras pipe, wrapper '$WRAP' y reset --hard bloquea (#118)" \
+    "block-hard-reset.sh" "echo a | $WRAP git reset --hard" "$PATH" "$SANDBOX_REPO"
+done
+assert_blocked_cmd "pre-push-guard: wrapper y opciones de git (time git -c a=b push) bloquea (#118)" \
+  "pre-push-guard.sh" "time git -c a=b push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: wrapper y -C bloquea por redireccion (#118)" \
+  "pre-push-guard.sh" "time git -C /tmp push origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: 'echo time git push origin main' no es un push (fijado, #118)" \
+  "pre-push-guard.sh" "echo time git push origin main" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: 'echo nohup git reset --hard' no es un reset (fijado, #118)" \
+  "block-hard-reset.sh" "echo nohup git reset --hard" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: 'echo xargs git push --force' no es un push (fijado, #118)" \
+  "block-force-push.sh" "echo xargs git push --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: wrapper y reset --soft pasa (control, #118)" \
+  "block-hard-reset.sh" "time git reset --soft HEAD~1" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: 'command -v git' sin push pasa (control, #118)" \
+  "pre-push-guard.sh" "command -v git && git status" "$PATH" "$SANDBOX_REPO"
+
+# Redireccion con "&" dentro del segmento: "2>&1" y "&>log" no separan comandos,
+# el "&" de background si.
+assert_blocked_cmd "block-hard-reset: redireccion 2>&1 antes de --hard bloquea (#118)" \
+  "block-hard-reset.sh" "git reset 2>&1 --hard" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: redireccion &>log antes de --hard bloquea (#118)" \
+  "block-hard-reset.sh" "git reset &>log --hard" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: redireccion 2>&1 antes del refspec a main bloquea (#118)" \
+  "pre-push-guard.sh" "git push origin 2>&1 HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: redireccion >&2 antes del refspec a main bloquea (#118)" \
+  "pre-push-guard.sh" "git push origin >&2 HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: redireccion &>log antes del refspec a main bloquea (#118)" \
+  "pre-push-guard.sh" "git push origin &>log HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: redireccion 2>&1 antes de --force bloquea (#118)" \
+  "block-force-push.sh" "git push 2>&1 --force origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: redireccion 2>&1 entre push y force con rama bloquea (#118)" \
+  "block-force-push.sh" "git push --force 2>&1 origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: el & de background separa, main del siguiente comando no cuenta (control, #118)" \
+  "pre-push-guard.sh" "git push origin feature/x & echo main" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: el & de background separa, --hard del siguiente comando no cuenta (control, #118)" \
+  "block-hard-reset.sh" "git reset HEAD~1 & echo --hard" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: el & de background separa, -f del siguiente comando no cuenta (control, #118)" \
+  "block-force-push.sh" "git push origin feature/x & echo -f" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: redireccion 2>&1 y push a feature/x pasa (control, #118)" \
+  "pre-push-guard.sh" "git push origin feature/x 2>&1 | tail -1" "$PATH" "$SANDBOX_REPO"
+
+# --- Ronda de cierre (#118, #120, #121): formas de escribir lo mismo ---
+# Grupo A: el saneo une como el shell las formas $'..' y $".." (el "$" delante
+# del span se descarta), la barra invertida + newline sin dejar un espacio, la
+# barra final y \X con X fuera de [A-Za-z0-9._/:+-].
+assert_blocked_cmd "pre-push-guard: HEAD:\$'main' bloquea (cierre)" \
+  "pre-push-guard.sh" "git push origin HEAD:\$'main'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: HEAD:\$\"main\" bloquea (cierre)" \
+  "pre-push-guard.sh" 'git push origin HEAD:$"main"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: reset \$'--hard' bloquea (cierre)" \
+  "block-hard-reset.sh" "git reset \$'--hard'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: reset \$\"--hard\" bloquea (cierre)" \
+  "block-hard-reset.sh" 'git reset $"--hard"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: git \$'push' bloquea (cierre)" \
+  "pre-push-guard.sh" "git \$'push' origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-commit-guard: git \$'commit' se reconoce como commit (cierre)" \
+  "pre-commit-guard.sh" "git \$'commit' -m x --work-tree=/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec partido con barra invertida y newline bloquea (cierre)" \
+  "pre-push-guard.sh" $'git push origin HEAD:ma\\\nin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: flag partida con barra invertida y newline bloquea (cierre)" \
+  "block-force-push.sh" $'git push --for\\\nce origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-commit-guard: commit partido con barra invertida y newline se reconoce (cierre)" \
+  "pre-commit-guard.sh" $'git com\\\nmit -m x --work-tree=/x' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: barra invertida final tras el refspec bloquea (cierre)" \
+  "pre-push-guard.sh" 'git push origin HEAD:main\' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-admin-merge: gh pr merge con continuacion e indentacion y --admin sigue bloqueando (cierre)" \
+  "block-admin-merge.sh" $'gh pr merge 5 \\\n  --admin' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: -c push.default\\=matching bloquea (cierre)" \
+  "pre-push-guard.sh" 'git -c push.default\=matching push origin' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: continuacion de linea en un push a feature/x pasa (control, cierre)" \
+  "pre-push-guard.sh" $'git push origin \\\n  feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: \$'feature/x' entre comillas ANSI-C pasa (control, cierre)" \
+  "pre-push-guard.sh" "git push origin \$'feature/x'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: refspec entero con \$'' de contenido simple bloquea (cierre)" \
+  "pre-push-guard.sh" "git push origin \$'HEAD:main'" "$PATH" "$SANDBOX_REPO"
+
+# Grupo B: redirecciones <&N y >| dentro del segmento, opciones globales de git
+# fuera de la lista fija (--no-optional-locks, -p, --namespace x, ...) y -C
+# precedido de otras opciones en pre-commit-guard. RED con 7e45e70: todos los
+# bloqueos de abajo daban exit 0.
+assert_blocked_cmd "block-force-push: redireccion <&0 antes de --force bloquea (cierre)" \
+  "block-force-push.sh" 'git push origin feature/x <&0 --force' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: redireccion >| antes del refspec a main bloquea (cierre)" \
+  "pre-push-guard.sh" 'git push origin >|/dev/null HEAD:main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-hard-reset: redireccion >| antes de --hard bloquea (cierre)" \
+  "block-hard-reset.sh" 'git reset >|log --hard' "$PATH" "$SANDBOX_REPO"
+for _opt in --no-optional-locks --literal-pathspecs -p --paginate --no-replace-objects --no-advice --exec-path=/x --namespace=x "--namespace x" "--attr-source HEAD"; do
+  assert_blocked_cmd "pre-push-guard: git $_opt antes de push a main bloquea (cierre)" \
+    "pre-push-guard.sh" "git $_opt push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-force-push: git $_opt antes de push -f bloquea (cierre)" \
+    "block-force-push.sh" "git $_opt push -f origin feature/x" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-hard-reset: git $_opt antes de reset --hard bloquea (cierre)" \
+    "block-hard-reset.sh" "git $_opt reset --hard" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "pre-commit-guard: git $_opt antes de commit se reconoce (cierre)" \
+    "pre-commit-guard.sh" "git $_opt commit -m x --work-tree=/x" "$PATH" "$SANDBOX_REPO"
+done
+assert_blocked_cmd "pre-commit-guard: -c k=v antes de -C no se resuelve y bloquea (cierre)" \
+  "pre-commit-guard.sh" 'git -c a=b -C /tmp commit -m x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: git --no-optional-locks push a feature/x pasa (control, cierre)" \
+  "pre-push-guard.sh" 'git --no-optional-locks push origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: git -p push sin force pasa (control, cierre)" \
+  "block-force-push.sh" 'git -p push origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: git --namespace x reset --soft pasa (control, cierre)" \
+  "block-hard-reset.sh" 'git --namespace x reset --soft HEAD~1' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: redireccion <&0 y push a feature/x pasa (control, cierre)" \
+  "pre-push-guard.sh" 'git push origin feature/x <&0' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: redireccion >| seguida de otro comando con main pasa (control, cierre)" \
+  "pre-push-guard.sh" 'git push origin feature/x >|/dev/null; echo main' "$PATH" "$SANDBOX_REPO"
+
+# Grupo C: wrappers delante de git. RED con 7e45e70: todos los bloqueos de abajo
+# daban exit 0.
+for _w in "sudo" "sudo -u root" "sudo -E" "sudo -n" "doas" "doas -u root" "nice" "nice -n 5" "ionice -c 3" "ionice -c 2 -n 7" "stdbuf -oL" "stdbuf -o0 -e0" "caffeinate -i" "chrt -i 0" "taskset 0x1" "taskset -c 0" "arch -arm64" "arch -x86_64" "exec -a NAME" "env -C /tmp" "env -i -u FOO" "timeout 1m30s" "timeout 1h" "timeout -k 5 10" "timeout -s KILL 60" "xargs -I WORD" "xargs -I {}" "xargs -n 1"; do
+  assert_blocked_cmd "pre-push-guard: wrapper $_w delante de git push a main bloquea (cierre)" \
+    "pre-push-guard.sh" "$_w git push origin HEAD:main" "$PATH" "$SANDBOX_REPO"
+  assert_blocked_cmd "block-hard-reset: wrapper $_w delante de git reset --hard bloquea (cierre)" \
+    "block-hard-reset.sh" "$_w git reset --hard" "$PATH" "$SANDBOX_REPO"
+done
+assert_blocked_cmd "block-force-push: sudo -u root delante de git push -f bloquea (cierre)" \
+  "block-force-push.sh" 'sudo -u root git push -f origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-commit-guard: nice -n 5 delante de git commit se reconoce (cierre)" \
+  "pre-commit-guard.sh" 'nice -n 5 git commit -m x --work-tree=/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: sudo git push a feature/x pasa (control, cierre)" \
+  "pre-push-guard.sh" 'sudo git push origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: nice -n 5 npm run build pasa (control, cierre)" \
+  "pre-push-guard.sh" 'nice -n 5 npm run build' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: echo sudo git push origin main no es un push (control, cierre)" \
+  "pre-push-guard.sh" 'echo sudo git push origin main' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: timeout 1m30s git reset --soft pasa (control, cierre)" \
+  "block-hard-reset.sh" 'timeout 1m30s git reset --soft HEAD~1' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: sudo con opcion no listada sigue fuera de alcance y pasa (fijado, cierre)" \
+  "pre-push-guard.sh" 'sudo -g staff git push origin HEAD:main' "$PATH" "$SANDBOX_REPO"
+
+# Grupo D: la excepcion de --force-with-lease mira las comillas en todo el
+# segmento crudo sin depender del ancla literal "git": g''it, g\it y la
+# continuacion de linea ocultaban el "dev" entre comillas. RED con 7e45e70: los
+# bloqueos de abajo daban exit 0.
+assert_blocked_cmd "block-force-push: g''it con lease y dev entre comillas bloquea (cierre)" \
+  "block-force-push.sh" "g''it push --force-with-lease origin 'dev'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: g\\it con lease y dev entre comillas bloquea (cierre)" \
+  "block-force-push.sh" 'g\it push --force-with-lease origin "dev"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con continuacion de linea y dev entre comillas bloquea (cierre)" \
+  "block-force-push.sh" $'git push --force-with-lease \\\n origin "dev"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con redireccion 2>&1 y dev entre comillas bloquea (cierre)" \
+  "block-force-push.sh" 'git push --force-with-lease 2>&1 origin "dev"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con dev en comillas ANSI-C bloquea (cierre)" \
+  "block-force-push.sh" "git push --force-with-lease origin \$'dev'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con git entre comillas dentro de then bloquea (cierre)" \
+  "block-force-push.sh" "if true; then g''it push --force-with-lease origin 'dev'; fi" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease a feature/x sin comillas pasa (control, cierre)" \
+  "block-force-push.sh" 'git push --force-with-lease origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: commit con mensaje entre comillas y despues lease a feature/x pasa (control, cierre)" \
+  "block-force-push.sh" 'git commit -m "fix" && git push --force-with-lease origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease a feature/x con redireccion 2>&1 pasa (control, cierre)" \
+  "block-force-push.sh" 'git push --force-with-lease 2>&1 origin feature/x' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease a feature/x con continuacion de linea pasa (control, cierre)" \
+  "block-force-push.sh" $'git push --force-with-lease \\\n origin feature/x' "$PATH" "$SANDBOX_REPO"
+
+# Ronda final (#118): xargs con opcion y valor separado (corta o larga).
+for _w in 'xargs -a f' 'xargs --max-args 1' 'xargs -R 2' 'xargs -S 255' 'xargs -r -a f' 'xargs -0 -a f' 'xargs -0 -I {}' 'xargs -0' 'xargs --arg-file=f' 'xargs -I PALABRA'; do
+  assert_blocked_cmd "pre-push-guard: wrapper $_w delante de git push a main bloquea (ronda final)" \
+    "pre-push-guard.sh" "$_w git push origin main" "$PATH" "$SANDBOX_REPO"
+done
+assert_blocked_cmd "pre-push-guard: echo x pipe xargs git push origin main bloquea (ronda final)" \
+  "pre-push-guard.sh" 'echo x | xargs git push origin main' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "pre-push-guard: xargs -I PALABRA con refspec PALABRA:main bloquea (ronda final)" \
+  "pre-push-guard.sh" 'xargs -I PALABRA git push origin PALABRA:main' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "pre-push-guard: xargs -a f git push a feature/x pasa (control, ronda final)" \
+  "pre-push-guard.sh" 'xargs -a f git push origin feature/x' "$PATH" "$SANDBOX_REPO"
+
+# Ronda final (#118): la excepcion de lease solo mira comillas, barra y $' / $",
+# no un $VAR o $(...) sin comillas.
+assert_allowed_cmd "block-force-push: lease con sustitucion de comando sin comillas pasa (ronda final)" \
+  "block-force-push.sh" 'git push --force-with-lease origin $(git branch --show-current)' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease con variable sin comillas pasa (ronda final)" \
+  "block-force-push.sh" 'git push --force-with-lease origin $BRANCH' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: lease a feature/x con variable extra pasa (ronda final)" \
+  "block-force-push.sh" 'git push --force-with-lease origin feature/x $EXTRA' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con dev ANSI-C bloquea (ronda final)" \
+  "block-force-push.sh" "git push --force-with-lease origin \$'dev'" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con dev entre comillas dobles bloquea (ronda final)" \
+  "block-force-push.sh" 'git push --force-with-lease origin "dev"' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con g y comillas vacias en git bloquea (ronda final)" \
+  "block-force-push.sh" "g''it push --force-with-lease origin 'dev'" "$PATH" "$SANDBOX_REPO"
+
+# Ronda final (#118): dos barras antes del newline son una barra literal y el
+# newline separa comandos; no es continuacion de linea.
+assert_blocked_cmd "block-hard-reset: dos barras y newline no son continuacion bloquea (ronda final)" \
+  "block-hard-reset.sh" $'echo hi \\\\\ngit reset --hard' "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-hard-reset: una barra y newline si es continuacion pasa (control, ronda final)" \
+  "block-hard-reset.sh" $'echo hi \\\ngit reset --hard' "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: lease con dos barras, newline y push a dev con comillas bloquea (ronda final)" \
+  "block-force-push.sh" $'echo \\\\\ngit push --force-with-lease origin "dev"' "$PATH" "$SANDBOX_REPO"
+# Fin ronda de cierre
+
 sandbox_cleanup_pushrepo
 
 echo ""
@@ -979,6 +1455,88 @@ assert_blocked_cmd "block-hard-reset: git reset --hard blocks" "block-hard-reset
 assert_blocked_cmd "block-hard-reset: comando compuesto (cd a && git reset --hard) blocks" "block-hard-reset.sh" "cd a && git reset --hard"
 assert_allowed_cmd "block-hard-reset: git reset --soft HEAD~1 allowed" "block-hard-reset.sh" "git reset --soft HEAD~1"
 assert_allowed_cmd "block-hard-reset: git push allowed (no relacionado)" "block-hard-reset.sh" "git push"
+
+# #121: un prefijo de entorno antes de git no debe esconder el reset --hard.
+# RED con el regex anterior: los tres bloqueos daban exit 0.
+assert_blocked_cmd "block-hard-reset: prefijo de entorno FOO=1 y reset --hard bloquea (#121)" "block-hard-reset.sh" "FOO=1 git reset --hard"
+assert_blocked_cmd "block-hard-reset: dos asignaciones de entorno y reset --hard HEAD~1 bloquean (#121)" "block-hard-reset.sh" "A=1 B=2 git reset --hard HEAD~1"
+assert_blocked_cmd "block-hard-reset: prefijo de entorno tras && bloquea (#121)" "block-hard-reset.sh" "cd a && FOO=1 git reset --hard"
+assert_blocked_cmd "block-hard-reset: prefijo de entorno con valor entre comillas bloquea (#121)" "block-hard-reset.sh" "FOO='a b' git reset --hard"
+assert_allowed_cmd "block-hard-reset: prefijo de entorno y reset --soft pasa (control, #121)" "block-hard-reset.sh" "FOO=1 git reset --soft HEAD~1"
+assert_allowed_cmd "block-hard-reset: prefijo de entorno y git status pasa (control, #121)" "block-hard-reset.sh" "FOO=1 git status"
+
+# Hueco de la misma clase (forma que git ejecuta y el guard no veia), medido en
+# un repo temporal con git 2.54: "reset -q --hard", "reset HEAD~1 --hard" y los
+# prefijos unicos de la opcion larga (--h, --ha, --har) descartan cambios igual
+# que "reset --hard". RED con el regex anterior (exige "reset --hard" pegado):
+# los seis bloqueos daban exit 0.
+assert_blocked_cmd "block-hard-reset: opcion previa a --hard (reset -q --hard) bloquea" "block-hard-reset.sh" "git reset -q --hard HEAD~1"
+assert_blocked_cmd "block-hard-reset: --hard despues del commit (reset HEAD~1 --hard) bloquea" "block-hard-reset.sh" "git reset HEAD~1 --hard"
+assert_blocked_cmd "block-hard-reset: opcion corta y --hard al final (reset -q HEAD~1 --hard) bloquea" "block-hard-reset.sh" "git reset -q HEAD~1 --hard"
+assert_blocked_cmd "block-hard-reset: prefijo --har de la opcion bloquea" "block-hard-reset.sh" "git reset --har HEAD~1"
+assert_blocked_cmd "block-hard-reset: prefijo --ha de la opcion bloquea" "block-hard-reset.sh" "git reset --ha HEAD~1"
+assert_blocked_cmd "block-hard-reset: prefijo --h de la opcion bloquea" "block-hard-reset.sh" "git reset --h HEAD~1"
+assert_blocked_cmd "block-hard-reset: --hard pegado a ; o && bloquea" "block-hard-reset.sh" "git reset --hard;git status && git reset HEAD~1 --hard&&true"
+assert_blocked_cmd "block-hard-reset: opcion previa con prefijo de entorno bloquea (#121)" "block-hard-reset.sh" "FOO=1 git reset -q --hard"
+assert_allowed_cmd "block-hard-reset: reset --mixed con opcion corta al final pasa (control)" "block-hard-reset.sh" "git reset --mixed HEAD~1 -q"
+assert_allowed_cmd "block-hard-reset: --hard en OTRO comando tras && no dispara (control)" "block-hard-reset.sh" "git reset HEAD~1 && echo --hard"
+assert_allowed_cmd "block-hard-reset: ruta que empieza por --hard- no dispara (control)" "block-hard-reset.sh" "git reset -- --hard-notes.md"
+assert_allowed_cmd "block-hard-reset: --hard entre comillas en un mensaje no dispara (control)" "block-hard-reset.sh" "git commit -m 'git reset --hard'"
+
+# #121 (ronda 1 de review): "git reset --merge" descarta lo que esta en el indice
+# (medido con git real abajo) y "--keep" no pierde nada. RED con 85f002c: los
+# bloqueos de --merge daban exit 0. Los dos primeros tests miden git de verdad en
+# un repo temporal: si algun dia git cambia, el control avisa antes que el guard.
+RESET_MODE_DIR=$(mktemp -d)
+(
+  cd "$RESET_MODE_DIR" || exit 1
+  git init -q -b main . && git config user.email a@b && git config user.name t
+  printf '1\n' > g && printf 'a\n' > f && git add . && git commit -qm one
+  printf 'a\nb\n' > f && git commit -qam two
+) > /dev/null 2>&1
+# reset_mode_keeps_staged <modo>: 0 si "git reset <modo> HEAD~1" conserva el
+# cambio staged de g, 1 si lo pierde.
+reset_mode_keeps_staged() {
+  (
+    cd "$RESET_MODE_DIR" || exit 1
+    git reset -q --hard main > /dev/null 2>&1
+    printf 'x\n' >> g && git add g
+    git reset -q "$1" HEAD~1 > /dev/null 2>&1
+    grep -q x g
+  )
+}
+TOTAL=$((TOTAL + 1))
+if reset_mode_keeps_staged --merge; then
+  echo -e "${RED}FAIL${NC}: git real: reset --merge conserva lo staged (si git cambio, revisar block-hard-reset)"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "${GREEN}PASS${NC}: git real: reset --merge pierde lo staged (por eso block-hard-reset lo bloquea, #121)"
+  PASS=$((PASS + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if reset_mode_keeps_staged --keep; then
+  echo -e "${GREEN}PASS${NC}: git real: reset --keep conserva lo staged (por eso block-hard-reset lo deja pasar, #121)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: git real: reset --keep pierde lo staged (si git cambio, bloquearlo en block-hard-reset)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$RESET_MODE_DIR"
+assert_blocked_cmd "block-hard-reset: reset --merge bloquea (#121)" "block-hard-reset.sh" "git reset --merge"
+assert_blocked_cmd "block-hard-reset: reset --merge HEAD~1 bloquea (#121)" "block-hard-reset.sh" "git reset --merge HEAD~1"
+assert_blocked_cmd "block-hard-reset: prefijo --merg de la opcion bloquea (#121)" "block-hard-reset.sh" "git reset --merg HEAD~1"
+assert_blocked_cmd "block-hard-reset: prefijo --mer de la opcion bloquea (#121)" "block-hard-reset.sh" "git reset --mer HEAD~1"
+assert_blocked_cmd "block-hard-reset: prefijo --me de la opcion bloquea (#121)" "block-hard-reset.sh" "git reset --me HEAD~1"
+assert_blocked_cmd "block-hard-reset: commit antes de --merge bloquea (#121)" "block-hard-reset.sh" "git reset HEAD~1 --merge"
+assert_blocked_cmd "block-hard-reset: wrapper y reset --merge bloquea (#121, #118)" "block-hard-reset.sh" "time git reset --merge"
+assert_allowed_cmd "block-hard-reset: reset --keep pasa (control, #121)" "block-hard-reset.sh" "git reset --keep HEAD~1"
+assert_allowed_cmd "block-hard-reset: prefijo --ke de --keep pasa (control, #121)" "block-hard-reset.sh" "git reset --ke HEAD~1"
+assert_allowed_cmd "block-hard-reset: reset --mixed pasa (control, #121)" "block-hard-reset.sh" "git reset --mixed HEAD~1"
+assert_allowed_cmd "block-hard-reset: ruta que empieza por --merge- no dispara (control, #121)" "block-hard-reset.sh" "git reset -- --merge-notes.md"
+# El ")" suelto del ancla (patron de case) ancla tras cualquier ")": falso
+# positivo asumido y documentado en GUARD_ANCHOR (#118), fijado aqui.
+assert_blocked_cmd "block-hard-reset: echo con sustitucion cerrada y git reset --hard como argumentos bloquea por el parentesis del ancla (falso positivo fijado, #118)" "block-hard-reset.sh" 'echo $(date) git reset --hard'
+assert_allowed_cmd "block-hard-reset: echo date git reset --hard sin parentesis no ancla y pasa (control, #118)" "block-hard-reset.sh" 'echo date git reset --hard'
 
 # Fail-closed sin jq (revisión pre-push, security MEDIUM): mismo hueco que
 # en block-force-push.sh — sin jq, COMMAND queda vacío y un
@@ -1348,6 +1906,51 @@ assert_blocked_cmd "pre-commit-guard: env -i HUSKY=0 git commit se intercepta" \
 # Negativo: la mención de "env HUSKY=0 git commit" dentro de un string
 # double-quoted (argumento literal de "echo") no es una invocación real —
 # el saneo compartido ya la vacía antes de que este regex la vea.
+# #120 (ronda 1 de review): comillas vacias pegadas a la palabra (el shell las
+# une: commit'' es commit, ''commit es commit). RED con 85f002c: exit 0.
+assert_blocked_cmd "pre-commit-guard: commit con comillas vacias pegadas se intercepta (#120)" \
+  "pre-commit-guard.sh" \
+  "git commit'' -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_blocked_cmd "pre-commit-guard: comillas vacias pegadas a commit se interceptan (#120)" \
+  "pre-commit-guard.sh" \
+  "git ''commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+assert_blocked_cmd "pre-commit-guard: comillas dobles vacias antes de git se interceptan (#120)" \
+  "pre-commit-guard.sh" \
+  '""git commit -m x' \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
+# #118 (ronda 1 de review): wrappers delante de git commit. RED con 85f002c:
+# exit 0 (el commit real pasaba sin correr la suite roja).
+for WRAP in 'time' 'time -p' 'nohup' 'exec' 'command' 'timeout 60' 'timeout -s KILL 60' 'env FOO=1' 'coproc' 'time nohup env -i X=1'; do
+  assert_blocked_cmd "pre-commit-guard: wrapper '$WRAP' y git commit se intercepta (#118)" \
+    "pre-commit-guard.sh" \
+    "$WRAP git commit -m x" \
+    "$FAKE_PYTEST_TERM_DIR:$PATH" \
+    "$PCG_TERM_DIR"
+done
+assert_blocked_cmd "pre-commit-guard: tras pipe, xargs y git commit se intercepta (#118)" \
+  "pre-commit-guard.sh" \
+  "echo a | xargs git commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+assert_blocked_cmd "pre-commit-guard: wrapper y git -C no se resuelve y bloquea (#118)" \
+  "pre-commit-guard.sh" \
+  "time git -C /tmp commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+assert_allowed_cmd "pre-commit-guard: echo time git commit no se intercepta (control, #118)" \
+  "pre-commit-guard.sh" \
+  "echo time git commit -m x" \
+  "$FAKE_PYTEST_TERM_DIR:$PATH" \
+  "$PCG_TERM_DIR"
+
 assert_allowed_cmd "pre-commit-guard: echo \"env HUSKY=0 git commit\" no se intercepta" \
   "pre-commit-guard.sh" \
   'echo "env HUSKY=0 git commit"' \
@@ -5309,9 +5912,13 @@ assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla simple sin termi
 # un mismo carácter genera una ambigüedad de partición que la otra no
 # tiene.
 UNTERMINATED_DOUBLE_QUOTE_LARGE="echo \"$(printf 'a\%.0s' $(seq 1 50000))"
-assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla doble sin terminar con backslashes (50k pares) no cuelga y queda sin cambios" \
+# Sin cierre ningun span matchea y la comilla queda; las barras sin comillas
+# se quitan como en el shell (#120: \a pasa a a; la barra final tambien se
+# descarta, cierre de #118).
+UNTERMINATED_DOUBLE_QUOTE_LARGE_UNESCAPED="echo \"$(printf 'a%.0s' $(seq 1 50000))"
+assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla doble sin terminar con backslashes (50k pares) no cuelga, conserva la comilla y quita las barras" \
   "$UNTERMINATED_DOUBLE_QUOTE_LARGE" \
-  "$UNTERMINATED_DOUBLE_QUOTE_LARGE"
+  "$UNTERMINATED_DOUBLE_QUOTE_LARGE_UNESCAPED"
 
 # (c) Comilla simple grande que SÍ cierra al final: complementa (a) —
 # confirma que cerrar al final de un span largo no es más caro que nunca
@@ -5329,7 +5936,7 @@ assert_guard_sanitize_bounded "guard_sanitize [quoted]: comilla simple grande qu
 # continuaciones se unan (no solo la primera o la última).
 CONT_LINES=$(printf 'seg%s\\\n' $(seq 1 20000))
 CONTINUATION_CHAIN_LARGE="${CONT_LINES}"$'\n'"end"
-CONTINUATION_CHAIN_EXPECTED=$(printf 'seg%s ' $(seq 1 20000))"end"
+CONTINUATION_CHAIN_EXPECTED=$(printf 'seg%s' $(seq 1 20000))"end"
 assert_guard_sanitize_bounded "guard_sanitize [continuations]: cadena larga de continuaciones (20k) no cuelga y se unen todas" \
   "$CONTINUATION_CHAIN_LARGE" \
   "$CONTINUATION_CHAIN_EXPECTED"

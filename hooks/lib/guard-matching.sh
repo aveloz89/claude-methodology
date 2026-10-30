@@ -22,10 +22,15 @@
 # protegen errores honestos del orchestrator, no evasión adversarial.
 #
 # Fuera de alcance de los guards (documentado, no parcheado — #77, D-05).
-# Los guards de hooks/ protegen errores honestos del orchestrator y los
-# devs: formas que alguien escribe de buena fe. No son un parser de shell
-# ni un control de evasión. Verificado contra los hooks reales
-# (2026-09-27), estas formas pasan sin bloquear y quedan así por decisión:
+# El límite: los guards leen el texto del comando y frenan errores honestos
+# (push directo a main, force push, reset destructivo, commit sin tests, merge
+# sin verificación). No frenan la evasión deliberada (scripts, otros lenguajes,
+# alias de git, formas de shell que no estén en la lista de abajo): para eso
+# está la branch protection de GitHub en main, que /new-project configura. Una
+# forma nueva que aparezca se agrega a la lista de abajo, salvo que sea un
+# error honesto plausible. No son un parser de shell ni un control de evasión.
+# Verificado contra los hooks reales, estas formas pasan sin bloquear y quedan
+# así por decisión:
 #   - comillas partidas o escapadas que rompen el emparejamiento del
 #     saneo: echo \'; gh pr merge 5; echo \', $'it\'s' && gh pr merge 5;
 #   - heredoc con delimitador comillado a medias (<<E"OF"), delimitador
@@ -35,66 +40,135 @@
 #     eval, bash -c '...'/sh -c, alias y funciones de git/gh definidas en
 #     el mismo comando o en uno anterior (w() { gh "$@"; }; w pr merge 5
 #     pasa);
-#   - la palabra del binario alterada o disfrazada: "gh", g\h, env git …,
-#     /usr/bin/git …, command git … (el "if" de hooks.json tampoco
-#     dispara para las tres últimas: compara cada subcomando por prefijo
-#     y solo descarta asignaciones VAR=x al frente; ver la tabla "Bash if
-#     matching" de la doc de hooks);
-#   - block-force-push.sh: la flag entre comillas (`git push origin
-#     "--force"`, `git push '-f'`) y una redirección honesta (2>&1, >&2,
-#     &>log) o un ";" escapado antes de la flag de force;
-#   - pre-push-guard.sh: el refspec entre comillas (`git push origin
-#     "HEAD:main"`: el saneo vacía el span antes del match del destino) y
-#     una redirección con "&" antes del refspec (`git push origin 2>&1
-#     HEAD:main`: el segmento se corta en "&"). Una redirección pegada al
-#     refspec (`HEAD:main>log`, `HEAD:main</dev/null`) SÍ bloquea: "<" y ">"
-#     sin comillas cierran el token (GUARD_TOKEN_END).
+#   - la palabra del binario alterada o disfrazada: "gh" y /usr/bin/git …
+#     (el anclado exige "git" como palabra de comando). Los wrappers time,
+#     nohup, exec, command, env, timeout, xargs, coproc, sudo, doas, nice,
+#     ionice, stdbuf, caffeinate, chrt, taskset y arch SÍ los cubre el script de
+#     los guards de git (GUARD_ENV_PREFIX, #118); watch y otros siguen fuera,
+#     igual que sudo/doas con opciones de valor distintas a -u (sudo -g grupo);
+#   - scripts e intérpretes que arman el comando por dentro (python -c, node
+#     -e, un .sh que hace el push), alias de git (git p) y cualquier otra forma
+#     de shell que no esté en esta lista;
+#   - block-force-push.sh: la flag entera entre comillas (`git push origin
+#     "--force"`, `git push '-f'`) y un ";" escapado antes de la flag de force.
+#     Una redirección honesta (2>&1, >&2, &>log) SÍ se tolera desde #118: el
+#     "&" de la redirección no corta el segmento (GUARD_SEGMENT_END), el "&"
+#     de background sí;
+#   - pre-push-guard.sh: el refspec entero entre comillas (`git push origin
+#     "HEAD:main"`: el saneo lo reemplaza por el placeholder Q antes del match
+#     del destino); también la palabra entera entre comillas (git "push"
+#     origin main) y pegadas con contenido no simple (espacios, $, *). Las
+#     comillas pegadas con contenido simple (HEAD:main'', HEAD:"main",
+#     --for"ce") se unen como el shell y SÍ bloquean desde #120, igual que la
+#     barra invertida dentro del token (HEAD:ma\in). La forma $'…'/$"…" sí se
+#     une aunque sea la palabra entera (git $'commit', reset $'--hard'); la
+#     palabra entera con comillas normales (git 'commit') sigue fuera. Una
+#     redirección pegada al refspec (`HEAD:main>log`, `HEAD:main</dev/null`)
+#     bloquea: "<" y ">" sin comillas cierran el token (GUARD_TOKEN_END).
+#   - block-force-push.sh: la excepción de --force-with-lease no aplica si el
+#     trozo del push lleva comillas, barra invertida o $'/$" (fail-closed):
+#     git push --force-with-lease origin 'feature/x' bloquea aunque sea honesto.
+#     El código revisa el trozo CRUDO para esos caracteres y el trozo limpio de
+#     comillas, barras y $ para reconocer el push; un $VAR o $(...) sin comillas
+#     no la desactiva. Falsos positivos asumidos: un "&" suelto con comilla en un
+#     comando posterior en background (… feature/x & echo "done"), git --help
+#     push --force (el comodín de opciones largas acepta --help/--version) y git
+#     push --force-if-includes --force-with-lease …;
+#   - pre-push-guard.sh: un refspec glob entre comillas (`git push origin
+#     '*:*'`, `'refs/heads/*'`; el saneo deja el placeholder Q y el glob no se ve). El glob sin comillas SÍ bloquea cuando
+#     su destino cuelga de refs/heads/, no lleva prefijo refs/ o su prefijo
+#     literal es prefijo de refs/heads/ (`refs/*`, `refs/h*`; #119, ver
+#     GUARD_PUSH_GLOB_RE); `refs/tags/*:refs/tags/*` pasa.
 #   - pre-push-guard.sh y block-force-push.sh: push.default=matching o
 #     remote.<x>.mirror/push fijados en el config del repo o global (solo se
 #     ven los "-c" y "--config-env" literales y sin comillas del comando),
 #     remote.pushDefault y un "-c" escrito en una variable;
-#   - pre-push-guard.sh y block-force-push.sh: un "-c" con el valor entre
-#     comillas (`git -c 'user.name=x' push origin main`) anula ambos guards:
-#     el saneo vacía el span y "-c\s+\S+" se traga "push" (issue #120);
+#   - pre-push-guard.sh y block-force-push.sh: la config peligrosa dentro de un
+#     "-c" con el valor entre comillas (`git -c 'push.default=matching' push
+#     origin`): el saneo deja el placeholder "Q" y el contenido no se ve.
+#     `git -c 'user.name=x' push origin main` SÍ bloquea desde #120 (antes el
+#     saneo vaciaba el span y "-c\s+\S+" se tragaba "push");
 #   - pre-push-guard.sh y block-force-push.sh: una sustitución que PRODUCE el
 #     ref o la flag (git push origin $(git branch --show-current)) no se
 #     evalúa; el guard solo ve tokens literales del comando;
-#   - que el "if": "Bash(git *)" de hooks.json dispare el hook para
-#     comandos que no empiezan por git (backtick, echo, "(") NO está
-#     verificado de punta a punta: lo probado es el script con el comando
-#     por stdin.
+#   - (resuelto) los 4 guards de git ya no llevan "if": "Bash(git *)" en
+#     hooks.json: corren en cada Bash. Verificado de punta a punta con
+#     claude -p en un sandbox con remoto bare: "time git push origin HEAD:main"
+#     y "if true; then git push origin HEAD:main; fi" bloquean (BLOCKED de
+#     pre-push-guard) y el remoto no se mueve; con el "if" anterior, "time git
+#     push origin HEAD:main" movió main.
 # Si una de estas formas bloquea o se cuela, no es un bug a arreglar acá:
 # la salida es escribir el comando en su forma directa.
 
 # Fragmento de regex ERE que ancla el match a posición de comando: inicio
 # de string/línea, o justo después de un separador de comandos (&&, ||, ;,
-# |, $(, backtick, "(", "{", &).
+# |, $(, backtick, "(", "{", &, ")" de un patrón de case).
+# Tras el separador acepta, cero o más veces, las palabras clave de shell que
+# abren otra posición de comando (then, do, else, elif, if, while, until y "!"),
+# cada una como palabra completa seguida de espacio (#118): "if true; then git
+# push origin HEAD:main; fi", "for b in x; do …", "! git push …". Van pegadas
+# al separador, no sueltas: "echo then git push origin main" NO es un push
+# ("then" ahí es un argumento de echo) y sigue sin anclar.
+# El ")" suelto del ancla (para el patrón de un "case") ancla tras CUALQUIER
+# ")": "echo $(date) git reset --hard" bloquea aunque ahí "git reset --hard" son
+# argumentos de echo. Es un falso positivo asumido, en dirección segura (#118,
+# ronda 1 de review); fijado con un control en test-hooks.sh.
 # shellcheck disable=SC2034 # se usa en los guards que sourcean este archivo
-GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&)\s*'
+GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&|\))\s*((then|do|else|elif|if|while|until|!)\s+)*'
 
 # Fragmento de regex ERE que consume, cero o más veces y EN CUALQUIER ORDEN,
 # las opciones de git que pueden aparecer entre "git" y el subcomando
 # vigilado (push, reset --hard, commit): opciones de árbol ("-C <ruta>",
 # "--git-dir"/"--work-tree" con o sin "="), "-c <clave=valor>",
-# "--config-env=<clave>=<VAR>" (con o sin "="), "--no-pager" y "-P". Una sola alternancia repetida en vez de fragmentos concatenados en
+# "--config-env=<clave>=<VAR>" (con o sin "="), "--namespace"/"--attr-source" con
+# valor separado, CUALQUIER otra opción larga sin valor o con "=" ("--no-pager",
+# "--no-optional-locks", "--literal-pathspecs", "--paginate", "--no-advice",
+# "--exec-path=<ruta>", ...) y "-p"/"-P". Una sola alternancia repetida en vez de fragmentos concatenados en
 # un orden fijo: "git -C /x -c a=b push --force" (árbol después de "-c") no
 # matchearía un fragmento que solo tolerase un orden. git acepta estas
 # opciones en cualquier orden antes del subcomando; el regex también.
 # shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh, pre-push-guard.sh y pre-commit-guard.sh
-GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--config-env)(=\S*|\s+\S*)?|-c\s+\S+|--no-pager|-P)\s+)*'
+GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--namespace|--config-env|--attr-source)(=\S*|\s+\S*)?|-c\s+\S+|--[a-z][a-z-]*(=\S*)?|-p|-P)\s+)*'
 
-# Prefijo de entorno antes de "git" ("VAR=valor git push ..."): cero o más
-# asignaciones. Sin él, "X=matching git --config-env=push.default=X push
-# origin" ni siquiera se reconocía como un push (el hook salía 0 sin evaluarlo).
-# shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
-GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'
+# Prefijo antes de "git": cero o más asignaciones de entorno ("VAR=valor git
+# push ...") y cero o más WRAPPERS que ejecutan el comando que les sigue, cada
+# uno con sus asignaciones opcionales detrás (#118, ronda 1 de review). Sin él,
+# "X=matching git --config-env=push.default=X push origin" ni siquiera se
+# reconocía como un push (el hook salía 0 sin evaluarlo), y "time git push
+# origin HEAD:main" tampoco. Wrappers cubiertos, con sus opciones simples:
+#   - time, nohup, command, coproc  (+ opciones: "time -p", "command -p");
+#   - exec  (+ opciones y "-a NOMBRE": "exec -a x git ...");
+#   - env  (+ opciones, "-u NOMBRE", "-C DIR" y asignaciones: "env -i FOO=1 git ...");
+#   - timeout [opciones] <duración>  ("timeout 60", "timeout -s KILL 60",
+#     "timeout --preserve-status 5s", "timeout 1m30s": duraciones con sufijo y
+#     compuestas);
+#   - xargs  (+ opciones; con valor separado -I, -L, -n, -P, -s, -d, -E, -J:
+#     "xargs -n 1", "xargs -I WORD", "xargs -I {}"; y tras CUALQUIER otra opción,
+#     corta o larga, un valor separado opcional que sea "{}", un número o una
+#     palabra sin "-" inicial que no sea "git": "xargs -a f", "xargs --max-args
+#     1", "xargs -R 2"): "echo a | xargs git push ...";
+#   - sudo, doas  (+ "-u USUARIO" y opciones sin valor: "sudo -E", "sudo -n");
+#   - nice  (+ "-n N"), ionice  (+ "-c N", "-n N"), stdbuf  (+ "-oN", "-o N"),
+#     caffeinate  (+ "-i", "-t N"), chrt  (+ opciones y la prioridad), taskset
+#     (+ opciones y la máscara), arch  (+ "-arm64", "-x86_64").
+# Se encadenan ("time nohup env FOO=1 git ..."). Fuera de alcance: watch y demás
+# wrappers; sudo/doas con opciones de valor distintas a "-u" ("sudo -g grupo",
+# "sudo -h host"), y las opciones con valor de los wrappers de arriba que no
+# estén en esa lista. Solo ancla tras el separador de
+# comando: "echo time git push origin main" NO es un push.
+# Los guards de git no llevan "if" en hooks.json (corren en cada Bash), así que
+# el wrapper al frente sí llega al script; verificado con claude -p, ver
+# "Fuera de alcance" del README.
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh, block-force-push.sh, block-hard-reset.sh y pre-commit-guard.sh
+GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(((time|nohup|command|coproc)(\s+-\S+)*\s+|exec(\s+(-a\s+\S+|-\S+))*\s+|env(\s+(-[uC]\s+\S+|-\S*|[A-Za-z_][A-Za-z0-9_]*=\S*))*\s+|timeout(\s+-\S+(\s+[A-Za-z0-9]+)?)*\s+[0-9.]+[smhd]?([0-9.]+[smhd])*\s+|xargs(\s+(-[ILnPsdEJ]\s+\S+|-\S+(\s+(\{\}|[0-9]+|[^-g[:space:]]\S*|g([^i[:space:]]\S*)?|gi([^t[:space:]]\S*)?|git\S+))?))*\s+|(sudo|doas)(\s+(-u\s+\S+|-\S+))*\s+|nice(\s+(-n\s+\S+|-\S+))*\s+|ionice(\s+(-[cnp]\s+\S+|-\S+))*\s+|stdbuf(\s+(-[ioe]\s+\S+|-\S+))*\s+|caffeinate(\s+(-[tw]\s+\S+|-\S+))*\s+|chrt(\s+-\S+)*\s+[0-9]+\s+|taskset(\s+-\S+)*\s+[0-9A-Fa-fx,-]+\s+|arch(\s+-\S+)*\s+)([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)*'
 
 # Inventario de delimitadores (lo verificado, no un absoluto). Tres listas
 # distintas, cada una con su propio papel:
 #   - el ANCLA (GUARD_ANCHOR) ABRE un comando tras: inicio de string/línea,
 #     "&&", "||", ";", "|", "$(", backtick, "(", "{" y "&";
 #   - el SEGMENTO "git push ..." (GUARD_SEGMENT_END) CIERRA solo en "&", "|"
-#     y ";". NO cierra en ")" ni en backtick: una sustitución DENTRO del push
+#     y ";", salvo que el "&" o el "|" sean parte de una redirección ("2>&1",
+#     ">&2", "<&0", "&>log", ">|log": el "&" de background sí cierra, #118). NO cierra en ")" ni en backtick: una sustitución DENTRO del push
 #     ("git push origin $(true) HEAD:main", "git push origin `true` main")
 #     esconde lo que sigue si el segmento se corta ahí (regresión de la
 #     ronda 2 de #117, verificada contra dev). Coste asumido del trade-off:
@@ -107,7 +181,7 @@ GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'
 # Van entre comillas simples: el backtick es literal en la asignación y al
 # expandirlas dentro de comillas dobles no se vuelve a evaluar.
 # shellcheck disable=SC2016,SC2034 # backtick literal; se usan en pre-push-guard.sh y block-force-push.sh
-GUARD_SEGMENT_END='[^&|;]*'
+GUARD_SEGMENT_END='([^&|;]|>&[0-9-]?|<&[0-9-]?|>\||&>)*'
 # shellcheck disable=SC2016,SC2034
 GUARD_TOKEN_END='([[:space:]]|[)`<>]|$)'
 
@@ -154,6 +228,50 @@ GUARD_PUSH_CONFIG_RE="(^|[[:space:]])(-c[[:space:]]+(push\.default=(matching|ups
 # shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
 GUARD_PUSH_EMPTY_REFSPEC_RE="(^|[[:space:]])\+?:${GUARD_TOKEN_END}"
 
+# Refspec glob (#119): un token cuyo DESTINO contiene "*" expande a todas las
+# ramas que casan, main incluida, sin nombrarla. Verificado contra un remoto
+# bare (git 2.54): 'refs/heads/*:refs/heads/*', '*:*' y el glob de un solo
+# lado 'refs/heads/*' (el destino es el propio token) empujan main. El regex
+# extrae el token con "*" en el destino (con "+" y origen opcionales);
+# guard_push_has_glob_dst decide si ese destino cuenta: BLOQUEA el que cuelga
+# de "refs/heads/" o no lleva prefijo "refs/" (git lo completa a refs/heads/);
+# deja pasar el que cuelga de otro "refs/..." (refs/tags/*:refs/tags/*,
+# refs/remotes/x/*). El "*" de un refspec cubre también "/", así que "refs/*",
+# "refs/h*" y "refs/heads*" (cuyo prefijo literal es prefijo de "refs/heads/")
+# también mueven main y bloquean (ronda 1 de review).
+# Falso positivo asumido (dirección segura): refs/heads/feature/*:refs/heads/
+# feature/* tampoco toca main, pero no se distingue de refs/heads/*. Fuera de
+# alcance: el refspec entre comillas ('*:*', 'refs/heads/*'): el saneo lo
+# reemplaza por el placeholder Q, que ya no se distingue de cualquier otro
+# valor entre comillas; tratar un Q en posición de refspec como sospechoso
+# daría falsos positivos (-m "msg", valores de -c) y se deja fuera de alcance.
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh y block-force-push.sh
+GUARD_PUSH_GLOB_RE="(^|[[:space:]])\+?([^[:space:]:]*:)?[^[:space:]:]*\*[^[:space:]:]*${GUARD_TOKEN_END}"
+
+# guard_push_has_glob_dst <segmentos>: 0 si algún token del texto es un refspec
+# glob peligroso (ver GUARD_PUSH_GLOB_RE), 1 si no. Los tokens que empiezan por
+# "-" son opciones, no refspecs.
+guard_push_has_glob_dst() {
+  local tok dst prefix
+  while IFS= read -r tok; do
+    tok="${tok#"${tok%%[![:space:]]*}"}"
+    case "$tok" in -*) continue ;; esac
+    dst="${tok##*:}"
+    dst="${dst#+}"
+    prefix="${dst%%\**}"
+    # Prefijo literal del destino antes del primer "*" (el "*" cubre también
+    # "/"): bloquea si es prefijo de "refs/heads/" (incluye "", "refs/",
+    # "refs/h", "refs/heads"), si cuelga de "refs/heads/" o si no lleva "refs/".
+    [[ "refs/heads/" == "$prefix"* ]] && return 0
+    case "$prefix" in
+      refs/heads/*) return 0 ;;
+      refs/*) ;;
+      *) return 0 ;;
+    esac
+  done < <(printf '%s\n' "$1" | grep -oE "$GUARD_PUSH_GLOB_RE")
+  return 1
+}
+
 # Fragmento de regex ERE que reconoce "gh ... pr ... merge" tolerando hasta
 # 2 tokens entre "gh"/"pr" y entre "pr"/"merge" (formas como "gh -R x pr
 # merge N", que gh acepta de verdad). Antes vivía inline en
@@ -164,7 +282,8 @@ GUARD_PUSH_EMPTY_REFSPEC_RE="(^|[[:space:]])\+?:${GUARD_TOKEN_END}"
 GUARD_GH_PR_MERGE_RE='gh\s+(\S+\s+){0,2}pr\s+(\S+\s+){0,2}merge'
 
 # guard_sanitize: recibe el comando crudo como $1 y devuelve por stdout el
-# texto saneado (sin spans quoted ni cuerpos de heredoc). Exit status: 0
+# texto saneado (spans quoted reemplazados por $2, un espacio si se omite, y
+# sin cuerpos de heredoc). Exit status: 0
 # si saneó de verdad, 1 si degradó al fallback (perl ausente o perl falló
 # en tiempo de ejecución) — los guards que solo BLOQUEAN sobre el
 # resultado (block-admin-merge.sh, pre-commit-guard.sh) pueden ignorar el
@@ -226,12 +345,59 @@ guard_sanitize() {
     #      volver a poner "*" greedy creyendo que solo afecta performance,
     #      sin tocar [^\n], y reintroduciría la evasión sin reintroducir
     #      el ReDoS.
-    local sanitized status
-    sanitized=$(printf '%s' "$1" | perl -0777 -pe '
+    # Cada span quoted se reemplaza por $2 (por defecto un espacio). Los
+    # guards de git pasan "Q" vía guard_init (#120): un placeholder PEGADO, sin
+    # espacios alrededor, que sigue siendo UN token. Con el span vacío, "git -c
+    # 'user.name=x' push origin main" quedaba como "git -c push origin main" y
+    # "-c\s+\S+" (GUARD_GIT_OPTS) se tragaba "push" como valor de -c: el guard
+    # salía 0 sin ver el push. Con "Q", "-c" consume el placeholder y "push"
+    # queda como subcomando. El contenido quoted sigue invisible (un "main" o
+    # "--force" entre comillas no se ve; ver "Fuera de alcance"): "Q" no es
+    # ningún token vigilado. Los guards de gh (block-admin-merge,
+    # pre-merge-check) conservan el espacio: GUARD_GH_PR_MERGE_RE tolera solo 2
+    # tokens entre "gh"/"pr"/"merge", y con "Q" cada valor quoted cuenta como
+    # token ('gh -R "a/b" -R "c/d" pr merge 5 --admin' dejaba de bloquear;
+    # verificado ejecutando block-admin-merge con el placeholder).
+    # El reemplazo depende de la PALABRA entera, porque el shell une las
+    # comillas pegadas con el texto vecino (--force'' es --force, ""git es git,
+    # g''it es git): una racha de spans quoted contiguos que es la palabra
+    # completa (delimitada por espacio, ; & | ( ) { } < > backtick, el inicio o
+    # el fin) va como el placeholder; si va pegada a texto sin comillas, se
+    # une sin comillas, como el shell (#120, ronda 1 de review: con "Q" pegado,
+    # "git push origin feature/x --force''" quedaba "--forceQ" y pasaba). Solo
+    # se une si el contenido es una palabra simple ([A-Za-z0-9._/:+=@%,-], o
+    # vacío): --force'' es --force, --for"ce" es --force, HEAD:"main" es
+    # HEAD:main. Con otro contenido pegado a texto (espacios, $, *, ...) queda
+    # el placeholder: no se expone un mensaje entre comillas.
+    # Con el placeholder " " (guards de gh) una racha SUELTA no cambia: ya separa.
+    # Un "$" pegado delante de un span ($'main', $"main") es la forma ANSI-C /
+    # localizada del mismo span: se acepta y se descarta al unir, y una racha
+    # que empieza por "$" cuenta siempre como pegada a texto (git $'commit' es
+    # git commit). Una barra invertida seguida de newline se quita sin dejar
+    # espacio (el shell une las dos líneas: HEAD:ma\<nl>in es HEAD:main) y una
+    # barra final se descarta (#118, ronda de cierre).
+    # Después de las comillas, la barra invertida SIN comillas se quita como
+    # hace el shell: \X pasa a X para cualquier X salvo los caracteres que
+    # cambian el parseo (; & | ' " < > ( ) $, backtick, espacio, barra,
+    # newline): HEAD:ma\in es HEAD:main, --forc\e es --force, g\it es git y
+    # push.default\=matching es push.default=matching. No toca \; \& \| ni \'
+    # (documentados en "Fuera de alcance"). Los guards de gh lo reciben igual:
+    # g\h pr merge --admin ahora bloquea, como en el shell.
+    local sanitized status placeholder="${2:- }"
+    sanitized=$(printf '%s' "$1" | GUARD_SANITIZE_PH="$placeholder" perl -0777 -pe '
       BEGIN { alarm 5 }
-      s/\\\n\s*/ /g;
+      s/(?<!\\)((?:\\\\)*)\\\n/$1/g;
+      s/\\\z//;
       s/<<-?[ \t]*[\x27"]?([A-Za-z0-9_-]+)[\x27"]?[^\n]*\n(?:(?!^[ \t]*\1[ \t]*$)[^\n]*\n)*?[ \t]*\1(?:\n|$)/\n/gsm;
-      s/\x27[^\x27]*\x27|"(?:[^"\\]|\\.)*"/ /g;
+      s{((?:\$?\x27[^\x27]*\x27|\$?"(?:[^"\\]|\\.)*")+)}{
+        my ($run, $ph, $d) = ($1, $ENV{GUARD_SANITIZE_PH}, q{[\s;&|(){}<>\x60]});
+        my $pre = $-[0] > 0 ? substr($_, $-[0] - 1, 1) : q{};
+        my $post = $+[0] < length($_) ? substr($_, $+[0], 1) : q{};
+        my $attached = ($pre ne q{} && $pre !~ m{$d}) || ($post ne q{} && $post !~ m{$d}) || $run =~ m{\A\$};
+        my $text = join q{}, map { my $t = $_; $t =~ s/\A\$//; substr($t, 1, length($t) - 2) } ($run =~ m{\$?\x27[^\x27]*\x27|\$?"(?:[^"\\]|\\.)*"}g);
+        ($attached && $text =~ m{\A[A-Za-z0-9._/:+=@%,-]*\z}) ? $text : $ph;
+      }ge;
+      s{\\([^;&|\x27"<>()\$\x60\s\\])}{$1}g;
     ')
     status=$?
     # Red de seguridad para cualquier patológico futuro no anticipado por
@@ -284,7 +450,7 @@ guard_block() {
   exit 2
 }
 
-# guard_init <nombre-del-guard>: preámbulo común de los guards PreToolUse.
+# guard_init <nombre-del-guard> [placeholder]: preámbulo común de los guards PreToolUse.
 # Se llama DESPUÉS de sourcear esta lib (el caller ya verificó que la lib
 # existe; sin lib no hay guard_init que llamar — ese check queda en el
 # guard). Fail-closed sin jq ni grep (las dependencias de binarios del
@@ -300,7 +466,7 @@ guard_init() {
   COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
   INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
   guard_command_has_nul "$INPUT" && guard_block "el comando trae un byte NUL"
-  SANITIZED_COMMAND=$(guard_sanitize "$COMMAND")
+  SANITIZED_COMMAND=$(guard_sanitize "$COMMAND" "${2-Q}")
   GUARD_SANITIZE_STATUS=$?
 }
 

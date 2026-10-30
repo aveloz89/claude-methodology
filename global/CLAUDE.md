@@ -59,7 +59,7 @@ El resto del proceso de PR — presupuesto de CI, E2E pre-release, branch protec
 
 Los hooks son enforcement del harness, no instrucciones tuyas — corren solos.
 
-**Bloquean el comando:** push directo a `main`, `gh pr merge --admin`, `git push --force`, `git reset --hard`, commit sin la suite de tests en verde, y (cuando reconoce la invocación) `gh pr merge` fuera de la forma exacta esperada — `gh pr merge --help`/`-h` exactos y solos pasan, no mergean nada. El `if` de `hooks.json` que decide qué invocación dispara cada hook es best-effort (matching por prefijo del comando, no un parser de shell): una forma que no puede resolver corre el hook igual, nunca lo salta por error. Si uno te bloquea, se corrige la causa; el hook no se esquiva.
+**Bloquean el comando:** push directo a `main`, `gh pr merge --admin`, `git push --force`, `git reset --hard`, commit sin la suite de tests en verde, y (cuando reconoce la invocación) `gh pr merge` fuera de la forma exacta esperada — `gh pr merge --help`/`-h` exactos y solos pasan, no mergean nada. Los guards de git corren en cada Bash (sin `if` en `hooks.json`); los de gh filtran con `if: Bash(gh *)`, un matching por prefijo del comando (no un parser de shell) que es best-effort. Si uno te bloquea, se corrige la causa; el hook no se esquiva.
 
 **Piden confirmación:** `gh pr merge` con las verificaciones en verde (`pre-merge-check` devuelve `ask`).
 

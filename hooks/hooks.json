@@ -12,19 +12,16 @@
           },
           {
             "type": "command",
-            "if": "Bash(git *)",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/block-force-push.sh\"",
             "timeout": 10
           },
           {
             "type": "command",
-            "if": "Bash(git *)",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/block-hard-reset.sh\"",
             "timeout": 10
           },
           {
             "type": "command",
-            "if": "Bash(git *)",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-push-guard.sh\"",
             "timeout": 10
           },
@@ -36,7 +33,6 @@
           },
           {
             "type": "command",
-            "if": "Bash(git *)",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-guard.sh\"",
             "timeout": 600
           }

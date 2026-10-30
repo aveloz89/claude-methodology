@@ -3,10 +3,11 @@
 # tests del árbol correspondiente antes de dejarlo pasar.
 # Recibe JSON en stdin con tool_input del comando Bash.
 #
-# hooks.json filtra la invocación con "if": "Bash(git *)" — optimización de
-# latencia, no reemplaza la validación de abajo, que mira el comando
-# completo saneado (spans quoted/heredoc) y anclado a posición de comando —
-# mismo helper que pre-merge-check.sh (hooks/lib/guard-matching.sh).
+# hooks.json registra este guard SIN "if" (decisión del usuario, ronda 1 de
+# review): corre en cada Bash, también con un wrapper, un if/then o un backtick
+# delante de git. La validación de abajo mira el comando completo saneado
+# (spans quoted/heredoc) y anclado a posición de comando — mismo helper que
+# pre-merge-check.sh (hooks/lib/guard-matching.sh); sin "git" sale 0.
 #
 # Formas aceptadas para resolver el ÁRBOL OBJETIVO del commit — lo que no
 # calza bloquea con el mensaje de "Formas aceptadas" (TREE_FORM_HELP más
@@ -151,7 +152,7 @@ guard_init "pre-commit-guard"
 # matcheaban porque el regex solo toleraba "NOMBRE=valor" pegado
 # directamente a "git" — el binario "env" (con o sin flags cortas, ej.
 # "-i") de por medio dejaba pasar el commit real sin correr tests.
-GIT_COMMIT_RE="${GUARD_ANCHOR}(env(\s+-\S+)*\s+)?([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*git\s+${GUARD_GIT_OPTS}commit(\s|\$|[;&|)])"
+GIT_COMMIT_RE="${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}commit(\s|\$|[;&|)])"
 if ! echo "$SANITIZED_COMMAND" | grep -qE "$GIT_COMMIT_RE"; then
   exit 0
 fi
@@ -189,7 +190,7 @@ fi
 if echo "$SANITIZED_COMMAND" | grep -qE "(^|\s|;|&&|\|)(GIT_DIR|GIT_WORK_TREE)="; then
   _guard_block_tree "GIT_DIR/GIT_WORK_TREE como prefijo de entorno en el comando no se resuelven"
 fi
-if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}git\s+-C\s"; then
+if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}-C\s"; then
   _guard_block_tree "'git -C' no se resuelve"
 fi
 
