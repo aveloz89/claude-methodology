@@ -2238,7 +2238,27 @@ _sop_report "pre-push-guard: marcador Python sin runner bloquea con 'pre-push-gu
 
 rm -rf "$SOP_CLEAN_BIN"
 
-rm -rf "$SOP_OUT" "$SOP_BIN" "$SOP_FEAT" "$SOP_OTHER" "$SOP_MAIN" "$SOP_MERGE"
+# Tope vencido: PRECOMMIT_TEST_BUDGET=1 con una suite de 5 s bloquea, sin huérfanos.
+SOP_SLOW_BIN=$(mktemp -d)
+cat > "$SOP_SLOW_BIN/pytest" <<'SOP_SLOW_EOF'
+#!/bin/bash
+sleep 5
+exit 0
+SOP_SLOW_EOF
+chmod +x "$SOP_SLOW_BIN/pytest"
+SOP_EXIT=0
+SOP_STDERR=$(cd "$SOP_FEAT" && echo "$SOP_JSON" | PATH="$SOP_SLOW_BIN:$PATH" PRECOMMIT_TEST_BUDGET=1 bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || SOP_EXIT=$?
+sleep 1
+SOP_ORPHAN=$(pgrep -f "$SOP_SLOW_BIN/pytest" || true)
+SOP_RAN=""
+_sop_report "pre-push-guard: PRECOMMIT_TEST_BUDGET=1 con suite de 5s bloquea con 'superó' y sin proceso huérfano" \
+  "$([ "$SOP_EXIT" -eq 2 ] && echo "$SOP_STDERR" | grep -qF "superó" && [ -z "$SOP_ORPHAN" ]; echo $?)"
+SOP_EXIT=0
+(cd "$SOP_FEAT" && echo "$SOP_JSON" | PATH="$SOP_SLOW_BIN:$PATH" PRECOMMIT_TEST_BUDGET=10 bash "$HOOKS_DIR/pre-push-guard.sh" > /dev/null 2>&1) || SOP_EXIT=$?
+_sop_report "pre-push-guard: PRECOMMIT_TEST_BUDGET=10 con suite de 5s pasa dentro del presupuesto" \
+  "$([ "$SOP_EXIT" -eq 0 ]; echo $?)"
+
+rm -rf "$SOP_OUT" "$SOP_BIN" "$SOP_FEAT" "$SOP_OTHER" "$SOP_MAIN" "$SOP_MERGE" "$SOP_SLOW_BIN"
 
 # --- pre-commit-guard.sh: PRECOMMIT_TEST_BUDGET inválido cae a un default
 # seguro (<= 570) en vez de romper la comparación del watchdog o anular su
