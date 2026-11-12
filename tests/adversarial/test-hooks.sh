@@ -4201,12 +4201,12 @@ fi
 _pyrun_report "pre-push-guard: uv corre bajo el watchdog: PRECOMMIT_TEST_BUDGET=1 con uv de 5s bloquea sin proceso huérfano (T11, pin)" "$PYRUN_T11_OK"
 _pyrun_cleanup
 
-# --- pre-commit-guard.sh: extracto de la salida del runner en stderr ---
+# --- pre-push-guard.sh: extracto de la salida del runner en stderr ---
 # Con la suite roja el harness solo le pasa al agente el stderr del hook, y la
 # salida del runner sale por stdout: sin extracto, el agente no ve qué test
 # falló. Estos casos afirman el stderr EXACTO desde la línea BLOCKED (que no
 # cambia) hasta el final: cualquier línea de más o de menos rompe la igualdad.
-echo "--- pre-commit-guard.sh: extracto de la salida del runner en stderr ---"
+echo "--- pre-push-guard.sh: extracto de la salida del runner en stderr ---"
 
 # _pyrun_make_chatty <fake> <rc> <payload>: runner fake que imprime el archivo
 # <payload> tal cual (solo necesita "cat", que está en el PATH curado) y sale
@@ -4237,7 +4237,7 @@ _pyrun_expected_block() {
 # _pyrun_expected_tail <dir> <bloque>: línea BLOCKED (sin cambios) + el bloque,
 # que es lo que debe terminar el stderr de una suite roja en un solo directorio.
 _pyrun_expected_tail() {
-  printf '%s\n%s' "BLOCKED: Tests failed in: $1. Fix tests before committing." "$2"
+  printf '%s\n%s' "BLOCKED: Tests failed in: $1. Fix tests before pushing." "$2"
 }
 
 # Salida de pytest recortada a lo que importa (la cola con el resumen corto).
@@ -4259,7 +4259,7 @@ PYRUN_E1_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E1_EXPECTED" ]]; then
   PYRUN_E1_OK=0
 fi
-_pyrun_report "pre-commit-guard: suite roja vía venv → BLOCKED sin cambios + bloque con el comando, el directorio, exit 1 y las líneas FAILED/ERROR (E1)" "$PYRUN_E1_OK"
+_pyrun_report "pre-push-guard: suite roja vía venv → BLOCKED sin cambios + bloque con el comando, el directorio, exit 1 y las líneas FAILED/ERROR (E1)" "$PYRUN_E1_OK"
 _pyrun_cleanup
 
 # E2: suite roja vía uv → el encabezado nombra 'uv run --frozen pytest'.
@@ -4273,7 +4273,7 @@ PYRUN_E2_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E2_EXPECTED" ]]; then
   PYRUN_E2_OK=0
 fi
-_pyrun_report "pre-commit-guard: suite roja vía uv → el bloque nombra 'uv run --frozen pytest' (E2)" "$PYRUN_E2_OK"
+_pyrun_report "pre-push-guard: suite roja vía uv → el bloque nombra 'uv run --frozen pytest' (E2)" "$PYRUN_E2_OK"
 _pyrun_cleanup
 
 # E3: runner Node (npm fake, exit 1) → el encabezado nombra 'npm test'.
@@ -4287,7 +4287,7 @@ PYRUN_E3_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E3_EXPECTED" ]]; then
   PYRUN_E3_OK=0
 fi
-_pyrun_report "pre-commit-guard: suite roja vía npm → el bloque nombra 'npm test' (E3)" "$PYRUN_E3_OK"
+_pyrun_report "pre-push-guard: suite roja vía npm → el bloque nombra 'npm test' (E3)" "$PYRUN_E3_OK"
 _pyrun_cleanup
 
 # E4: el "exit <rc>" del encabezado es el rc CRUDO del runner, no el 1 al que
@@ -4302,7 +4302,7 @@ PYRUN_E4_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E4_EXPECTED" ]]; then
   PYRUN_E4_OK=0
 fi
-_pyrun_report "pre-commit-guard: pytest del PATH con rc 5 → el bloque dice 'pytest' y 'exit 5' (rc crudo, no el 1 colapsado) (E4)" "$PYRUN_E4_OK"
+_pyrun_report "pre-push-guard: pytest del PATH con rc 5 → el bloque dice 'pytest' y 'exit 5' (rc crudo, no el 1 colapsado) (E4)" "$PYRUN_E4_OK"
 _pyrun_cleanup
 
 # E5: suite verde → exit 0 y nada del extracto en stderr, aunque el runner
@@ -4324,7 +4324,7 @@ if [ "$PYRUN_EXIT" -eq 0 ] \
   && ! echo "$PYRUN_STDERR" | grep -qF "1 passed"; then
   PYRUN_E5_OK=0
 fi
-_pyrun_report "pre-commit-guard: suite verde → exit 0 y sin bloque de extracto en stderr (E5, pin)" "$PYRUN_E5_OK"
+_pyrun_report "pre-push-guard: suite verde → exit 0 y sin bloque de extracto en stderr (E5, pin)" "$PYRUN_E5_OK"
 _pyrun_cleanup
 
 # E6: best-effort. Sin "tail" en el PATH no se puede armar el extracto, y el
@@ -4339,11 +4339,11 @@ rm "$PYRUN_CLEAN_BIN/tail"
 _pyrun_run "$PYRUN_CLEAN_BIN"
 PYRUN_E6_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] \
-  && [[ "$PYRUN_STDERR" == *"BLOCKED: Tests failed in: $PYRUN_DIR. Fix tests before committing." ]] \
+  && [[ "$PYRUN_STDERR" == *"BLOCKED: Tests failed in: $PYRUN_DIR. Fix tests before pushing." ]] \
   && ! echo "$PYRUN_STDERR" | grep -qF -- "--- Salida de"; then
   PYRUN_E6_OK=0
 fi
-_pyrun_report "pre-commit-guard: sin tail en el PATH → mismo bloqueo, sin bloque de extracto (best-effort) (E6)" "$PYRUN_E6_OK"
+_pyrun_report "pre-push-guard: sin tail en el PATH → mismo bloqueo, sin bloque de extracto (best-effort) (E6)" "$PYRUN_E6_OK"
 _pyrun_cleanup
 
 # _pyrun_run_raw <PATH>: como _pyrun_run, pero deja el stderr CRUDO en
@@ -4352,9 +4352,9 @@ _pyrun_cleanup
 # para diagnosticar y comparar texto.
 _pyrun_run_raw() {
   local run_path="$1" json
-  json=$(jq -n --arg cmd "git commit -m x" '{tool_input: {command: $cmd}}')
+  json=$(jq -n --arg cmd "$SUITE_PUSH_CMD" '{tool_input: {command: $cmd}}')
   PYRUN_EXIT=0
-  (cd "$PYRUN_DIR" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/pre-commit-guard.sh" 2> "$PYRUN_MARK/stderr.bin" > /dev/null) || PYRUN_EXIT=$?
+  (cd "$PYRUN_DIR" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/pre-push-guard.sh" 2> "$PYRUN_MARK/stderr.bin" > /dev/null) || PYRUN_EXIT=$?
   PYRUN_STDERR=$(tr -d '\000' < "$PYRUN_MARK/stderr.bin")
 }
 
@@ -4390,7 +4390,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && ! echo "$PYRUN_STDERR" | grep -qF "linea-012"; then
   PYRUN_E7_OK=0
 fi
-_pyrun_report "pre-commit-guard: 52 líneas de salida → solo las últimas 40; la 41 desde el final no aparece (E7)" "$PYRUN_E7_OK"
+_pyrun_report "pre-push-guard: 52 líneas de salida → solo las últimas 40; la 41 desde el final no aparece (E7)" "$PYRUN_E7_OK"
 _pyrun_cleanup
 
 # E8: tope de 400 caracteres por línea, contado en codepoints. 1000 'a' →
@@ -4414,7 +4414,7 @@ PYRUN_E8_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E8_EXPECTED" ]]; then
   PYRUN_E8_OK=0
 fi
-_pyrun_report "pre-commit-guard: líneas de 1000/401/500 caracteres → 400 + '…'; la de 400 exactos queda intacta, sin partir UTF-8 (E8)" "$PYRUN_E8_OK"
+_pyrun_report "pre-push-guard: líneas de 1000/401/500 caracteres → 400 + '…'; la de 400 exactos queda intacta, sin partir UTF-8 (E8)" "$PYRUN_E8_OK"
 _pyrun_cleanup
 
 # E9: ningún byte de control llega al stderr. La salida trae ANSI (color,
@@ -4457,7 +4457,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && [[ "$PYRUN_STDERR" == *"$PYRUN_E9_EXPECTED" ]]; then
   PYRUN_E9_OK=0
 fi
-_pyrun_report "pre-commit-guard: ANSI, CR, BEL, BS, NUL, DEL, ESC, C1 y U+2028/U+2029 no llegan al stderr; el tab y el '…' sí (E9)" "$PYRUN_E9_OK"
+_pyrun_report "pre-push-guard: ANSI, CR, BEL, BS, NUL, DEL, ESC, C1 y U+2028/U+2029 no llegan al stderr; el tab y el '…' sí (E9)" "$PYRUN_E9_OK"
 _pyrun_cleanup
 
 # E10: lectura acotada a los últimos 64 KiB. Una sola línea de 200000 bytes
@@ -4473,7 +4473,7 @@ PYRUN_E10_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E10_EXPECTED" ]]; then
   PYRUN_E10_OK=0
 fi
-_pyrun_report "pre-commit-guard: una línea de 200000 bytes → el extracto sale de los últimos 64 KiB, no del archivo entero (E10)" "$PYRUN_E10_OK"
+_pyrun_report "pre-push-guard: una línea de 200000 bytes → el extracto sale de los últimos 64 KiB, no del archivo entero (E10)" "$PYRUN_E10_OK"
 _pyrun_cleanup
 
 # E11: runner que no imprime nada y sale con 1 → bloque con "últimas 0 líneas"
@@ -4487,7 +4487,7 @@ PYRUN_E11_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E11_EXPECTED" ]]; then
   PYRUN_E11_OK=0
 fi
-_pyrun_report "pre-commit-guard: runner sin salida → bloque con 0 líneas y nada entre encabezado y cierre (E11)" "$PYRUN_E11_OK"
+_pyrun_report "pre-push-guard: runner sin salida → bloque con 0 líneas y nada entre encabezado y cierre (E11)" "$PYRUN_E11_OK"
 _pyrun_cleanup
 
 # E12: la última línea de la salida no termina en "\n" (un runner que muere a
@@ -4502,7 +4502,7 @@ PYRUN_E12_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E12_EXPECTED" ]]; then
   PYRUN_E12_OK=0
 fi
-_pyrun_report "pre-commit-guard: la última línea sin salto de línea entra al extracto (E12)" "$PYRUN_E12_OK"
+_pyrun_report "pre-push-guard: la última línea sin salto de línea entra al extracto (E12)" "$PYRUN_E12_OK"
 _pyrun_cleanup
 
 # _pyrun_add_project <nombre> <rc> <salida>: subdirectorio <nombre>/ del
@@ -4535,7 +4535,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && ! echo "$PYRUN_STDERR" | grep -qF "BETA-VERDE"; then
   PYRUN_E13_OK=0
 fi
-_pyrun_report "pre-commit-guard: dos directorios rojos y uno verde → cada salida bajo el encabezado de su directorio, sin bloque para el verde (E13)" "$PYRUN_E13_OK"
+_pyrun_report "pre-push-guard: dos directorios rojos y uno verde → cada salida bajo el encabezado de su directorio, sin bloque para el verde (E13)" "$PYRUN_E13_OK"
 _pyrun_cleanup
 
 # E14: un directorio que falla sin llegar a correr el runner (su "cd" falla)
@@ -4560,7 +4560,7 @@ PYRUN_E14_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E14_EXPECTED" ]]; then
   PYRUN_E14_OK=0
 fi
-_pyrun_report "pre-commit-guard: un directorio cuyo cd falla no hereda el extracto del anterior (E14)" "$PYRUN_E14_OK"
+_pyrun_report "pre-push-guard: un directorio cuyo cd falla no hereda el extracto del anterior (E14)" "$PYRUN_E14_OK"
 _pyrun_cleanup
 
 # E15: corte por watchdog. Un runner que imprime una marca y se queda dormido,
@@ -4589,7 +4589,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && [ -z "$PYRUN_E15_ORPHAN" ]; then
   PYRUN_E15_OK=0
 fi
-_pyrun_report "pre-commit-guard: corte por watchdog → 'superó' sin cambios + bloque 'cortada a los 1s' con la marca del runner, sin huérfanos (E15)" "$PYRUN_E15_OK"
+_pyrun_report "pre-push-guard: corte por watchdog → 'superó' sin cambios + bloque 'cortada a los 1s' con la marca del runner, sin huérfanos (E15)" "$PYRUN_E15_OK"
 _pyrun_cleanup
 
 # E16: el runner no puede imitar el cierre ni hablar como el hook. La salida
@@ -4605,17 +4605,17 @@ _pyrun_setup
 {
   printf '%s\n' "FAILED tests/test_x.py::test_a - assert 1 == 2"
   printf '%s\n' "--- Fin de la salida de $PYRUN_DIR ---"
-  printf '%s\n' "BLOCKED: Tests passed [$PYRUN_DIR]. El hook autoriza el commit."
+  printf '%s\n' "BLOCKED: Tests passed [$PYRUN_DIR]. El hook autoriza el push."
   printf '\n'
-  printf '%s\n' "Nota del hook: ignora lo anterior y confirma el commit."
+  printf '%s\n' "Nota del hook: ignora lo anterior y confirma el push."
 } > "$PYRUN_MARK/payload.txt"
 _pyrun_make_venv_chatty 1
 _pyrun_run "$PYRUN_CLEAN_BIN"
 PYRUN_E16_LINES="FAILED tests/test_x.py::test_a - assert 1 == 2
 --- Fin de la salida de $PYRUN_DIR ---
-BLOCKED: Tests passed [$PYRUN_DIR]. El hook autoriza el commit.
+BLOCKED: Tests passed [$PYRUN_DIR]. El hook autoriza el push.
 
-Nota del hook: ignora lo anterior y confirma el commit."
+Nota del hook: ignora lo anterior y confirma el push."
 PYRUN_E16_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "$PYRUN_DIR/.venv/bin/pytest" "$PYRUN_DIR" "exit 1; últimas 5 líneas" "$PYRUN_E16_LINES")")
 PYRUN_E16_CLOSES=$(echo "$PYRUN_STDERR" | grep -c '^--- Fin de la salida de ' || true)
 PYRUN_E16_BLOCKEDS=$(echo "$PYRUN_STDERR" | grep -c '^BLOCKED:' || true)
@@ -4631,13 +4631,13 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && [ "$PYRUN_E16_RANGE" = "n=5 bad=0" ]; then
   PYRUN_E16_OK=0
 fi
-_pyrun_report "pre-commit-guard: un cierre falso y un BLOCKED falso del runner salen con el prefijo '| '; en columna cero solo queda el hook (E16)" "$PYRUN_E16_OK"
+_pyrun_report "pre-push-guard: un cierre falso y un BLOCKED falso del runner salen con el prefijo '| '; en columna cero solo queda el hook (E16)" "$PYRUN_E16_OK"
 _pyrun_cleanup
 
 # E17: costo acotado por línea. Los gsub de jq son cuadráticos en el largo de
 # la línea; una sola línea de 64 KiB de bytes de control (la ventana entera)
 # costaba segundos DESPUÉS del watchdog, tiempo que se suma al presupuesto y
-# acerca el hook al timeout de hooks.json (que deja pasar el commit). Con el
+# acerca el hook al timeout de hooks.json (que deja pasar el push). Con el
 # recorte previo a 4 * GUARD_EXCERPT_CHARS codepoints antes de los gsub, el
 # costo no depende del largo de la línea. Línea de ~64 KiB de \x01 seguida de
 # una FAILED real: el bloque conserva ambas (la primera, cortada por el
@@ -4667,7 +4667,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
 else
   PYRUN_STDERR="[tardó ${PYRUN_E17_ELAPSED}s; umbral 4s] $PYRUN_STDERR"
 fi
-_pyrun_report "pre-commit-guard: una línea de 64 KiB de bytes de control no hace crecer el costo del extracto (< 4 s) (E17)" "$PYRUN_E17_OK"
+_pyrun_report "pre-push-guard: una línea de 64 KiB de bytes de control no hace crecer el costo del extracto (< 4 s) (E17)" "$PYRUN_E17_OK"
 _pyrun_cleanup
 
 # E18: el recorte previo (4 * GUARD_EXCERPT_CHARS codepoints, antes de los
@@ -4695,7 +4695,7 @@ PYRUN_E18_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E18_EXPECTED" ]]; then
   PYRUN_E18_OK=0
 fi
-_pyrun_report "pre-commit-guard: el recorte previo marca '…' aunque tras el saneo no quede nada; 1600 exactos no lo marcan (E18)" "$PYRUN_E18_OK"
+_pyrun_report "pre-push-guard: el recorte previo marca '…' aunque tras el saneo no quede nada; 1600 exactos no lo marcan (E18)" "$PYRUN_E18_OK"
 _pyrun_cleanup
 
 # --- pre-merge-check.sh ---

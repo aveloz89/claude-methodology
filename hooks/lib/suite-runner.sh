@@ -521,7 +521,7 @@ guard_suite_run() {
   # La línea BLOCKED no cambia y va primero; los bloques del extracto, uno por
   # directorio fallido y en su mismo orden, van después.
   if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ]; then
-    echo "BLOCKED: Tests failed in: ${GUARD_FAILED_DIRS[*]}. Fix tests before committing." >&2
+    echo "BLOCKED: Tests failed in: ${GUARD_FAILED_DIRS[*]}. Fix tests before pushing." >&2
   fi
   i=0
   while [ "$i" -lt "${#GUARD_FAILED_DIRS[@]}" ]; do
