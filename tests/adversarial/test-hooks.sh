@@ -736,6 +736,27 @@ assert_blocked_cmd "pre-push-guard: refspec glob +*:* bloquea (#119)" \
 assert_blocked_cmd "pre-push-guard: refspec glob de un solo lado refs/heads/* bloquea (#119)" \
   "pre-push-guard.sh" 'git push origin refs/heads/*' "$PATH" "$SANDBOX_REPO"
 assert_blocked_cmd "pre-push-guard: refspec glob feature/*:feature/* sin prefijo refs/ bloquea (#119)" \
+# suite-on-push (R1): pre-push-guard acepta "cd /abs && git push", así que la
+# excepción de --force-with-lease (que mira la rama del cwd de la sesión) no
+# puede valer con cd/pushd en el comando: "cd <repo en dev> && git push
+# --force-with-lease" desde una sesión en feature forzaría dev.
+FWL_DEV_REPO=$(mktemp -d)
+FWL_DEV_REPO=$(cd "$FWL_DEV_REPO" && pwd -P)
+(cd "$FWL_DEV_REPO" && git init -q -b dev && git config user.email s@example.com && git config user.name S && git commit -q --allow-empty -m init) > /dev/null 2>&1
+assert_blocked_cmd "block-force-push: sesión en feature, 'cd <repo en dev> && git push --force-with-lease origin feature/x' bloquea" \
+  "block-force-push.sh" "cd $FWL_DEV_REPO && git push --force-with-lease origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: 'cd <repo en dev> && git push --force-with-lease' sin refspec bloquea" \
+  "block-force-push.sh" "cd $FWL_DEV_REPO && git push --force-with-lease" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: 'pushd <ruta> && git push --force-with-lease origin feature/x' bloquea" \
+  "block-force-push.sh" "pushd $FWL_DEV_REPO && git push --force-with-lease origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: 'git push --force-with-lease origin feature/x; cd /tmp' bloquea (cd en el mismo comando)" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/x; cd /tmp" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: sin cd, '--force-with-lease origin feature/x' sigue pasando" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: mención 'cd' dentro de un nombre de rama no cuenta ('feature/cd-x')" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/cd-x" "$PATH" "$SANDBOX_REPO"
+rm -rf "$FWL_DEV_REPO"
+
   "pre-push-guard.sh" 'git push origin feature/*:feature/*' "$PATH" "$SANDBOX_REPO"
 assert_blocked_cmd "pre-push-guard: refspec glob parcial main*:main* bloquea (#119)" \
   "pre-push-guard.sh" 'git push origin main*:main*' "$PATH" "$SANDBOX_REPO"
