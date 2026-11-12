@@ -2110,7 +2110,7 @@ rm -rf "$PCG_WD_TEST_DIR" "$FAKE_PYTEST_WD_DIR"
 # que devuelve error, para que los tests de budget de abajo fallen de forma
 # legible (comparando contra una salida vacía) en vez de tumbar el proceso.
 BUDGET_FN_FILE=$(mktemp)
-awk '/^_guard_resolve_test_budget\(\) \{/,/^}/' "$HOOKS_DIR/pre-commit-guard.sh" > "$BUDGET_FN_FILE"
+awk '/^_guard_resolve_test_budget\(\) \{/,/^}/' "$HOOKS_DIR/lib/suite-runner.sh" > "$BUDGET_FN_FILE"
 if [ -s "$BUDGET_FN_FILE" ]; then
   # shellcheck source=/dev/null
   source "$BUDGET_FN_FILE"
@@ -2131,7 +2131,7 @@ rm -f "$BUDGET_FN_FILE"
 BROKEN_EXTRACT_OUT=$(bash -c '
   set -e
   FILE=$(mktemp)
-  awk "/^_nombre_que_no_existe\\(\\) \\{/,/^}/" "'"$HOOKS_DIR"'/pre-commit-guard.sh" > "$FILE"
+  awk "/^_nombre_que_no_existe\\(\\) \\{/,/^}/" "'"$HOOKS_DIR"'/lib/suite-runner.sh" > "$FILE"
   if [ -s "$FILE" ]; then
     source "$FILE"
   else
