@@ -11,8 +11,10 @@
 #
 # Sin marcador de runner (package.json/pyproject.toml/setup.py/pytest.ini)
 # entre SESSION_DIR y TARGET_DIR: se deriva un candidato por el PRIMER
-# SEGMENTO de cada path con cambios locales que sí tenga marcador (nunca se
-# adivina "todo el repo"); corren TODOS antes de decidir y cualquier fallo
+# SEGMENTO de cada path que el push puede subir (cambios locales y commits que
+# no están en ningún remoto; sin refs remotas, todos los directorios de primer
+# nivel) que sí tenga marcador (nunca se adivina "todo el repo"; ver
+# _guard_derive_runner_dirs); corren TODOS antes de decidir y cualquier fallo
 # (suite roja, marcador Python sin runner, o package.json inutilizable sin
 # marcador Python) bloquea nombrando los directorios; sin candidatos —ningún
 # marcador— pasa sin correr nada.
@@ -96,6 +98,14 @@
 #   3. Un path con caracteres especiales llega C-quoteado en `git status
 #      --porcelain` y no matchea ningún segmento real — esa suite en
 #      particular no corre, nunca bloquea por eso.
+#   4. `git push origin otra` deriva de HEAD y del working tree actual, no de
+#      `otra`.
+#   5. Con todos los commits de HEAD ya en algún remoto y el árbol limpio
+#      (re-push a un segundo remoto en un monorepo sin marcador en la raíz)
+#      no hay candidatos y no corre nada.
+#   6. El fallback «todos los de primer nivel» no incluye directorios ocultos.
+#   7. Las refs remotas son las locales (`refs/remotes/*`): si están viejas, la
+#      derivación corre de más, nunca de menos.
 #
 # Limitaciones aceptadas del runner Python:
 #   1. Workspace uv: uv.lock, [tool.uv…] y .venv se buscan SOLO en el
@@ -139,22 +149,45 @@ _guard_has_marker() {
   [ -f "$dir/package.json" ] || [ -f "$dir/pyproject.toml" ] || [ -f "$dir/setup.py" ] || [ -f "$dir/pytest.ini" ]
 }
 
-# _guard_derive_runner_dirs: cuando NINGÚN directorio entre SESSION_DIR y
-# TARGET_DIR tiene marcador, correr por el PRIMER SEGMENTO de cada path con
-# cambios locales en vez de no correr nada. Un archivo en la raíz (sin "/"),
-# un segmento sin marcador, o un runner a 2+ niveles se descartan sin
-# bloquear — "no correr nada" sigue siendo la decisión aceptada.
+# _guard_derive_runner_dirs <top> (cwd = top): cuando NINGÚN directorio entre
+# SESSION_DIR y TARGET_DIR tiene marcador, correr por el PRIMER SEGMENTO de
+# cada path que el push puede subir, en vez de no correr nada (R6):
+#   L = cambios locales (git status, como antes)
+#   P = paths de los commits de HEAD que no están en ningún remoto, si hay al
+#       menos una ref remota y el log funciona; si no (sin refs remotas, HEAD
+#       sin commits, log fallido) P = todos los directorios de primer nivel
+#       de top (los ocultos no: el glob "*/" no los ve).
+# Candidatos = sort -u (L y P) que tengan marcador. Un archivo en la raíz (sin
+# "/"), un segmento sin marcador o un runner a 2+ niveles se descartan sin
+# bloquear. La referencia no es el upstream sino "no está en ningún remoto":
+# el primer push de una rama (sin upstream) tampoco cae a «todo». Las refs
+# remotas son las locales: si están viejas, corre de más, nunca de menos.
 _guard_derive_runner_dirs() {
   local top="$1"
-  local segments
-  segments=$(git status --porcelain --no-renames --untracked-files=all 2>/dev/null | cut -c4- | grep / | cut -d/ -f1 | sort -u) || return 0
-  [ -z "$segments" ] && return 0
+  local local_segs pushed pushed_segs seg dir all_segs cand_seg
 
-  local segment candidates=()
-  while IFS= read -r segment; do
-    [ -z "$segment" ] && continue
-    _guard_has_marker "$top/$segment" && candidates+=("$top/$segment")
-  done <<< "$segments"
+  local_segs=$(git status --porcelain --no-renames --untracked-files=all 2>/dev/null | cut -c4- | grep / | cut -d/ -f1 | sort -u)
+
+  pushed_segs=""
+  if [ -n "$(git for-each-ref --count=1 --format=x refs/remotes 2>/dev/null)" ] \
+    && pushed=$(git log --first-parent -m --no-renames --name-only --format= HEAD --not --remotes 2>/dev/null); then
+    pushed_segs=$(printf '%s\n' "$pushed" | grep / | cut -d/ -f1 | sort -u)
+  else
+    for dir in "$top"/*/; do
+      [ -d "$dir" ] || continue
+      seg="${dir%/}"
+      pushed_segs="${pushed_segs}${seg##*/}"$'\n'
+    done
+  fi
+
+  all_segs=$(printf '%s\n%s\n' "$local_segs" "$pushed_segs" | grep . | sort -u)
+  [ -z "$all_segs" ] && return 0
+
+  local candidates=()
+  while IFS= read -r cand_seg; do
+    [ -z "$cand_seg" ] && continue
+    _guard_has_marker "$top/$cand_seg" && candidates+=("$top/$cand_seg")
+  done <<< "$all_segs"
 
   [ "${#candidates[@]}" -eq 0 ] && return 0
   printf '%s\n' "${candidates[@]}"

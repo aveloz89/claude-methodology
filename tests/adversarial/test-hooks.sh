@@ -2827,6 +2827,10 @@ EOF
     echo "print(1)" > backend/b.py
     git add -A
     git commit -q -m init
+    # Ref remota falsa (R6, regla 7 de migración): "solo cambió frontend"
+    # sigue significando eso; sin ninguna ref remota corren todos los de
+    # primer nivel con marcador.
+    git update-ref refs/remotes/origin/base HEAD
   ) > /dev/null 2>&1
   cat > "$MULTIROOT_FAKE_BIN/pytest" <<PYEOF
 #!/bin/bash
@@ -2953,6 +2957,61 @@ else
 fi
 _multiroot_cleanup
 
+# R6 (Lote 4): sin marcador hacia arriba, los candidatos son los cambios
+# locales MÁS los paths de los commits de HEAD que no están en ningún remoto.
+# _mr6_run deja MR6_EXIT y los marcadores frontend/backend de lo que corrió.
+_mr6_run() {
+  local json
+  rm -f "$MULTIROOT_MARK/frontend.ran" "$MULTIROOT_MARK/backend.ran"
+  json=$(jq -n --arg cmd "$SUITE_PUSH_CMD" '{tool_input: {command: $cmd}}')
+  MR6_EXIT=0
+  (cd "$MULTIROOT_DIR" && echo "$json" | PATH="$MULTIROOT_FAKE_BIN:$PATH" bash "$HOOKS_DIR/pre-push-guard.sh" > /dev/null 2>&1) || MR6_EXIT=$?
+  MR6_FE=no; MR6_BE=no
+  if [ -f "$MULTIROOT_MARK/frontend.ran" ]; then MR6_FE=si; fi
+  if [ -f "$MULTIROOT_MARK/backend.ran" ]; then MR6_BE=si; fi
+}
+_mr6_report() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$MR6_EXIT" -eq 0 ] && [ "$MR6_FE" = "$2" ] && [ "$MR6_BE" = "$3" ]; then
+    echo -e "${GREEN}PASS${NC}: $1"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $1 (exit=$MR6_EXIT, frontend=$MR6_FE esperado $2, backend=$MR6_BE esperado $3)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# Con ref remota: un commit que toca frontend/ y árbol limpio → solo frontend.
+_multiroot_setup
+(cd "$MULTIROOT_DIR" && echo x >> frontend/a.js && git commit -q -am f) > /dev/null 2>&1
+_mr6_run
+_mr6_report "pre-push-guard (R6): commit sin subir que toca frontend/ y árbol limpio → corre solo frontend" si no
+# Más un cambio local en backend/ → los dos.
+echo x >> "$MULTIROOT_DIR/backend/b.py"
+_mr6_run
+_mr6_report "pre-push-guard (R6): commit sin subir en frontend/ + cambio local en backend/ → corren los dos" si si
+_multiroot_cleanup
+
+# Sin ninguna ref remota: corren todos los de primer nivel con marcador (docs/ no).
+_multiroot_setup
+git -C "$MULTIROOT_DIR" update-ref -d refs/remotes/origin/base
+_mr6_run
+_mr6_report "pre-push-guard (R6): sin ninguna ref remota y árbol limpio → corren todos los de primer nivel con marcador" si si
+_multiroot_cleanup
+
+# Todo en remoto y árbol limpio: no corre nada.
+_multiroot_setup
+_mr6_run
+_mr6_report "pre-push-guard (R6): todos los commits en un remoto y árbol limpio → no corre nada, exit 0" no no
+_multiroot_cleanup
+
+# Commit sin subir solo en docs/ (sin marcador arriba): no corre nada.
+_multiroot_setup
+(cd "$MULTIROOT_DIR" && echo x >> docs/README.md && git commit -q -am d) > /dev/null 2>&1
+_mr6_run
+_mr6_report "pre-push-guard (R6): commit sin subir solo en docs/ (sin marcador) y árbol limpio → no corre nada" no no
+_multiroot_cleanup
+
 # Runner a 2+ niveles sin marcador arriba (packages/a/package.json, sin
 # marcador en la raíz ni en packages/): el primer segmento del path
 # ("packages") no tiene marcador, así que no se deriva ningún candidato —
@@ -2998,6 +3057,7 @@ EOF
     echo "print(1)" > backend/b.py
     git add -A
     git commit -q -m init
+    git update-ref refs/remotes/origin/base HEAD
   ) > /dev/null 2>&1
   cat > "$MULTIROOT_BUDGET_FAKE_BIN/pytest" <<'PYEOF'
 #!/bin/bash
