@@ -1,6 +1,6 @@
 #!/bin/bash
 # Helper compartido por los guards que interceptan comandos Bash
-# (pre-merge-check.sh, block-admin-merge.sh, pre-commit-guard.sh). Antes de
+# (pre-merge-check.sh, block-admin-merge.sh, pre-push-guard.sh). Antes de
 # matchear el comando vigilado de cada guard, se sanean
 # los spans quoted ('...'/"...") y los cuerpos de heredoc: son contenido
 # literal (ej. un mensaje de commit) que puede mencionar la frase vigilada
@@ -23,7 +23,7 @@
 #
 # Fuera de alcance de los guards (documentado, no parcheado — #77, D-05).
 # El límite: los guards leen el texto del comando y frenan errores honestos
-# (push directo a main, force push, reset destructivo, commit sin tests, merge
+# (push directo a main, force push, reset destructivo, push sin tests, merge
 # sin verificación). No frenan la evasión deliberada (scripts, otros lenguajes,
 # alias de git, formas de shell que no estén en la lista de abajo): para eso
 # está la branch protection de GitHub en main, que /new-project configura. Una
@@ -127,7 +127,7 @@ GUARD_ANCHOR='(^|&&|\|\||;|\||\$\(|`|\(|\{|&|\))\s*((then|do|else|elif|if|while|
 # un orden fijo: "git -C /x -c a=b push --force" (árbol después de "-c") no
 # matchearía un fragmento que solo tolerase un orden. git acepta estas
 # opciones en cualquier orden antes del subcomando; el regex también.
-# shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh, pre-push-guard.sh y pre-commit-guard.sh
+# shellcheck disable=SC2034 # se usa en block-force-push.sh, block-hard-reset.sh y pre-push-guard.sh
 GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--namespace|--config-env|--attr-source)(=\S*|\s+\S*)?|-c\s+\S+|--[a-z][a-z-]*(=\S*)?|-p|-P)\s+)*'
 
 # Prefijo antes de "git": cero o más asignaciones de entorno ("VAR=valor git
@@ -159,7 +159,7 @@ GUARD_GIT_OPTS='(((-C|--git-dir|--work-tree|--namespace|--config-env|--attr-sour
 # Los guards de git no llevan "if" en hooks.json (corren en cada Bash), así que
 # el wrapper al frente sí llega al script; verificado con claude -p, ver
 # "Fuera de alcance" del README.
-# shellcheck disable=SC2034 # se usa en pre-push-guard.sh, block-force-push.sh, block-hard-reset.sh y pre-commit-guard.sh
+# shellcheck disable=SC2034 # se usa en pre-push-guard.sh, block-force-push.sh y block-hard-reset.sh
 GUARD_ENV_PREFIX='([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(((time|nohup|command|coproc)(\s+-\S+)*\s+|exec(\s+(-a\s+\S+|-\S+))*\s+|env(\s+(-[uC]\s+\S+|-\S*|[A-Za-z_][A-Za-z0-9_]*=\S*))*\s+|timeout(\s+-\S+(\s+[A-Za-z0-9]+)?)*\s+[0-9.]+[smhd]?([0-9.]+[smhd])*\s+|xargs(\s+(-[ILnPsdEJ]\s+\S+|-\S+(\s+(\{\}|[0-9]+|[^-g[:space:]]\S*|g([^i[:space:]]\S*)?|gi([^t[:space:]]\S*)?|git\S+))?))*\s+|(sudo|doas)(\s+(-u\s+\S+|-\S+))*\s+|nice(\s+(-n\s+\S+|-\S+))*\s+|ionice(\s+(-[cnp]\s+\S+|-\S+))*\s+|stdbuf(\s+(-[ioe]\s+\S+|-\S+))*\s+|caffeinate(\s+(-[tw]\s+\S+|-\S+))*\s+|chrt(\s+-\S+)*\s+[0-9]+\s+|taskset(\s+-\S+)*\s+[0-9A-Fa-fx,-]+\s+|arch(\s+-\S+)*\s+)([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)*'
 
 # Inventario de delimitadores (lo verificado, no un absoluto). Tres listas
@@ -286,7 +286,7 @@ GUARD_GH_PR_MERGE_RE='gh\s+(\S+\s+){0,2}pr\s+(\S+\s+){0,2}merge'
 # sin cuerpos de heredoc). Exit status: 0
 # si saneó de verdad, 1 si degradó al fallback (perl ausente o perl falló
 # en tiempo de ejecución) — los guards que solo BLOQUEAN sobre el
-# resultado (block-admin-merge.sh, pre-commit-guard.sh) pueden ignorar el
+# resultado (block-admin-merge.sh y los guards de git) pueden ignorar el
 # status, porque para ellos texto sin sanear es la dirección segura (más
 # falsos positivos, nunca menos). pre-merge-check.sh sí lo chequea: ese
 # guard EXTRAE datos del texto (el número de PR) en vez de solo bloquear,
@@ -295,7 +295,7 @@ GUARD_GH_PR_MERGE_RE='gh\s+(\S+\s+){0,2}pr\s+(\S+\s+){0,2}merge'
 # equivocado". Ver hooks/pre-merge-check.sh.
 #
 # Si perl no está disponible, se devuelve el comando sin sanear (fallback
-# al comportamiento que block-admin-merge.sh y pre-commit-guard.sh tenían
+# al comportamiento que block-admin-merge.sh y los guards de git tenían
 # antes de este helper, que nunca dependió de perl). Es la dirección
 # segura para un guard que solo bloquea: sin perl hay más falsos positivos
 # posibles (texto quoted que menciona la frase vigilada), pero nunca un
