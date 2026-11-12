@@ -178,8 +178,10 @@ if [ "$PPG_MAIN_MERGE" -ne 1 ]; then
   fi
 fi
 
-# Clasificación (R4): un push que solo borra refs o solo sube tags no cambia
-# el código que se publica, así que no corre la suite. Va DESPUÉS de todos los
+# Clasificación (R4): un push que solo borra refs no sube objetos, y uno que
+# solo sube tags sube el mismo código que ya está en algún remoto, así que no
+# corren la suite. Un tag sobre un commit que ningún remoto tiene SÍ publica
+# código sin probar: ese push corre la suite (_ppg_tags_unpublished). Va DESPUÉS de todos los
 # bloqueos de main (un borrado de main sigue bloqueando) y es una lista
 # cerrada: solo clasifica un "git push" pelado (sin wrapper, prefijo de
 # entorno ni opciones de git) con tokens de un charset acotado; todo lo que no
@@ -189,11 +191,15 @@ PPG_REDIR_RE='^([0-9]?>&[0-9]|[0-9]?>>?/dev/null|&>/dev/null)$'
 PPG_TOKEN_RE='^[A-Za-z0-9._/:+@-]+$'
 PPG_DEL_REF_RE='^\+?:[^:]+$'
 PPG_TAG_REF_RE='^\+?refs/tags/[^:]+(:refs/tags/[^:]+)?$'
+# Tags que el push sube (ORIGEN de cada refspec) y si usa --tags; los llena
+# _ppg_segment_is_skip y los consume _ppg_tags_unpublished.
+PPG_TAG_REFS=()
+PPG_ALL_TAGS=0
 
 # _ppg_segment_is_skip <segmento>: 0 si el segmento solo borra refs o solo
 # sube tags; 1 en cualquier otro caso (incluido todo lo que no se reconoce).
 _ppg_segment_is_skip() {
-  local seg="$1" tok prev_tag=0 first_pos=1
+  local seg="$1" tok src prev_tag=0 first_pos=1 seg_tags=()
   local del=0 tags=0 delrefs=0 tagrefs=0 bare=0 other=0 pending_tag=0
   [[ "$seg" =~ $PPG_PLAIN_PUSH_RE ]] || return 1
   local rest="${BASH_REMATCH[3]}"
@@ -218,12 +224,14 @@ _ppg_segment_is_skip() {
           first_pos=0 # el remoto
         elif [ "$prev_tag" -eq 1 ]; then
           tagrefs=$((tagrefs + 1)); prev_tag=0; pending_tag=0
+          seg_tags+=("refs/tags/$tok")
         elif [ "$tok" = "tag" ]; then
           pending_tag=1; prev_tag=1
         elif [[ "$tok" =~ $PPG_DEL_REF_RE ]]; then
           delrefs=$((delrefs + 1))
         elif [[ "$tok" =~ $PPG_TAG_REF_RE ]]; then
           tagrefs=$((tagrefs + 1))
+          src="${tok#+}"; seg_tags+=("${src%%:*}")
         elif [[ "$tok" != *:* ]]; then
           bare=$((bare + 1))
         else
@@ -234,9 +242,12 @@ _ppg_segment_is_skip() {
   done
   [ "$pending_tag" -eq 0 ] && [ "$other" -eq 0 ] || return 1
   if [ "$del" -eq 1 ]; then
+    # Borrado: no sube objetos, no registra tags que publicar.
     [ "$tags" -eq 0 ] && [ "$delrefs" -eq 0 ] && [ $((bare + tagrefs)) -ge 1 ]
   else
-    [ "$bare" -eq 0 ] && { [ $((delrefs + tagrefs)) -ge 1 ] || [ "$tags" -eq 1 ]; }
+    [ "$bare" -eq 0 ] && { [ $((delrefs + tagrefs)) -ge 1 ] || [ "$tags" -eq 1 ]; } || return 1
+    [ "$tags" -eq 1 ] && PPG_ALL_TAGS=1
+    PPG_TAG_REFS+=(${seg_tags[@]+"${seg_tags[@]}"})
   fi
 }
 
@@ -253,7 +264,24 @@ _ppg_push_needs_suite() {
   return 0
 }
 
-if ! _ppg_push_needs_suite "$PUSH_SEGMENTS"; then
+# _ppg_tags_unpublished: 0 (hay que correr la suite) si algún tag que el push
+# sube apunta a un commit que ningún remoto tiene, o si no se puede probar lo
+# contrario (rev-list falla, la ref no resuelve a un commit); 1 si todos están
+# publicados. Los borrados no suben objetos y no se registran.
+_ppg_tags_unpublished() {
+  local ref out
+  if [ "$PPG_ALL_TAGS" -eq 1 ]; then
+    out=$(git -C "$TARGET_DIR" rev-list -n1 --tags --not --remotes 2>/dev/null) || return 0
+    [ -z "$out" ] || return 0
+  fi
+  for ref in ${PPG_TAG_REFS[@]+"${PPG_TAG_REFS[@]}"}; do
+    out=$(git -C "$TARGET_DIR" rev-list -n1 "${ref}^{commit}" --not --remotes 2>/dev/null) || return 0
+    [ -z "$out" ] || return 0
+  done
+  return 1
+}
+
+if ! _ppg_push_needs_suite "$PUSH_SEGMENTS" && ! _ppg_tags_unpublished; then
   echo "pre-push-guard: el push solo borra refs o sube tags; no corre la suite." >&2
   exit 0
 fi

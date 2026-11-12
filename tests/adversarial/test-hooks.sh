@@ -2270,6 +2270,33 @@ rm -rf "$SOP_MK" "$SOP_MK2" "$SOP_MK3" "$SOP_MK4" "$SOP_MK5" "$SOP_MK6" "$SOP_MK
 # Tabla SKIP/SUITE de la sección 2.2 del diseño, tal cual. SKIP: exit 0, el
 # runner no corre y stderr dice que el push solo borra refs o sube tags.
 # SUITE: el runner corre (con el runner rojo bloquea).
+# Fixtures de tags (security HIGH, ronda 1): el SKIP de solo-tags vale únicamente
+# si el tag apunta a un commit que algún remoto ya tiene. SOP_TAGP: todos sus
+# tags están publicados (ref remota en C1). SOP_TAGU: además de v1 (publicado)
+# tiene C2 sin publicar con los tags new (ligero) y newa (anotado).
+_sop_tag_repo() {
+  local dir
+  dir=$(_sop_repo feature/suite)
+  (
+    cd "$dir" || exit 1
+    git update-ref refs/remotes/origin/feature/suite HEAD
+    git tag v1
+    git tag v1.0.0
+    git tag -a v1a -m anotado
+  ) > /dev/null 2>&1
+  printf '%s' "$dir"
+}
+SOP_TAGP=$(_sop_tag_repo)
+SOP_TAGU=$(_sop_tag_repo)
+(
+  cd "$SOP_TAGU" || exit 1
+  echo x > nuevo.txt
+  git add -A
+  git commit -q -m "sin publicar"
+  git tag new
+  git tag -a newa -m anotado
+) > /dev/null 2>&1
+
 for SOP_CMD in \
   "git push origin --delete feature/x" \
   "git push --delete origin a b" \
@@ -2284,8 +2311,11 @@ for SOP_CMD in \
   "git push origin refs/tags/v1:refs/tags/v1" \
   "git push origin +refs/tags/v1" \
   "git push origin :old refs/tags/v1" \
-  "git push origin --delete x && git push origin --tags"; do
-  _sop_run "$SOP_FEAT" "$SOP_CMD" 1
+  "git push origin --delete x && git push origin --tags" \
+  "git push origin tag v1a" \
+  "git push origin refs/tags/v1a" \
+  "git push origin refs/tags/v1a:refs/tags/v1a"; do
+  _sop_run "$SOP_TAGP" "$SOP_CMD" 1
   _sop_report "pre-push-guard (R4 SKIP): '$SOP_CMD' sale 0 sin correr la suite y lo dice" \
     "$([ "$SOP_EXIT" -eq 0 ] && [ -z "$SOP_RAN" ] \
       && echo "$SOP_STDERR" | grep -qF "pre-push-guard: el push solo borra refs o sube tags; no corre la suite."; echo $?)"
@@ -2314,6 +2344,59 @@ for SOP_CMD in \
   _sop_report "pre-push-guard (R4 SUITE): '$SOP_CMD' corre la suite (el runner rojo bloquea)" \
     "$([ "$SOP_EXIT" -eq 2 ] && [ -n "$SOP_RAN" ]; echo $?)"
 done
+# Tag sobre un commit que ningún remoto tiene: el push publicaría código sin
+# probar, así que corre la suite (roja bloquea con «Tests failed in»). Un tag
+# publicado (ligero o anotado) en el mismo repo sigue en SKIP.
+for SOP_CMD in \
+  "git push origin tag new" \
+  "git push origin tag newa" \
+  "git push --tags" \
+  "git push origin --tags" \
+  "git push origin refs/tags/new" \
+  "git push origin refs/tags/newa" \
+  "git push origin +refs/tags/new" \
+  "git push origin refs/tags/new:refs/tags/new" \
+  "git push origin refs/tags/new:refs/tags/otro" \
+  "git push origin tag v1 tag new" \
+  "git push origin refs/tags/inexistente"; do
+  _sop_run "$SOP_TAGU" "$SOP_CMD" 1
+  _sop_report "pre-push-guard (R4 tags sin publicar): '$SOP_CMD' corre la suite y bloquea" \
+    "$([ "$SOP_EXIT" -eq 2 ] && [ -n "$SOP_RAN" ] \
+      && echo "$SOP_STDERR" | grep -qF "Tests failed in"; echo $?)"
+done
+for SOP_CMD in \
+  "git push origin tag v1" \
+  "git push origin refs/tags/v1" \
+  "git push origin refs/tags/v1a" \
+  "git push origin refs/tags/v1:refs/tags/v1" \
+  "git push origin :old refs/tags/v1" \
+  "git push origin --delete new" \
+  "git push --delete origin refs/tags/new" \
+  "git push origin :refs/tags/new"; do
+  _sop_run "$SOP_TAGU" "$SOP_CMD" 1
+  _sop_report "pre-push-guard (R4 tags publicados): '$SOP_CMD' en un repo con otros tags sin publicar sigue en SKIP" \
+    "$([ "$SOP_EXIT" -eq 0 ] && [ -z "$SOP_RAN" ]; echo $?)"
+done
+# rev-list que falla: no se puede probar que el tag esté publicado, corre la suite.
+SOP_RLFAIL=$(mktemp -d)
+SOP_REAL_GIT=$(command -v git)
+cat > "$SOP_RLFAIL/git" <<SOP_RLFAIL_EOF
+#!/bin/bash
+for a in "\$@"; do
+  if [ "\$a" = "rev-list" ]; then exit 1; fi
+done
+exec "$SOP_REAL_GIT" "\$@"
+SOP_RLFAIL_EOF
+chmod +x "$SOP_RLFAIL/git"
+SOP_SAVED_BIN="$SOP_BIN"; SOP_BIN="$SOP_RLFAIL:$SOP_BIN"
+for SOP_CMD in "git push origin refs/tags/v1" "git push --tags" "git push origin tag v1"; do
+  _sop_run "$SOP_TAGP" "$SOP_CMD" 1
+  _sop_report "pre-push-guard (R4 tags): '$SOP_CMD' con rev-list fallando corre la suite" \
+    "$([ "$SOP_EXIT" -eq 2 ] && [ -n "$SOP_RAN" ]; echo $?)"
+done
+SOP_BIN="$SOP_SAVED_BIN"
+rm -rf "$SOP_RLFAIL" "$SOP_TAGP" "$SOP_TAGU"
+
 # Los bloqueos de main van ANTES de la clasificación: un borrado de main nunca
 # salta el bloqueo.
 for SOP_CMD in "git push origin :main" "git push --delete origin main" "git push origin --delete master"; do
