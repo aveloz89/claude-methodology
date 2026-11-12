@@ -325,7 +325,11 @@ assert_ppg_blocked_msg() {
   TOTAL=$((TOTAL + 1))
   local json exit_code=0 stderr_file
   stderr_file=$(mktemp)
-  json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  if [ -n "${HOOK_JSON_CWD:-}" ]; then
+    json=$(jq -n --arg cmd "$command" --arg cwd "$HOOK_JSON_CWD" '{tool_input: {command: $cmd}, cwd: $cwd}')
+  else
+    json=$(jq -n --arg cmd "$command" '{tool_input: {command: $cmd}}')
+  fi
   (cd "$run_cwd" && echo "$json" | bash "$HOOKS_DIR/pre-push-guard.sh" > /dev/null 2>"$stderr_file") || exit_code=$?
   if [ "$exit_code" -eq 2 ] && grep -qF -- "$expected_substring" "$stderr_file"; then
     echo -e "${GREEN}PASS${NC}: $test_name (blocked as expected)"
@@ -337,16 +341,80 @@ assert_ppg_blocked_msg() {
   rm -f "$stderr_file"
 }
 
-# E3: redirecciones ("cd", "git -C", "GIT_DIR=") no se resuelven — bloquean
-# con el mensaje de la limitación en vez de adivinar a qué árbol apunta el
-# push real (D-07, punto 4).
+# E3: redirecciones que no están en la allowlist ("cd" relativo, "git -C",
+# "GIT_DIR=") no se resuelven — bloquean con el mensaje de forma de árbol en
+# vez de adivinar a qué árbol apunta el push real (D-07, punto 4).
 (cd "$SANDBOX_REPO" && git checkout -q main)
 assert_ppg_blocked_msg "pre-push-guard: 'cd . && git push origin main' bloquea con mensaje de redirección (E3)" \
-  "cd . && git push origin main" "$SANDBOX_REPO" "no resuelve redirecciones"
+  "cd . && git push origin main" "$SANDBOX_REPO" "no puede resolver en qué árbol va el push"
 assert_ppg_blocked_msg "pre-push-guard: 'git -C . push origin main' bloquea con mensaje de redirección (E3)" \
-  "git -C . push origin main" "$SANDBOX_REPO" "no resuelve redirecciones"
+  "git -C . push origin main" "$SANDBOX_REPO" "no puede resolver en qué árbol va el push"
 assert_ppg_blocked_msg "pre-push-guard: 'GIT_DIR=x git push' bloquea con mensaje de redirección (E3)" \
-  "GIT_DIR=x git push" "$SANDBOX_REPO" "no resuelve redirecciones"
+  "GIT_DIR=x git push" "$SANDBOX_REPO" "no puede resolver en qué árbol va el push"
+
+# suite-on-push R1: "cd /ruta/absoluta && git push …" resuelve ESE árbol y los
+# chequeos de main leen su rama (no la del cwd de la sesión). Tabla de formas
+# no aceptadas (2.1 del diseño): todas bloquean con "Formas aceptadas".
+R1_MAIN_REPO=$(mktemp -d); R1_MAIN_REPO=$(cd "$R1_MAIN_REPO" && pwd -P)
+R1_FEAT_REPO=$(mktemp -d); R1_FEAT_REPO=$(cd "$R1_FEAT_REPO" && pwd -P)
+R1_PLAIN_DIR=$(mktemp -d); R1_PLAIN_DIR=$(cd "$R1_PLAIN_DIR" && pwd -P)
+(cd "$R1_MAIN_REPO" && git init -q -b main && git config user.email s@example.com && git config user.name S && git commit -q --allow-empty -m "non-merge") > /dev/null 2>&1
+(cd "$R1_FEAT_REPO" && git init -q -b feature/x && git config user.email s@example.com && git config user.name S && git commit -q --allow-empty -m "feat") > /dev/null 2>&1
+assert_allowed_cmd "pre-push-guard: 'cd <árbol en feature> && git push' pasa desde una sesión en main (R1)" \
+  "pre-push-guard.sh" "cd $R1_FEAT_REPO && git push origin feature/x" "$PATH" "$R1_MAIN_REPO"
+assert_ppg_blocked_msg "pre-push-guard: 'cd <árbol en main> && git push' bloquea por main desde una sesión en feature (R1)" \
+  "cd $R1_MAIN_REPO && git push origin feature/x" "$R1_FEAT_REPO" "No push directo a main"
+assert_allowed_cmd "pre-push-guard: 'git push' sin cd en feature sigue pasando (R1, control)" \
+  "pre-push-guard.sh" "git push origin feature/x" "$PATH" "$R1_FEAT_REPO"
+assert_ppg_blocked_msg "pre-push-guard: sin cd en main sigue bloqueando por main (R1, control)" \
+  "git push origin feature/x" "$R1_MAIN_REPO" "No push directo a main"
+assert_ppg_blocked_msg "pre-push-guard: 'cd <árbol en feature> && git push origin HEAD:main' bloquea el destino main (R1)" \
+  "cd $R1_FEAT_REPO && git push origin HEAD:main" "$R1_MAIN_REPO" "No push directo a main"
+R1_MSG="no puede resolver en qué árbol va el push"
+assert_ppg_blocked_msg "pre-push-guard: cd relativo bloquea con Formas aceptadas (R1)" \
+  "cd sub && git push origin feature/x" "$R1_FEAT_REPO" "Formas aceptadas"
+assert_ppg_blocked_msg "pre-push-guard: cd con ruta entre comillas bloquea (R1)" \
+  "cd '$R1_FEAT_REPO' && git push origin feature/x" "$R1_MAIN_REPO" "$R1_MSG"
+assert_ppg_blocked_msg "pre-push-guard: cd con variable bloquea (R1)" \
+  'cd $HOME && git push origin feature/x' "$R1_MAIN_REPO" "$R1_MSG"
+assert_ppg_blocked_msg "pre-push-guard: cd a ~/ bloquea (R1)" \
+  'cd ~/x && git push origin feature/x' "$R1_MAIN_REPO" "$R1_MSG"
+assert_ppg_blocked_msg "pre-push-guard: cd sin && (con ;) bloquea (R1)" \
+  "cd $R1_FEAT_REPO; git push origin feature/x" "$R1_MAIN_REPO" "$R1_MSG"
+assert_ppg_blocked_msg "pre-push-guard: cd que no está al inicio bloquea (R1)" \
+  "echo hi && cd $R1_FEAT_REPO && git push origin feature/x" "$R1_MAIN_REPO" "$R1_MSG"
+assert_ppg_blocked_msg "pre-push-guard: dos cd bloquean (R1)" \
+  "cd $R1_FEAT_REPO && cd $R1_FEAT_REPO && git push origin feature/x" "$R1_MAIN_REPO" "más de una mención"
+assert_ppg_blocked_msg "pre-push-guard: pushd bloquea (R1)" \
+  "pushd $R1_FEAT_REPO && git push origin feature/x" "$R1_MAIN_REPO" "$R1_MSG"
+assert_ppg_blocked_msg "pre-push-guard: cd a una ruta que no existe bloquea (R1)" \
+  "cd /nonexistent-$$ && git push origin feature/x" "$R1_MAIN_REPO" "no existe"
+assert_ppg_blocked_msg "pre-push-guard: cd a una ruta que no es repo git bloquea (R1)" \
+  "cd $R1_PLAIN_DIR && git push origin feature/x" "$R1_FEAT_REPO" "no es un repo git"
+assert_ppg_blocked_msg "pre-push-guard: 'git -C <ruta> push' bloquea con Formas aceptadas (R1)" \
+  "git -C $R1_FEAT_REPO push origin feature/x" "$R1_MAIN_REPO" "Formas aceptadas"
+assert_ppg_blocked_msg "pre-push-guard: 'git --git-dir=<ruta> push' bloquea (R1)" \
+  "git --git-dir=$R1_FEAT_REPO/.git push origin feature/x" "$R1_MAIN_REPO" "--git-dir/--work-tree"
+assert_ppg_blocked_msg "pre-push-guard: 'GIT_DIR=<ruta> git push' bloquea (R1)" \
+  "GIT_DIR=$R1_FEAT_REPO/.git git push origin feature/x" "$R1_MAIN_REPO" "GIT_DIR/GIT_WORK_TREE como prefijo"
+assert_ppg_blocked_msg "pre-push-guard: 'make -C x && git push' bloquea por el -C amplio (R1)" \
+  "make -C x && git push origin feature/x" "$R1_FEAT_REPO" "'-C' no se resuelve"
+R1_ENV_EXIT=0; R1_ENV_ERR=$(mktemp)
+TOTAL=$((TOTAL + 1))
+(cd "$R1_FEAT_REPO" && jq -n --arg c "git push origin feature/x" '{tool_input: {command: $c}}' | GIT_DIR="$R1_FEAT_REPO/.git" bash "$HOOKS_DIR/pre-push-guard.sh" > /dev/null 2>"$R1_ENV_ERR") || R1_ENV_EXIT=$?
+if [ "$R1_ENV_EXIT" -eq 2 ] && grep -qF "GIT_DIR/GIT_WORK_TREE en el entorno del hook" "$R1_ENV_ERR"; then
+  echo -e "${GREEN}PASS${NC}: pre-push-guard: GIT_DIR en el entorno del hook bloquea (R1)"; PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-push-guard: GIT_DIR en el entorno del hook bloquea (R1) (exit $R1_ENV_EXIT: $(cat "$R1_ENV_ERR"))"; FAIL=$((FAIL + 1))
+fi
+rm -f "$R1_ENV_ERR"
+# .cwd del input que no es un directorio: bloquea (antes caía a pwd -P).
+HOOK_JSON_CWD="/nonexistent-$$" assert_ppg_blocked_msg "pre-push-guard: .cwd inexistente bloquea en vez de caer al cwd del proceso (R1)" \
+  "git push origin feature/x" "$R1_FEAT_REPO" "el cwd del input no es un directorio"
+R1_FILE_CWD="$R1_PLAIN_DIR/afile"; : > "$R1_FILE_CWD"
+HOOK_JSON_CWD="$R1_FILE_CWD" assert_ppg_blocked_msg "pre-push-guard: .cwd que es un archivo bloquea (R1)" \
+  "git push origin feature/x" "$R1_FEAT_REPO" "$R1_MSG"
+rm -rf "$R1_MAIN_REPO" "$R1_FEAT_REPO" "$R1_PLAIN_DIR"
 
 # D-07 (review dual ronda 1, informativo): "-c <clave=valor>"/"--no-pager"
 # antes de "push" no matcheaban PUSH_RE (nada consumía esa opción entre
@@ -668,6 +736,27 @@ assert_allowed_cmd "block-force-push: dos --force-with-lease a ramas feature pas
 assert_blocked_cmd "block-force-push: push normal seguido de --force bloquea (comportamiento fijado, #117)" \
   "block-force-push.sh" "git push origin feature/x && git push --force origin feature/y" "$PATH" "$SANDBOX_REPO"
 
+# suite-on-push (R1): pre-push-guard acepta "cd /abs && git push", así que la
+# excepción de --force-with-lease (que mira la rama del cwd de la sesión) no
+# puede valer con cd/pushd en el comando: "cd <repo en dev> && git push
+# --force-with-lease" desde una sesión en feature forzaría dev.
+FWL_DEV_REPO=$(mktemp -d)
+FWL_DEV_REPO=$(cd "$FWL_DEV_REPO" && pwd -P)
+(cd "$FWL_DEV_REPO" && git init -q -b dev && git config user.email s@example.com && git config user.name S && git commit -q --allow-empty -m init) > /dev/null 2>&1
+assert_blocked_cmd "block-force-push: sesión en feature, 'cd <repo en dev> && git push --force-with-lease origin feature/x' bloquea" \
+  "block-force-push.sh" "cd $FWL_DEV_REPO && git push --force-with-lease origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: 'cd <repo en dev> && git push --force-with-lease' sin refspec bloquea" \
+  "block-force-push.sh" "cd $FWL_DEV_REPO && git push --force-with-lease" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: 'pushd <ruta> && git push --force-with-lease origin feature/x' bloquea" \
+  "block-force-push.sh" "pushd $FWL_DEV_REPO && git push --force-with-lease origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_blocked_cmd "block-force-push: 'git push --force-with-lease origin feature/x; cd /tmp' bloquea (cd en el mismo comando)" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/x; cd /tmp" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: sin cd, '--force-with-lease origin feature/x' sigue pasando" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/x" "$PATH" "$SANDBOX_REPO"
+assert_allowed_cmd "block-force-push: mención 'cd' dentro de un nombre de rama no cuenta ('feature/cd-x')" \
+  "block-force-push.sh" "git push --force-with-lease origin feature/cd-x" "$PATH" "$SANDBOX_REPO"
+rm -rf "$FWL_DEV_REPO"
+
 # #118: GUARD_ANCHOR no reconocía las palabras clave de shell que abren una
 # posición de comando (then, do, else, elif, if, while, until, "!") ni el ")"
 # que cierra un patrón de case. RED con el ancla anterior: todos los
@@ -736,27 +825,6 @@ assert_blocked_cmd "pre-push-guard: refspec glob +*:* bloquea (#119)" \
 assert_blocked_cmd "pre-push-guard: refspec glob de un solo lado refs/heads/* bloquea (#119)" \
   "pre-push-guard.sh" 'git push origin refs/heads/*' "$PATH" "$SANDBOX_REPO"
 assert_blocked_cmd "pre-push-guard: refspec glob feature/*:feature/* sin prefijo refs/ bloquea (#119)" \
-# suite-on-push (R1): pre-push-guard acepta "cd /abs && git push", así que la
-# excepción de --force-with-lease (que mira la rama del cwd de la sesión) no
-# puede valer con cd/pushd en el comando: "cd <repo en dev> && git push
-# --force-with-lease" desde una sesión en feature forzaría dev.
-FWL_DEV_REPO=$(mktemp -d)
-FWL_DEV_REPO=$(cd "$FWL_DEV_REPO" && pwd -P)
-(cd "$FWL_DEV_REPO" && git init -q -b dev && git config user.email s@example.com && git config user.name S && git commit -q --allow-empty -m init) > /dev/null 2>&1
-assert_blocked_cmd "block-force-push: sesión en feature, 'cd <repo en dev> && git push --force-with-lease origin feature/x' bloquea" \
-  "block-force-push.sh" "cd $FWL_DEV_REPO && git push --force-with-lease origin feature/x" "$PATH" "$SANDBOX_REPO"
-assert_blocked_cmd "block-force-push: 'cd <repo en dev> && git push --force-with-lease' sin refspec bloquea" \
-  "block-force-push.sh" "cd $FWL_DEV_REPO && git push --force-with-lease" "$PATH" "$SANDBOX_REPO"
-assert_blocked_cmd "block-force-push: 'pushd <ruta> && git push --force-with-lease origin feature/x' bloquea" \
-  "block-force-push.sh" "pushd $FWL_DEV_REPO && git push --force-with-lease origin feature/x" "$PATH" "$SANDBOX_REPO"
-assert_blocked_cmd "block-force-push: 'git push --force-with-lease origin feature/x; cd /tmp' bloquea (cd en el mismo comando)" \
-  "block-force-push.sh" "git push --force-with-lease origin feature/x; cd /tmp" "$PATH" "$SANDBOX_REPO"
-assert_allowed_cmd "block-force-push: sin cd, '--force-with-lease origin feature/x' sigue pasando" \
-  "block-force-push.sh" "git push --force-with-lease origin feature/x" "$PATH" "$SANDBOX_REPO"
-assert_allowed_cmd "block-force-push: mención 'cd' dentro de un nombre de rama no cuenta ('feature/cd-x')" \
-  "block-force-push.sh" "git push --force-with-lease origin feature/cd-x" "$PATH" "$SANDBOX_REPO"
-rm -rf "$FWL_DEV_REPO"
-
   "pre-push-guard.sh" 'git push origin feature/*:feature/*' "$PATH" "$SANDBOX_REPO"
 assert_blocked_cmd "pre-push-guard: refspec glob parcial main*:main* bloquea (#119)" \
   "pre-push-guard.sh" 'git push origin main*:main*' "$PATH" "$SANDBOX_REPO"

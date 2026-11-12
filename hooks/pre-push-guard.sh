@@ -37,28 +37,56 @@ if ! echo "$SANITIZED_COMMAND" | grep -qE "$PUSH_RE"; then
   exit 0
 fi
 
-# pre-push-guard no resuelve a qué árbol redirige el comando (D-07, punto
-# 4): a diferencia de pre-commit-guard, este hook no tiene una allowlist de
-# formas ("cd <ruta> && …" / "git -C <ruta> …") — el push lo hace el
-# orchestrator desde el cwd de la sesión, no hay forma honesta que necesite
-# pushear a OTRO árbol del que ya está trabajando. Cualquier redirección
-# bloquea con este mensaje en vez de adivinar a qué árbol apunta.
-REDIRECT_HELP="pre-push-guard no resuelve redirecciones; hacé el cd en una llamada previa (el hook sigue el cwd de la sesión)."
-CD_PUSHD_RE="${GUARD_ANCHOR}(cd|pushd)(\s|;|&&|\$)"
-if echo "$SANITIZED_COMMAND" | grep -qE "$CD_PUSHD_RE" \
-  || echo "$SANITIZED_COMMAND" | grep -qE '(^|[[:space:]])-C([[:space:]=]|$)' \
-  || echo "$SANITIZED_COMMAND" | grep -qE -- '--git-dir|--work-tree' \
-  || echo "$SANITIZED_COMMAND" | grep -qE '(^|[[:space:]]|;|&&|\|)(GIT_DIR|GIT_WORK_TREE)=' \
-  || [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ]; then
-  echo "BLOCKED: $REDIRECT_HELP" >&2
+# Árbol del push (R1). Formas aceptadas, las mismas que tenía el commit:
+#   1. "git push …" sin redirección: el árbol es el de la sesión (".cwd" del
+#      input vía guard_session_dir, o el cwd del proceso si el harness no lo
+#      manda).
+#   2. "cd /ruta/absoluta && git push …": cd al inicio del comando crudo, una
+#      sola mención de cd/pushd, ruta absoluta literal seguida de "&&".
+# Todo lo demás bloquea (no se adivina a qué árbol apunta el push). Los
+# chequeos de main de abajo leen la rama de BASE_DIR, no la del cwd de la
+# sesión. Con cd, block-force-push.sh deja sin efecto la excepción de
+# --force-with-lease.
+TREE_FORM_HELP="Formas aceptadas: 'git push …' en el cwd de la sesión, o 'cd /ruta/absoluta && git push …' (cd al inicio, una sola vez, ruta absoluta literal). Alternativa: haz el cd en una llamada Bash previa."
+
+_ppg_block_tree() {
+  echo "BLOCKED: pre-push-guard no puede resolver en qué árbol va el push: $1. ${TREE_FORM_HELP}" >&2
   exit 2
+}
+
+# "-C"/"--git-dir"/"--work-tree"/"GIT_DIR="/"GIT_WORK_TREE=" nunca se
+# resuelven: no hay forma de saber si valen para TODO el comando sin parsear
+# de verdad el shell. Mismo criterio para el entorno DEL PROCESO del hook.
+if [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ]; then
+  _ppg_block_tree "GIT_DIR/GIT_WORK_TREE en el entorno del hook"
+fi
+if echo "$SANITIZED_COMMAND" | grep -qE -- '--git-dir|--work-tree'; then
+  _ppg_block_tree "--git-dir/--work-tree no se resuelven"
+fi
+if echo "$SANITIZED_COMMAND" | grep -qE '(^|[[:space:]]|;|&&|\|)(GIT_DIR|GIT_WORK_TREE)='; then
+  _ppg_block_tree "GIT_DIR/GIT_WORK_TREE como prefijo de entorno en el comando no se resuelven"
+fi
+# Regex amplio (no solo "git -C"): cubre también "env -C" y "make -C".
+if echo "$SANITIZED_COMMAND" | grep -qE '(^|[[:space:]])-C([[:space:]=]|$)'; then
+  _ppg_block_tree "'-C' no se resuelve"
 fi
 
-# Branch desde ".cwd" del input (mismo criterio que pre-commit-guard, #73):
-# BASE_DIR es el árbol de la SESIÓN, no el cwd del proceso del hook —
-# ambos coinciden salvo que ".cwd" venga de una llamada Bash previa distinta
-# del cwd real del proceso.
-BASE_DIR=$(guard_session_dir) || BASE_DIR=$(pwd -P)
+CD_PUSHD_RE="${GUARD_ANCHOR}(cd|pushd)(\s|;|&&|\$)"
+if echo "$SANITIZED_COMMAND" | grep -qE "$CD_PUSHD_RE"; then
+  # Se valida sobre el comando CRUDO ($COMMAND, no el saneado, que colapsa
+  # comillas): exactamente UNA mención de "cd"/"pushd" y "cd" al INICIO con
+  # una ruta absoluta literal seguida directo de "&&".
+  CD_COUNT=$(echo "$SANITIZED_COMMAND" | grep -oE "$CD_PUSHD_RE" | grep -c .)
+  [ "$CD_COUNT" -eq 1 ] || _ppg_block_tree "más de una mención de 'cd'/'pushd', o 'pushd' en vez de 'cd'"
+  [[ "$COMMAND" =~ ^cd[[:blank:]]+(/[A-Za-z0-9_./-]*)[[:blank:]]*\&\& ]] || _ppg_block_tree "'cd' no está al inicio del comando, o la ruta no es absoluta y literal seguida de '&&'"
+  CD_PATH="${BASH_REMATCH[1]}"
+  BASE_DIR=$(cd "$CD_PATH" 2>/dev/null && pwd -P) || _ppg_block_tree "la ruta '$CD_PATH' no existe"
+  TARGET_DIR=$(git -C "$BASE_DIR" rev-parse --show-toplevel 2>/dev/null) || _ppg_block_tree "'$CD_PATH' no es un repo git"
+else
+  BASE_DIR=$(guard_session_dir) || _ppg_block_tree "el cwd del input no es un directorio ($INPUT_CWD)"
+  TARGET_DIR=$(git -C "$BASE_DIR" rev-parse --show-toplevel 2>/dev/null) || TARGET_DIR="$BASE_DIR"
+fi
+SESSION_DIR="$BASE_DIR"
 
 # Verificar si se está pusheando a main directamente (no como parte de un PR merge)
 CURRENT_BRANCH=$(git -C "$BASE_DIR" branch --show-current 2>/dev/null)
