@@ -178,6 +178,86 @@ if [ "$PPG_MAIN_MERGE" -ne 1 ]; then
   fi
 fi
 
+# Clasificación (R4): un push que solo borra refs o solo sube tags no cambia
+# el código que se publica, así que no corre la suite. Va DESPUÉS de todos los
+# bloqueos de main (un borrado de main sigue bloqueando) y es una lista
+# cerrada: solo clasifica un "git push" pelado (sin wrapper, prefijo de
+# entorno ni opciones de git) con tokens de un charset acotado; todo lo que no
+# se reconoce corre la suite. Tabla SKIP/SUITE: DESIGN 2.2 y los tests.
+PPG_PLAIN_PUSH_RE='^(&&|\|\||;|\||&|\(|\{)?[[:space:]]*git[[:space:]]+push([[:space:]]+(.*))?$'
+PPG_REDIR_RE='^([0-9]?>&[0-9]|[0-9]?>>?/dev/null|&>/dev/null)$'
+PPG_TOKEN_RE='^[A-Za-z0-9._/:+@-]+$'
+PPG_DEL_REF_RE='^\+?:[^:]+$'
+PPG_TAG_REF_RE='^\+?refs/tags/[^:]+(:refs/tags/[^:]+)?$'
+
+# _ppg_segment_is_skip <segmento>: 0 si el segmento solo borra refs o solo
+# sube tags; 1 en cualquier otro caso (incluido todo lo que no se reconoce).
+_ppg_segment_is_skip() {
+  local seg="$1" tok prev_tag=0 first_pos=1
+  local del=0 tags=0 delrefs=0 tagrefs=0 bare=0 other=0 pending_tag=0
+  [[ "$seg" =~ $PPG_PLAIN_PUSH_RE ]] || return 1
+  local rest="${BASH_REMATCH[3]}"
+  # Sin glob: un token "*" no se expande contra el cwd.
+  set -f
+  # shellcheck disable=SC2086
+  set -- $rest
+  set +f
+  for tok in "$@"; do
+    if [[ "$tok" =~ $PPG_REDIR_RE ]]; then
+      continue
+    fi
+    [ "$tok" = "Q" ] && return 1
+    [[ "$tok" =~ $PPG_TOKEN_RE ]] || return 1
+    case "$tok" in
+      --delete|-d) del=1 ;;
+      --tags) tags=1 ;;
+      -n|--dry-run|-v|--verbose|-q|--quiet|--porcelain|--progress|--no-progress|--atomic|--no-verify) ;;
+      -*) return 1 ;;
+      *)
+        if [ "$first_pos" -eq 1 ]; then
+          first_pos=0 # el remoto
+        elif [ "$prev_tag" -eq 1 ]; then
+          tagrefs=$((tagrefs + 1)); prev_tag=0; pending_tag=0
+        elif [ "$tok" = "tag" ]; then
+          pending_tag=1; prev_tag=1
+        elif [[ "$tok" =~ $PPG_DEL_REF_RE ]]; then
+          delrefs=$((delrefs + 1))
+        elif [[ "$tok" =~ $PPG_TAG_REF_RE ]]; then
+          tagrefs=$((tagrefs + 1))
+        elif [[ "$tok" != *:* ]]; then
+          bare=$((bare + 1))
+        else
+          other=$((other + 1))
+        fi
+        ;;
+    esac
+  done
+  [ "$pending_tag" -eq 0 ] && [ "$other" -eq 0 ] || return 1
+  if [ "$del" -eq 1 ]; then
+    [ "$tags" -eq 0 ] && [ "$delrefs" -eq 0 ] && [ $((bare + tagrefs)) -ge 1 ]
+  else
+    [ "$bare" -eq 0 ] && { [ $((delrefs + tagrefs)) -ge 1 ] || [ "$tags" -eq 1 ]; }
+  fi
+}
+
+# _ppg_push_needs_suite <PUSH_SEGMENTS>: 1 (no hace falta la suite) solo si hay
+# al menos un segmento y TODOS son borrado o solo-tags; 0 en cualquier otro caso.
+_ppg_push_needs_suite() {
+  local seg n=0
+  while IFS= read -r seg; do
+    [ -z "$seg" ] && continue
+    n=$((n + 1))
+    _ppg_segment_is_skip "$seg" || return 0
+  done <<< "$1"
+  [ "$n" -ge 1 ] && return 1
+  return 0
+}
+
+if ! _ppg_push_needs_suite "$PUSH_SEGMENTS"; then
+  echo "pre-push-guard: el push solo borra refs o sube tags; no corre la suite." >&2
+  exit 0
+fi
+
 # La suite corre una sola vez, después de TODOS los bloqueos de texto (nada
 # caro ocurre antes). Con marcador de runner entre la sesión y el toplevel
 # corre ese directorio; sin él, la derivación por cambios locales; sin

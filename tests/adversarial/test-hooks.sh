@@ -2073,6 +2073,62 @@ _sop_run "$SOP_COMMIT_REPO" "$SOP_PUSH_CMD" 1
 _sop_report "git commit: control — el mismo sandbox con un push SÍ corre el runner y bloquea" \
   "$([ "$SOP_EXIT" -eq 2 ] && [ "$SOP_RAN" = "$SOP_COMMIT_REPO" ]; echo $?)"
 
+# --- suite-on-push (Lote 4, R4): borrado y solo-tags no corren la suite ---
+# Tabla SKIP/SUITE de la sección 2.2 del diseño, tal cual. SKIP: exit 0, el
+# runner no corre y stderr dice que el push solo borra refs o sube tags.
+# SUITE: el runner corre (con el runner rojo bloquea).
+for SOP_CMD in \
+  "git push origin --delete feature/x" \
+  "git push --delete origin a b" \
+  "git push -d origin x" \
+  "git push origin :feature/x" \
+  "git push origin :a :b" \
+  "git push --tags" \
+  "git push origin --tags" \
+  "git push origin --tags 2>&1" \
+  "git push origin tag v1.0.0" \
+  "git push origin refs/tags/v1" \
+  "git push origin refs/tags/v1:refs/tags/v1" \
+  "git push origin +refs/tags/v1" \
+  "git push origin :old refs/tags/v1" \
+  "git push origin --delete x && git push origin --tags"; do
+  _sop_run "$SOP_FEAT" "$SOP_CMD" 1
+  _sop_report "pre-push-guard (R4 SKIP): '$SOP_CMD' sale 0 sin correr la suite y lo dice" \
+    "$([ "$SOP_EXIT" -eq 0 ] && [ -z "$SOP_RAN" ] \
+      && echo "$SOP_STDERR" | grep -qF "pre-push-guard: el push solo borra refs o sube tags; no corre la suite."; echo $?)"
+done
+for SOP_CMD in \
+  "git push origin v1.0.0" \
+  "git push origin feature/x --tags" \
+  "git push origin :old feature/x" \
+  "git push origin --tags && git push origin feature/x" \
+  "git push origin HEAD:refs/tags/v1" \
+  "git push origin tag" \
+  "git push origin --delete" \
+  "git push --del origin x" \
+  "git push -nd origin x" \
+  "git push origin --tags -u" \
+  "time git push --tags" \
+  "X=1 git push --tags" \
+  "git -c a=b push --tags" \
+  "(git push --tags)" \
+  'git push origin "refs/tags/v1"' \
+  'git push origin $TAG' \
+  "git push --dry-run origin feature/x" \
+  "git push" \
+  "git push origin"; do
+  _sop_run "$SOP_FEAT" "$SOP_CMD" 1
+  _sop_report "pre-push-guard (R4 SUITE): '$SOP_CMD' corre la suite (el runner rojo bloquea)" \
+    "$([ "$SOP_EXIT" -eq 2 ] && [ -n "$SOP_RAN" ]; echo $?)"
+done
+# Los bloqueos de main van ANTES de la clasificación: un borrado de main nunca
+# salta el bloqueo.
+for SOP_CMD in "git push origin :main" "git push --delete origin main" "git push origin --delete master"; do
+  _sop_run "$SOP_FEAT" "$SOP_CMD" 0
+  _sop_report "pre-push-guard (R4): '$SOP_CMD' sigue bloqueando por main (la clasificación va después)" \
+    "$([ "$SOP_EXIT" -eq 2 ] && echo "$SOP_STDERR" | grep -qF "No push directo a main"; echo $?)"
+done
+
 rm -rf "$SOP_OUT" "$SOP_BIN" "$SOP_FEAT" "$SOP_OTHER" "$SOP_MAIN" "$SOP_MERGE" "$SOP_SLOW_BIN" "$SOP_COMMIT_REPO"
 
 # --- pre-push-guard.sh: PRECOMMIT_TEST_BUDGET inválido cae a un default
