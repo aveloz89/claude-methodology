@@ -2222,6 +2222,22 @@ _sop_run "$SOP_MERGE" "git push origin HEAD:main --all" 0
 _sop_report "pre-push-guard: main con HEAD 'Merge…' salta los chequeos de refspec (como antes) pero corre la suite" \
   "$([ "$SOP_EXIT" -eq 0 ] && [ -n "$SOP_RAN" ]; echo $?)"
 
+# Marcador Python sin runner (PATH curado sin pytest): bloquea con la razón por
+# directorio a nombre de pre-push-guard.
+SOP_CLEAN_BIN=$(mktemp -d)
+for SOP_TOOL in bash git jq perl grep cut sort cat mktemp rm sleep tail; do
+  SOP_TOOL_PATH=$(command -v "$SOP_TOOL" 2>/dev/null) || true
+  if [ -n "$SOP_TOOL_PATH" ]; then ln -s "$SOP_TOOL_PATH" "$SOP_CLEAN_BIN/$SOP_TOOL"; fi
+done
+SOP_JSON=$(jq -n --arg cmd "$SOP_PUSH_CMD" '{tool_input: {command: $cmd}}')
+SOP_EXIT=0
+SOP_STDERR=$(cd "$SOP_FEAT" && echo "$SOP_JSON" | PATH="$SOP_CLEAN_BIN" bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || SOP_EXIT=$?
+SOP_RAN=""
+_sop_report "pre-push-guard: marcador Python sin runner bloquea con 'pre-push-guard no encontró un runner de tests en: <dir>'" \
+  "$([ "$SOP_EXIT" -eq 2 ] && echo "$SOP_STDERR" | grep -qF "BLOCKED: pre-push-guard no encontró un runner de tests en: $SOP_FEAT."; echo $?)"
+
+rm -rf "$SOP_CLEAN_BIN"
+
 rm -rf "$SOP_OUT" "$SOP_BIN" "$SOP_FEAT" "$SOP_OTHER" "$SOP_MAIN" "$SOP_MERGE"
 
 # --- pre-commit-guard.sh: PRECOMMIT_TEST_BUDGET inválido cae a un default
