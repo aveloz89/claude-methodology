@@ -105,6 +105,8 @@ git push -u origin <branch>
 gh pr create --base dev --title "<título>" --body "<resumen de lotes + decisiones>"   # body incluye veredictos del review pre-push
 ```
 
+El push corre la suite del proyecto una vez antes de salir (`pre-push-guard`, hasta `PRECOMMIT_TEST_BUDGET` segundos, default 540). Si la suite está roja, el push bloquea: abre un lote de fix, no lo esquives. El push va solo en su llamada Bash (el hook prueba el working tree previo al comando); un re-push del mismo estado no repite la suite. Regla completa: `README.md`, fila de `pre-push-guard`.
+
 Actualiza `.planning/state.json` con `pr = N` (local, sin commit). El body del PR sale de `.planning/` (BRIEF/DESIGN), los reportes de los devs y el registro del review pre-push: qué se implementó, decisiones ambiguas, veredictos, y `## Self-reflection — pendientes` si algún dev la reportó.
 
 ### Fase 2.8: Monitoreo de CI
@@ -220,7 +222,7 @@ Rules aplicables:
 
 Si no es el primer lote: lee `git log`, `.planning/STATE.md` y `.planning/state.json` antes de empezar.
 
-Si trabajas o corres suites desde un worktree: exporta tu propia base de test (`TEST_DATABASE_URL` o el equivalente del proyecto, ej. `<base>_<lote>`) para no pisar la corrida del árbol principal ni bloquear el hook de pre-commit de otro agente.
+Si trabajas o corres suites desde un worktree: exporta tu propia base de test (`TEST_DATABASE_URL` o el equivalente del proyecto, ej. `<base>_<lote>`) para no pisar la corrida del árbol principal ni la corrida de otro agente (ningún hook corre tests en el commit; la colisión de bases entre worktrees sigue en las corridas manuales y en la suite del push).
 
 Si last_batch=false: NO push, NO PR. Reporta completado.
 Si last_batch=true: verificación final completa del branch y reporta listo.
@@ -360,7 +362,7 @@ El estado mutable (fase, lotes, progreso) vive en `state.json`.
 
 ### Retomar (resume)
 
-Cuando `session-start-context.sh` detecta `HANDOFF.md` (ver "Pause / Resume" en la skill `orchestrator`): lee `HANDOFF.md` + `STATE.md` + `state.json` (corte, decisiones, fase/lote activos); corre el smoke test del proyecto ANTES de tocar código (misma detección de runner que `hooks/pre-commit-guard.sh` — Node por lockfile; Python: uv (solo con `uv.lock`) → `.venv` → `pytest` del PATH, salvo que el proyecto declare entorno propio sin runner (`uv.lock` sin `uv`, `[tool.uv]` sin lock, `.venv` sin pytest); sin runner, anótalo y sigue — pero el hook sí bloqueará el commit de un directorio con marcador Python sin runner (con la razón específica si declara entorno propio) o con un `package.json` inutilizable (no es un único objeto JSON, o su `scripts.test` no es string ni `null`) y sin marcador Python, así que resuélvelo antes de retomar; rojo, diagnostica antes de retomar); recién con el estado confirmado, elimina `HANDOFF.md` y retoma la tarea de `current_task`.
+Cuando `session-start-context.sh` detecta `HANDOFF.md` (ver "Pause / Resume" en la skill `orchestrator`): lee `HANDOFF.md` + `STATE.md` + `state.json` (corte, decisiones, fase/lote activos); corre el smoke test del proyecto ANTES de tocar código (misma detección de runner que `hooks/lib/suite-runner.sh` — Node por lockfile; Python: uv (solo con `uv.lock`) → `.venv` → `pytest` del PATH, salvo que el proyecto declare entorno propio sin runner (`uv.lock` sin `uv`, `[tool.uv]` sin lock, `.venv` sin pytest); sin runner, anótalo y sigue — pero el hook sí bloqueará el push de un directorio con marcador Python sin runner (con la razón específica si declara entorno propio) o con un `package.json` inutilizable (no es un único objeto JSON, o su `scripts.test` no es string ni `null`) y sin marcador Python, así que resuélvelo antes de retomar; rojo, diagnostica antes de retomar); recién con el estado confirmado, elimina `HANDOFF.md` y retoma la tarea de `current_task`.
 
 ---
 
@@ -498,6 +500,7 @@ Antes de la verificación pre-merge: `docker compose up -d && docker compose ps`
 | Dev reporta error de build/CI | Reinvocar al mismo dev con `rulebooks/build-errors.md`. Max 3 fixes automáticos |
 | Reviewer reporta bloqueante | Asignar fix al dev correspondiente en un lote de fixes nuevo (id siguiente), mismo branch. Re-lanzar solo el reviewer que reportó. Repetir hasta aprobación |
 | PR creado sin review pre-push (el checkpoint del hook `post-pr-create` lo señala) | Tratarlo como PR fuera del flujo: skill `review-pr` sobre `gh pr diff` |
+| Push bloqueado por `pre-push-guard` (suite roja, sin runner o tope vencido) | Lote de fix al dev de la capa; con el tope vencido, acotar la suite o subir `PRECOMMIT_TEST_BUDGET` (máx. 570); nunca reintentar con otra forma de comando |
 | `gh pr merge` falla | Verificar las 3 condiciones de pre-merge. Reportar cuál bloquea |
 | Healthcheck Docker falla antes de E2E pre-release | Escalar al dev del servicio fallando antes de lanzar `e2e-runner` Modo B |
 | Hotfix mergeado pero falló integración a dev | Conflicto manual. Escalar al usuario con detalles del conflicto |

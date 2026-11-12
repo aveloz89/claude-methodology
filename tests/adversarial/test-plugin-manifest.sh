@@ -1882,6 +1882,33 @@ for suite in test-hooks.sh test-plugin-manifest.sh test-frontmatter.sh; do
 done
 rm -rf "$BT_TMP"
 
+# --- La suite corre en el push, no en el commit: runbook, rulebooks y skills ---
+echo ""
+echo "--- suite-on-push: runbook, dev-common, agent-budget, pr-workflow y orchestrator ---"
+
+assert_contains "$RUNBOOK" "ningún hook corre tests en el commit" \
+  "runbook (template de handoff): ningún hook corre tests en el commit"
+assert_contains "$RUNBOOK" "El push corre la suite del proyecto una vez antes de salir" \
+  "runbook Fase 2.7: el push corre la suite una vez"
+assert_contains "$RUNBOOK" "un re-push del mismo estado no repite la suite" \
+  "runbook Fase 2.7: un re-push del mismo estado no repite la suite"
+assert_contains "$RUNBOOK" "Push bloqueado por \`pre-push-guard\`" \
+  "runbook (tabla de errores): fila del push bloqueado por pre-push-guard"
+assert_contains "$RUNBOOK" "hooks/lib/suite-runner.sh" \
+  "runbook (resume): la detección de runner remite a hooks/lib/suite-runner.sh"
+assert_contains "$RUNBOOK" "el hook sí bloqueará el push de un directorio" \
+  "runbook (resume): el hook bloquea el push, no el commit"
+assert_contains "$DEV_COMMON" "Ese push corre la suite (\`pre-push-guard\`)" \
+  "dev-common.md: el push del fallback de budget corre la suite y no se esquiva si bloquea"
+assert_contains "$DEV_COMMON" "Ningún hook lo hace cumplir en el commit" \
+  "dev-common.md §3: ningún hook hace cumplir la verificación pre-commit"
+assert_contains "$AGENT_BUDGET" "Ese push corre la suite (\`pre-push-guard\`)" \
+  "agent-budget.md: el push del fallback corre la suite y no se esquiva si bloquea"
+assert_contains "$PR_WORKFLOW_SKILL" "una corrida local de la suite (\`pre-push-guard\`)" \
+  "pr-workflow §3.2: cada push cuesta una corrida local de la suite"
+assert_contains "$ORCHESTRATOR_SKILL" "Cada push corre la suite una vez antes de salir" \
+  "skill orchestrator: cada push corre la suite una vez"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---
