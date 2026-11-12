@@ -2090,6 +2090,140 @@ fi
 
 rm -rf "$PCG_WD_TEST_DIR" "$FAKE_PYTEST_WD_DIR"
 
+# --- suite-on-push (Lote 2): pre-push-guard.sh corre la suite ---
+# Un push con marcador de runner corre la suite UNA vez, después de todos los
+# bloqueos de texto: verde pasa, roja bloquea con el extracto, main bloquea
+# antes de correr nada. Los textos de la lib todavía dicen "commit" (Lote 3):
+# estos tests afirman solo substrings que no dependen de esa palabra.
+#
+# Fixture: repo git en feature/suite con pyproject.toml vacío (marcador Python)
+# y un "pytest" fake en el PATH que deja en SOP_OUT/ran el directorio donde
+# corrió. SOP_RC define su exit; con rc != 0 imprime "boom" por stdout.
+SOP_PUSH_CMD="git push origin feature/suite"
+SOP_OUT=$(mktemp -d)
+SOP_BIN=$(mktemp -d)
+cat > "$SOP_BIN/pytest" <<'SOP_PYTEST_EOF'
+#!/bin/bash
+pwd -P >> "$SOP_OUT/ran"
+if [ "${SOP_RC:-0}" -ne 0 ]; then
+  echo "boom: fake suite failure"
+fi
+exit "${SOP_RC:-0}"
+SOP_PYTEST_EOF
+chmod +x "$SOP_BIN/pytest"
+
+# _sop_repo <branch> [<subject>]: repo con marcador en <branch>. Imprime la ruta.
+_sop_repo() {
+  local dir
+  dir=$(mktemp -d)
+  dir=$(cd "$dir" && pwd -P)
+  (
+    cd "$dir" || exit 1
+    git init -q -b "$1"
+    git config user.email s@example.com
+    git config user.name S
+    touch pyproject.toml
+    git add -A
+    git commit -q -m "${2:-init}"
+  ) > /dev/null 2>&1
+  printf '%s' "$dir"
+}
+
+# _sop_run <repo> <comando> [<rc del runner>]: corre pre-push-guard.sh en
+# <repo>. Deja SOP_EXIT, SOP_STDERR y SOP_RAN (contenido de SOP_OUT/ran).
+_sop_run() {
+  local json
+  rm -f "$SOP_OUT/ran"
+  json=$(jq -n --arg cmd "$2" '{tool_input: {command: $cmd}}')
+  SOP_EXIT=0
+  SOP_STDERR=$(cd "$1" && echo "$json" | SOP_OUT="$SOP_OUT" SOP_RC="${3:-0}" PATH="$SOP_BIN:$PATH" bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || SOP_EXIT=$?
+  SOP_RAN=""
+  if [ -f "$SOP_OUT/ran" ]; then SOP_RAN=$(cat "$SOP_OUT/ran"); fi
+}
+
+# _sop_report <nombre> <0|1>: 0 = se cumplió.
+_sop_report() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$2" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC}: $1"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $1 (exit: $SOP_EXIT, ran: $SOP_RAN, stderr: $SOP_STDERR)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+SOP_FEAT=$(_sop_repo feature/suite)
+
+# Suite verde: pasa y el runner corrió en el árbol resuelto.
+_sop_run "$SOP_FEAT" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard: push con marcador y suite verde pasa y el runner corre en el árbol resuelto" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_FEAT" ]; echo $?)"
+
+# Idem con cd /abs: el árbol resuelto es el del cd, no el de la sesión.
+SOP_OTHER=$(mktemp -d); SOP_OTHER=$(cd "$SOP_OTHER" && pwd -P)
+_sop_run "$SOP_OTHER" "cd $SOP_FEAT && $SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard: 'cd <árbol> && git push' corre la suite en ese árbol (no en el cwd de la sesión)" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_FEAT" ]; echo $?)"
+
+# Suite roja: bloquea con la línea BLOCKED, el cierre y el extracto con "| ".
+_sop_run "$SOP_FEAT" "$SOP_PUSH_CMD" 1
+_sop_report "pre-push-guard: push con suite roja bloquea con 'BLOCKED: Tests failed in:' y el extracto con prefijo '| '" \
+  "$([ "$SOP_EXIT" -eq 2 ] \
+    && echo "$SOP_STDERR" | grep -qF "BLOCKED: Tests failed in: $SOP_FEAT." \
+    && echo "$SOP_STDERR" | grep -qF "| boom: fake suite failure"; echo $?)"
+
+# Un push que no es push (git status) no corre la suite.
+_sop_run "$SOP_FEAT" "git status" 0
+_sop_report "pre-push-guard: un comando que no es push no corre la suite" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ -z "$SOP_RAN" ]; echo $?)"
+
+# Sin la lib de suite: solo los push bloquean; el resto de los comandos pasa.
+SOP_HOOKS_COPY=$(mktemp -d)
+mkdir -p "$SOP_HOOKS_COPY/lib"
+cp "$HOOKS_DIR/pre-push-guard.sh" "$SOP_HOOKS_COPY/"
+cp "$HOOKS_DIR/lib/guard-matching.sh" "$SOP_HOOKS_COPY/lib/"
+SOP_EXIT=0
+SOP_STDERR=$(cd "$SOP_FEAT" && jq -n --arg cmd "git status" '{tool_input: {command: $cmd}}' | bash "$SOP_HOOKS_COPY/pre-push-guard.sh" 2>&1 > /dev/null) || SOP_EXIT=$?
+_sop_report "pre-push-guard: sin lib/suite-runner.sh un comando que no es push sigue pasando" \
+  "$([ "$SOP_EXIT" -eq 0 ]; echo $?)"
+SOP_EXIT=0
+SOP_STDERR=$(cd "$SOP_FEAT" && jq -n --arg cmd "$SOP_PUSH_CMD" '{tool_input: {command: $cmd}}' | bash "$SOP_HOOKS_COPY/pre-push-guard.sh" 2>&1 > /dev/null) || SOP_EXIT=$?
+_sop_report "pre-push-guard: sin lib/suite-runner.sh un push bloquea con 'falta hooks/lib/suite-runner.sh'" \
+  "$([ "$SOP_EXIT" -eq 2 ] && echo "$SOP_STDERR" | grep -qF "falta hooks/lib/suite-runner.sh"; echo $?)"
+rm -rf "$SOP_HOOKS_COPY"
+
+# Los bloqueos de main se deciden ANTES de la suite: el runner no deja su archivo.
+SOP_MAIN=$(_sop_repo main)
+_sop_run "$SOP_MAIN" "git push origin feature/suite" 0
+_sop_report "pre-push-guard: rama main (HEAD no Merge) bloquea por main sin correr la suite" \
+  "$([ "$SOP_EXIT" -eq 2 ] && [ -z "$SOP_RAN" ] && echo "$SOP_STDERR" | grep -qF "No push directo a main"; echo $?)"
+for SOP_CMD in \
+  "git push origin HEAD:main" \
+  "git push --all origin" \
+  "git -c push.default=matching push" \
+  "git push origin :" \
+  "git push origin refs/heads/*:refs/heads/*"; do
+  _sop_run "$SOP_FEAT" "$SOP_CMD" 0
+  _sop_report "pre-push-guard: '$SOP_CMD' bloquea antes de la suite (el runner no corre)" \
+    "$([ "$SOP_EXIT" -eq 2 ] && [ -z "$SOP_RAN" ]; echo $?)"
+done
+
+# main con HEAD "Merge…": antes exit 0, ahora sigue hasta la suite.
+SOP_MERGE=$(_sop_repo main "Merge branch 'dev' into main")
+_sop_run "$SOP_MERGE" "git push origin main" 1
+_sop_report "pre-push-guard: main con HEAD 'Merge…' y suite roja bloquea por la suite (antes exit 0)" \
+  "$([ "$SOP_EXIT" -eq 2 ] && [ "$SOP_RAN" = "$SOP_MERGE" ] && echo "$SOP_STDERR" | grep -qF "BLOCKED: Tests failed in:"; echo $?)"
+_sop_run "$SOP_MERGE" "git push origin main" 0
+_sop_report "pre-push-guard: main con HEAD 'Merge…' y suite verde pasa corriendo la suite" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MERGE" ]; echo $?)"
+# La excepción de merge no salta los demás bloqueos: refspec a main sigue bloqueando.
+_sop_run "$SOP_MERGE" "git push origin HEAD:main --all" 0
+_sop_report "pre-push-guard: main con HEAD 'Merge…' salta los chequeos de refspec (como antes) pero corre la suite" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ -n "$SOP_RAN" ]; echo $?)"
+
+rm -rf "$SOP_OUT" "$SOP_BIN" "$SOP_FEAT" "$SOP_OTHER" "$SOP_MAIN" "$SOP_MERGE"
+
 # --- pre-commit-guard.sh: PRECOMMIT_TEST_BUDGET inválido cae a un default
 # seguro (<= 570) en vez de romper la comparación del watchdog o anular su
 # ventaja sobre el timeout del harness (revisión pre-push, security MEDIUM) ---

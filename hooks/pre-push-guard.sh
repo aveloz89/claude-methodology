@@ -37,6 +37,13 @@ if ! echo "$SANITIZED_COMMAND" | grep -qE "$PUSH_RE"; then
   exit 0
 fi
 
+# Lib de suite (guard_suite_run): se verifica después de decidir que es un push
+# para que una instalación rota bloquee los push y no cada Bash.
+SUITE_LIB="${0%/*}/lib/suite-runner.sh"
+[ -r "$SUITE_LIB" ] || { echo "BLOCKED: pre-push-guard no operativo: falta hooks/lib/suite-runner.sh" >&2; exit 2; }
+# shellcheck source=lib/suite-runner.sh
+source "$SUITE_LIB"
+
 # Árbol del push (R1). Formas aceptadas, las mismas que tenía el commit:
 #   1. "git push …" sin redirección: el árbol es el de la sesión (".cwd" del
 #      input vía guard_session_dir, o el cwd del proceso si el harness no lo
@@ -90,14 +97,18 @@ SESSION_DIR="$BASE_DIR"
 
 # Verificar si se está pusheando a main directamente (no como parte de un PR merge)
 CURRENT_BRANCH=$(git -C "$BASE_DIR" branch --show-current 2>/dev/null)
+PPG_MAIN_MERGE=0
 
 if [ "$CURRENT_BRANCH" = "main" ] || [ "$CURRENT_BRANCH" = "master" ]; then
-  # Permitir si es un merge desde dev (el último commit es un merge commit)
+  # Permitir si es un merge desde dev (el último commit es un merge commit):
+  # no hay más bloqueos de texto (PPG_MAIN_MERGE salta los chequeos de
+  # refspec, como el exit 0 de antes) pero la suite SÍ corre al final.
   if git -C "$BASE_DIR" log -1 --pretty=%s | grep -qiE '^Merge'; then
-    exit 0
+    PPG_MAIN_MERGE=1
+  else
+    echo "BLOCKED: No push directo a main. Usa un PR desde dev o feature branch." >&2
+    exit 2
   fi
-  echo "BLOCKED: No push directo a main. Usa un PR desde dev o feature branch." >&2
-  exit 2
 fi
 
 # #112: el destino del refspec también cuenta. Desde cualquier rama, "git
@@ -120,49 +131,58 @@ fi
 # Segmentos "git push ..." del comando saneado, extraídos una sola vez para los
 # chequeos de abajo (destino main, --all/--mirror, config, refspec vacío).
 PUSH_SEGMENTS=$(echo "$SANITIZED_COMMAND" | grep -oE "${PUSH_RE}${GUARD_SEGMENT_END}")
-DST_MAIN_RE="(^|[[:space:]])\+?([^[:space:]:]*:)?(refs/heads/)?(main|master)${GUARD_TOKEN_END}"
-if echo "$PUSH_SEGMENTS" | grep -qE "$DST_MAIN_RE"; then
-  echo "BLOCKED: No push directo a main: el refspec apunta a main/master (HEAD:main, dev:main, refs/heads/main o la rama local main). Usa un PR desde dev o feature branch." >&2
-  exit 2
+if [ "$PPG_MAIN_MERGE" -ne 1 ]; then
+  DST_MAIN_RE="(^|[[:space:]])\+?([^[:space:]:]*:)?(refs/heads/)?(main|master)${GUARD_TOKEN_END}"
+  if echo "$PUSH_SEGMENTS" | grep -qE "$DST_MAIN_RE"; then
+    echo "BLOCKED: No push directo a main: el refspec apunta a main/master (HEAD:main, dev:main, refs/heads/main o la rama local main). Usa un PR desde dev o feature branch." >&2
+    exit 2
+  fi
+
+  # #117: "--all", "--mirror" y "--branches" (y cualquier prefijo único de ellas,
+  # ver GUARD_PUSH_ALL_RE) empujan todas las ramas locales (incluida main)
+  # sin nombrarla en el comando, así que el chequeo de destino de arriba no
+  # los ve. Se bloquean desde cualquier rama, con el mismo regex y la misma
+  # segmentación (GUARD_SEGMENT_END: hasta el primer &, ; o |) que usa
+  # block-force-push.sh. El ")" y el backtick cierran el TOKEN (GUARD_TOKEN_END),
+  # no el segmento: "(git push origin HEAD:main)" bloquea y una sustitución
+  # dentro del push ("git push origin $(true) HEAD:main") no esconde lo que sigue.
+  if echo "$PUSH_SEGMENTS" | grep -qE "$GUARD_PUSH_ALL_RE"; then
+    echo "BLOCKED: git push --all/--mirror empuja todas las ramas locales, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
+    exit 2
+  fi
+
+  # #117 ronda 2 (MEDIO): formas que empujan main sin nombrarla ni usar --all.
+  # (a) "-c push.default=matching", "-c remote.<x>.mirror=true" y
+  # "-c remote.<x>.push=..." (GUARD_PUSH_CONFIG_RE) vuelven "git push origin"
+  # un push de todas las ramas coincidentes; (b) el refspec ":" suelto
+  # (GUARD_PUSH_EMPTY_REFSPEC_RE) hace lo mismo. ":rama" borra una rama remota
+  # y sigue pasando. Mismo segmento que el chequeo de --all.
+  # Con refspec explícito ("git -c push.default=matching push origin feature/x")
+  # el bloqueo es un falso positivo, en dirección segura: no se distingue si hay
+  # refspec porque el config solo importa cuando falta.
+  if echo "$PUSH_SEGMENTS" | grep -qiE "$GUARD_PUSH_CONFIG_RE"; then
+    echo "BLOCKED: la config push.default=matching|upstream|tracking, remote.<x>.mirror o remote.<x>.push (por -c o --config-env) empuja main sin nombrarla. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
+    exit 2
+  fi
+  if echo "$PUSH_SEGMENTS" | grep -qE "$GUARD_PUSH_EMPTY_REFSPEC_RE"; then
+    echo "BLOCKED: el refspec ':' suelto empuja las ramas coincidentes, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
+    exit 2
+  fi
+
+  # #119: un refspec glob ("refs/heads/*:refs/heads/*", "*:*", "refs/heads/*")
+  # empuja todas las ramas que casan, main incluida, sin nombrarla. Regla y
+  # alcance (qué destinos cuentan, qué queda fuera) en guard-matching.sh.
+  if guard_push_has_glob_dst "$PUSH_SEGMENTS"; then
+    echo "BLOCKED: un refspec glob (destino con '*' bajo refs/heads/ o sin prefijo refs/) empuja todas las ramas que casan, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
+    exit 2
+  fi
 fi
 
-# #117: "--all", "--mirror" y "--branches" (y cualquier prefijo único de ellas,
-# ver GUARD_PUSH_ALL_RE) empujan todas las ramas locales (incluida main)
-# sin nombrarla en el comando, así que el chequeo de destino de arriba no
-# los ve. Se bloquean desde cualquier rama, con el mismo regex y la misma
-# segmentación (GUARD_SEGMENT_END: hasta el primer &, ; o |) que usa
-# block-force-push.sh. El ")" y el backtick cierran el TOKEN (GUARD_TOKEN_END),
-# no el segmento: "(git push origin HEAD:main)" bloquea y una sustitución
-# dentro del push ("git push origin $(true) HEAD:main") no esconde lo que sigue.
-if echo "$PUSH_SEGMENTS" | grep -qE "$GUARD_PUSH_ALL_RE"; then
-  echo "BLOCKED: git push --all/--mirror empuja todas las ramas locales, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
-  exit 2
-fi
-
-# #117 ronda 2 (MEDIO): formas que empujan main sin nombrarla ni usar --all.
-# (a) "-c push.default=matching", "-c remote.<x>.mirror=true" y
-# "-c remote.<x>.push=..." (GUARD_PUSH_CONFIG_RE) vuelven "git push origin"
-# un push de todas las ramas coincidentes; (b) el refspec ":" suelto
-# (GUARD_PUSH_EMPTY_REFSPEC_RE) hace lo mismo. ":rama" borra una rama remota
-# y sigue pasando. Mismo segmento que el chequeo de --all.
-# Con refspec explícito ("git -c push.default=matching push origin feature/x")
-# el bloqueo es un falso positivo, en dirección segura: no se distingue si hay
-# refspec porque el config solo importa cuando falta.
-if echo "$PUSH_SEGMENTS" | grep -qiE "$GUARD_PUSH_CONFIG_RE"; then
-  echo "BLOCKED: la config push.default=matching|upstream|tracking, remote.<x>.mirror o remote.<x>.push (por -c o --config-env) empuja main sin nombrarla. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
-  exit 2
-fi
-if echo "$PUSH_SEGMENTS" | grep -qE "$GUARD_PUSH_EMPTY_REFSPEC_RE"; then
-  echo "BLOCKED: el refspec ':' suelto empuja las ramas coincidentes, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
-  exit 2
-fi
-
-# #119: un refspec glob ("refs/heads/*:refs/heads/*", "*:*", "refs/heads/*")
-# empuja todas las ramas que casan, main incluida, sin nombrarla. Regla y
-# alcance (qué destinos cuentan, qué queda fuera) en guard-matching.sh.
-if guard_push_has_glob_dst "$PUSH_SEGMENTS"; then
-  echo "BLOCKED: un refspec glob (destino con '*' bajo refs/heads/ o sin prefijo refs/) empuja todas las ramas que casan, incluida main. Empuja la rama explícita (git push origin <rama>) y usa un PR para main." >&2
-  exit 2
-fi
+# La suite corre una sola vez, después de TODOS los bloqueos de texto (nada
+# caro ocurre antes). Con marcador de runner entre la sesión y el toplevel
+# corre ese directorio; sin él, la derivación por cambios locales; sin
+# candidatos no corre nada.
+cd "$TARGET_DIR" || _ppg_block_tree "no se pudo entrar al árbol resuelto ($TARGET_DIR)"
+guard_suite_run "$SESSION_DIR" "$TARGET_DIR"
 
 exit 0

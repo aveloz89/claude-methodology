@@ -150,7 +150,7 @@ EXPECTED_HANDLERS=$(printf '%s\n' \
   "PreToolUse${US}Bash${US}block-admin-merge.sh${US}Bash(gh *)${US}10" \
   "PreToolUse${US}Bash${US}block-force-push.sh${US}-${US}10" \
   "PreToolUse${US}Bash${US}block-hard-reset.sh${US}-${US}10" \
-  "PreToolUse${US}Bash${US}pre-push-guard.sh${US}-${US}10" \
+  "PreToolUse${US}Bash${US}pre-push-guard.sh${US}-${US}600" \
   "PreToolUse${US}Bash${US}pre-merge-check.sh${US}Bash(gh *)${US}30" \
   "PreToolUse${US}Bash${US}pre-commit-guard.sh${US}-${US}600" \
   "PostToolUse${US}Bash${US}post-pr-create.sh${US}-${US}15" \
@@ -186,6 +186,18 @@ if [ "$PCG_TIMEOUT" = "600" ]; then
   PASS=$((PASS + 1))
 else
   echo -e "${RED}FAIL${NC}: pre-commit-guard.sh tiene timeout=$PCG_TIMEOUT (esperado 600)"
+  FAIL=$((FAIL + 1))
+fi
+
+# suite-on-push: el guard de push corre la suite, con el mismo tope que tuvo el
+# de commit (PRECOMMIT_TEST_BUDGET <= 570 < 600).
+TOTAL=$((TOTAL + 1))
+PPG_TIMEOUT=$(jq -r '.hooks.PreToolUse[].hooks[] | select(.command | endswith("pre-push-guard.sh") or endswith("pre-push-guard.sh\"")) | .timeout' "$HOOKS_JSON")
+if [ "$PPG_TIMEOUT" = "600" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-push-guard.sh tiene timeout=600"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-push-guard.sh tiene timeout=$PPG_TIMEOUT (esperado 600)"
   FAIL=$((FAIL + 1))
 fi
 

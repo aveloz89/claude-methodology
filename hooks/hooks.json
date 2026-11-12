@@ -23,7 +23,7 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-push-guard.sh\"",
-            "timeout": 10
+            "timeout": 600
           },
           {
             "type": "command",
