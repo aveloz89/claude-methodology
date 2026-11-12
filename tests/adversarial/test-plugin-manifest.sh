@@ -231,16 +231,16 @@ else
 fi
 
 echo ""
-echo "--- global/CLAUDE.md: la suite de tests bloquea el commit, no corre en background ---"
+echo "--- global/CLAUDE.md: la suite de tests bloquea el push, no corre en background ---"
 
 GLOBAL_CLAUDE_MD="$REPO_ROOT/global/CLAUDE.md"
 
 TOTAL=$((TOTAL + 1))
-if grep -q "^\*\*Bloquean el comando:\*\*.*commit sin" "$GLOBAL_CLAUDE_MD"; then
-  echo -e "${GREEN}PASS${NC}: \"Bloquean el comando\" incluye el commit sin suite verde"
+if grep -q "^\*\*Bloquean el comando:\*\*.*push sin la suite" "$GLOBAL_CLAUDE_MD"; then
+  echo -e "${GREEN}PASS${NC}: \"Bloquean el comando\" incluye el push sin suite verde"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: \"Bloquean el comando\" no menciona el commit sin suite verde"
+  echo -e "${RED}FAIL${NC}: \"Bloquean el comando\" no menciona el push sin suite verde"
   FAIL=$((FAIL + 1))
 fi
 
@@ -448,7 +448,7 @@ assert_not_contains "$RUNBOOK" "Bug fix con pasos de reproducción claros" \
   "runbook (Fase 0) ya no tiene su propia lista de condiciones para saltar brainstorming"
 
 echo ""
-echo "--- global/CLAUDE.md: restricciones de rol, degradación y pre-commit-guard ---"
+echo "--- global/CLAUDE.md: restricciones de rol, degradación y guard de la suite ---"
 
 assert_contains "$GLOBAL_CLAUDE_MD" "Bash solo para git" \
   "Rol de la sesión principal restringe Bash a git/gh/lectura de estado/orquestación"
@@ -456,8 +456,8 @@ assert_contains "$GLOBAL_CLAUDE_MD" "si te tienta escribir código" \
   "Rol de la sesión principal advierte contra escribir código \"porque es rápido\""
 assert_contains "$GLOBAL_CLAUDE_MD" "señales 1, 4 u 8" \
   "Workflow #4 tiene la regla de review simple (security-reviewer si toca las señales 1, 4 u 8 del runbook)"
-assert_contains "$GLOBAL_CLAUDE_MD" "pre-commit-guard.sh" \
-  "Verificación pre-commit menciona que el paso 1 lo refuerza pre-commit-guard.sh"
+assert_contains "$GLOBAL_CLAUDE_MD" "Ningún hook corre tests en el commit: \`pre-push-guard.sh\` corre la suite" \
+  "Verificación pre-commit dice que ningún hook corre tests en el commit y que pre-push-guard.sh corre la suite"
 
 # CA-12: tono plano. Tokens de énfasis vedados en el núcleo global, como
 # palabra (borde = no letra o inicio/fin de línea, sin depender del locale).

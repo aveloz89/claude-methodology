@@ -59,7 +59,7 @@ El resto del proceso de PR — presupuesto de CI, E2E pre-release, branch protec
 
 Los hooks son enforcement del harness, no instrucciones tuyas — corren solos.
 
-**Bloquean el comando:** push directo a `main`, `gh pr merge --admin`, `git push --force`, `git reset --hard`, commit sin la suite de tests en verde, y (cuando reconoce la invocación) `gh pr merge` fuera de la forma exacta esperada — `gh pr merge --help`/`-h` exactos y solos pasan, no mergean nada. Los guards de git corren en cada Bash (sin `if` en `hooks.json`); los de gh filtran con `if: Bash(gh *)`, un matching por prefijo del comando (no un parser de shell) que es best-effort. Si uno te bloquea, se corrige la causa; el hook no se esquiva.
+**Bloquean el comando:** push directo a `main`, `gh pr merge --admin`, `git push --force`, `git reset --hard`, push sin la suite de tests en verde, y (cuando reconoce la invocación) `gh pr merge` fuera de la forma exacta esperada — `gh pr merge --help`/`-h` exactos y solos pasan, no mergean nada. Los guards de git corren en cada Bash (sin `if` en `hooks.json`); los de gh filtran con `if: Bash(gh *)`, un matching por prefijo del comando (no un parser de shell) que es best-effort. Si uno te bloquea, se corrige la causa; el hook no se esquiva.
 
 **Piden confirmación:** `gh pr merge` con las verificaciones en verde (`pre-merge-check` devuelve `ask`).
 
@@ -67,7 +67,7 @@ Los hooks son enforcement del harness, no instrucciones tuyas — corren solos.
 
 ## Verificación pre-commit (responsabilidad del subagente dev)
 
-Antes de cada commit, el subagente dev ejecuta en orden: (1) tests con coverage ≥ 80% de branches sobre archivos del diff, (2) lint sin errores (autofix primero), (3) build compila, (4) Docker container corre si aplica, (5) self-reflection idiomática contra `~/.claude/rules/self-reflection.md`, (6) implementation principles contra `~/.claude/rules/implementation-principles.md`. Los pasos 5 y 6 son pasadas separadas: el 5 revisa cómo está escrito, el 6 revisa qué se escribió. El paso 1 lo refuerza `pre-commit-guard.sh`; el resto es responsabilidad del dev. Si falta alguna, el commit espera.
+Antes de cada commit, el subagente dev ejecuta en orden: (1) tests con coverage ≥ 80% de branches sobre archivos del diff, (2) lint sin errores (autofix primero), (3) build compila, (4) Docker container corre si aplica, (5) self-reflection idiomática contra `~/.claude/rules/self-reflection.md`, (6) implementation principles contra `~/.claude/rules/implementation-principles.md`. Los pasos 5 y 6 son pasadas separadas: el 5 revisa cómo está escrito, el 6 revisa qué se escribió. Ningún hook corre tests en el commit: `pre-push-guard.sh` corre la suite una vez antes del push; los seis son del dev. Si falta alguna, el commit espera.
 
 ## Estado persistente: `.planning/`
 
