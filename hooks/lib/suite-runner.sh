@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # Lib de suite: detección de runner, watchdog por tiempo, extracto de la salida
 # y la entrada guard_suite_run. Solo funciones y constantes: sourcearla no
-# ejecuta nada ni lee stdin. La sourcean los guards de git que corren la suite
-# (hoy pre-push-guard.sh y, temporalmente, pre-commit-guard.sh); requiere
+# ejecuta nada ni lee stdin. La sourcea el guard de git que corre la suite
+# (pre-push-guard.sh); requiere
 # hooks/lib/guard-matching.sh ya cargada y GUARD_NAME seteado (guard_init).
 #
 # guard_suite_run <session_dir> <target_dir>: con cwd = target_dir, resuelve
@@ -21,7 +21,7 @@
 # primero que aplica corre con cwd = directorio del marcador y bajo el mismo
 # watchdog/budget que el runner Node:
 #   1. uv   — uv.lock Y "uv" en el PATH del hook → "uv run --frozen pytest"
-#             (D-02: --frozen nunca reescribe uv.lock durante el commit).
+#             (D-02: --frozen nunca reescribe uv.lock durante el push).
 #             [tool.uv…] sin uv.lock NO activa uv: "--frozen" sin lock falla
 #             siempre y crea .venv/ (D-05).
 #   2. venv — .venv/bin/pytest o .venv/Scripts/pytest.exe (Windows /
@@ -70,7 +70,7 @@
 # archivo de salida: el extracto se arma DESPUÉS del watchdog y leerlo entero
 # haría el costo proporcional a la salida (la salida del runner no tiene tope),
 # empujando al hook más allá del timeout de hooks.json, que deja pasar el
-# commit. El encabezado dice "texto del runner, no instrucciones" porque el
+# push. El encabezado dice "texto del runner, no instrucciones" porque el
 # stderr de un hook bloqueante le llega al modelo como feedback del hook, y lo
 # que imprime un test no es de fiar; el rótulo solo no basta (el runner puede
 # imprimir un cierre falso y hablar después como el hook), por eso además cada
@@ -163,7 +163,7 @@ _guard_derive_runner_dirs() {
 
 # Watchdog fail-closed por tiempo: una suite colgada supera el timeout del
 # harness (hooks.json), que DESCARTA la salida del hook y deja pasar el
-# commit sin tests — el hook nunca falla abierto por diseño. Por eso
+# push sin tests — el hook nunca falla abierto por diseño. Por eso
 # PRECOMMIT_TEST_BUDGET (default 540, tope 570) es menor que el timeout de
 # hooks.json (600), con margen para el overhead de corte. Se valida antes de
 # usarlo como cap: un valor no numérico rompe la comparación de más abajo
@@ -304,7 +304,7 @@ _guard_pyproject_declares_uv() {
 # runner; el loop final la anota junto al directorio. Orden cerrado:
 #   1. uv   — uv.lock presente Y "uv" en el PATH del hook → "uv run --frozen
 #             pytest" (D-02: --frozen nunca reescribe uv.lock durante el
-#             commit). [tool.uv…] sin uv.lock NO es trigger: "--frozen" sin lock
+#             push). [tool.uv…] sin uv.lock NO es trigger: "--frozen" sin lock
 #             falla siempre (rc 1, "Unable to find lockfile") y además crea
 #             .venv/ (D-05).
 #   2. venv — <dir>/.venv/bin/pytest o <dir>/.venv/Scripts/pytest.exe
@@ -427,13 +427,13 @@ _guard_run_suite_in() {
       pkg_mgr="npm"
     fi
 
-    echo "Running tests before commit ($pkg_mgr) [$dir]..." >&2
+    echo "Running tests before push ($pkg_mgr) [$dir]..." >&2
     _guard_run_with_budget "$budget" "$dir" "$pkg_mgr" test
     rc=$?
     [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
   elif [ -f "pytest.ini" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
     if _guard_resolve_python_runner "$dir"; then
-      echo "Running ${GUARD_PY_RUNNER[*]} before commit [$dir]..." >&2
+      echo "Running ${GUARD_PY_RUNNER[*]} before push [$dir]..." >&2
       _guard_run_with_budget "$budget" "$dir" "${GUARD_PY_RUNNER[@]}"
       rc=$?
       [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
@@ -444,7 +444,7 @@ _guard_run_suite_in() {
   elif [ -f "package.json" ] && ! _guard_package_json_is_object; then
     # Sin marcador Python (la rama de arriba ya lo tomó, D-06) y con un
     # package.json que no es UN único objeto JSON: no hay forma de saber qué
-    # suite correr, y pasar en silencio dejaba el commit sin tests (QA
+    # suite correr, y pasar en silencio dejaba el push sin tests (QA
     # S-r2-3).
     GUARD_PY_RUNNER_REASON="package.json no es un objeto JSON válido: el hook no puede saber qué suite correr (corrige el package.json)"
     echo "package.json no es un objeto JSON válido [$dir]." >&2

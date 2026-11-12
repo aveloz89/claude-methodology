@@ -2048,7 +2048,13 @@ assert_allowed_cmd "pre-commit-guard: echo \"env HUSKY=0 git commit\" no se inte
 
 rm -rf "$PCG_TERM_DIR" "$FAKE_PYTEST_TERM_DIR"
 
-# --- pre-commit-guard.sh: watchdog fail-closed por tiempo (PRECOMMIT_TEST_BUDGET) ---
+# Comando de push que usan los fixtures de suite de abajo: la rama
+# feature/suite es la de los repos de fixture (git init -q -b feature/suite).
+# Un fixture en main/master bloquearía por main ANTES de la suite y un assert
+# de "bloquea" pasaría en verde por la razón equivocada (regla 3 de migración).
+SUITE_PUSH_CMD="git push origin feature/suite"
+
+# --- pre-push-guard.sh: watchdog fail-closed por tiempo (PRECOMMIT_TEST_BUDGET) ---
 # La suite corre en background; un bucle espera hasta PRECOMMIT_TEST_BUDGET
 # segundos (default 540). Si se agota, mata el grupo de procesos y bloquea
 # (exit 2) — el hook nunca falla abierto por un timeout. Fixture: un
@@ -2064,27 +2070,27 @@ FAKE_PYTEST_WD_EOF
 chmod +x "$FAKE_PYTEST_WD_DIR/pytest"
 
 TOTAL=$((TOTAL + 1))
-PCG_WD_JSON=$(jq -n --arg cmd "git commit -m wip" '{tool_input: {command: $cmd}}')
+PCG_WD_JSON=$(jq -n --arg cmd "$SUITE_PUSH_CMD" '{tool_input: {command: $cmd}}')
 PCG_WD_EXIT=0
-PCG_WD_STDERR=$(cd "$PCG_WD_TEST_DIR" && echo "$PCG_WD_JSON" | PATH="$FAKE_PYTEST_WD_DIR:$PATH" PRECOMMIT_TEST_BUDGET=1 bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PCG_WD_EXIT=$?
+PCG_WD_STDERR=$(cd "$PCG_WD_TEST_DIR" && echo "$PCG_WD_JSON" | PATH="$FAKE_PYTEST_WD_DIR:$PATH" PRECOMMIT_TEST_BUDGET=1 bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || PCG_WD_EXIT=$?
 sleep 1
 PCG_WD_ORPHAN=$(pgrep -f "$FAKE_PYTEST_WD_DIR/pytest" || true)
 if [ "$PCG_WD_EXIT" -eq 2 ] && echo "$PCG_WD_STDERR" | grep -qF "superó" && [ -z "$PCG_WD_ORPHAN" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=1 con suite de 5s bloquea fail-closed sin proceso huérfano"
+  echo -e "${GREEN}PASS${NC}: pre-push-guard: PRECOMMIT_TEST_BUDGET=1 con suite de 5s bloquea fail-closed sin proceso huérfano"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=1 con suite de 5s bloquea fail-closed sin proceso huérfano (exit code: $PCG_WD_EXIT, stderr: $PCG_WD_STDERR, huérfano: $PCG_WD_ORPHAN)"
+  echo -e "${RED}FAIL${NC}: pre-push-guard: PRECOMMIT_TEST_BUDGET=1 con suite de 5s bloquea fail-closed sin proceso huérfano (exit code: $PCG_WD_EXIT, stderr: $PCG_WD_STDERR, huérfano: $PCG_WD_ORPHAN)"
   FAIL=$((FAIL + 1))
 fi
 
 TOTAL=$((TOTAL + 1))
 PCG_WD2_EXIT=0
-(cd "$PCG_WD_TEST_DIR" && echo "$PCG_WD_JSON" | PATH="$FAKE_PYTEST_WD_DIR:$PATH" PRECOMMIT_TEST_BUDGET=10 bash "$HOOKS_DIR/pre-commit-guard.sh" > /dev/null 2>&1) || PCG_WD2_EXIT=$?
+(cd "$PCG_WD_TEST_DIR" && echo "$PCG_WD_JSON" | PATH="$FAKE_PYTEST_WD_DIR:$PATH" PRECOMMIT_TEST_BUDGET=10 bash "$HOOKS_DIR/pre-push-guard.sh" > /dev/null 2>&1) || PCG_WD2_EXIT=$?
 if [ "$PCG_WD2_EXIT" -eq 0 ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=10 con suite de 5s pasa (tests ok, dentro del presupuesto)"
+  echo -e "${GREEN}PASS${NC}: pre-push-guard: PRECOMMIT_TEST_BUDGET=10 con suite de 5s pasa (tests ok, dentro del presupuesto)"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=10 con suite de 5s pasa (tests ok, dentro del presupuesto) (exit code: $PCG_WD2_EXIT)"
+  echo -e "${RED}FAIL${NC}: pre-push-guard: PRECOMMIT_TEST_BUDGET=10 con suite de 5s pasa (tests ok, dentro del presupuesto) (exit code: $PCG_WD2_EXIT)"
   FAIL=$((FAIL + 1))
 fi
 
@@ -2093,13 +2099,12 @@ rm -rf "$PCG_WD_TEST_DIR" "$FAKE_PYTEST_WD_DIR"
 # --- suite-on-push (Lote 2): pre-push-guard.sh corre la suite ---
 # Un push con marcador de runner corre la suite UNA vez, después de todos los
 # bloqueos de texto: verde pasa, roja bloquea con el extracto, main bloquea
-# antes de correr nada. Los textos de la lib todavía dicen "commit" (Lote 3):
-# estos tests afirman solo substrings que no dependen de esa palabra.
+# antes de correr nada.
 #
 # Fixture: repo git en feature/suite con pyproject.toml vacío (marcador Python)
 # y un "pytest" fake en el PATH que deja en SOP_OUT/ran el directorio donde
 # corrió. SOP_RC define su exit; con rc != 0 imprime "boom" por stdout.
-SOP_PUSH_CMD="git push origin feature/suite"
+SOP_PUSH_CMD="$SUITE_PUSH_CMD"
 SOP_OUT=$(mktemp -d)
 SOP_BIN=$(mktemp -d)
 cat > "$SOP_BIN/pytest" <<'SOP_PYTEST_EOF'
@@ -2260,7 +2265,7 @@ _sop_report "pre-push-guard: PRECOMMIT_TEST_BUDGET=10 con suite de 5s pasa dentr
 
 rm -rf "$SOP_OUT" "$SOP_BIN" "$SOP_FEAT" "$SOP_OTHER" "$SOP_MAIN" "$SOP_MERGE" "$SOP_SLOW_BIN"
 
-# --- pre-commit-guard.sh: PRECOMMIT_TEST_BUDGET inválido cae a un default
+# --- pre-push-guard.sh: PRECOMMIT_TEST_BUDGET inválido cae a un default
 # seguro (<= 570) en vez de romper la comparación del watchdog o anular su
 # ventaja sobre el timeout del harness (revisión pre-push, security MEDIUM) ---
 # Se importa _guard_resolve_test_budget del propio hook (no se reimplementa
@@ -2286,7 +2291,7 @@ if [ -s "$BUDGET_FN_FILE" ]; then
   source "$BUDGET_FN_FILE"
 else
   TOTAL=$((TOTAL + 1))
-  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: no se pudo extraer la función del hook (el patrón de awk no matcheó nada en pre-commit-guard.sh — revisar si la firma de la función cambió)"
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: no se pudo extraer la función del hook (el patrón de awk no matcheó nada en pre-push-guard.sh — revisar si la firma de la función cambió)"
   FAIL=$((FAIL + 1))
   _guard_resolve_test_budget() { return 1; }
 fi
@@ -2395,35 +2400,18 @@ FAKE_PYTEST_BB_EOF
 chmod +x "$FAKE_PYTEST_BADBUDGET_DIR/pytest"
 
 TOTAL=$((TOTAL + 1))
-PCG_BB_JSON=$(jq -n --arg cmd "git commit -m wip" '{tool_input: {command: $cmd}}')
+PCG_BB_JSON=$(jq -n --arg cmd "$SUITE_PUSH_CMD" '{tool_input: {command: $cmd}}')
 PCG_BB_EXIT=0
-PCG_BB_STDERR=$(cd "$PCG_BADBUDGET_DIR" && echo "$PCG_BB_JSON" | PATH="$FAKE_PYTEST_BADBUDGET_DIR:$PATH" PRECOMMIT_TEST_BUDGET=abc bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PCG_BB_EXIT=$?
+PCG_BB_STDERR=$(cd "$PCG_BADBUDGET_DIR" && echo "$PCG_BB_JSON" | PATH="$FAKE_PYTEST_BADBUDGET_DIR:$PATH" PRECOMMIT_TEST_BUDGET=abc bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || PCG_BB_EXIT=$?
 if [ "$PCG_BB_EXIT" -eq 0 ] && echo "$PCG_BB_STDERR" | grep -qF "inválido"; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=abc no rompe el hook (avisa y sigue con el default)"
+  echo -e "${GREEN}PASS${NC}: pre-push-guard: PRECOMMIT_TEST_BUDGET=abc no rompe el hook (avisa y sigue con el default)"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard: PRECOMMIT_TEST_BUDGET=abc no rompe el hook (avisa y sigue con el default) (exit code: $PCG_BB_EXIT, stderr: $PCG_BB_STDERR)"
+  echo -e "${RED}FAIL${NC}: pre-push-guard: PRECOMMIT_TEST_BUDGET=abc no rompe el hook (avisa y sigue con el default) (exit code: $PCG_BB_EXIT, stderr: $PCG_BB_STDERR)"
   FAIL=$((FAIL + 1))
 fi
 
 rm -rf "$PCG_BADBUDGET_DIR" "$FAKE_PYTEST_BADBUDGET_DIR"
-
-# [ronda 2, tarea 3] Cierra #50 de verdad para este guard: hoy, sin jq en
-# PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, el guard
-# nunca detecta el "git commit" y pasa en silencio (fail-open, exit 0) sin
-# correr tests. Este check CAMBIA el contrato de este hook (antes: sin jq
-# pasaba); ahora bloquea (exit 2) igual que pre-merge-check.sh ante la
-# misma dependencia ausente.
-NO_JQ_PCG_BIN=$(mktemp -d)
-for cmd in bash cat perl grep; do
-  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
-  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_JQ_PCG_BIN/$cmd"
-done
-assert_blocked_cmd "pre-commit-guard: bloquea fail-closed (exit 2) sin jq en PATH (#50)" \
-  "pre-commit-guard.sh" \
-  "git commit -m 'test'" \
-  "$NO_JQ_PCG_BIN"
-rm -rf "$NO_JQ_PCG_BIN"
 
 # --- pre-commit-guard.sh: salto para commits de solo .planning/ ---
 echo "--- pre-commit-guard.sh: salto para commits de solo .planning/ ---"
@@ -3438,8 +3426,8 @@ else
 fi
 _multiroot_budget_cleanup
 
-# --- pre-commit-guard.sh: runner de pytest (uv / .venv / PATH) ---
-echo "--- pre-commit-guard.sh: runner de pytest (uv / .venv / PATH) ---"
+# --- pre-push-guard.sh: runner de pytest (uv / .venv / PATH) ---
+echo "--- pre-push-guard.sh: runner de pytest (uv / .venv / PATH) ---"
 
 # Hermeticidad (CA-8): ningún test de esta sección usa el $PATH real. El PATH
 # es siempre PYRUN_CLEAN_BIN (symlinks por NOMBRE a lo que el hook necesita,
@@ -3475,7 +3463,7 @@ _pyrun_setup() {
   done
   (
     cd "$PYRUN_DIR" || exit 1
-    git init -q
+    git init -q -b feature/suite
     git config user.email "sandbox@example.com"
     git config user.name "Sandbox"
     mkdir -p src
@@ -3576,14 +3564,14 @@ _pyrun_make_pyproject() {
   printf '[project]\nname = "x"\nversion = "0"\n\n%s\n' "$1" > "$PYRUN_DIR/pyproject.toml"
 }
 
-# _pyrun_run <PATH>: corre el hook con "git commit -m x" desde la raíz del
+# _pyrun_run <PATH>: corre el hook con "$SUITE_PUSH_CMD" desde la raíz del
 # fixture. Deja el exit en PYRUN_EXIT y el stderr en PYRUN_STDERR (mismo
 # patrón de captura que G2 en "monorepo sin marcador en la raíz").
 _pyrun_run() {
   local run_path="$1" json
-  json=$(jq -n --arg cmd "git commit -m x" '{tool_input: {command: $cmd}}')
+  json=$(jq -n --arg cmd "$SUITE_PUSH_CMD" '{tool_input: {command: $cmd}}')
   PYRUN_EXIT=0
-  PYRUN_STDERR=$(cd "$PYRUN_DIR" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1 > /dev/null) || PYRUN_EXIT=$?
+  PYRUN_STDERR=$(cd "$PYRUN_DIR" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || PYRUN_EXIT=$?
 }
 
 # _pyrun_report <nombre> <0|1>: registra el resultado de una aserción (0 = se
@@ -3609,7 +3597,7 @@ _pyrun_assert_clean_path() {
   local found=0
   PATH="$PYRUN_CLEAN_BIN" bash -c 'command -v pytest' > /dev/null 2>&1 && found=1
   PATH="$PYRUN_CLEAN_BIN" bash -c 'command -v uv' > /dev/null 2>&1 && found=1
-  _pyrun_report "pre-commit-guard: precondición — el PATH curado no resuelve pytest ni uv ($1)" "$found"
+  _pyrun_report "pre-push-guard: precondición — el PATH curado no resuelve pytest ni uv ($1)" "$found"
 }
 
 # T0 + T5 (CA-5, CA-8): marcador Python (pyproject.toml vacío) sin ningún
@@ -3626,7 +3614,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && echo "$PYRUN_STDERR" | grep -qF "(3) 'pytest' en el PATH"; then
   PYRUN_T5_OK=0
 fi
-_pyrun_report "pre-commit-guard: marcador Python sin runner → exit 2 nombrando el directorio y las tres vías (T5)" "$PYRUN_T5_OK"
+_pyrun_report "pre-push-guard: marcador Python sin runner → exit 2 nombrando el directorio y las tres vías (T5)" "$PYRUN_T5_OK"
 _pyrun_cleanup
 
 # T5b (contrato 0/1/127 de _guard_run_suite_in): un runner que SALE con 127
@@ -3644,12 +3632,12 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && ! echo "$PYRUN_STDERR" | grep -qF "no encontró un runner"; then
   PYRUN_T5B_OK=0
 fi
-_pyrun_report "pre-commit-guard: runner que sale con 127 → 'Tests failed', no 'sin runner' (T5b)" "$PYRUN_T5B_OK"
+_pyrun_report "pre-push-guard: runner que sale con 127 → 'Tests failed', no 'sin runner' (T5b)" "$PYRUN_T5B_OK"
 _pyrun_cleanup
 
 # T1 (CA-1): uv.lock + "uv" en el PATH → el hook invoca EXACTAMENTE
 # "uv run --frozen pytest" (D-02: --frozen nunca reescribe uv.lock durante el
-# commit) con cwd = directorio del marcador. Hay un .venv/bin/pytest y ningún
+# push) con cwd = directorio del marcador. Hay un .venv/bin/pytest y ningún
 # pytest en el PATH: el venv NO debe correr (prioridad uv > venv; este
 # negativo cobra dientes cuando aterriza el paso del venv).
 _pyrun_setup
@@ -3664,7 +3652,7 @@ if [ "$PYRUN_EXIT" -eq 0 ] \
   && [ ! -f "$PYRUN_MARK/venv.ran" ]; then
   PYRUN_T1_OK=0
 fi
-_pyrun_report "pre-commit-guard: uv.lock + uv en PATH → 'uv run --frozen pytest' en el directorio del marcador; el venv no corre (T1)" "$PYRUN_T1_OK"
+_pyrun_report "pre-push-guard: uv.lock + uv en PATH → 'uv run --frozen pytest' en el directorio del marcador; el venv no corre (T1)" "$PYRUN_T1_OK"
 _pyrun_cleanup
 
 # T2 / T2b (D-05): [tool.uv] o [tool.uv.<sub>] SIN uv.lock no es trigger de
@@ -3688,7 +3676,7 @@ for PYRUN_CASE in "T2|[tool.uv]" "T2b|[tool.uv.sources]"; do
     && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
     PYRUN_CASE_OK=0
   fi
-  _pyrun_report "pre-commit-guard: ${PYRUN_CASE#*|} en pyproject.toml sin uv.lock → bloquea pidiendo 'uv sync' sin invocar uv ni el pytest del PATH (${PYRUN_CASE%%|*})" "$PYRUN_CASE_OK"
+  _pyrun_report "pre-push-guard: ${PYRUN_CASE#*|} en pyproject.toml sin uv.lock → bloquea pidiendo 'uv sync' sin invocar uv ni el pytest del PATH (${PYRUN_CASE%%|*})" "$PYRUN_CASE_OK"
   _pyrun_cleanup
 done
 
@@ -3705,7 +3693,7 @@ if [ "$PYRUN_EXIT" -eq 0 ] \
   && [ ! -f "$PYRUN_MARK/uv.argv" ]; then
   PYRUN_T2D_OK=0
 fi
-_pyrun_report "pre-commit-guard: [tool.uv] sin uv.lock + .venv/bin/pytest → corre el venv, no invoca uv (T2d)" "$PYRUN_T2D_OK"
+_pyrun_report "pre-push-guard: [tool.uv] sin uv.lock + .venv/bin/pytest → corre el venv, no invoca uv (T2d)" "$PYRUN_T2D_OK"
 _pyrun_cleanup
 
 # T2c (CA-3, negativo del regex): [tool.uvicorn] NO es entorno declarado — el
@@ -3721,7 +3709,7 @@ PYRUN_T2C_OK=1
 if [ "$PYRUN_EXIT" -eq 0 ] && [ -f "$PYRUN_MARK/path.ran" ] && [ ! -f "$PYRUN_MARK/uv.argv" ]; then
   PYRUN_T2C_OK=0
 fi
-_pyrun_report "pre-commit-guard: [tool.uvicorn] no es entorno declarado → corre el pytest del PATH (T2c)" "$PYRUN_T2C_OK"
+_pyrun_report "pre-push-guard: [tool.uvicorn] no es entorno declarado → corre el pytest del PATH (T2c)" "$PYRUN_T2C_OK"
 _pyrun_cleanup
 
 # T3 (CA-2): .venv/bin/pytest sin uv (ni uv.lock ni "uv" en el PATH) y sin
@@ -3734,7 +3722,7 @@ PYRUN_T3_OK=1
 if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
   PYRUN_T3_OK=0
 fi
-_pyrun_report "pre-commit-guard: .venv/bin/pytest sin uv → corre el del venv en el directorio del marcador (T3)" "$PYRUN_T3_OK"
+_pyrun_report "pre-push-guard: .venv/bin/pytest sin uv → corre el del venv en el directorio del marcador (T3)" "$PYRUN_T3_OK"
 _pyrun_cleanup
 
 # T4 (CA-4): el venv local gana al "pytest" del PATH — un pytest global en un
@@ -3749,7 +3737,7 @@ PYRUN_T4_OK=1
 if [ "$PYRUN_EXIT" -eq 0 ] && [ -f "$PYRUN_MARK/venv.ran" ] && [ ! -f "$PYRUN_MARK/path.ran" ]; then
   PYRUN_T4_OK=0
 fi
-_pyrun_report "pre-commit-guard: .venv/bin/pytest gana al pytest del PATH (T4, pin)" "$PYRUN_T4_OK"
+_pyrun_report "pre-push-guard: .venv/bin/pytest gana al pytest del PATH (T4, pin)" "$PYRUN_T4_OK"
 _pyrun_cleanup
 
 # T8: venv de Windows / git-bash — solo .venv/Scripts/pytest.exe (sin
@@ -3762,7 +3750,7 @@ PYRUN_T8_OK=1
 if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
   PYRUN_T8_OK=0
 fi
-_pyrun_report "pre-commit-guard: .venv/Scripts/pytest.exe sin .venv/bin → corre ese pytest en el directorio del marcador (T8)" "$PYRUN_T8_OK"
+_pyrun_report "pre-push-guard: .venv/Scripts/pytest.exe sin .venv/bin → corre ese pytest en el directorio del marcador (T8)" "$PYRUN_T8_OK"
 _pyrun_cleanup
 
 # T9 (edge del brief): uv.lock declara uv pero "uv" no está en el PATH del
@@ -3778,13 +3766,13 @@ PYRUN_T9_OK=1
 if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
   PYRUN_T9_OK=0
 fi
-_pyrun_report "pre-commit-guard: uv.lock + uv fuera del PATH + .venv/bin/pytest → corre el venv, no intenta uv ni bloquea (T9, pin)" "$PYRUN_T9_OK"
+_pyrun_report "pre-push-guard: uv.lock + uv fuera del PATH + .venv/bin/pytest → corre el venv, no intenta uv ni bloquea (T9, pin)" "$PYRUN_T9_OK"
 _pyrun_cleanup
 
 # TA (D-04 A): uv.lock declara uv, "uv" no está en el PATH del hook y el
 # proyecto no tiene .venv con pytest → bloquea con la razón específica; el
 # "pytest" del PATH (intérprete equivocado para un proyecto uv) NO corre. Antes
-# de D-04 el hook caía al pytest global y el commit pasaba. Sin "Tests failed":
+# de D-04 el hook caía al pytest global y el push pasaa. Sin "Tests failed":
 # el bloqueo es por runner ausente, no por suite roja.
 _pyrun_setup
 _pyrun_assert_clean_path TA
@@ -3798,7 +3786,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
   PYRUN_TA_OK=0
 fi
-_pyrun_report "pre-commit-guard: uv.lock + uv fuera del PATH + sin venv con pytest → bloquea con razón específica y no corre el pytest del PATH (TA)" "$PYRUN_TA_OK"
+_pyrun_report "pre-push-guard: uv.lock + uv fuera del PATH + sin venv con pytest → bloquea con razón específica y no corre el pytest del PATH (TA)" "$PYRUN_TA_OK"
 _pyrun_cleanup
 
 # TB / TB2 (D-04 B): el proyecto tiene .venv/ pero sin pytest ejecutable → el
@@ -3822,7 +3810,7 @@ for PYRUN_CASE in "TB|.venv|.venv/ vacío" "TB2|.venv/bin/pytest|.venv/bin/pytes
     && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
     PYRUN_CASE_OK=0
   fi
-  _pyrun_report "pre-commit-guard: $PYRUN_DESC → bloquea con razón específica y no corre el pytest del PATH ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_report "pre-push-guard: $PYRUN_DESC → bloquea con razón específica y no corre el pytest del PATH ($PYRUN_ID)" "$PYRUN_CASE_OK"
   _pyrun_cleanup
 done
 
@@ -3843,7 +3831,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
   PYRUN_TB3_OK=0
 fi
-_pyrun_report "pre-commit-guard: .venv es un symlink roto → bloquea con razón específica y no corre el pytest del PATH (TB3)" "$PYRUN_TB3_OK"
+_pyrun_report "pre-push-guard: .venv es un symlink roto → bloquea con razón específica y no corre el pytest del PATH (TB3)" "$PYRUN_TB3_OK"
 _pyrun_cleanup
 
 # TP1 / TP2 (precedencia de razones, QA S-r2-1; PINES: nacen verdes): con un
@@ -3869,7 +3857,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && [ ! -f "$PYRUN_MARK/path.ran" ]; then
   PYRUN_TP1_OK=0
 fi
-_pyrun_report "pre-commit-guard: uv.lock + .venv/ vacío + uv fuera del PATH → la razón es la de uv, no la de .venv/ (TP1, pin)" "$PYRUN_TP1_OK"
+_pyrun_report "pre-push-guard: uv.lock + .venv/ vacío + uv fuera del PATH → la razón es la de uv, no la de .venv/ (TP1, pin)" "$PYRUN_TP1_OK"
 _pyrun_cleanup
 
 _pyrun_setup
@@ -3885,7 +3873,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && [ ! -f "$PYRUN_MARK/path.ran" ]; then
   PYRUN_TP2_OK=0
 fi
-_pyrun_report "pre-commit-guard: [tool.uv] sin uv.lock + .venv/ vacío → la razón es 'uv sync', no la de .venv/ (TP2, pin)" "$PYRUN_TP2_OK"
+_pyrun_report "pre-push-guard: [tool.uv] sin uv.lock + .venv/ vacío → la razón es 'uv sync', no la de .venv/ (TP2, pin)" "$PYRUN_TP2_OK"
 _pyrun_cleanup
 
 # TB4 (QA S-r2-1, PIN: nace verde): ".venv/Scripts/pytest.exe" es un DIRECTORIO
@@ -3907,13 +3895,13 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
   PYRUN_TB4_OK=0
 fi
-_pyrun_report "pre-commit-guard: .venv/Scripts/pytest.exe es un directorio (sin .venv/bin) → bloquea con razón específica y no corre el pytest del PATH (TB4, pin)" "$PYRUN_TB4_OK"
+_pyrun_report "pre-push-guard: .venv/Scripts/pytest.exe es un directorio (sin .venv/bin) → bloquea con razón específica y no corre el pytest del PATH (TB4, pin)" "$PYRUN_TB4_OK"
 _pyrun_cleanup
 
 # TD6a / TD6a' (D-06): un package.json SIN script "test" usable (ausente, o el
 # placeholder de "npm init") no tapa el marcador Python del mismo directorio:
 # se usa la rama Python y corre el venv. Antes el package.json ganaba, no
-# corría nada y el commit pasaba sin tests.
+# corría nada y el push pasaa sin tests.
 for PYRUN_CASE in "TD6a|none|sin scripts" "TD6a'|placeholder|con el placeholder de npm init"; do
   IFS='|' read -r PYRUN_ID PYRUN_PKG PYRUN_DESC <<< "$PYRUN_CASE"
   _pyrun_setup
@@ -3924,7 +3912,7 @@ for PYRUN_CASE in "TD6a|none|sin scripts" "TD6a'|placeholder|con el placeholder 
   if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
     PYRUN_CASE_OK=0
   fi
-  _pyrun_report "pre-commit-guard: package.json $PYRUN_DESC + pyproject.toml + .venv/bin/pytest → corre el venv ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_report "pre-push-guard: package.json $PYRUN_DESC + pyproject.toml + .venv/bin/pytest → corre el venv ($PYRUN_ID)" "$PYRUN_CASE_OK"
   _pyrun_cleanup
 done
 
@@ -3948,7 +3936,7 @@ for PYRUN_CASE in "TD6c-bool|bool|true" "TD6c-object|object|un objeto" "TD6c-num
     && [ ! -f "$PYRUN_MARK/node.ran" ]; then
     PYRUN_CASE_OK=0
   fi
-  _pyrun_report "pre-commit-guard: package.json con scripts.test = $PYRUN_DESC (no string) + pyproject.toml + .venv/bin/pytest → corre el venv, no npm ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_report "pre-push-guard: package.json con scripts.test = $PYRUN_DESC (no string) + pyproject.toml + .venv/bin/pytest → corre el venv, no npm ($PYRUN_ID)" "$PYRUN_CASE_OK"
   _pyrun_cleanup
 done
 
@@ -3966,7 +3954,7 @@ PYRUN_TD6D_OK=1
 if [ "$PYRUN_EXIT" -eq 0 ] && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ]; then
   PYRUN_TD6D_OK=0
 fi
-_pyrun_report "pre-commit-guard: package.json que no es JSON + pyproject.toml + .venv/bin/pytest → corre el venv (TD6d, pin)" "$PYRUN_TD6D_OK"
+_pyrun_report "pre-push-guard: package.json que no es JSON + pyproject.toml + .venv/bin/pytest → corre el venv (TD6d, pin)" "$PYRUN_TD6D_OK"
 _pyrun_cleanup
 
 # TJ (QA S-r2-3): un package.json que no es un objeto JSON válido, SIN marcador
@@ -4005,7 +3993,7 @@ for PYRUN_CASE in "TJ-texto|invalid|texto que no es JSON" "TJ-vacío|empty|archi
     && ! echo "$PYRUN_STDERR" | grep -qF "ilegible"; then
     PYRUN_CASE_OK=0
   fi
-  _pyrun_report "pre-commit-guard: package.json ($PYRUN_DESC) sin marcador Python → bloquea con razón propia, sin correr npm ni pytest ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_report "pre-push-guard: package.json ($PYRUN_DESC) sin marcador Python → bloquea con razón propia, sin correr npm ni pytest ($PYRUN_ID)" "$PYRUN_CASE_OK"
   _pyrun_cleanup
 done
 
@@ -4035,7 +4023,7 @@ for PYRUN_CASE in "TJ3-true|bool|true" "TJ3-false|false|false" "TJ3-objeto|objec
     && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed"; then
     PYRUN_CASE_OK=0
   fi
-  _pyrun_report "pre-commit-guard: package.json con scripts.test = $PYRUN_DESC (no string) sin marcador Python → bloquea con razón propia, sin correr npm ni pytest ($PYRUN_ID)" "$PYRUN_CASE_OK"
+  _pyrun_report "pre-push-guard: package.json con scripts.test = $PYRUN_DESC (no string) sin marcador Python → bloquea con razón propia, sin correr npm ni pytest ($PYRUN_ID)" "$PYRUN_CASE_OK"
   _pyrun_cleanup
 done
 
@@ -4058,7 +4046,7 @@ for PYRUN_CASE in "TJ3n-ausente|none|ausente" "TJ3n-null|null|null"; do
     && [ ! -f "$PYRUN_MARK/path.ran" ]; then
     PYRUN_CASE_OK=0
   fi
-  _pyrun_report "pre-commit-guard: package.json con scripts.test $PYRUN_DESC sin marcador Python → pasa sin correr nada, como en origin/dev ($PYRUN_ID, pin)" "$PYRUN_CASE_OK"
+  _pyrun_report "pre-push-guard: package.json con scripts.test $PYRUN_DESC sin marcador Python → pasa sin correr nada, como en origin/dev ($PYRUN_ID, pin)" "$PYRUN_CASE_OK"
   _pyrun_cleanup
 done
 
@@ -4078,12 +4066,12 @@ if [ "$PYRUN_EXIT" -eq 0 ] \
   && [ ! -f "$PYRUN_MARK/venv.ran" ]; then
   PYRUN_TD6B_OK=0
 fi
-_pyrun_report "pre-commit-guard: package.json con script test + pyproject.toml → corre solo el package manager (TD6b, pin)" "$PYRUN_TD6B_OK"
+_pyrun_report "pre-push-guard: package.json con script test + pyproject.toml → corre solo el package manager (TD6b, pin)" "$PYRUN_TD6B_OK"
 _pyrun_cleanup
 
 # TG (D-07): "grep" ausente del PATH → el hook bloquea (exit 2, "falta grep")
 # desde guard_init, antes de evaluar nada. Antes el hook salía 0 en silencio:
-# "! echo ... | grep -qE" invierte el 127 de un grep inexistente y el commit
+# "! echo ... | grep -qE" invierte el 127 de un grep inexistente y el push
 # pasaba sin correr tests. PATH = CLEAN sin el symlink a grep (la lista de
 # symlinks del setup no se duplica); hay pyproject + venv para probar que no
 # se resolvió ni corrió nada (venv.ran ausente).
@@ -4093,11 +4081,11 @@ _pyrun_make_venv bin 0
 _pyrun_run "$PYRUN_CLEAN_BIN"
 PYRUN_TG_OK=1
 if [ "$PYRUN_EXIT" -eq 2 ] \
-  && echo "$PYRUN_STDERR" | grep -qF "BLOCKED: pre-commit-guard no operativo: falta grep" \
+  && echo "$PYRUN_STDERR" | grep -qF "BLOCKED: pre-push-guard no operativo: falta grep" \
   && [ ! -f "$PYRUN_MARK/venv.ran" ]; then
   PYRUN_TG_OK=0
 fi
-_pyrun_report "pre-commit-guard: sin grep en el PATH → bloquea con 'no operativo: falta grep' antes de resolver nada (TG)" "$PYRUN_TG_OK"
+_pyrun_report "pre-push-guard: sin grep en el PATH → bloquea con 'no operativo: falta grep' antes de resolver nada (TG)" "$PYRUN_TG_OK"
 _pyrun_cleanup
 
 # T6 / T7 (CA-6): una suite roja bloquea sea cual sea el runner resuelto — uv
@@ -4117,7 +4105,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && echo "$PYRUN_STDERR" | grep -qF "Tests failed in: $PYRUN_DIR"; then
   PYRUN_T6_OK=0
 fi
-_pyrun_report "pre-commit-guard: suite roja vía uv (exit 1) → exit 2 con 'Tests failed in: <dir>' (T6, pin)" "$PYRUN_T6_OK"
+_pyrun_report "pre-push-guard: suite roja vía uv (exit 1) → exit 2 con 'Tests failed in: <dir>' (T6, pin)" "$PYRUN_T6_OK"
 _pyrun_cleanup
 
 _pyrun_setup
@@ -4129,7 +4117,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && echo "$PYRUN_STDERR" | grep -qF "Tests failed in: $PYRUN_DIR"; then
   PYRUN_T7_OK=0
 fi
-_pyrun_report "pre-commit-guard: suite roja vía venv (exit 1) → exit 2 con 'Tests failed in: <dir>' (T7, pin)" "$PYRUN_T7_OK"
+_pyrun_report "pre-push-guard: suite roja vía venv (exit 1) → exit 2 con 'Tests failed in: <dir>' (T7, pin)" "$PYRUN_T7_OK"
 _pyrun_cleanup
 
 # T10 (CA-5, #86): monorepo sin marcador en la raíz con dos directorios
@@ -4159,7 +4147,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed in:"; then
   PYRUN_T10_OK=0
 fi
-_pyrun_report "pre-commit-guard: monorepo con alpha/ sin runner y beta/ con venv → beta corre y exit 2 nombra solo alpha (T10, pin)" "$PYRUN_T10_OK"
+_pyrun_report "pre-push-guard: monorepo con alpha/ sin runner y beta/ con venv → beta corre y exit 2 nombra solo alpha (T10, pin)" "$PYRUN_T10_OK"
 _pyrun_cleanup
 
 # T10b (razón por directorio): dos directorios sin runner por razones
@@ -4181,7 +4169,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && echo "$PYRUN_STDERR" | grep -qF "en: $PYRUN_DIR/beta. Resuélvelo con una de:"; then
   PYRUN_T10B_OK=0
 fi
-_pyrun_report "pre-commit-guard: dos directorios sin runner por razones distintas → cada uno recibe su propia razón (T10b)" "$PYRUN_T10B_OK"
+_pyrun_report "pre-push-guard: dos directorios sin runner por razones distintas → cada uno recibe su propia razón (T10b)" "$PYRUN_T10B_OK"
 _pyrun_cleanup
 
 # T11: "uv run --frozen pytest" corre bajo el watchdog de
@@ -4210,7 +4198,7 @@ if [ "$PYRUN_EXIT" -eq 2 ] \
   && [ -z "$PYRUN_T11_ORPHAN" ]; then
   PYRUN_T11_OK=0
 fi
-_pyrun_report "pre-commit-guard: uv corre bajo el watchdog: PRECOMMIT_TEST_BUDGET=1 con uv de 5s bloquea sin proceso huérfano (T11, pin)" "$PYRUN_T11_OK"
+_pyrun_report "pre-push-guard: uv corre bajo el watchdog: PRECOMMIT_TEST_BUDGET=1 con uv de 5s bloquea sin proceso huérfano (T11, pin)" "$PYRUN_T11_OK"
 _pyrun_cleanup
 
 # --- pre-commit-guard.sh: extracto de la salida del runner en stderr ---
