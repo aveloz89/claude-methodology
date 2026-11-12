@@ -2234,10 +2234,13 @@ _sop_report "pre-push-guard (R2): HEAD sin commits (sin clave) corre la suite y 
 SOP_MK6=$(_sop_repo feature/suite)
 SOP_FAKEGIT=$(mktemp -d)
 SOP_REAL_GIT=$(command -v git)
+# Duración única por corrida (31.<pid>): el pgrep de abajo no ve el sleep de
+# otra suite concurrente en la misma máquina.
+SOP_SLEEP_DUR="31.$$"
 cat > "$SOP_FAKEGIT/git" <<SOP_FAKEGIT_EOF
 #!/bin/bash
 for a in "\$@"; do
-  if [ "\$a" = "diff" ]; then sleep 31; fi
+  if [ "\$a" = "diff" ]; then sleep $SOP_SLEEP_DUR; fi
 done
 exec "$SOP_REAL_GIT" "\$@"
 SOP_FAKEGIT_EOF
@@ -2248,7 +2251,7 @@ _sop_run "$SOP_MK6" "$SOP_PUSH_CMD" 0
 SOP_BIN="$SOP_SAVED_BIN"
 SOP_ELAPSED=$((SECONDS - SOP_T0))
 sleep 1
-SOP_SLEEP_ORPHAN=$(pgrep -f "sleep 31" || true)
+SOP_SLEEP_ORPHAN=$(pgrep -f "sleep $SOP_SLEEP_DUR" || true)
 _sop_report "pre-push-guard (R2): clave que supera el tope de 5 s corre la suite, termina (${SOP_ELAPSED}s), no deja marca ni sleep huérfano" \
   "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK6" ] && [ "$SOP_ELAPSED" -lt 25 ] && [ ! -e "$(_sop_mark "$SOP_MK6")" ] && [ -z "$SOP_SLEEP_ORPHAN" ]; echo $?)"
 rm -rf "$SOP_FAKEGIT"
@@ -2403,6 +2406,28 @@ for SOP_CMD in "git push origin :main" "git push --delete origin main" "git push
   _sop_run "$SOP_FEAT" "$SOP_CMD" 0
   _sop_report "pre-push-guard (R4): '$SOP_CMD' sigue bloqueando por main (la clasificación va después)" \
     "$([ "$SOP_EXIT" -eq 2 ] && echo "$SOP_STDERR" | grep -qF "No push directo a main"; echo $?)"
+done
+
+# Controles del trigger de la suite con el runner rojo: lo que menciona "push"
+# sin ser un git push no la corre; un git push detrás de un wrapper sí.
+for SOP_CMD in \
+  "git stash push" \
+  "git stash push -m wip" \
+  "git log --grep push" \
+  "git pull" \
+  "git pull origin feature/suite"; do
+  _sop_run "$SOP_FEAT" "$SOP_CMD" 1
+  _sop_report "pre-push-guard (trigger): '$SOP_CMD' no es un push, no corre la suite" \
+    "$([ "$SOP_EXIT" -eq 0 ] && [ -z "$SOP_RAN" ]; echo $?)"
+done
+for SOP_CMD in \
+  "env git push origin feature/suite" \
+  "nohup git push origin feature/suite" \
+  "timeout 5 git push origin feature/suite" \
+  "echo feature/suite | xargs git push origin"; do
+  _sop_run "$SOP_FEAT" "$SOP_CMD" 1
+  _sop_report "pre-push-guard (trigger): '$SOP_CMD' corre la suite (el runner rojo bloquea)" \
+    "$([ "$SOP_EXIT" -eq 2 ] && [ -n "$SOP_RAN" ]; echo $?)"
 done
 
 rm -rf "$SOP_OUT" "$SOP_BIN" "$SOP_FEAT" "$SOP_OTHER" "$SOP_MAIN" "$SOP_MERGE" "$SOP_SLOW_BIN" "$SOP_COMMIT_REPO"
@@ -3273,6 +3298,31 @@ _multiroot_setup
 git -C "$MULTIROOT_DIR" update-ref -d refs/remotes/origin/base
 _mr6_run
 _mr6_report "pre-push-guard (R6): sin ninguna ref remota y árbol limpio → corren todos los de primer nivel con marcador" si si
+_multiroot_cleanup
+
+# Un directorio de primer nivel con un carácter de control (ESC) en el nombre
+# no es candidato (fuera de [A-Za-z0-9._@+-]): su runner no corre y el nombre
+# crudo no llega al stderr. Los demás siguen corriendo.
+_multiroot_setup
+git -C "$MULTIROOT_DIR" update-ref -d refs/remotes/origin/base
+MR6_ESCDIR="$MULTIROOT_DIR/mal"$'\033'"[31mnombre"
+mkdir "$MR6_ESCDIR"
+cat > "$MR6_ESCDIR/package.json" <<EOF
+{ "name": "esc", "private": true, "scripts": { "test": "echo ran > $MULTIROOT_MARK/esc.ran && exit 1" } }
+EOF
+MR6_ESC_JSON=$(jq -n --arg cmd "$SUITE_PUSH_CMD" '{tool_input: {command: $cmd}}')
+MR6_ESC_EXIT=0
+MR6_ESC_STDERR=$(cd "$MULTIROOT_DIR" && echo "$MR6_ESC_JSON" | PATH="$MULTIROOT_FAKE_BIN:$PATH" bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || MR6_ESC_EXIT=$?
+TOTAL=$((TOTAL + 1))
+if [ "$MR6_ESC_EXIT" -eq 0 ] && [ ! -f "$MULTIROOT_MARK/esc.ran" ] \
+  && [ -f "$MULTIROOT_MARK/frontend.ran" ] && [ -f "$MULTIROOT_MARK/backend.ran" ] \
+  && ! printf '%s' "$MR6_ESC_STDERR" | grep -q $'\033'; then
+  echo -e "${GREEN}PASS${NC}: pre-push-guard (R6): directorio con ESC en el nombre no es candidato, no corre y no llega crudo al stderr"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-push-guard (R6): directorio con ESC en el nombre no es candidato, no corre y no llega crudo al stderr (exit=$MR6_ESC_EXIT, esc.ran=$( [ -f "$MULTIROOT_MARK/esc.ran" ] && echo si || echo no ), stderr=$(printf '%q' "$MR6_ESC_STDERR"))"
+  FAIL=$((FAIL + 1))
+fi
 _multiroot_cleanup
 
 # Todo en remoto y árbol limpio: no corre nada.

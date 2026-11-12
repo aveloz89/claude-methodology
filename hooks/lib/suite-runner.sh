@@ -106,6 +106,11 @@
 #   6. El fallback «todos los de primer nivel» no incluye directorios ocultos.
 #   7. Las refs remotas son las locales (`refs/remotes/*`): si están viejas, la
 #      derivación corre de más, nunca de menos.
+#   8. Un directorio de primer nivel con un carácter fuera de [A-Za-z0-9._@+-]
+#      en el nombre (espacio, ESC, CR, acentos) no es candidato: su runner no
+#      corre. Así el nombre crudo no llega al stderr del hook.
+#   9. La derivación (`git status`/`git log`) corre sin tope propio antes del
+#      watchdog; el margen medido es ~583 s contra el timeout de 600 s.
 #
 # Limitaciones aceptadas del runner Python:
 #   1. Workspace uv: uv.lock, [tool.uv…] y .venv se buscan SOLO en el
@@ -180,7 +185,9 @@ _guard_derive_runner_dirs() {
     done
   fi
 
-  all_segs=$(printf '%s\n%s\n' "$local_segs" "$pushed_segs" | grep . | sort -u)
+  # Solo segmentos de charset acotado: un nombre con ESC/CR/otros caracteres
+  # de control llegaría crudo al stderr (limitación 8 del encabezado).
+  all_segs=$(printf '%s\n%s\n' "$local_segs" "$pushed_segs" | grep -E '^[A-Za-z0-9._@+-]+$' | sort -u)
   [ -z "$all_segs" ] && return 0
 
   local candidates=()
