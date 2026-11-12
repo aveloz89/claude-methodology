@@ -499,6 +499,135 @@ _guard_run_suite_in() {
   return 0
 }
 
+# --- Marca de estado ya verificado (R2) ---
+# Tras una suite verde se guarda una clave del estado (HEAD, directorios que
+# corren, cambios trackeados y contenido de lo sin trackear) en
+# `git rev-parse --git-path methodology-suite-verified` (por worktree). Un push
+# en el mismo estado no repite la suite. Ante CUALQUIER duda (marca corrupta,
+# vacía, directorio o symlink; clave que no se puede calcular o que supera
+# GUARD_KEY_CAP s; repo sin marca) se corre la suite: la marca nunca puede
+# convertir un fallo en «pasa». No cubre archivos ignorados (.venv,
+# node_modules, .env), variables de entorno, PATH, servicios externos ni la
+# versión del runner, y es falsificable por quien escriba la marca a mano
+# (mismo modelo de amenaza que el resto: errores honestos). Salida: borrar la
+# marca o tocar cualquier archivo. Binarios: solo git, cat, mktemp, rm, sleep.
+GUARD_KEY_CAP=5
+GUARD_STATE_KEY=""
+GUARD_MARK=""
+
+# _guard_run_capped <segundos> <outfile> <cmd...>: corre el comando (función o
+# binario) en un job con grupo propio, stdout a <outfile> y stderr a
+# /dev/null; al vencer mata el grupo entero (TERM, 1 s, KILL) y devuelve 124;
+# si no, devuelve el rc del comando. Nunca hace "exit". El reloj es local: no
+# resetea SECONDS.
+_guard_run_capped() {
+  local cap="$1" outfile="$2" pgid_file start pid pgid rc
+  shift 2
+  pgid_file=$(mktemp) || return 1
+  start=$SECONDS
+  (
+    set -m
+    "$@" > "$outfile" 2>/dev/null &
+    echo "$!" > "$pgid_file"
+    wait "$!"
+  ) 2>/dev/null &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ $((SECONDS - start)) -ge "$cap" ]; then
+      pgid=$(cat "$pgid_file" 2>/dev/null)
+      if [ -n "$pgid" ]; then
+        kill -TERM -- "-$pgid" 2>/dev/null
+        sleep 1
+        kill -KILL -- "-$pgid" 2>/dev/null
+      fi
+      kill -KILL "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      rm -f "$pgid_file"
+      return 124
+    fi
+    sleep 0.1 2>/dev/null || sleep 1
+  done
+  wait "$pid" 2>/dev/null
+  rc=$?
+  rm -f "$pgid_file"
+  return "$rc"
+}
+
+# _guard_state_key: imprime la clave del estado y devuelve 0, o devuelve != 0
+# (cwd = target_dir). Se decide por el rc, NO por el hash: el hash final se
+# imprime igual con un paso fallido. Solo git (sin shasum/sha256sum); no
+# escribe objetos. Repo anidado sin trackear, symlink roto sin trackear y HEAD
+# sin commits hacen fallar un paso: sin clave.
+_guard_state_key() {
+  (
+    set -o pipefail
+    {
+      printf 'suite-on-push v1\n'
+      git rev-parse --verify -q 'HEAD^{commit}' || exit 1
+      printf 'dirs\n'
+      printf '%s\n' "${GUARD_RUN_DIRS[@]}"
+      printf 'status\n'
+      git status --porcelain=v1 --untracked-files=all --no-renames || exit 1
+      printf 'diff\n'
+      git diff --no-ext-diff --no-textconv --no-color --binary HEAD -- || exit 1
+      printf 'untracked\n'
+      git ls-files --others --exclude-standard | git hash-object --stdin-paths || exit 1
+    } 2>/dev/null | git hash-object --stdin
+  )
+}
+
+# _guard_mark_path <target_dir>: ruta de la marca (vacía fuera de un repo o si
+# git falla: sin marca se corre siempre y no se escribe nada).
+_guard_mark_path() {
+  local p
+  p=$(git rev-parse --git-path methodology-suite-verified 2>/dev/null) || return 0
+  [ -n "$p" ] || return 0
+  case "$p" in
+    /*|[A-Za-z]:*) printf '%s' "$p" ;;
+    *) printf '%s/%s' "$1" "$p" ;;
+  esac
+}
+
+# _guard_compute_state_key: deja en GUARD_STATE_KEY la clave, o vacía ante
+# cualquier duda (sin marca, rc != 0, tope vencido, salida que no es un hash).
+_guard_compute_state_key() {
+  local out rc key key_re='^([0-9a-f]{40}|[0-9a-f]{64})$'
+  GUARD_STATE_KEY=""
+  [ -n "$GUARD_MARK" ] || return 0
+  out=$(mktemp) || return 0
+  _guard_run_capped "$GUARD_KEY_CAP" "$out" _guard_state_key
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    key=$(cat "$out" 2>/dev/null)
+    if [[ "$key" =~ $key_re ]]; then
+      GUARD_STATE_KEY="$key"
+    fi
+  fi
+  rm -f "$out"
+  return 0
+}
+
+# _guard_mark_matches: verdadero solo con clave, marca archivo regular que no
+# es symlink y primera línea igual a la clave.
+_guard_mark_matches() {
+  local first=""
+  [ -n "$GUARD_STATE_KEY" ] && [ -n "$GUARD_MARK" ] || return 1
+  [ -f "$GUARD_MARK" ] && [ ! -L "$GUARD_MARK" ] || return 1
+  IFS= read -r first < "$GUARD_MARK" 2>/dev/null || [ -n "$first" ] || return 1
+  [ "$first" = "$GUARD_STATE_KEY" ]
+}
+
+# _guard_mark_write: guarda la clave calculada ANTES de la corrida (si el
+# árbol cambió durante la suite, el push siguiente ve otro estado y corre). Sin
+# mv: una escritura cortada deja una marca que no iguala ninguna clave. Nunca a
+# través de un symlink. Un fallo no cambia el exit ni imprime nada.
+_guard_mark_write() {
+  [ -n "$GUARD_STATE_KEY" ] && [ -n "$GUARD_MARK" ] || return 0
+  [ ! -L "$GUARD_MARK" ] || return 0
+  { printf '%s\n' "$GUARD_STATE_KEY" > "$GUARD_MARK"; } 2>/dev/null
+  return 0
+}
+
 # guard_suite_run <session_dir> <target_dir>: precondición cwd = target_dir y
 # GUARD_NAME seteado. Devuelve 0 (nada que correr, o todo verde) o hace
 # "exit 2" (suite roja, marcador Python sin runner, o tope vencido).
@@ -519,6 +648,16 @@ guard_suite_run() {
   fi
 
   if [ "${#GUARD_RUN_DIRS[@]}" -eq 0 ]; then
+    return 0
+  fi
+
+  # Marca de estado ya verificado: la clave se toma ANTES de correr.
+  local head_sha
+  GUARD_MARK=$(_guard_mark_path "$target_dir")
+  _guard_compute_state_key
+  if _guard_mark_matches; then
+    head_sha=$(git rev-parse --verify -q 'HEAD^{commit}' 2>/dev/null)
+    echo "${GUARD_NAME}: estado ya verificado (HEAD ${head_sha:0:7} y working tree sin cambios desde la última suite verde); no se repite la suite." >&2
     return 0
   fi
 
@@ -571,5 +710,6 @@ guard_suite_run() {
   if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ] || [ "${#GUARD_NO_RUNNER_DIRS[@]}" -gt 0 ]; then
     exit 2
   fi
+  _guard_mark_write
   return 0
 }

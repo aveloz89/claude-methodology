@@ -1896,6 +1896,7 @@ SOP_BIN=$(mktemp -d)
 cat > "$SOP_BIN/pytest" <<'SOP_PYTEST_EOF'
 #!/bin/bash
 pwd -P >> "$SOP_OUT/ran"
+if [ -n "${SOP_TOUCH:-}" ]; then echo x >> "$SOP_TOUCH"; fi
 if [ "${SOP_RC:-0}" -ne 0 ]; then
   echo "boom: fake suite failure"
 fi
@@ -1920,14 +1921,29 @@ _sop_repo() {
   printf '%s' "$dir"
 }
 
+# _sop_mark <dir>: ruta absoluta de la marca de estado verificado del árbol
+# <dir> (vacía si no es un repo). Por worktree: la ruta sale de git.
+_sop_mark() {
+  local p
+  p=$(cd "$1" 2>/dev/null && git rev-parse --git-path methodology-suite-verified 2>/dev/null) || return 0
+  case "$p" in
+    /*|[A-Za-z]:*) printf '%s' "$p" ;;
+    *) printf '%s/%s' "$1" "$p" ;;
+  esac
+}
+
 # _sop_run <repo> <comando> [<rc del runner>]: corre pre-push-guard.sh en
 # <repo>. Deja SOP_EXIT, SOP_STDERR y SOP_RAN (contenido de SOP_OUT/ran).
 _sop_run() {
-  local json
+  local json mark
   rm -f "$SOP_OUT/ran"
+  if [ -z "${SOP_KEEP_MARK:-}" ]; then
+    mark=$(_sop_mark "$1")
+    if [ -n "$mark" ]; then rm -rf "$mark"; fi
+  fi
   json=$(jq -n --arg cmd "$2" '{tool_input: {command: $cmd}}')
   SOP_EXIT=0
-  SOP_STDERR=$(cd "$1" && echo "$json" | SOP_OUT="$SOP_OUT" SOP_RC="${3:-0}" PATH="$SOP_BIN:$PATH" bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || SOP_EXIT=$?
+  SOP_STDERR=$(cd "$1" && echo "$json" | SOP_OUT="$SOP_OUT" SOP_RC="${3:-0}" SOP_TOUCH="${SOP_TOUCH:-}" PATH="$SOP_BIN:$PATH" bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || SOP_EXIT=$?
   SOP_RAN=""
   if [ -f "$SOP_OUT/ran" ]; then SOP_RAN=$(cat "$SOP_OUT/ran"); fi
 }
@@ -1953,6 +1969,7 @@ _sop_report "pre-push-guard: push con marcador y suite verde pasa y el runner co
 
 # Idem con cd /abs: el árbol resuelto es el del cd, no el de la sesión.
 SOP_OTHER=$(mktemp -d); SOP_OTHER=$(cd "$SOP_OTHER" && pwd -P)
+rm -rf "$(_sop_mark "$SOP_FEAT")" # el árbol resuelto es SOP_FEAT: su marca (del push anterior) saltaría la suite
 _sop_run "$SOP_OTHER" "cd $SOP_FEAT && $SOP_PUSH_CMD" 0
 _sop_report "pre-push-guard: 'cd <árbol> && git push' corre la suite en ese árbol (no en el cwd de la sesión)" \
   "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_FEAT" ]; echo $?)"
@@ -2072,6 +2089,182 @@ done
 _sop_run "$SOP_COMMIT_REPO" "$SOP_PUSH_CMD" 1
 _sop_report "git commit: control — el mismo sandbox con un push SÍ corre el runner y bloquea" \
   "$([ "$SOP_EXIT" -eq 2 ] && [ "$SOP_RAN" = "$SOP_COMMIT_REPO" ]; echo $?)"
+
+# --- suite-on-push (Lote 4, R2): marca de estado ya verificado ---
+# Con SOP_KEEP_MARK=1 _sop_run conserva la marca entre corridas. Tras una suite
+# verde, un push en el MISMO estado no la repite y lo dice; cualquier estado
+# distinto la corre; la suite roja no deja marca; la marca es por worktree.
+_sop_ran_count() { if [ -f "$SOP_OUT/ran" ]; then grep -c . "$SOP_OUT/ran"; else echo 0; fi; }
+SOP_KEEP_MARK=1
+SOP_MK=$(_sop_repo feature/suite)
+SOP_MKFILE=$(_sop_mark "$SOP_MK")
+_sop_run "$SOP_MK" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): la primera suite verde corre y deja una marca con una clave hexadecimal" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK" ] && [ -f "$SOP_MKFILE" ] && grep -qE '^([0-9a-f]{40}|[0-9a-f]{64})$' "$SOP_MKFILE"; echo $?)"
+_sop_run "$SOP_MK" "$SOP_PUSH_CMD" 1
+_sop_report "pre-push-guard (R2): el segundo push en el mismo estado no corre la suite (aunque el runner fallaría) y lo dice por stderr" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ -z "$SOP_RAN" ] \
+    && echo "$SOP_STDERR" | grep -qE "pre-push-guard: estado ya verificado \(HEAD [0-9a-f]{7} y working tree sin cambios desde la última suite verde\); no se repite la suite\."; echo $?)"
+# Estado distinto: commit nuevo.
+git -C "$SOP_MK" commit -q --allow-empty -m otro
+_sop_run "$SOP_MK" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): un commit nuevo (HEAD distinto) corre la suite" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK" ]; echo $?)"
+# Archivo trackeado editado.
+echo a > "$SOP_MK/t.txt"; git -C "$SOP_MK" add t.txt; git -C "$SOP_MK" commit -q -m t
+_sop_run "$SOP_MK" "$SOP_PUSH_CMD" 0
+echo b >> "$SOP_MK/t.txt"
+_sop_run "$SOP_MK" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): un archivo trackeado editado corre la suite" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK" ]; echo $?)"
+_sop_run "$SOP_MK" "$SOP_PUSH_CMD" 1
+_sop_report "pre-push-guard (R2): el mismo estado editado, ya verificado, no corre" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ -z "$SOP_RAN" ]; echo $?)"
+# Cambio en el index sin tocar el contenido del working tree (git add): mismo
+# contenido, distinto estado de stage -> corre.
+git -C "$SOP_MK" add t.txt
+_sop_run "$SOP_MK" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): stagear el cambio (status distinto) corre la suite" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK" ]; echo $?)"
+# Archivo sin trackear nuevo, y el mismo archivo con otro contenido.
+echo u1 > "$SOP_MK/u.txt"
+_sop_run "$SOP_MK" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): un archivo sin trackear nuevo corre la suite" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK" ]; echo $?)"
+echo u2 > "$SOP_MK/u.txt"
+_sop_run "$SOP_MK" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): el mismo archivo sin trackear con otro contenido corre la suite" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK" ]; echo $?)"
+# Directorios que corren: el mismo estado desde otro subdirectorio con marcador.
+mkdir -p "$SOP_MK/sub"; touch "$SOP_MK/sub/pyproject.toml"
+_sop_run "$SOP_MK" "$SOP_PUSH_CMD" 0
+_sop_run "$SOP_MK/sub" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): el mismo estado desde otro subdirectorio con marcador corre (otra lista de directorios)" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK/sub" ]; echo $?)"
+# El árbol cambia DURANTE la corrida (la suite deja un archivo): la clave se
+# tomó antes, así que el push siguiente ve otro estado y corre.
+SOP_TOUCH="$SOP_MK/artefacto.txt" _sop_run "$SOP_MK" "$SOP_PUSH_CMD" 0
+_sop_run "$SOP_MK" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): la clave se toma antes de la suite: un artefacto que la suite deja en el árbol hace que el push siguiente corra" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK" ]; echo $?)"
+_sop_run "$SOP_MK" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): estabilizado el árbol, el push siguiente ya no corre" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ -z "$SOP_RAN" ]; echo $?)"
+
+# Suite roja: no deja marca; tras arreglar, corre.
+SOP_MK2=$(_sop_repo feature/suite)
+_sop_run "$SOP_MK2" "$SOP_PUSH_CMD" 1
+_sop_report "pre-push-guard (R2): la suite roja bloquea y no deja marca" \
+  "$([ "$SOP_EXIT" -eq 2 ] && [ ! -e "$(_sop_mark "$SOP_MK2")" ]; echo $?)"
+_sop_run "$SOP_MK2" "$SOP_PUSH_CMD" 1
+_sop_report "pre-push-guard (R2): la suite roja vuelve a correr y bloquear en el mismo estado" \
+  "$([ "$SOP_EXIT" -eq 2 ] && [ "$SOP_RAN" = "$SOP_MK2" ]; echo $?)"
+_sop_run "$SOP_MK2" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): tras arreglar la suite, el mismo estado corre y pasa" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK2" ] && [ -f "$(_sop_mark "$SOP_MK2")" ]; echo $?)"
+
+# La marca es por worktree.
+SOP_MK_WT=$(mktemp -d); SOP_MK_WT=$(cd "$SOP_MK_WT" && pwd -P)
+git -C "$SOP_MK2" worktree add -q -b feature/wt2 "$SOP_MK_WT/wt" > /dev/null 2>&1
+_sop_run "$SOP_MK_WT/wt" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): la marca de un worktree no vale para el otro (el enlazado corre aunque el principal ya tenga marca)" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK_WT/wt" ] && [ -f "$(_sop_mark "$SOP_MK_WT/wt")" ] \
+     && [ "$(_sop_mark "$SOP_MK_WT/wt")" != "$(_sop_mark "$SOP_MK2")" ]; echo $?)"
+_sop_run "$SOP_MK_WT/wt" "$SOP_PUSH_CMD" 1
+_sop_report "pre-push-guard (R2): y el worktree enlazado sí salta con su propia marca" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ -z "$SOP_RAN" ]; echo $?)"
+
+# --- Ante cualquier duda con la marca se corre la suite ---
+SOP_MK3=$(_sop_repo feature/suite)
+SOP_MK3FILE=$(_sop_mark "$SOP_MK3")
+_sop_run "$SOP_MK3" "$SOP_PUSH_CMD" 0
+SOP_GOODKEY=$(cat "$SOP_MK3FILE")
+for SOP_BAD in "basura no hexadecimal" "" "0000000000000000000000000000000000000000" "${SOP_GOODKEY}x"; do
+  printf '%s\n' "$SOP_BAD" > "$SOP_MK3FILE"
+  _sop_run "$SOP_MK3" "$SOP_PUSH_CMD" 0
+  _sop_report "pre-push-guard (R2): marca '$(printf '%s' "$SOP_BAD" | head -c 20 | tr '\n' ' ')' (corrupta, vacía o de otra clave) corre la suite" \
+    "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK3" ]; echo $?)"
+done
+# Marca vacía de verdad (0 bytes).
+: > "$SOP_MK3FILE"
+_sop_run "$SOP_MK3" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): marca de 0 bytes corre la suite" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK3" ]; echo $?)"
+# Marca que es un directorio.
+rm -f "$SOP_MK3FILE"; mkdir "$SOP_MK3FILE"
+_sop_run "$SOP_MK3" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): marca que es un directorio corre la suite y sale 0" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK3" ] && [ -d "$SOP_MK3FILE" ]; echo $?)"
+rmdir "$SOP_MK3FILE"
+# Marca symlink con la clave correcta: no se lee ni se escribe a través de él.
+SOP_SYM_TARGET=$(mktemp)
+_sop_run "$SOP_MK3" "$SOP_PUSH_CMD" 0
+cp "$SOP_MK3FILE" "$SOP_SYM_TARGET"
+SOP_SYM_BEFORE=$(cat "$SOP_SYM_TARGET")
+rm -f "$SOP_MK3FILE"; ln -s "$SOP_SYM_TARGET" "$SOP_MK3FILE"
+_sop_run "$SOP_MK3" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): marca symlink con la clave correcta corre la suite (no se lee a través del symlink)" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK3" ]; echo $?)"
+printf 'otra cosa\n' > "$SOP_SYM_TARGET"
+_sop_run "$SOP_MK3" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): la marca nunca se escribe a través de un symlink (el destino no cambia y sigue siendo symlink)" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$(cat "$SOP_SYM_TARGET")" = "otra cosa" ] && [ -L "$SOP_MK3FILE" ]; echo $?)"
+rm -f "$SOP_MK3FILE" "$SOP_SYM_TARGET"
+
+# Clave que no se puede calcular: un repo anidado sin trackear hace fallar
+# hash-object (el pipeline imprime igual un hash: manda el rc). Corre y no deja marca.
+SOP_MK4=$(_sop_repo feature/suite)
+mkdir "$SOP_MK4/anidado"
+(cd "$SOP_MK4/anidado" && git init -q && git config user.email s@example.com && git config user.name S && echo x > f && git add f && git commit -q -m n) > /dev/null 2>&1
+_sop_run "$SOP_MK4" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): clave que no se puede calcular (repo anidado sin trackear) corre la suite y no deja marca" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK4" ] && [ ! -e "$(_sop_mark "$SOP_MK4")" ]; echo $?)"
+_sop_run "$SOP_MK4" "$SOP_PUSH_CMD" 1
+_sop_report "pre-push-guard (R2): sin clave, el siguiente push vuelve a correr la suite" \
+  "$([ "$SOP_EXIT" -eq 2 ] && [ "$SOP_RAN" = "$SOP_MK4" ]; echo $?)"
+# HEAD sin commits: sin clave, corre.
+SOP_MK5=$(mktemp -d); SOP_MK5=$(cd "$SOP_MK5" && pwd -P)
+(cd "$SOP_MK5" && git init -q -b feature/suite && touch pyproject.toml) > /dev/null 2>&1
+_sop_run "$SOP_MK5" "$SOP_PUSH_CMD" 0
+_sop_report "pre-push-guard (R2): HEAD sin commits (sin clave) corre la suite y no deja marca" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK5" ] && [ ! -e "$(_sop_mark "$SOP_MK5")" ]; echo $?)"
+
+# Clave que supera el tope de 5 s: un git falso duerme en "diff" y delega el
+# resto. Corre la suite igual, el hook termina y no deja el sleep huérfano.
+SOP_MK6=$(_sop_repo feature/suite)
+SOP_FAKEGIT=$(mktemp -d)
+SOP_REAL_GIT=$(command -v git)
+cat > "$SOP_FAKEGIT/git" <<SOP_FAKEGIT_EOF
+#!/bin/bash
+for a in "\$@"; do
+  if [ "\$a" = "diff" ]; then sleep 31; fi
+done
+exec "$SOP_REAL_GIT" "\$@"
+SOP_FAKEGIT_EOF
+chmod +x "$SOP_FAKEGIT/git"
+SOP_T0=$SECONDS
+SOP_SAVED_BIN="$SOP_BIN"; SOP_BIN="$SOP_FAKEGIT:$SOP_BIN"
+_sop_run "$SOP_MK6" "$SOP_PUSH_CMD" 0
+SOP_BIN="$SOP_SAVED_BIN"
+SOP_ELAPSED=$((SECONDS - SOP_T0))
+sleep 1
+SOP_SLEEP_ORPHAN=$(pgrep -f "sleep 31" || true)
+_sop_report "pre-push-guard (R2): clave que supera el tope de 5 s corre la suite, termina (${SOP_ELAPSED}s), no deja marca ni sleep huérfano" \
+  "$([ "$SOP_EXIT" -eq 0 ] && [ "$SOP_RAN" = "$SOP_MK6" ] && [ "$SOP_ELAPSED" -lt 25 ] && [ ! -e "$(_sop_mark "$SOP_MK6")" ] && [ -z "$SOP_SLEEP_ORPHAN" ]; echo $?)"
+rm -rf "$SOP_FAKEGIT"
+
+# Marca que no se puede escribir (.git sin permiso de escritura): la suite
+# verde sale 0 igual y no se imprime nada de más.
+SOP_MK7=$(_sop_repo feature/suite)
+chmod a-w "$SOP_MK7/.git"
+_sop_run "$SOP_MK7" "$SOP_PUSH_CMD" 0
+SOP_RO_EXIT=$SOP_EXIT; SOP_RO_RAN=$SOP_RAN
+chmod u+w "$SOP_MK7/.git"
+_sop_report "pre-push-guard (R2): una marca que no se puede escribir no cambia el exit de una suite verde" \
+  "$([ "$SOP_RO_EXIT" -eq 0 ] && [ "$SOP_RO_RAN" = "$SOP_MK7" ] && [ ! -e "$(_sop_mark "$SOP_MK7")" ]; echo $?)"
+SOP_KEEP_MARK=""
+
+rm -rf "$SOP_MK" "$SOP_MK2" "$SOP_MK3" "$SOP_MK4" "$SOP_MK5" "$SOP_MK6" "$SOP_MK7" "$SOP_MK_WT"
 
 # --- suite-on-push (Lote 4, R4): borrado y solo-tags no corren la suite ---
 # Tabla SKIP/SUITE de la sección 2.2 del diseño, tal cual. SKIP: exit 0, el
@@ -7645,6 +7838,21 @@ else
   echo "$REPO_GUARD_STATUS_BEFORE"
   echo "  status después:"
   echo "$REPO_GUARD_STATUS_AFTER"
+  FAIL=$((FAIL + 1))
+fi
+
+echo ""
+
+# --- Guard de no-contaminación (R2): el repo real no gana una marca ---
+# El repo real no tiene marcador de runner, así que la marca ni se intenta.
+TOTAL=$((TOTAL + 1))
+REPO_GUARD_MARK=$(git -C "$REPO_ROOT" rev-parse --git-path methodology-suite-verified)
+case "$REPO_GUARD_MARK" in /*|[A-Za-z]:*) ;; *) REPO_GUARD_MARK="$REPO_ROOT/$REPO_GUARD_MARK" ;; esac
+if [ ! -e "$REPO_GUARD_MARK" ] && [ ! -L "$REPO_GUARD_MARK" ]; then
+  echo -e "${GREEN}PASS${NC}: la suite no dejó una marca de estado verificado en el repo real"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: la suite dejó $REPO_GUARD_MARK en el repo real — un test corrió el guard de push contra el repo real"
   FAIL=$((FAIL + 1))
 fi
 
