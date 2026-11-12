@@ -2380,6 +2380,52 @@ for SOP_CMD in \
   _sop_report "pre-push-guard (R4 tags publicados): '$SOP_CMD' en un repo con otros tags sin publicar sigue en SKIP" \
     "$([ "$SOP_EXIT" -eq 0 ] && [ -z "$SOP_RAN" ]; echo $?)"
 done
+# TOCTOU (security HIGH, ronda 2): el hook evalúa ANTES de que corra la línea,
+# así que un comando previo (o posterior) en la misma cadena puede mover un tag
+# sobre un commit sin publicar. El SKIP vale solo si todo el comando saneado
+# (salvo el «cd /abs &&» resuelto) son segmentos «git push» reconocidos. Repo con
+# todos los tags publicados y un commit sin publicar en HEAD.
+SOP_CHAIN=$(_sop_tag_repo)
+(
+  cd "$SOP_CHAIN" || exit 1
+  git tag pub
+  echo y > nuevo2.txt
+  git add -A
+  git commit -q -m "sin publicar"
+) > /dev/null 2>&1
+for SOP_CMD in \
+  "git tag v2 && git push --tags" \
+  'git tag -a v2 -m "release" && git push origin --tags' \
+  "git commit -m fix && git tag v2 && git push origin --tags" \
+  "git tag -f pub && git push origin tag pub" \
+  "git tag -f pub HEAD && git push origin refs/tags/pub" \
+  "git update-ref refs/tags/pub HEAD && git push origin tag pub" \
+  "git tag -d pub && git tag pub && git push origin tag pub" \
+  "git tag v2; git push --tags" \
+  "$(printf 'git tag v2\n git push --tags')" \
+  "echo x && git push origin --delete feature/old" \
+  "git push --tags && echo ok" \
+  "git push --tags || echo ok" \
+  "echo x | git push --tags" \
+  "git push --tags & echo ok" \
+  "cd $SOP_CHAIN && git tag v2 && git push --tags"; do
+  _sop_run "$SOP_CHAIN" "$SOP_CMD" 1
+  _sop_report "pre-push-guard (R4 cadena): '$SOP_CMD' corre la suite y bloquea" \
+    "$([ "$SOP_EXIT" -eq 2 ] && [ -n "$SOP_RAN" ] \
+      && echo "$SOP_STDERR" | grep -qF "Tests failed in"; echo $?)"
+done
+for SOP_CMD in \
+  "git push origin tag pub" \
+  "git push origin --delete feature/old" \
+  "git push --tags 2>&1" \
+  "git push --tags" \
+  "cd $SOP_CHAIN && git push --tags"; do
+  _sop_run "$SOP_CHAIN" "$SOP_CMD" 1
+  _sop_report "pre-push-guard (R4 cadena): '$SOP_CMD' solo, con tags publicados, sigue en SKIP" \
+    "$([ "$SOP_EXIT" -eq 0 ] && [ -z "$SOP_RAN" ]; echo $?)"
+done
+rm -rf "$SOP_CHAIN"
+
 # rev-list que falla: no se puede probar que el tag esté publicado, corre la suite.
 SOP_RLFAIL=$(mktemp -d)
 SOP_REAL_GIT=$(command -v git)

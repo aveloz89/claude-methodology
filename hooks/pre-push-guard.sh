@@ -185,7 +185,11 @@ fi
 # bloqueos de main (un borrado de main sigue bloqueando) y es una lista
 # cerrada: solo clasifica un "git push" pelado (sin wrapper, prefijo de
 # entorno ni opciones de git) con tokens de un charset acotado; todo lo que no
-# se reconoce corre la suite. Tabla SKIP/SUITE: DESIGN 2.2 y los tests.
+# se reconoce corre la suite. Además el SKIP (borrado o solo-tags) solo vale si
+# el `git push` viene SOLO en su llamada (_ppg_only_push_segments): el hook
+# evalúa antes de que se ejecute la línea, y un `git tag`/`update-ref`
+# anterior puede mover un tag sobre un commit sin publicar. Con cualquier otro
+# comando en la cadena corre la suite. Tabla SKIP/SUITE: DESIGN 2.2 y los tests.
 PPG_PLAIN_PUSH_RE='^(&&|\|\||;|\||&|\(|\{)?[[:space:]]*git[[:space:]]+push([[:space:]]+(.*))?$'
 PPG_REDIR_RE='^([0-9]?>&[0-9]|[0-9]?>>?/dev/null|&>/dev/null)$'
 PPG_TOKEN_RE='^[A-Za-z0-9._/:+@-]+$'
@@ -281,7 +285,29 @@ _ppg_tags_unpublished() {
   return 1
 }
 
-if ! _ppg_push_needs_suite "$PUSH_SEGMENTS" && ! _ppg_tags_unpublished; then
+# _ppg_only_push_segments: 0 si el comando saneado, aparte del prefijo
+# "cd /ruta/absoluta &&" que el guard ya resolvió y de los separadores, se
+# compone ÚNICAMENTE de los segmentos "git push" de PUSH_SEGMENTS (las
+# redirecciones del propio push van dentro del segmento). El hook evalúa ANTES
+# de que corra la línea: "git tag v2 && git push --tags" se clasificaría con el
+# estado previo al "git tag". Cualquier otro comando (antes o después, unido por
+# && ; || | & newline, subshell o sustitución) deja el resto no vacío → 1.
+_ppg_only_push_segments() {
+  local rest="$SANITIZED_COMMAND" seg
+  local sep='[[:space:]&|;(){}]' # en variable: bash 3.2 rompe el "}" dentro de ${//[...]/}
+  if [[ "$COMMAND" =~ ^cd[[:blank:]]+/[A-Za-z0-9_./-]*[[:blank:]]*\&\& ]]; then
+    [[ "$rest" =~ ^[[:space:]]*cd[[:space:]]+/[A-Za-z0-9_./-]*[[:space:]]*(\&\&.*)$ ]] || return 1
+    rest="${BASH_REMATCH[1]}"
+  fi
+  while IFS= read -r seg; do
+    [ -z "$seg" ] && continue
+    rest="${rest//"$seg"/}"
+  done <<< "$PUSH_SEGMENTS"
+  rest="${rest//$sep/}"
+  [ -z "$rest" ]
+}
+
+if _ppg_only_push_segments && ! _ppg_push_needs_suite "$PUSH_SEGMENTS" && ! _ppg_tags_unpublished; then
   echo "pre-push-guard: el push solo borra refs o sube tags; no corre la suite." >&2
   exit 0
 fi
