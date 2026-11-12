@@ -412,6 +412,20 @@ assert_contains "$README" "### Skills (4)" \
   "README cuenta 4 skills"
 assert_contains "$README" "orchestrator/" \
   "README (árbol) lista skills/orchestrator/"
+assert_contains "$README" "Es el único hook que corre tests" \
+  "README: la fila de pre-push-guard dice que es el único hook que corre tests"
+assert_contains "$README" "nombre es histórico" \
+  "README: PRECOMMIT_TEST_BUDGET se documenta como nombre histórico"
+assert_contains "$README" "methodology-suite-verified" \
+  "README: documenta la marca de estado verificado"
+assert_contains "$README" "El push de solo documentación no se exime" \
+  "README: documenta que el push de solo docs no se exime de la suite"
+assert_contains "$README" "│   │   └── suite-runner.sh" \
+  "README (árbol) lista hooks/lib/suite-runner.sh"
+assert_contains "$README" "los 3 guards de git" \
+  "README: son 3 guards de git sin if"
+assert_not_contains "$README" "pre-commit-guard" \
+  "README ya no nombra el guard eliminado"
 
 MARKETPLACE_DESC=$(jq -r '.plugins[0].description' "$MARKETPLACE_JSON")
 TOTAL=$((TOTAL + 1))
