@@ -36,7 +36,7 @@ guard_init "block-force-push"
 # sesión no es la del árbol al que va el push. "-C", "--git-dir" y "GIT_DIR="
 # siguen bloqueados por pre-push-guard.sh.
 CD_PUSHD_RE="${GUARD_ANCHOR}(cd|pushd)(\\s|;|&&|\$)"
-#
+
 # guard_raw_push_has_quote: 0 si algún trozo del comando CRUDO que es un "git
 # push" lleva una comilla, una barra invertida o un "$". No depende del ancla
 # literal "git" sobre el texto crudo (g''it, g\it o "git" partido por una
