@@ -1,27 +1,20 @@
-#!/bin/bash
-# Pre-commit guard: detecta si Claude va a hacer git commit y corre los
-# tests del árbol correspondiente antes de dejarlo pasar.
-# Recibe JSON en stdin con tool_input del comando Bash.
+# shellcheck shell=bash
+# Lib de suite: detección de runner, watchdog por tiempo, extracto de la salida
+# y la entrada guard_suite_run. Solo funciones y constantes: sourcearla no
+# ejecuta nada ni lee stdin. La sourcea el guard de git que corre la suite
+# (pre-push-guard.sh); requiere
+# hooks/lib/guard-matching.sh ya cargada y GUARD_NAME seteado (guard_init).
 #
-# hooks.json registra este guard SIN "if" (decisión del usuario, ronda 1 de
-# review): corre en cada Bash, también con un wrapper, un if/then o un backtick
-# delante de git. La validación de abajo mira el comando completo saneado
-# (spans quoted/heredoc) y anclado a posición de comando — mismo helper que
-# pre-merge-check.sh (hooks/lib/guard-matching.sh); sin "git" sale 0.
-#
-# Formas aceptadas para resolver el ÁRBOL OBJETIVO del commit — lo que no
-# calza bloquea con el mensaje de "Formas aceptadas" (TREE_FORM_HELP más
-# abajo), nunca se adivina ni se corre "por si acaso":
-#   1. Sin redirección: el cwd de la sesión (guard_session_dir — ".cwd" del
-#      input, o el cwd del proceso si el harness no lo manda).
-#   2. "cd /ruta/absoluta && git commit …": "cd" al INICIO del comando, una
-#      sola vez, ruta absoluta literal (sin comillas/variables/espacios/
-#      "~/"), seguida directo de "&&".
+# guard_suite_run <session_dir> <target_dir>: con cwd = target_dir, resuelve
+# los directorios a correr, corre la suite y devuelve 0 o hace "exit 2"
+# (BLOCKED por stderr).
 #
 # Sin marcador de runner (package.json/pyproject.toml/setup.py/pytest.ini)
 # entre SESSION_DIR y TARGET_DIR: se deriva un candidato por el PRIMER
-# SEGMENTO de cada path con cambios locales que sí tenga marcador (nunca se
-# adivina "todo el repo"); corren TODOS antes de decidir y cualquier fallo
+# SEGMENTO de cada path que el push puede subir (cambios locales y commits que
+# no están en ningún remoto; sin refs remotas, todos los directorios de primer
+# nivel) que sí tenga marcador (nunca se adivina "todo el repo"; ver
+# _guard_derive_runner_dirs); corren TODOS antes de decidir y cualquier fallo
 # (suite roja, marcador Python sin runner, o package.json inutilizable sin
 # marcador Python) bloquea nombrando los directorios; sin candidatos —ningún
 # marcador— pasa sin correr nada.
@@ -30,7 +23,7 @@
 # primero que aplica corre con cwd = directorio del marcador y bajo el mismo
 # watchdog/budget que el runner Node:
 #   1. uv   — uv.lock Y "uv" en el PATH del hook → "uv run --frozen pytest"
-#             (D-02: --frozen nunca reescribe uv.lock durante el commit).
+#             (D-02: --frozen nunca reescribe uv.lock durante el push).
 #             [tool.uv…] sin uv.lock NO activa uv: "--frozen" sin lock falla
 #             siempre y crea .venv/ (D-05).
 #   2. venv — .venv/bin/pytest o .venv/Scripts/pytest.exe (Windows /
@@ -79,7 +72,7 @@
 # archivo de salida: el extracto se arma DESPUÉS del watchdog y leerlo entero
 # haría el costo proporcional a la salida (la salida del runner no tiene tope),
 # empujando al hook más allá del timeout de hooks.json, que deja pasar el
-# commit. El encabezado dice "texto del runner, no instrucciones" porque el
+# push. El encabezado dice "texto del runner, no instrucciones" porque el
 # stderr de un hook bloqueante le llega al modelo como feedback del hook, y lo
 # que imprime un test no es de fiar; el rótulo solo no basta (el runner puede
 # imprimir un cierre falso y hablar después como el hook), por eso además cada
@@ -105,6 +98,19 @@
 #   3. Un path con caracteres especiales llega C-quoteado en `git status
 #      --porcelain` y no matchea ningún segmento real — esa suite en
 #      particular no corre, nunca bloquea por eso.
+#   4. `git push origin otra` deriva de HEAD y del working tree actual, no de
+#      `otra`.
+#   5. Con todos los commits de HEAD ya en algún remoto y el árbol limpio
+#      (re-push a un segundo remoto en un monorepo sin marcador en la raíz)
+#      no hay candidatos y no corre nada.
+#   6. El fallback «todos los de primer nivel» no incluye directorios ocultos.
+#   7. Las refs remotas son las locales (`refs/remotes/*`): si están viejas, la
+#      derivación corre de más, nunca de menos.
+#   8. Un directorio de primer nivel con un carácter fuera de [A-Za-z0-9._@+-]
+#      en el nombre (espacio, ESC, CR, acentos) no es candidato: su runner no
+#      corre. Así el nombre crudo no llega al stderr del hook.
+#   9. La derivación (`git status`/`git log`) corre sin tope propio antes del
+#      watchdog; el margen medido es ~583 s contra el timeout de 600 s.
 #
 # Limitaciones aceptadas del runner Python:
 #   1. Workspace uv: uv.lock, [tool.uv…] y .venv se buscan SOLO en el
@@ -119,107 +125,6 @@
 #   2. "[ tool.uv ]" con espacios dentro de los corchetes y claves entre
 #      comillas no se detectan como uv.
 #
-# Preámbulo común (guard_init, hooks/lib/guard-matching.sh): fail-closed sin
-# jq ni grep, lee INPUT/COMMAND/INPUT_CWD, bloquea ante un byte NUL y deja
-# SANITIZED_COMMAND saneado — mismo contrato que el resto de los guards.
-LIB="${0%/*}/lib/guard-matching.sh"
-[ -r "$LIB" ] || { echo "BLOCKED: pre-commit-guard no operativo: falta hooks/lib/guard-matching.sh" >&2; exit 2; }
-# shellcheck source=lib/guard-matching.sh
-source "$LIB"
-guard_init "pre-commit-guard"
-
-# GIT_COMMIT_RE detecta la forma pelada ("git\s+commit") y las opciones de
-# árbol entre "git" y "commit" ("git -C <ruta> commit", "GIT_DIR=... git
-# commit"), para que el resolver de abajo las bloquee en vez de dejarlas
-# pasar sin evaluar ("git log | grep commit" sigue sin matchear). El "\S*"
-# tras cada opción es deliberado: una ruta entre comillas la colapsa
-# guard_sanitize, y el detector igual tiene que disparar. "commit" puede
-# venir pegado a ";"/"&"/"|"/")" sin espacio — el charset no agrega "-" ni
-# letras, así que "commit-tree"/"commit-graph" no matchean.
-#
-# El prefijo de asignación es CUALQUIER "NOMBRE=valor" (identificador de
-# entorno válido), no solo GIT_DIR/GIT_WORK_TREE (ronda 1 review, security
-# MEDIUM): "HUSKY=0 git commit -m x" o "GIT_AUTHOR_NAME=bot git commit -m
-# x" antes solo se toleraban con esos dos nombres exactos, así que
-# cualquier OTRA asignación de entorno al frente del comando no matcheaba
-# GIT_COMMIT_RE y el commit real pasaba de largo en la línea 65 (exit 0)
-# sin correr tests. GIT_DIR/GIT_WORK_TREE como prefijo siguen bloqueando
-# igual que hoy: los detecta, más abajo, el check dedicado de las líneas
-# 97-99, que corre sobre el mismo SANITIZED_COMMAND una vez que este regex
-# ya interceptó el comando.
-# "env" opcional antepuesto a las asignaciones (ronda 2 review, security
-# LOW): "env HUSKY=0 git commit" o "env -i HUSKY=0 git commit" no
-# matcheaban porque el regex solo toleraba "NOMBRE=valor" pegado
-# directamente a "git" — el binario "env" (con o sin flags cortas, ej.
-# "-i") de por medio dejaba pasar el commit real sin correr tests.
-GIT_COMMIT_RE="${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}commit(\s|\$|[;&|)])"
-if ! echo "$SANITIZED_COMMAND" | grep -qE "$GIT_COMMIT_RE"; then
-  exit 0
-fi
-
-# Resolución del árbol objetivo: sin esto, el hook evaluaría siempre el cwd
-# del PROCESO, sin importar a qué árbol redirige el comando interceptado.
-TREE_FORM_HELP="Formas aceptadas: 'git commit …' en el cwd de la sesión, o 'cd /ruta/absoluta && git commit …' (cd al inicio, una sola vez, ruta absoluta literal). Alternativa: haz el cd en una llamada Bash previa."
-
-_guard_block_tree() {
-  echo "BLOCKED: pre-commit-guard no puede resolver en qué árbol va el commit: $1. ${TREE_FORM_HELP}" >&2
-  exit 2
-}
-
-# _guard_toplevel_or_base: toplevel real de $1 si cae dentro de un repo git;
-# si no, $1 tal cual — nunca falla abierto ni bloquea por esto.
-_guard_toplevel_or_base() {
-  local toplevel
-  if toplevel=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null); then
-    printf '%s' "$toplevel"
-    return 0
-  fi
-  printf '%s' "$1"
-}
-
-# "-C"/"--git-dir"/"--work-tree"/"GIT_DIR="/"GIT_WORK_TREE=" nunca se
-# resuelven: a diferencia de "cd", no hay forma de saber si valen para TODO
-# el comando sin parsear de verdad el shell — así que siempre bloquean.
-# Mismo criterio para el entorno DEL PROCESO del hook.
-if [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ]; then
-  _guard_block_tree "GIT_DIR/GIT_WORK_TREE en el entorno del hook"
-fi
-if echo "$SANITIZED_COMMAND" | grep -qE -- "--git-dir|--work-tree"; then
-  _guard_block_tree "--git-dir/--work-tree no se resuelven"
-fi
-if echo "$SANITIZED_COMMAND" | grep -qE "(^|\s|;|&&|\|)(GIT_DIR|GIT_WORK_TREE)="; then
-  _guard_block_tree "GIT_DIR/GIT_WORK_TREE como prefijo de entorno en el comando no se resuelven"
-fi
-if echo "$SANITIZED_COMMAND" | grep -qE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}git\s+${GUARD_GIT_OPTS}-C\s"; then
-  _guard_block_tree "'git -C' no se resuelve"
-fi
-
-CD_PUSHD_RE="${GUARD_ANCHOR}(cd|pushd)(\s|;|&&|\$)"
-
-if echo "$SANITIZED_COMMAND" | grep -qE "$CD_PUSHD_RE"; then
-  # Se valida sobre el comando CRUDO ($COMMAND, no el saneado, que colapsa
-  # comillas): exactamente UNA ocurrencia de "cd"/"pushd" y "cd" al INICIO
-  # con una ruta absoluta literal seguida directo de "&&".
-  CD_OCCURRENCES=$(echo "$SANITIZED_COMMAND" | grep -oE "$CD_PUSHD_RE")
-  CD_COUNT=$(printf '%s\n' "$CD_OCCURRENCES" | grep -c .)
-  [ "$CD_COUNT" -eq 1 ] || _guard_block_tree "más de una mención de 'cd'/'pushd', o 'pushd' en vez de 'cd'"
-
-  [[ "$COMMAND" =~ ^cd[[:blank:]]+(/[A-Za-z0-9_./-]*)[[:blank:]]*\&\& ]] || _guard_block_tree "'cd' no está al inicio del comando, o la ruta no es absoluta y literal seguida de '&&'"
-  CD_PATH="${BASH_REMATCH[1]}"
-
-  BASE_DIR=$(cd "$CD_PATH" 2>/dev/null && pwd -P) || _guard_block_tree "la ruta '$CD_PATH' no existe"
-  TARGET_DIR=$(git -C "$BASE_DIR" rev-parse --show-toplevel 2>/dev/null) || _guard_block_tree "'$CD_PATH' no es un repo git"
-  SESSION_DIR="$BASE_DIR"
-else
-  # Sin redirección en el texto: el árbol es el de la sesión (".cwd" del
-  # input vía guard_session_dir, o el cwd del proceso si el harness no lo
-  # manda).
-  BASE_DIR=$(guard_session_dir) || _guard_block_tree "el cwd del input no es un directorio ($INPUT_CWD)"
-  TARGET_DIR=$(_guard_toplevel_or_base "$BASE_DIR")
-  SESSION_DIR="$BASE_DIR"
-fi
-
-cd "$TARGET_DIR" || _guard_block_tree "no se pudo entrar al árbol resuelto ($TARGET_DIR)"
 
 # _guard_find_runner_dir: busca el test runner subiendo desde SESSION_DIR
 # hasta TARGET_DIR (toplevel) inclusive, con la PRIMERA coincidencia. El
@@ -249,46 +154,56 @@ _guard_has_marker() {
   [ -f "$dir/package.json" ] || [ -f "$dir/pyproject.toml" ] || [ -f "$dir/setup.py" ] || [ -f "$dir/pytest.ini" ]
 }
 
-# _guard_derive_runner_dirs: cuando NINGÚN directorio entre SESSION_DIR y
-# TARGET_DIR tiene marcador, correr por el PRIMER SEGMENTO de cada path con
-# cambios locales en vez de no correr nada. Un archivo en la raíz (sin "/"),
-# un segmento sin marcador, o un runner a 2+ niveles se descartan sin
-# bloquear — "no correr nada" sigue siendo la decisión aceptada.
+# _guard_derive_runner_dirs <top> (cwd = top): cuando NINGÚN directorio entre
+# SESSION_DIR y TARGET_DIR tiene marcador, correr por el PRIMER SEGMENTO de
+# cada path que el push puede subir, en vez de no correr nada (R6):
+#   L = cambios locales (git status, como antes)
+#   P = paths de los commits de HEAD que no están en ningún remoto, si hay al
+#       menos una ref remota y el log funciona; si no (sin refs remotas, HEAD
+#       sin commits, log fallido) P = todos los directorios de primer nivel
+#       de top (los ocultos no: el glob "*/" no los ve).
+# Candidatos = sort -u (L y P) que tengan marcador. Un archivo en la raíz (sin
+# "/"), un segmento sin marcador o un runner a 2+ niveles se descartan sin
+# bloquear. La referencia no es el upstream sino "no está en ningún remoto":
+# el primer push de una rama (sin upstream) tampoco cae a «todo». Las refs
+# remotas son las locales: si están viejas, corre de más, nunca de menos.
 _guard_derive_runner_dirs() {
   local top="$1"
-  local segments
-  segments=$(git status --porcelain --no-renames --untracked-files=all 2>/dev/null | cut -c4- | grep / | cut -d/ -f1 | sort -u) || return 0
-  [ -z "$segments" ] && return 0
+  local local_segs pushed pushed_segs seg dir all_segs cand_seg
 
-  local segment candidates=()
-  while IFS= read -r segment; do
-    [ -z "$segment" ] && continue
-    _guard_has_marker "$top/$segment" && candidates+=("$top/$segment")
-  done <<< "$segments"
+  local_segs=$(git status --porcelain --no-renames --untracked-files=all 2>/dev/null | cut -c4- | grep / | cut -d/ -f1 | sort -u)
+
+  pushed_segs=""
+  if [ -n "$(git for-each-ref --count=1 --format=x refs/remotes 2>/dev/null)" ] \
+    && pushed=$(git log --first-parent -m --no-renames --name-only --format= HEAD --not --remotes 2>/dev/null); then
+    pushed_segs=$(printf '%s\n' "$pushed" | grep / | cut -d/ -f1 | sort -u)
+  else
+    for dir in "$top"/*/; do
+      [ -d "$dir" ] || continue
+      seg="${dir%/}"
+      pushed_segs="${pushed_segs}${seg##*/}"$'\n'
+    done
+  fi
+
+  # Solo segmentos de charset acotado: un nombre con ESC/CR/otros caracteres
+  # de control llegaría crudo al stderr (limitación 8 del encabezado).
+  all_segs=$(printf '%s\n%s\n' "$local_segs" "$pushed_segs" | grep -E '^[A-Za-z0-9._@+-]+$' | sort -u)
+  [ -z "$all_segs" ] && return 0
+
+  local candidates=()
+  while IFS= read -r cand_seg; do
+    [ -z "$cand_seg" ] && continue
+    _guard_has_marker "$top/$cand_seg" && candidates+=("$top/$cand_seg")
+  done <<< "$all_segs"
 
   [ "${#candidates[@]}" -eq 0 ] && return 0
   printf '%s\n' "${candidates[@]}"
 }
 
-RUNNER_DIR=$(_guard_find_runner_dir "$SESSION_DIR" "$TARGET_DIR")
-
-GUARD_RUN_DIRS=()
-if _guard_has_marker "$RUNNER_DIR"; then
-  GUARD_RUN_DIRS=("$RUNNER_DIR")
-else
-  while IFS= read -r _guard_dir; do
-    [ -z "$_guard_dir" ] && continue
-    GUARD_RUN_DIRS+=("$_guard_dir")
-  done < <(_guard_derive_runner_dirs "$TARGET_DIR")
-fi
-
-if [ "${#GUARD_RUN_DIRS[@]}" -eq 0 ]; then
-  exit 0
-fi
 
 # Watchdog fail-closed por tiempo: una suite colgada supera el timeout del
 # harness (hooks.json), que DESCARTA la salida del hook y deja pasar el
-# commit sin tests — el hook nunca falla abierto por diseño. Por eso
+# push sin tests — el hook nunca falla abierto por diseño. Por eso
 # PRECOMMIT_TEST_BUDGET (default 540, tope 570) es menor que el timeout de
 # hooks.json (600), con margen para el overhead de corte. Se valida antes de
 # usarlo como cap: un valor no numérico rompe la comparación de más abajo
@@ -429,7 +344,7 @@ _guard_pyproject_declares_uv() {
 # runner; el loop final la anota junto al directorio. Orden cerrado:
 #   1. uv   — uv.lock presente Y "uv" en el PATH del hook → "uv run --frozen
 #             pytest" (D-02: --frozen nunca reescribe uv.lock durante el
-#             commit). [tool.uv…] sin uv.lock NO es trigger: "--frozen" sin lock
+#             push). [tool.uv…] sin uv.lock NO es trigger: "--frozen" sin lock
 #             falla siempre (rc 1, "Unable to find lockfile") y además crea
 #             .venv/ (D-05).
 #   2. venv — <dir>/.venv/bin/pytest o <dir>/.venv/Scripts/pytest.exe
@@ -552,13 +467,13 @@ _guard_run_suite_in() {
       pkg_mgr="npm"
     fi
 
-    echo "Running tests before commit ($pkg_mgr) [$dir]..." >&2
+    echo "Running tests before push ($pkg_mgr) [$dir]..." >&2
     _guard_run_with_budget "$budget" "$dir" "$pkg_mgr" test
     rc=$?
     [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
   elif [ -f "pytest.ini" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
     if _guard_resolve_python_runner "$dir"; then
-      echo "Running ${GUARD_PY_RUNNER[*]} before commit [$dir]..." >&2
+      echo "Running ${GUARD_PY_RUNNER[*]} before push [$dir]..." >&2
       _guard_run_with_budget "$budget" "$dir" "${GUARD_PY_RUNNER[@]}"
       rc=$?
       [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
@@ -569,7 +484,7 @@ _guard_run_suite_in() {
   elif [ -f "package.json" ] && ! _guard_package_json_is_object; then
     # Sin marcador Python (la rama de arriba ya lo tomó, D-06) y con un
     # package.json que no es UN único objeto JSON: no hay forma de saber qué
-    # suite correr, y pasar en silencio dejaba el commit sin tests (QA
+    # suite correr, y pasar en silencio dejaba el push sin tests (QA
     # S-r2-3).
     GUARD_PY_RUNNER_REASON="package.json no es un objeto JSON válido: el hook no puede saber qué suite correr (corrige el package.json)"
     echo "package.json no es un objeto JSON válido [$dir]." >&2
@@ -591,53 +506,217 @@ _guard_run_suite_in() {
   return 0
 }
 
-# Presupuesto por directorio: se divide en partes iguales entre los
-# directorios a correr (división entera, mínimo 1) para que la SUMA de las
-# corridas nunca supere PRECOMMIT_TEST_BUDGET sin estado compartido.
-PRECOMMIT_DIR_BUDGET=$(( $(_guard_resolve_test_budget) / ${#GUARD_RUN_DIRS[@]} ))
-[ "$PRECOMMIT_DIR_BUDGET" -lt 1 ] && PRECOMMIT_DIR_BUDGET=1
+# --- Marca de estado ya verificado (R2) ---
+# Tras una suite verde se guarda una clave del estado (HEAD, directorios que
+# corren, cambios trackeados y contenido de lo sin trackear) en
+# `git rev-parse --git-path methodology-suite-verified` (por worktree). Un push
+# en el mismo estado no repite la suite. Ante CUALQUIER duda (marca corrupta,
+# vacía, directorio o symlink; clave que no se puede calcular o que supera
+# GUARD_KEY_CAP s; repo sin marca) se corre la suite: la marca nunca puede
+# convertir un fallo en «pasa». No cubre archivos ignorados (.venv,
+# node_modules, .env), variables de entorno, PATH, servicios externos ni la
+# versión del runner, y es falsificable por quien escriba la marca a mano
+# (mismo modelo de amenaza que el resto: errores honestos). Salida: borrar la
+# marca o tocar cualquier archivo. Binarios: solo git, cat, mktemp, rm, sleep.
+GUARD_KEY_CAP=5
+GUARD_STATE_KEY=""
+GUARD_MARK=""
 
-# Corre cada directorio resuelto arriba (uno solo, o varios derivados por
-# segmento sin marcador arriba). Cualquier fallo —suite roja o marcador
-# Python sin runner— bloquea nombrando el/los directorio(s); se corren TODOS
-# antes de decidir.
-GUARD_FAILED_DIRS=()
-GUARD_FAILED_EXCERPTS=() # mismo índice que GUARD_FAILED_DIRS (bloque de GUARD_RUN_EXCERPT, o vacío)
-GUARD_NO_RUNNER_DIRS=()
-GUARD_NO_RUNNER_REASONS=() # mismo índice que GUARD_NO_RUNNER_DIRS (bash 3.2: sin arrays asociativos)
-for _guard_dir in "${GUARD_RUN_DIRS[@]}"; do
-  _guard_run_suite_in "$_guard_dir" "$PRECOMMIT_DIR_BUDGET"
-  _guard_rc=$?
-  case "$_guard_rc" in
-    0) ;;
-    "$GUARD_RC_NO_RUNNER")
-      GUARD_NO_RUNNER_DIRS+=("$_guard_dir")
-      GUARD_NO_RUNNER_REASONS+=("$GUARD_PY_RUNNER_REASON") ;;
-    *)
-      GUARD_FAILED_DIRS+=("$_guard_dir")
-      GUARD_FAILED_EXCERPTS+=("$GUARD_RUN_EXCERPT") ;;
+# _guard_run_capped <segundos> <outfile> <cmd...>: corre el comando (función o
+# binario) en un job con grupo propio, stdout a <outfile> y stderr a
+# /dev/null; al vencer mata el grupo entero (TERM, 1 s, KILL) y devuelve 124;
+# si no, devuelve el rc del comando. Nunca hace "exit". El reloj es local: no
+# resetea SECONDS.
+_guard_run_capped() {
+  local cap="$1" outfile="$2" pgid_file start pid pgid rc
+  shift 2
+  pgid_file=$(mktemp) || return 1
+  start=$SECONDS
+  (
+    set -m
+    "$@" > "$outfile" 2>/dev/null &
+    echo "$!" > "$pgid_file"
+    wait "$!"
+  ) 2>/dev/null &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ $((SECONDS - start)) -ge "$cap" ]; then
+      pgid=$(cat "$pgid_file" 2>/dev/null)
+      if [ -n "$pgid" ]; then
+        kill -TERM -- "-$pgid" 2>/dev/null
+        sleep 1
+        kill -KILL -- "-$pgid" 2>/dev/null
+      fi
+      kill -KILL "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      rm -f "$pgid_file"
+      return 124
+    fi
+    sleep 0.1 2>/dev/null || sleep 1
+  done
+  wait "$pid" 2>/dev/null
+  rc=$?
+  rm -f "$pgid_file"
+  return "$rc"
+}
+
+# _guard_state_key: imprime la clave del estado y devuelve 0, o devuelve != 0
+# (cwd = target_dir). Se decide por el rc, NO por el hash: el hash final se
+# imprime igual con un paso fallido. Solo git (sin shasum/sha256sum); no
+# escribe objetos. Repo anidado sin trackear, symlink roto sin trackear y HEAD
+# sin commits hacen fallar un paso: sin clave.
+_guard_state_key() {
+  (
+    set -o pipefail
+    {
+      printf 'suite-on-push v1\n'
+      git rev-parse --verify -q 'HEAD^{commit}' || exit 1
+      printf 'dirs\n'
+      printf '%s\n' "${GUARD_RUN_DIRS[@]}"
+      printf 'status\n'
+      git status --porcelain=v1 --untracked-files=all --no-renames || exit 1
+      printf 'diff\n'
+      git diff --no-ext-diff --no-textconv --no-color --binary HEAD -- || exit 1
+      printf 'untracked\n'
+      git ls-files --others --exclude-standard | git hash-object --stdin-paths || exit 1
+    } 2>/dev/null | git hash-object --stdin
+  )
+}
+
+# _guard_mark_path <target_dir>: ruta de la marca (vacía fuera de un repo o si
+# git falla: sin marca se corre siempre y no se escribe nada).
+_guard_mark_path() {
+  local p
+  p=$(git rev-parse --git-path methodology-suite-verified 2>/dev/null) || return 0
+  [ -n "$p" ] || return 0
+  case "$p" in
+    /*|[A-Za-z]:*) printf '%s' "$p" ;;
+    *) printf '%s/%s' "$1" "$p" ;;
   esac
-done
+}
 
-# La línea BLOCKED no cambia y va primero; los bloques del extracto, uno por
-# directorio fallido y en su mismo orden, van después.
-if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ]; then
-  echo "BLOCKED: Tests failed in: ${GUARD_FAILED_DIRS[*]}. Fix tests before committing." >&2
-fi
-_guard_i=0
-while [ "$_guard_i" -lt "${#GUARD_FAILED_DIRS[@]}" ]; do
-  if [ -n "${GUARD_FAILED_EXCERPTS[$_guard_i]}" ]; then
-    printf '%s\n' "${GUARD_FAILED_EXCERPTS[$_guard_i]}" >&2
+# _guard_compute_state_key: deja en GUARD_STATE_KEY la clave, o vacía ante
+# cualquier duda (sin marca, rc != 0, tope vencido, salida que no es un hash).
+_guard_compute_state_key() {
+  local out rc key key_re='^([0-9a-f]{40}|[0-9a-f]{64})$'
+  GUARD_STATE_KEY=""
+  [ -n "$GUARD_MARK" ] || return 0
+  out=$(mktemp) || return 0
+  _guard_run_capped "$GUARD_KEY_CAP" "$out" _guard_state_key
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    key=$(cat "$out" 2>/dev/null)
+    if [[ "$key" =~ $key_re ]]; then
+      GUARD_STATE_KEY="$key"
+    fi
   fi
-  _guard_i=$((_guard_i + 1))
-done
-_guard_i=0
-while [ "$_guard_i" -lt "${#GUARD_NO_RUNNER_DIRS[@]}" ]; do
-  echo "BLOCKED: pre-commit-guard no encontró un runner de tests en: ${GUARD_NO_RUNNER_DIRS[$_guard_i]}. ${GUARD_NO_RUNNER_REASONS[$_guard_i]}. El hook no falla abierto." >&2
-  _guard_i=$((_guard_i + 1))
-done
-if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ] || [ "${#GUARD_NO_RUNNER_DIRS[@]}" -gt 0 ]; then
-  exit 2
-fi
+  rm -f "$out"
+  return 0
+}
 
-exit 0
+# _guard_mark_matches: verdadero solo con clave, marca archivo regular que no
+# es symlink y primera línea igual a la clave.
+_guard_mark_matches() {
+  local first=""
+  [ -n "$GUARD_STATE_KEY" ] && [ -n "$GUARD_MARK" ] || return 1
+  [ -f "$GUARD_MARK" ] && [ ! -L "$GUARD_MARK" ] || return 1
+  IFS= read -r first < "$GUARD_MARK" 2>/dev/null || [ -n "$first" ] || return 1
+  [ "$first" = "$GUARD_STATE_KEY" ]
+}
+
+# _guard_mark_write: guarda la clave calculada ANTES de la corrida (si el
+# árbol cambió durante la suite, el push siguiente ve otro estado y corre). Sin
+# mv: una escritura cortada deja una marca que no iguala ninguna clave. Nunca a
+# través de un symlink. Un fallo no cambia el exit ni imprime nada.
+_guard_mark_write() {
+  [ -n "$GUARD_STATE_KEY" ] && [ -n "$GUARD_MARK" ] || return 0
+  [ ! -L "$GUARD_MARK" ] || return 0
+  { printf '%s\n' "$GUARD_STATE_KEY" > "$GUARD_MARK"; } 2>/dev/null
+  return 0
+}
+
+# guard_suite_run <session_dir> <target_dir>: precondición cwd = target_dir y
+# GUARD_NAME seteado. Devuelve 0 (nada que correr, o todo verde) o hace
+# "exit 2" (suite roja, marcador Python sin runner, o tope vencido).
+guard_suite_run() {
+  local session_dir="$1" target_dir="$2"
+  local runner_dir run_dir
+
+  runner_dir=$(_guard_find_runner_dir "$session_dir" "$target_dir")
+
+  GUARD_RUN_DIRS=()
+  if _guard_has_marker "$runner_dir"; then
+    GUARD_RUN_DIRS=("$runner_dir")
+  else
+    while IFS= read -r run_dir; do
+      [ -z "$run_dir" ] && continue
+      GUARD_RUN_DIRS+=("$run_dir")
+    done < <(_guard_derive_runner_dirs "$target_dir")
+  fi
+
+  if [ "${#GUARD_RUN_DIRS[@]}" -eq 0 ]; then
+    return 0
+  fi
+
+  # Marca de estado ya verificado: la clave se toma ANTES de correr.
+  local head_sha
+  GUARD_MARK=$(_guard_mark_path "$target_dir")
+  _guard_compute_state_key
+  if _guard_mark_matches; then
+    head_sha=$(git rev-parse --verify -q 'HEAD^{commit}' 2>/dev/null)
+    echo "${GUARD_NAME}: estado ya verificado (HEAD ${head_sha:0:7} y working tree sin cambios desde la última suite verde); no se repite la suite." >&2
+    return 0
+  fi
+
+  # Presupuesto por directorio: se divide en partes iguales entre los
+  # directorios a correr (división entera, mínimo 1) para que la SUMA de las
+  # corridas nunca supere PRECOMMIT_TEST_BUDGET sin estado compartido.
+  local dir_budget rc i
+  dir_budget=$(( $(_guard_resolve_test_budget) / ${#GUARD_RUN_DIRS[@]} ))
+  [ "$dir_budget" -lt 1 ] && dir_budget=1
+
+  # Corre cada directorio resuelto arriba (uno solo, o varios derivados por
+  # segmento sin marcador arriba). Cualquier fallo —suite roja o marcador
+  # Python sin runner— bloquea nombrando el/los directorio(s); se corren TODOS
+  # antes de decidir.
+  GUARD_FAILED_DIRS=()
+  GUARD_FAILED_EXCERPTS=() # mismo índice que GUARD_FAILED_DIRS (bloque de GUARD_RUN_EXCERPT, o vacío)
+  GUARD_NO_RUNNER_DIRS=()
+  GUARD_NO_RUNNER_REASONS=() # mismo índice que GUARD_NO_RUNNER_DIRS (bash 3.2: sin arrays asociativos)
+  for run_dir in "${GUARD_RUN_DIRS[@]}"; do
+    _guard_run_suite_in "$run_dir" "$dir_budget"
+    rc=$?
+    case "$rc" in
+      0) ;;
+      "$GUARD_RC_NO_RUNNER")
+        GUARD_NO_RUNNER_DIRS+=("$run_dir")
+        GUARD_NO_RUNNER_REASONS+=("$GUARD_PY_RUNNER_REASON") ;;
+      *)
+        GUARD_FAILED_DIRS+=("$run_dir")
+        GUARD_FAILED_EXCERPTS+=("$GUARD_RUN_EXCERPT") ;;
+    esac
+  done
+
+  # La línea BLOCKED no cambia y va primero; los bloques del extracto, uno por
+  # directorio fallido y en su mismo orden, van después.
+  if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ]; then
+    echo "BLOCKED: Tests failed in: ${GUARD_FAILED_DIRS[*]}. Fix tests before pushing." >&2
+  fi
+  i=0
+  while [ "$i" -lt "${#GUARD_FAILED_DIRS[@]}" ]; do
+    if [ -n "${GUARD_FAILED_EXCERPTS[$i]}" ]; then
+      printf '%s\n' "${GUARD_FAILED_EXCERPTS[$i]}" >&2
+    fi
+    i=$((i + 1))
+  done
+  i=0
+  while [ "$i" -lt "${#GUARD_NO_RUNNER_DIRS[@]}" ]; do
+    echo "BLOCKED: ${GUARD_NAME} no encontró un runner de tests en: ${GUARD_NO_RUNNER_DIRS[$i]}. ${GUARD_NO_RUNNER_REASONS[$i]}. El hook no falla abierto." >&2
+    i=$((i + 1))
+  done
+  if [ "${#GUARD_FAILED_DIRS[@]}" -gt 0 ] || [ "${#GUARD_NO_RUNNER_DIRS[@]}" -gt 0 ]; then
+    exit 2
+  fi
+  _guard_mark_write
+  return 0
+}

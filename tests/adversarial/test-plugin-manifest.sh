@@ -104,7 +104,7 @@ for f in "$PLUGIN_JSON" "$MARKETPLACE_JSON" "$HOOKS_JSON"; do
 done
 
 echo ""
-echo "--- hooks.json: if por handler, matcher de SessionStart, timeout de pre-commit-guard ---"
+echo "--- hooks.json: if por handler, matcher de SessionStart, timeout de pre-push-guard ---"
 
 # assert_hook_if: verifica el campo "if" de la entrada de hooks.json cuyo
 # "command" termina en <script_name> — optimización de latencia (verificación
@@ -130,18 +130,18 @@ assert_hook_if() {
   fi
 }
 
-# Los 4 guards de git NO llevan "if": con "Bash(git *)" el harness no los
+# Los 3 guards de git NO llevan "if": con "Bash(git *)" el harness no los
 # invocaba para comandos que empiezan por un wrapper (time, env, ...), un
 # if/then, un backtick o un "(" (decisión del usuario, ronda 1 de review). Cada
 # script valida el comando completo; medido, "echo hola" sale 0 en ~15 ms.
-for GIT_GUARD in block-force-push.sh block-hard-reset.sh pre-push-guard.sh pre-commit-guard.sh; do
+for GIT_GUARD in block-force-push.sh block-hard-reset.sh pre-push-guard.sh; do
   assert_hook_if "$GIT_GUARD" "MISSING"
 done
 assert_hook_if "block-admin-merge.sh" "Bash(gh *)"
 assert_hook_if "pre-merge-check.sh" "Bash(gh *)"
 
 # Paridad: el resto de las entradas de hooks.json no cambió (evento, matcher,
-# script, if y timeout de las 11); solo los 4 guards de git perdieron el "if".
+# script, if y timeout de las 10); solo los 3 guards de git perdieron el "if".
 # Los campos se unen con US (0x1f), no con "|": el matcher de SessionStart
 # ("startup|resume|clear|compact") ya trae "|" y con ese separador un campo
 # podía confundirse con otro.
@@ -150,9 +150,8 @@ EXPECTED_HANDLERS=$(printf '%s\n' \
   "PreToolUse${US}Bash${US}block-admin-merge.sh${US}Bash(gh *)${US}10" \
   "PreToolUse${US}Bash${US}block-force-push.sh${US}-${US}10" \
   "PreToolUse${US}Bash${US}block-hard-reset.sh${US}-${US}10" \
-  "PreToolUse${US}Bash${US}pre-push-guard.sh${US}-${US}10" \
+  "PreToolUse${US}Bash${US}pre-push-guard.sh${US}-${US}600" \
   "PreToolUse${US}Bash${US}pre-merge-check.sh${US}Bash(gh *)${US}30" \
-  "PreToolUse${US}Bash${US}pre-commit-guard.sh${US}-${US}600" \
   "PostToolUse${US}Bash${US}post-pr-create.sh${US}-${US}15" \
   "PostToolUse${US}Bash${US}docker-refresh.sh${US}-${US}15" \
   "SessionStart${US}startup|resume|clear|compact${US}session-start-context.sh${US}-${US}15" \
@@ -161,7 +160,7 @@ EXPECTED_HANDLERS=$(printf '%s\n' \
 ACTUAL_HANDLERS=$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | .matcher as $m | .hooks[] | [$e, ($m // ""), (.command | sub(".*/"; "") | sub("\"$"; "")), (.if // "-"), (.timeout // "-" | tostring)] | join("\u001f")' "$HOOKS_JSON")
 TOTAL=$((TOTAL + 1))
 if [ "$ACTUAL_HANDLERS" = "$EXPECTED_HANDLERS" ]; then
-  echo -e "${GREEN}PASS${NC}: las 11 entradas de hooks.json coinciden (evento, matcher, script, if, timeout)"
+  echo -e "${GREEN}PASS${NC}: las 10 entradas de hooks.json coinciden (evento, matcher, script, if, timeout)"
   PASS=$((PASS + 1))
 else
   echo -e "${RED}FAIL${NC}: las entradas de hooks.json cambiaron"
@@ -179,13 +178,27 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# suite-on-push (CA-1): `git commit` no corre la suite, así que ningún handler
+# registrado puede tener "commit" en su comando (el guard de commit se eliminó).
 TOTAL=$((TOTAL + 1))
-PCG_TIMEOUT=$(jq -r '.hooks.PreToolUse[].hooks[] | select(.command | endswith("pre-commit-guard.sh") or endswith("pre-commit-guard.sh\"")) | .timeout' "$HOOKS_JSON")
-if [ "$PCG_TIMEOUT" = "600" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard.sh tiene timeout=600"
+COMMIT_HANDLERS=$(jq -r '.hooks | to_entries[] | .value[] | .hooks[] | .command | select(test("commit"))' "$HOOKS_JSON")
+if [ -z "$COMMIT_HANDLERS" ]; then
+  echo -e "${GREEN}PASS${NC}: hooks.json no registra ningún handler cuyo comando contenga commit"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard.sh tiene timeout=$PCG_TIMEOUT (esperado 600)"
+  echo -e "${RED}FAIL${NC}: hooks.json registra handlers de commit: $COMMIT_HANDLERS"
+  FAIL=$((FAIL + 1))
+fi
+
+# suite-on-push: el guard de push corre la suite, con el mismo tope que tuvo el
+# de commit (PRECOMMIT_TEST_BUDGET <= 570 < 600).
+TOTAL=$((TOTAL + 1))
+PPG_TIMEOUT=$(jq -r '.hooks.PreToolUse[].hooks[] | select(.command | endswith("pre-push-guard.sh") or endswith("pre-push-guard.sh\"")) | .timeout' "$HOOKS_JSON")
+if [ "$PPG_TIMEOUT" = "600" ]; then
+  echo -e "${GREEN}PASS${NC}: pre-push-guard.sh tiene timeout=600"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: pre-push-guard.sh tiene timeout=$PPG_TIMEOUT (esperado 600)"
   FAIL=$((FAIL + 1))
 fi
 
@@ -218,16 +231,16 @@ else
 fi
 
 echo ""
-echo "--- global/CLAUDE.md: la suite de tests bloquea el commit, no corre en background ---"
+echo "--- global/CLAUDE.md: la suite de tests bloquea el push, no corre en background ---"
 
 GLOBAL_CLAUDE_MD="$REPO_ROOT/global/CLAUDE.md"
 
 TOTAL=$((TOTAL + 1))
-if grep -q "^\*\*Bloquean el comando:\*\*.*commit sin" "$GLOBAL_CLAUDE_MD"; then
-  echo -e "${GREEN}PASS${NC}: \"Bloquean el comando\" incluye el commit sin suite verde"
+if grep -q "^\*\*Bloquean el comando:\*\*.*push sin la suite" "$GLOBAL_CLAUDE_MD"; then
+  echo -e "${GREEN}PASS${NC}: \"Bloquean el comando\" incluye el push sin suite verde"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: \"Bloquean el comando\" no menciona el commit sin suite verde"
+  echo -e "${RED}FAIL${NC}: \"Bloquean el comando\" no menciona el push sin suite verde"
   FAIL=$((FAIL + 1))
 fi
 
@@ -399,6 +412,20 @@ assert_contains "$README" "### Skills (4)" \
   "README cuenta 4 skills"
 assert_contains "$README" "orchestrator/" \
   "README (árbol) lista skills/orchestrator/"
+assert_contains "$README" "Es el único hook que corre tests" \
+  "README: la fila de pre-push-guard dice que es el único hook que corre tests"
+assert_contains "$README" "nombre es histórico" \
+  "README: PRECOMMIT_TEST_BUDGET se documenta como nombre histórico"
+assert_contains "$README" "methodology-suite-verified" \
+  "README: documenta la marca de estado verificado"
+assert_contains "$README" "El push de solo documentación no se exime" \
+  "README: documenta que el push de solo docs no se exime de la suite"
+assert_contains "$README" "│   │   └── suite-runner.sh" \
+  "README (árbol) lista hooks/lib/suite-runner.sh"
+assert_contains "$README" "los 3 guards de git" \
+  "README: son 3 guards de git sin if"
+assert_not_contains "$README" "pre-commit-guard" \
+  "README ya no nombra el guard eliminado"
 
 MARKETPLACE_DESC=$(jq -r '.plugins[0].description' "$MARKETPLACE_JSON")
 TOTAL=$((TOTAL + 1))
@@ -435,7 +462,7 @@ assert_not_contains "$RUNBOOK" "Bug fix con pasos de reproducción claros" \
   "runbook (Fase 0) ya no tiene su propia lista de condiciones para saltar brainstorming"
 
 echo ""
-echo "--- global/CLAUDE.md: restricciones de rol, degradación y pre-commit-guard ---"
+echo "--- global/CLAUDE.md: restricciones de rol, degradación y guard de la suite ---"
 
 assert_contains "$GLOBAL_CLAUDE_MD" "Bash solo para git" \
   "Rol de la sesión principal restringe Bash a git/gh/lectura de estado/orquestación"
@@ -443,8 +470,8 @@ assert_contains "$GLOBAL_CLAUDE_MD" "si te tienta escribir código" \
   "Rol de la sesión principal advierte contra escribir código \"porque es rápido\""
 assert_contains "$GLOBAL_CLAUDE_MD" "señales 1, 4 u 8" \
   "Workflow #4 tiene la regla de review simple (security-reviewer si toca las señales 1, 4 u 8 del runbook)"
-assert_contains "$GLOBAL_CLAUDE_MD" "pre-commit-guard.sh" \
-  "Verificación pre-commit menciona que el paso 1 lo refuerza pre-commit-guard.sh"
+assert_contains "$GLOBAL_CLAUDE_MD" "Ningún hook corre tests en el commit: \`pre-push-guard.sh\` corre la suite" \
+  "Verificación pre-commit dice que ningún hook corre tests en el commit y que pre-push-guard.sh corre la suite"
 
 # CA-12: tono plano. Tokens de énfasis vedados en el núcleo global, como
 # palabra (borde = no letra o inicio/fin de línea, sin depender del locale).
@@ -1099,7 +1126,7 @@ echo "--- CA-4: sin referencias colgantes a piezas eliminadas de la metodología
 # versionado) y este mismo script (los términos viven acá como patrones
 # de grep, no como menciones normativas).
 DANGLING_SCOPE=("$REPO_ROOT/agents" "$REPO_ROOT/rulebooks" "$REPO_ROOT/skills" "$REPO_ROOT/rules" "$HOOKS_DIR" "$REPO_ROOT/README.md" "$REPO_ROOT/global/CLAUDE.md" "$REPO_ROOT/tests" "$REPO_ROOT/.claude")
-DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule" "context-monitor" "CLAUDE_CONTEXT_TOKENS" "nunca el historial completo" "no el historial completo ni tareas de otros lotes" "Degradación de modelo" "rate-limited" "aviso de contexto agotándose" "NUNCA mergees" "Dual review obligatorio" "Review dual bloqueante" "Las reglas aquí son obligatorias" "Workflow obligatorio" "invariante 3" "cuatro reglas invariantes" "catálogos" "sección Stack" "levanta servicios automáticamente" "tenía tres de las seis" "Initial project setup" "--public --source" "el CLI sí" "2× el costo" "sección crítica, no abreviar" "ya no tiene bloque" "ya no se distribuye" "ya no los registra" "--repeat-each=10" "CERO mocks" "issue de \`code-sweep\`" ".clients-page__table")
+DANGLING_TERMS=("product-reviewer" "latent-bugs-sweep" "refactor-scan" "learnings/" "LEARNINGS.md" "Fase 4" "workspace-scope" "pre-release-sweep" "session-end-check" "validation-schedule" "context-monitor" "CLAUDE_CONTEXT_TOKENS" "nunca el historial completo" "no el historial completo ni tareas de otros lotes" "Degradación de modelo" "rate-limited" "aviso de contexto agotándose" "NUNCA mergees" "Dual review obligatorio" "Review dual bloqueante" "Las reglas aquí son obligatorias" "Workflow obligatorio" "invariante 3" "cuatro reglas invariantes" "catálogos" "sección Stack" "levanta servicios automáticamente" "tenía tres de las seis" "Initial project setup" "--public --source" "el CLI sí" "2× el costo" "sección crítica, no abreviar" "ya no tiene bloque" "ya no se distribuye" "ya no los registra" "--repeat-each=10" "CERO mocks" "issue de \`code-sweep\`" ".clients-page__table" "pre-commit-guard" "commit sin la suite" "commit sin tests" "hook de pre-commit" "before committing" "en qué árbol va el commit")
 
 # dangling_grep <patrón>: líneas "ruta:n:texto" del patrón dentro de DANGLING_SCOPE.
 dangling_grep() {
@@ -1854,6 +1881,33 @@ for suite in test-hooks.sh test-plugin-manifest.sh test-frontmatter.sh; do
   fi
 done
 rm -rf "$BT_TMP"
+
+# --- La suite corre en el push, no en el commit: runbook, rulebooks y skills ---
+echo ""
+echo "--- suite-on-push: runbook, dev-common, agent-budget, pr-workflow y orchestrator ---"
+
+assert_contains "$RUNBOOK" "ningún hook corre tests en el commit" \
+  "runbook (template de handoff): ningún hook corre tests en el commit"
+assert_contains "$RUNBOOK" "El push corre la suite del proyecto una vez antes de salir" \
+  "runbook Fase 2.7: el push corre la suite una vez"
+assert_contains "$RUNBOOK" "un re-push del mismo estado no repite la suite" \
+  "runbook Fase 2.7: un re-push del mismo estado no repite la suite"
+assert_contains "$RUNBOOK" "Push bloqueado por \`pre-push-guard\`" \
+  "runbook (tabla de errores): fila del push bloqueado por pre-push-guard"
+assert_contains "$RUNBOOK" "hooks/lib/suite-runner.sh" \
+  "runbook (resume): la detección de runner remite a hooks/lib/suite-runner.sh"
+assert_contains "$RUNBOOK" "el hook sí bloqueará el push de un directorio" \
+  "runbook (resume): el hook bloquea el push, no el commit"
+assert_contains "$DEV_COMMON" "Ese push corre la suite (\`pre-push-guard\`)" \
+  "dev-common.md: el push del fallback de budget corre la suite y no se esquiva si bloquea"
+assert_contains "$DEV_COMMON" "Ningún hook lo hace cumplir en el commit" \
+  "dev-common.md §3: ningún hook hace cumplir la verificación pre-commit"
+assert_contains "$AGENT_BUDGET" "Ese push corre la suite (\`pre-push-guard\`)" \
+  "agent-budget.md: el push del fallback corre la suite y no se esquiva si bloquea"
+assert_contains "$PR_WORKFLOW_SKILL" "una corrida local de la suite (\`pre-push-guard\`)" \
+  "pr-workflow §3.2: cada push cuesta una corrida local de la suite"
+assert_contains "$ORCHESTRATOR_SKILL" "Cada push corre la suite una vez antes de salir" \
+  "skill orchestrator: cada push corre la suite una vez"
 
 # --- /code-sweep tests ---
 

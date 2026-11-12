@@ -73,7 +73,7 @@ Si te das cuenta de que no vas a alcanzar a terminar el lote dentro del budget:
 
 1. Commit local de lo que ya tienes (con prefijo `wip:` si la tarea está incompleta)
 2. Actualiza `.planning/HANDOFF.md` con instrucciones para retomar
-3. **Push del branch** — excepción explícita a la regla de no pushear: sin push, el HANDOFF y los commits parciales no sobreviven a la invocación
+3. **Push del branch** — excepción explícita a la regla de no pushear: sin push, el HANDOFF y los commits parciales no sobreviven a la invocación. Ese push corre la suite (`pre-push-guard`) y con el árbol a medias puede bloquear: no lo esquives; deja los commits locales, anótalo en `HANDOFF.md` y repórtalo (en un checkout compartido el orchestrator los ve igual)
 4. Reporta:
 
 ```
@@ -133,7 +133,7 @@ Repetir por cada una de las ≤5 tareas del lote:
 
 ### 3. Verificación pre-commit (por cada commit)
 
-Antes de cada `git commit`: tests con coverage ≥ 80% de branches sobre archivos del diff, lint sin errores (autofix primero, manual después — nunca commitear con errores de lint), build compila (nunca commitear código que no compile). Si falta alguno, NO hagas commit. Arregla y repite.
+Antes de cada `git commit`: tests con coverage ≥ 80% de branches sobre archivos del diff, lint sin errores (autofix primero, manual después — nunca commitear con errores de lint), build compila (nunca commitear código que no compile). Si falta alguno, NO hagas commit. Arregla y repite. Ningún hook lo hace cumplir en el commit: la suite del harness corre en el push del orchestrator.
 
 ### 4. Self-review antes del commit
 
