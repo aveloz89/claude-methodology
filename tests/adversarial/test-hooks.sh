@@ -441,7 +441,7 @@ assert_blocked_cmd "pre-push-guard: 'git -C . -c a=b push' en main bloquea (-C a
 (cd "$SANDBOX_REPO" && git reset -q --hard "$PUSH_D07_HEAD")
 
 # E4: el branch se lee del ".cwd" del input, no del cwd del PROCESO del
-# hook — mismo criterio que pre-commit-guard. run_cwd (proceso) queda en la
+# hook — mismo criterio que el resto de los guards. run_cwd (proceso) queda en la
 # raíz de este repo (no en el sandbox); solo HOOK_JSON_CWD apunta al
 # sandbox en feature/test.
 HOOK_JSON_CWD="$SANDBOX_REPO" assert_allowed_cmd "pre-push-guard: .cwd apunta a feature/test → permite (E4)" \
@@ -1094,14 +1094,14 @@ assert_blocked_cmd "block-hard-reset: reset \$\"--hard\" bloquea (cierre)" \
   "block-hard-reset.sh" 'git reset $"--hard"' "$PATH" "$SANDBOX_REPO"
 assert_blocked_cmd "pre-push-guard: git \$'push' bloquea (cierre)" \
   "pre-push-guard.sh" "git \$'push' origin HEAD:main" "$PATH" "$SANDBOX_REPO"
-assert_blocked_cmd "pre-commit-guard: git \$'commit' se reconoce como commit (cierre)" \
-  "pre-commit-guard.sh" "git \$'commit' -m x --work-tree=/x" "$PATH" "$SANDBOX_REPO"
 assert_blocked_cmd "pre-push-guard: refspec partido con barra invertida y newline bloquea (cierre)" \
   "pre-push-guard.sh" $'git push origin HEAD:ma\\\nin' "$PATH" "$SANDBOX_REPO"
 assert_blocked_cmd "block-force-push: flag partida con barra invertida y newline bloquea (cierre)" \
   "block-force-push.sh" $'git push --for\\\nce origin feature/x' "$PATH" "$SANDBOX_REPO"
-assert_blocked_cmd "pre-commit-guard: commit partido con barra invertida y newline se reconoce (cierre)" \
-  "pre-commit-guard.sh" $'git com\\\nmit -m x --work-tree=/x' "$PATH" "$SANDBOX_REPO"
+CLOSE_FEAT_REPO=$(mktemp -d); CLOSE_FEAT_REPO=$(cd "$CLOSE_FEAT_REPO" && pwd -P)
+(cd "$CLOSE_FEAT_REPO" && git init -q -b feature/x && git config user.email s@example.com && git config user.name S && git commit -q --allow-empty -m init) > /dev/null 2>&1
+assert_ppg_blocked_msg "pre-push-guard: push partido con barra invertida y newline se reconoce (cierre)" \
+  $'git pu\\\nsh origin HEAD:main' "$CLOSE_FEAT_REPO" "No push directo a main"
 assert_blocked_cmd "pre-push-guard: barra invertida final tras el refspec bloquea (cierre)" \
   "pre-push-guard.sh" 'git push origin HEAD:main\' "$PATH" "$SANDBOX_REPO"
 assert_blocked_cmd "block-admin-merge: gh pr merge con continuacion e indentacion y --admin sigue bloqueando (cierre)" \
@@ -1117,7 +1117,7 @@ assert_blocked_cmd "pre-push-guard: refspec entero con \$'' de contenido simple 
 
 # Grupo B: redirecciones <&N y >| dentro del segmento, opciones globales de git
 # fuera de la lista fija (--no-optional-locks, -p, --namespace x, ...) y -C
-# precedido de otras opciones en pre-commit-guard. RED con 7e45e70: todos los
+# precedido de otras opciones en pre-push-guard. RED con 7e45e70: todos los
 # bloqueos de abajo daban exit 0.
 assert_blocked_cmd "block-force-push: redireccion <&0 antes de --force bloquea (cierre)" \
   "block-force-push.sh" 'git push origin feature/x <&0 --force' "$PATH" "$SANDBOX_REPO"
@@ -1132,11 +1132,10 @@ for _opt in --no-optional-locks --literal-pathspecs -p --paginate --no-replace-o
     "block-force-push.sh" "git $_opt push -f origin feature/x" "$PATH" "$SANDBOX_REPO"
   assert_blocked_cmd "block-hard-reset: git $_opt antes de reset --hard bloquea (cierre)" \
     "block-hard-reset.sh" "git $_opt reset --hard" "$PATH" "$SANDBOX_REPO"
-  assert_blocked_cmd "pre-commit-guard: git $_opt antes de commit se reconoce (cierre)" \
-    "pre-commit-guard.sh" "git $_opt commit -m x --work-tree=/x" "$PATH" "$SANDBOX_REPO"
 done
-assert_blocked_cmd "pre-commit-guard: -c k=v antes de -C no se resuelve y bloquea (cierre)" \
-  "pre-commit-guard.sh" 'git -c a=b -C /tmp commit -m x' "$PATH" "$SANDBOX_REPO"
+assert_ppg_blocked_msg "pre-push-guard: -c k=v antes de -C no se resuelve y bloquea (cierre)" \
+  'git -c a=b -C /tmp push origin feature/x' "$CLOSE_FEAT_REPO" "Formas aceptadas"
+rm -rf "$CLOSE_FEAT_REPO"
 assert_allowed_cmd "pre-push-guard: git --no-optional-locks push a feature/x pasa (control, cierre)" \
   "pre-push-guard.sh" 'git --no-optional-locks push origin feature/x' "$PATH" "$SANDBOX_REPO"
 assert_allowed_cmd "block-force-push: git -p push sin force pasa (control, cierre)" \
@@ -1158,8 +1157,6 @@ for _w in "sudo" "sudo -u root" "sudo -E" "sudo -n" "doas" "doas -u root" "nice"
 done
 assert_blocked_cmd "block-force-push: sudo -u root delante de git push -f bloquea (cierre)" \
   "block-force-push.sh" 'sudo -u root git push -f origin feature/x' "$PATH" "$SANDBOX_REPO"
-assert_blocked_cmd "pre-commit-guard: nice -n 5 delante de git commit se reconoce (cierre)" \
-  "pre-commit-guard.sh" 'nice -n 5 git commit -m x --work-tree=/x' "$PATH" "$SANDBOX_REPO"
 assert_allowed_cmd "pre-push-guard: sudo git push a feature/x pasa (control, cierre)" \
   "pre-push-guard.sh" 'sudo git push origin feature/x' "$PATH" "$SANDBOX_REPO"
 assert_allowed_cmd "pre-push-guard: nice -n 5 npm run build pasa (control, cierre)" \
@@ -1289,7 +1286,7 @@ assert_blocked_cmd "block-force-push: cd a && git push --force sigue bloqueando 
 # Fail-closed sin jq (revisión pre-push, security MEDIUM): hoy, sin jq en
 # PATH, `jq -r '.tool_input.command'` falla, COMMAND queda vacío, y un
 # "git push --force" real pasa en silencio — mismo hueco que #50 en
-# block-admin-merge/pre-commit-guard, cerrado ahí pero no acá.
+# block-admin-merge, cerrado ahí pero no acá.
 NO_JQ_BFP_BIN=$(mktemp -d)
 for cmd in bash cat perl grep; do
   CMD_PATH=$(command -v "$cmd" 2>/dev/null)
@@ -1837,217 +1834,6 @@ assert_bam_continue "block-admin-merge: gh pr view 5 --repo o/r --json title all
 
 echo ""
 
-# --- pre-commit-guard.sh ---
-echo "--- pre-commit-guard.sh ---"
-
-# Test: non-commit command (debe permitirse)
-assert_allowed "Non-commit command passes through" "pre-commit-guard.sh" "git status"
-assert_allowed "Git diff passes through" "pre-commit-guard.sh" "git diff"
-
-# Negativos de GIT_COMMIT_RE (#73): opciones de árbol entre "git" y
-# "commit" cuentan como invocación real, pero cualquier otro texto entre
-# medio NO — "git log | grep commit" y "git log --grep commit" no son un
-# commit, y no deben interceptarse ni con el detector ampliado.
-assert_allowed_cmd "pre-commit-guard: git log | grep commit no se intercepta" \
-  "pre-commit-guard.sh" "git log | grep commit"
-assert_allowed_cmd "pre-commit-guard: git log --grep commit no se intercepta" \
-  "pre-commit-guard.sh" "git log --grep commit"
-assert_allowed_cmd "pre-commit-guard: git show HEAD no se intercepta" \
-  "pre-commit-guard.sh" "git show HEAD"
-
-# Nota: este repo (methodology) no tiene marcador de runner en la raíz
-# (package.json / pyproject.toml / setup.py / pytest.ini), así que el hook no
-# tiene qué correr y permite el commit. NO es "sin pytest": un marcador Python
-# sin runner bloquea (D-01, ver la sección "runner de pytest" más abajo).
-assert_allowed "Commit in repo without test runner passes through" "pre-commit-guard.sh" "git commit -m 'test'"
-
-# Regression #47: mismo matching frágil que pre-merge-check.sh tenía antes
-# de su endurecimiento. El comando vigilado de este guard es "git commit";
-# para que el falso negativo/positivo sea observable (más allá del match en
-# sí) se corre en un directorio con un test runner detectable (pyproject.toml)
-# y un "pytest" fake que siempre falla — así, si el guard SÍ intercepta,
-# bloquea (exit 2); si no intercepta, pasa (exit 0) sin correr nada.
-PCG_TEST_DIR=$(mktemp -d)
-touch "$PCG_TEST_DIR/pyproject.toml"
-FAKE_PYTEST_DIR=$(mktemp -d)
-cat > "$FAKE_PYTEST_DIR/pytest" <<'FAKE_PYTEST_EOF'
-#!/bin/bash
-# Fake pytest: siempre "falla" (simula tests rotos), sin ejecutar nada real.
-exit 1
-FAKE_PYTEST_EOF
-chmod +x "$FAKE_PYTEST_DIR/pytest"
-
-# (a) Falso negativo: invocación real de "git commit" dentro de un comando
-# compuesto en una sola línea (después de &&) no matcheaba el ancla ^\s*
-# del hook actual (solo mira el inicio del string completo) → el guard no
-# interceptaba, el fake pytest (fallando) nunca corría, y el commit pasaba
-# sin verificar.
-assert_blocked_cmd "pre-commit-guard: real git commit after && is intercepted (blocks on failing tests)" \
-  "pre-commit-guard.sh" \
-  "git add -A && git commit -m 'wip'" \
-  "$FAKE_PYTEST_DIR:$PATH" \
-  "$PCG_TEST_DIR"
-
-# (b) Falso positivo: mención de "git commit" al inicio de una línea dentro
-# de un heredoc (contenido literal escrito a un archivo, no una invocación
-# real — el comando real es "cat") no debe disparar el guard.
-HEREDOC_MENTION_PCG=$(cat <<'CMD_EOF'
-cat <<'NOTE_EOF' > notes.txt
-git commit -m "reminder text" (do this later)
-NOTE_EOF
-CMD_EOF
-)
-assert_allowed_cmd "pre-commit-guard: heredoc mentioning git commit is not a real invocation (allowed)" \
-  "pre-commit-guard.sh" \
-  "$HEREDOC_MENTION_PCG" \
-  "$FAKE_PYTEST_DIR:$PATH" \
-  "$PCG_TEST_DIR"
-
-rm -rf "$PCG_TEST_DIR" "$FAKE_PYTEST_DIR"
-
-# GIT_COMMIT_RE (#73 ronda 1, security MEDIUM): "commit(\s|$)" no intercepta
-# un "git commit" seguido de un terminador de comando pegado (";", "&", "|",
-# ")") sin espacio antes del siguiente comando — en `dev` (matching más
-# simple) esas formas sí se interceptaban. Mismo fixture que arriba
-# (pyproject.toml + pytest fake que siempre falla) para que la intercepción
-# sea observable por el efecto (bloquea) y no por el nombre del regex.
-PCG_TERM_DIR=$(mktemp -d)
-touch "$PCG_TERM_DIR/pyproject.toml"
-FAKE_PYTEST_TERM_DIR=$(mktemp -d)
-cat > "$FAKE_PYTEST_TERM_DIR/pytest" <<'FAKE_PYTEST_TERM_EOF'
-#!/bin/bash
-exit 1
-FAKE_PYTEST_TERM_EOF
-chmod +x "$FAKE_PYTEST_TERM_DIR/pytest"
-
-assert_blocked_cmd "pre-commit-guard: git commit; (terminador ';' pegado) se intercepta" \
-  "pre-commit-guard.sh" \
-  "git commit;" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-assert_blocked_cmd "pre-commit-guard: git add . && git commit&&git push (terminador '&&' pegado) se intercepta" \
-  "pre-commit-guard.sh" \
-  "git add . && git commit&&git push" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-assert_blocked_cmd "pre-commit-guard: (git commit) (terminador ')' pegado) se intercepta" \
-  "pre-commit-guard.sh" \
-  "(git commit)" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-# Negativo: "git commit-tree"/"git commit-graph" no son un commit real y no
-# deben interceptarse — con el mismo fixture (fake pytest que siempre
-# falla), si el regex ampliado matcheara por error, el fake correría y
-# bloquearía (falso positivo observable).
-assert_allowed_cmd "pre-commit-guard: git commit-tree no se intercepta" \
-  "pre-commit-guard.sh" \
-  "git commit-tree HEAD^{tree}" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-assert_allowed_cmd "pre-commit-guard: git commit-graph write no se intercepta" \
-  "pre-commit-guard.sh" \
-  "git commit-graph write" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-# GIT_COMMIT_RE (ronda 1 review, security MEDIUM): un prefijo de asignación
-# de entorno DISTINTO de GIT_DIR/GIT_WORK_TREE (ej. "HUSKY=0",
-# "GIT_AUTHOR_NAME=bot") antes solo se toleraba con esos dos nombres
-# exactos — cualquier otra asignación no matcheaba GIT_COMMIT_RE y el
-# commit real pasaba sin correr tests. Mismo fixture (pytest fake que
-# siempre falla) para que la intercepción sea observable por el efecto
-# (bloquea) y no por el nombre del regex.
-assert_blocked_cmd "pre-commit-guard: HUSKY=0 git commit -m x (prefijo de entorno ajeno a GIT_DIR/GIT_WORK_TREE) se intercepta" \
-  "pre-commit-guard.sh" \
-  "HUSKY=0 git commit -m x" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-assert_blocked_cmd "pre-commit-guard: GIT_AUTHOR_NAME=bot git commit -m x se intercepta" \
-  "pre-commit-guard.sh" \
-  "GIT_AUTHOR_NAME=bot git commit -m x" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-# GIT_COMMIT_RE (ronda 2 review, security LOW): "env" antepuesto a la
-# asignación de entorno ("env HUSKY=0 git commit") no matcheaba
-# GIT_COMMIT_RE porque el regex solo toleraba asignaciones "NOMBRE=valor"
-# pegadas a "git", no el binario "env" (con o sin flags cortas como "-i")
-# de por medio — el commit real pasaba sin correr tests. Mismo fixture
-# (pytest fake que siempre falla) para que la intercepción sea observable
-# por el efecto (bloquea).
-assert_blocked_cmd "pre-commit-guard: env HUSKY=0 git commit se intercepta" \
-  "pre-commit-guard.sh" \
-  "env HUSKY=0 git commit -m x" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-assert_blocked_cmd "pre-commit-guard: env -i HUSKY=0 git commit se intercepta" \
-  "pre-commit-guard.sh" \
-  "env -i HUSKY=0 git commit -m x" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-# Negativo: la mención de "env HUSKY=0 git commit" dentro de un string
-# double-quoted (argumento literal de "echo") no es una invocación real —
-# el saneo compartido ya la vacía antes de que este regex la vea.
-# #120 (ronda 1 de review): comillas vacias pegadas a la palabra (el shell las
-# une: commit'' es commit, ''commit es commit). RED con 85f002c: exit 0.
-assert_blocked_cmd "pre-commit-guard: commit con comillas vacias pegadas se intercepta (#120)" \
-  "pre-commit-guard.sh" \
-  "git commit'' -m x" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-assert_blocked_cmd "pre-commit-guard: comillas vacias pegadas a commit se interceptan (#120)" \
-  "pre-commit-guard.sh" \
-  "git ''commit -m x" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-assert_blocked_cmd "pre-commit-guard: comillas dobles vacias antes de git se interceptan (#120)" \
-  "pre-commit-guard.sh" \
-  '""git commit -m x' \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-# #118 (ronda 1 de review): wrappers delante de git commit. RED con 85f002c:
-# exit 0 (el commit real pasaba sin correr la suite roja).
-for WRAP in 'time' 'time -p' 'nohup' 'exec' 'command' 'timeout 60' 'timeout -s KILL 60' 'env FOO=1' 'coproc' 'time nohup env -i X=1'; do
-  assert_blocked_cmd "pre-commit-guard: wrapper '$WRAP' y git commit se intercepta (#118)" \
-    "pre-commit-guard.sh" \
-    "$WRAP git commit -m x" \
-    "$FAKE_PYTEST_TERM_DIR:$PATH" \
-    "$PCG_TERM_DIR"
-done
-assert_blocked_cmd "pre-commit-guard: tras pipe, xargs y git commit se intercepta (#118)" \
-  "pre-commit-guard.sh" \
-  "echo a | xargs git commit -m x" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-assert_blocked_cmd "pre-commit-guard: wrapper y git -C no se resuelve y bloquea (#118)" \
-  "pre-commit-guard.sh" \
-  "time git -C /tmp commit -m x" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-assert_allowed_cmd "pre-commit-guard: echo time git commit no se intercepta (control, #118)" \
-  "pre-commit-guard.sh" \
-  "echo time git commit -m x" \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-assert_allowed_cmd "pre-commit-guard: echo \"env HUSKY=0 git commit\" no se intercepta" \
-  "pre-commit-guard.sh" \
-  'echo "env HUSKY=0 git commit"' \
-  "$FAKE_PYTEST_TERM_DIR:$PATH" \
-  "$PCG_TERM_DIR"
-
-rm -rf "$PCG_TERM_DIR" "$FAKE_PYTEST_TERM_DIR"
-
 # Comando de push que usan los fixtures de suite de abajo: la rama
 # feature/suite es la de los repos de fixture (git init -q -b feature/suite).
 # Un fixture en main/master bloquearía por main ANTES de la suite y un assert
@@ -2263,7 +2049,31 @@ SOP_EXIT=0
 _sop_report "pre-push-guard: PRECOMMIT_TEST_BUDGET=10 con suite de 5s pasa dentro del presupuesto" \
   "$([ "$SOP_EXIT" -eq 0 ]; echo $?)"
 
-rm -rf "$SOP_OUT" "$SOP_BIN" "$SOP_FEAT" "$SOP_OTHER" "$SOP_MAIN" "$SOP_MERGE" "$SOP_SLOW_BIN"
+# CA-1: un `git commit` no corre la suite en NINGÚN hook registrado. El sandbox
+# tiene marcador de runner y un pytest fake que falla y deja su archivo
+# (SOP_OUT/ran); cada script PreToolUse de hooks.json recibe el commit: todos
+# salen 0 y el archivo no existe. El control de abajo prueba que el fixture
+# detecta una corrida: el mismo sandbox con un push sí deja el archivo.
+SOP_COMMIT_REPO=$(_sop_repo feature/suite)
+SOP_COMMIT_JSON=$(jq -n '{tool_input: {command: "git commit -m x"}}')
+SOP_COMMIT_SCRIPTS=$(jq -r '.hooks.PreToolUse[].hooks[].command' "$HOOKS_DIR/hooks.json" | sed -e 's|^"${CLAUDE_PLUGIN_ROOT}/hooks/||' -e 's|"$||')
+SOP_RAN=""; SOP_EXIT=0; SOP_STDERR=""
+_sop_report "git commit: hooks.json registra handlers PreToolUse y entre ellos está pre-push-guard.sh (el recorrido de abajo no es vacío)" \
+  "$(echo "$SOP_COMMIT_SCRIPTS" | grep -qx 'pre-push-guard.sh'; echo $?)"
+for SOP_SCRIPT in $SOP_COMMIT_SCRIPTS; do
+  rm -f "$SOP_OUT/ran"
+  SOP_EXIT=0
+  SOP_STDERR=$(cd "$SOP_COMMIT_REPO" && echo "$SOP_COMMIT_JSON" | SOP_OUT="$SOP_OUT" SOP_RC=1 PATH="$SOP_BIN:$PATH" bash "$HOOKS_DIR/$SOP_SCRIPT" 2>&1 > /dev/null) || SOP_EXIT=$?
+  SOP_RAN=""
+  if [ -f "$SOP_OUT/ran" ]; then SOP_RAN=$(cat "$SOP_OUT/ran"); fi
+  _sop_report "git commit: $SOP_SCRIPT sale 0 y no corre la suite aunque el runner falle (CA-1)" \
+    "$([ "$SOP_EXIT" -eq 0 ] && [ -z "$SOP_RAN" ]; echo $?)"
+done
+_sop_run "$SOP_COMMIT_REPO" "$SOP_PUSH_CMD" 1
+_sop_report "git commit: control — el mismo sandbox con un push SÍ corre el runner y bloquea" \
+  "$([ "$SOP_EXIT" -eq 2 ] && [ "$SOP_RAN" = "$SOP_COMMIT_REPO" ]; echo $?)"
+
+rm -rf "$SOP_OUT" "$SOP_BIN" "$SOP_FEAT" "$SOP_OTHER" "$SOP_MAIN" "$SOP_MERGE" "$SOP_SLOW_BIN" "$SOP_COMMIT_REPO"
 
 # --- pre-push-guard.sh: PRECOMMIT_TEST_BUDGET inválido cae a un default
 # seguro (<= 570) en vez de romper la comparación del watchdog o anular su
@@ -2499,7 +2309,7 @@ _pskip_setup
 
 # Sin salto para .planning/ (D-03): .planning/ deja de tener trato
 # especial en este hook, así que estos casos pinean que el filtro de "git
-# commit" sigue sin interceptar menciones dentro de texto quoted/heredoc —
+# push" sigue sin interceptar menciones dentro de texto quoted/heredoc —
 # no que el árbol esté sucio solo bajo .planning/.
 
 # Mención de "git -C" dentro de una opción -o del push (texto quoted,
@@ -4750,7 +4560,7 @@ assert_pre_merge_silent "pre-merge-check: 'gh pr merge -h' sale 0 con stdout vac
 
 # [security LOW-2] "perl falló en tiempo de ejecución" y "perl ausente"
 # tienen que ser el MISMO estado para este guard: bloquea. Los otros dos
-# guards (block-admin-merge.sh, pre-commit-guard.sh) toleran el fallback
+# guards (block-admin-merge.sh, pre-push-guard.sh) toleran el fallback
 # de guard_sanitize (comando sin sanear) porque solo BLOQUEAN de más sobre
 # texto sin sanear — la dirección segura. Este guard es distinto: EXTRAE
 # un número de PR del texto (línea ~82, sin GUARD_ANCHOR, a diferencia del
@@ -5387,7 +5197,7 @@ echo "--- guard-matching.sh: fail-closed integral del source ---"
 # los 3 scripts a un directorio SIN hooks/lib/ para simular el lib
 # ausente sin tocar el hooks/ real (que sí lo tiene).
 MISSING_LIB_DIR=$(mktemp -d)
-cp "$HOOKS_DIR/pre-merge-check.sh" "$HOOKS_DIR/block-admin-merge.sh" "$HOOKS_DIR/pre-commit-guard.sh" "$MISSING_LIB_DIR/"
+cp "$HOOKS_DIR/pre-merge-check.sh" "$HOOKS_DIR/block-admin-merge.sh" "$HOOKS_DIR/pre-push-guard.sh" "$MISSING_LIB_DIR/"
 
 TOTAL=$((TOTAL + 1))
 JSON_MISSING_LIB_PMC=$(jq -n '{tool_input: {command: "gh pr merge 5"}}')
@@ -5414,14 +5224,14 @@ else
 fi
 
 TOTAL=$((TOTAL + 1))
-JSON_MISSING_LIB_PCG=$(jq -n '{tool_input: {command: "git commit -m wip"}}')
+JSON_MISSING_LIB_PCG=$(jq -n --arg cmd "$SUITE_PUSH_CMD" '{tool_input: {command: $cmd}}')
 EXIT_MISSING_LIB_PCG=0
-echo "$JSON_MISSING_LIB_PCG" | bash "$MISSING_LIB_DIR/pre-commit-guard.sh" > /dev/null 2>&1 || EXIT_MISSING_LIB_PCG=$?
-if [ "$EXIT_MISSING_LIB_PCG" -eq 2 ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard.sh bloquea (exit 2) si hooks/lib/guard-matching.sh no existe/no es legible"
+ERR_MISSING_LIB_PCG=$(echo "$JSON_MISSING_LIB_PCG" | bash "$MISSING_LIB_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || EXIT_MISSING_LIB_PCG=$?
+if [ "$EXIT_MISSING_LIB_PCG" -eq 2 ] && echo "$ERR_MISSING_LIB_PCG" | grep -qF "falta hooks/lib/guard-matching.sh"; then
+  echo -e "${GREEN}PASS${NC}: pre-push-guard.sh bloquea (exit 2) si hooks/lib/guard-matching.sh no existe/no es legible"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard.sh bloquea (exit 2) si hooks/lib/guard-matching.sh no existe/no es legible (exit: $EXIT_MISSING_LIB_PCG)"
+  echo -e "${RED}FAIL${NC}: pre-push-guard.sh bloquea (exit 2) si hooks/lib/guard-matching.sh no existe/no es legible (exit: $EXIT_MISSING_LIB_PCG, stderr: $ERR_MISSING_LIB_PCG)"
   FAIL=$((FAIL + 1))
 fi
 
@@ -5436,7 +5246,7 @@ echo "--- guard-matching.sh: modo degradado sin perl, continuaciones de línea, 
 # cae a devolver el comando sin sanear (fail-safe: sigue interceptando más
 # de la cuenta en vez de menos), pero antes no lo anunciaba — el modo
 # degradado era invisible. Se pinea el falso positivo COMO comportamiento
-# aceptado (heredoc con "git commit" al inicio de una línea, sin perl para
+# aceptado (heredoc con "git push" al inicio de una línea, sin perl para
 # reconocerlo como cuerpo de heredoc, dispara el guard) y se verifica que
 # el aviso por stderr ahora lo hace explícito.
 NO_PERL_TRANSPARENCY_DIR=$(mktemp -d)
@@ -5454,13 +5264,13 @@ for cmd in bash cat jq grep; do
 done
 HEREDOC_MENTION_NO_PERL=$(cat <<'CMD_EOF'
 cat <<'NOTE_EOF' > notes.txt
-git commit -m "reminder text" (do this later)
+git push origin feature/suite
 NOTE_EOF
 CMD_EOF
 )
 JSON_NO_PERL_TRANSPARENCY=$(jq -n --arg cmd "$HEREDOC_MENTION_NO_PERL" '{tool_input: {command: $cmd}}')
 NO_PERL_EXIT=0
-NO_PERL_OUTPUT=$(cd "$NO_PERL_TRANSPARENCY_DIR" && echo "$JSON_NO_PERL_TRANSPARENCY" | PATH="$FAKE_PYTEST_TRANSPARENCY_DIR:$NO_PERL_BIN" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1) || NO_PERL_EXIT=$?
+NO_PERL_OUTPUT=$(cd "$NO_PERL_TRANSPARENCY_DIR" && echo "$JSON_NO_PERL_TRANSPARENCY" | PATH="$FAKE_PYTEST_TRANSPARENCY_DIR:$NO_PERL_BIN" bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1) || NO_PERL_EXIT=$?
 TOTAL=$((TOTAL + 1))
 if [ "$NO_PERL_EXIT" -eq 2 ] && echo "$NO_PERL_OUTPUT" | grep -qF "guard-matching: perl no disponible, matching sin saneo (posibles falsos positivos)"; then
   echo -e "${GREEN}PASS${NC}: guard_sanitize sin perl: falso positivo de heredoc pineado como aceptado + aviso stderr presente"
@@ -5502,9 +5312,9 @@ echo "--- guard-matching.sh: ReDoS en heredocs (backtracking catastrófico) ---"
 # "(?:(?!...).*\n?)*" bajo /s deja que ".*" reconsuma el mismo texto de
 # formas solapadas): con solo 8 líneas de relleno ya tarda más de 3s
 # (medido con perl -0777 y alarm(3) real) y sigue creciendo sin cota
-# aparente. Como los 3 guards (pre-commit-guard.sh, pre-merge-check.sh,
+# aparente. Como los 3 guards (pre-push-guard.sh, pre-merge-check.sh,
 # block-admin-merge.sh) sourcean este helper en CADA llamada Bash del
-# harness, el cuelgue bloquea la sesión entera, no solo un commit.
+# harness, el cuelgue bloquea la sesión entera, no solo un push.
 # 8s (no 4s): guard_sanitize() tiene su propio alarm(5) interno como red
 # de seguridad (ver hooks/lib/guard-matching.sh) — este watchdog externo
 # tiene que dar margen para que ESE mecanismo pueda actuar y devolver su
@@ -5816,13 +5626,13 @@ assert_bam_blocked "block-admin-merge: sigue bloqueando si perl falla/timeoutea 
 
 # Transparencia del modo degradado (mismo criterio que la transparencia
 # "sin perl" de arriba): con perl fallando, el heredoc que menciona "git
-# commit" ya no se reconoce como cuerpo de heredoc — falso positivo
+# push" ya no se reconoce como cuerpo de heredoc — falso positivo
 # aceptado (dirección segura) — y el aviso por stderr tiene que ser
 # distinguible del de "perl no disponible" (esto NO es ausencia, es una
 # falla/timeout en tiempo de ejecución).
 HEREDOC_MENTION_PERL_TIMEOUT=$(cat <<'CMD_EOF'
 cat <<'NOTE_EOF' > notes.txt
-git commit -m "reminder text" (do this later)
+git push origin feature/suite
 NOTE_EOF
 CMD_EOF
 )
@@ -5837,7 +5647,7 @@ exit 1
 FAKE_PYTEST_EOF
 chmod +x "$FAKE_PYTEST_PERL_TIMEOUT_DIR/pytest"
 PERL_TIMEOUT_EXIT=0
-PERL_TIMEOUT_OUTPUT=$(cd "$PERL_TIMEOUT_PCG_DIR" && echo "$JSON_PERL_TIMEOUT" | PATH="$FAKE_PYTEST_PERL_TIMEOUT_DIR:$FAKE_PERL_TIMEOUT_DIR" bash "$HOOKS_DIR/pre-commit-guard.sh" 2>&1) || PERL_TIMEOUT_EXIT=$?
+PERL_TIMEOUT_OUTPUT=$(cd "$PERL_TIMEOUT_PCG_DIR" && echo "$JSON_PERL_TIMEOUT" | PATH="$FAKE_PYTEST_PERL_TIMEOUT_DIR:$FAKE_PERL_TIMEOUT_DIR" bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1) || PERL_TIMEOUT_EXIT=$?
 TOTAL=$((TOTAL + 1))
 if [ "$PERL_TIMEOUT_EXIT" -eq 2 ] && echo "$PERL_TIMEOUT_OUTPUT" | grep -qF "guard-matching: saneo abortado"; then
   echo -e "${GREEN}PASS${NC}: guard_sanitize con perl fallando: falso positivo de heredoc pineado como aceptado + aviso stderr distinto de 'perl no disponible'"
@@ -5852,7 +5662,7 @@ rm -rf "$PERL_TIMEOUT_PCG_DIR" "$FAKE_PYTEST_PERL_TIMEOUT_DIR" "$FAKE_PERL_TIMEO
 # degradaciones espurias por máquina cargada: medido, un caso lineal de
 # 348 KB tarda 0s, así que subir el margen no debilita nada. Con 2s, un
 # comando grande mientras corre esta misma suite en paralelo puede
-# degradar de forma intermitente — y en pre-commit-guard.sh degradar
+# degradar de forma intermitente — y en pre-push-guard.sh degradar
 # significa disparar la suite de tests entera del proyecto. Regression
 # simple sobre el valor de la constante: no depende de inducir un timeout
 # real de 5s (lento y flaky), solo confirma que el tunable es el que se
@@ -5986,8 +5796,6 @@ assert_nul_blocked "block-force-push: bloquea NUL en el comando (B2)" \
   "block-force-push.sh" "$NUL_STATUS_PROGRAM"
 assert_nul_blocked "block-hard-reset: bloquea NUL en el comando (B2)" \
   "block-hard-reset.sh" "$NUL_STATUS_PROGRAM"
-assert_nul_blocked "pre-commit-guard: bloquea NUL en el comando (B2)" \
-  "pre-commit-guard.sh" "$NUL_STATUS_PROGRAM"
 
 # B3: los mismos comandos, sin NUL, siguen pasando (negativos existentes —
 # "git status" ya pasa hoy en los tres, "gh pr merge --help" exacto ya pasa
@@ -6027,7 +5835,7 @@ rm -rf "$NO_JQ_GUARD_INIT_BIN" "$GUARD_INIT_NO_JQ_OUT"
 
 # guard_init sin grep en PATH (D-07, security LOW-2 de la ronda 2): la
 # dependencia vive en la lib, así que cada guard que la sourcea bloquea con
-# "no operativo: falta grep" ANTES de evaluar el comando. pre-commit-guard ya
+# "no operativo: falta grep" ANTES de evaluar el comando. pre-push-guard ya
 # lo cubre TG (sección "runner de pytest") y pre-merge-check tiene su propio
 # check de perl/jq/grep antes de guard_init; acá van los otros cuatro, cada uno
 # con un comando que ese guard intercepta de verdad. PATH curado = lo que

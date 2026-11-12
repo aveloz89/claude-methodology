@@ -30,11 +30,6 @@
             "if": "Bash(gh *)",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-merge-check.sh\"",
             "timeout": 30
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-guard.sh\"",
-            "timeout": 600
           }
         ]
       }

@@ -104,7 +104,7 @@ for f in "$PLUGIN_JSON" "$MARKETPLACE_JSON" "$HOOKS_JSON"; do
 done
 
 echo ""
-echo "--- hooks.json: if por handler, matcher de SessionStart, timeout de pre-commit-guard ---"
+echo "--- hooks.json: if por handler, matcher de SessionStart, timeout de pre-push-guard ---"
 
 # assert_hook_if: verifica el campo "if" de la entrada de hooks.json cuyo
 # "command" termina en <script_name> — optimización de latencia (verificación
@@ -130,18 +130,18 @@ assert_hook_if() {
   fi
 }
 
-# Los 4 guards de git NO llevan "if": con "Bash(git *)" el harness no los
+# Los 3 guards de git NO llevan "if": con "Bash(git *)" el harness no los
 # invocaba para comandos que empiezan por un wrapper (time, env, ...), un
 # if/then, un backtick o un "(" (decisión del usuario, ronda 1 de review). Cada
 # script valida el comando completo; medido, "echo hola" sale 0 en ~15 ms.
-for GIT_GUARD in block-force-push.sh block-hard-reset.sh pre-push-guard.sh pre-commit-guard.sh; do
+for GIT_GUARD in block-force-push.sh block-hard-reset.sh pre-push-guard.sh; do
   assert_hook_if "$GIT_GUARD" "MISSING"
 done
 assert_hook_if "block-admin-merge.sh" "Bash(gh *)"
 assert_hook_if "pre-merge-check.sh" "Bash(gh *)"
 
 # Paridad: el resto de las entradas de hooks.json no cambió (evento, matcher,
-# script, if y timeout de las 11); solo los 4 guards de git perdieron el "if".
+# script, if y timeout de las 10); solo los 3 guards de git perdieron el "if".
 # Los campos se unen con US (0x1f), no con "|": el matcher de SessionStart
 # ("startup|resume|clear|compact") ya trae "|" y con ese separador un campo
 # podía confundirse con otro.
@@ -152,7 +152,6 @@ EXPECTED_HANDLERS=$(printf '%s\n' \
   "PreToolUse${US}Bash${US}block-hard-reset.sh${US}-${US}10" \
   "PreToolUse${US}Bash${US}pre-push-guard.sh${US}-${US}600" \
   "PreToolUse${US}Bash${US}pre-merge-check.sh${US}Bash(gh *)${US}30" \
-  "PreToolUse${US}Bash${US}pre-commit-guard.sh${US}-${US}600" \
   "PostToolUse${US}Bash${US}post-pr-create.sh${US}-${US}15" \
   "PostToolUse${US}Bash${US}docker-refresh.sh${US}-${US}15" \
   "SessionStart${US}startup|resume|clear|compact${US}session-start-context.sh${US}-${US}15" \
@@ -161,7 +160,7 @@ EXPECTED_HANDLERS=$(printf '%s\n' \
 ACTUAL_HANDLERS=$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | .matcher as $m | .hooks[] | [$e, ($m // ""), (.command | sub(".*/"; "") | sub("\"$"; "")), (.if // "-"), (.timeout // "-" | tostring)] | join("\u001f")' "$HOOKS_JSON")
 TOTAL=$((TOTAL + 1))
 if [ "$ACTUAL_HANDLERS" = "$EXPECTED_HANDLERS" ]; then
-  echo -e "${GREEN}PASS${NC}: las 11 entradas de hooks.json coinciden (evento, matcher, script, if, timeout)"
+  echo -e "${GREEN}PASS${NC}: las 10 entradas de hooks.json coinciden (evento, matcher, script, if, timeout)"
   PASS=$((PASS + 1))
 else
   echo -e "${RED}FAIL${NC}: las entradas de hooks.json cambiaron"
@@ -179,13 +178,15 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# suite-on-push (CA-1): `git commit` no corre la suite, así que ningún handler
+# registrado puede tener "commit" en su comando (el guard de commit se eliminó).
 TOTAL=$((TOTAL + 1))
-PCG_TIMEOUT=$(jq -r '.hooks.PreToolUse[].hooks[] | select(.command | endswith("pre-commit-guard.sh") or endswith("pre-commit-guard.sh\"")) | .timeout' "$HOOKS_JSON")
-if [ "$PCG_TIMEOUT" = "600" ]; then
-  echo -e "${GREEN}PASS${NC}: pre-commit-guard.sh tiene timeout=600"
+COMMIT_HANDLERS=$(jq -r '.hooks | to_entries[] | .value[] | .hooks[] | .command | select(test("commit"))' "$HOOKS_JSON")
+if [ -z "$COMMIT_HANDLERS" ]; then
+  echo -e "${GREEN}PASS${NC}: hooks.json no registra ningún handler cuyo comando contenga commit"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}FAIL${NC}: pre-commit-guard.sh tiene timeout=$PCG_TIMEOUT (esperado 600)"
+  echo -e "${RED}FAIL${NC}: hooks.json registra handlers de commit: $COMMIT_HANDLERS"
   FAIL=$((FAIL + 1))
 fi
 
