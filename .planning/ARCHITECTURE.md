@@ -38,6 +38,17 @@ A diferencia de `DESIGN.md` (que vive solo durante una feature), este archivo pe
 
 (Las entradas se agregan aquí, la más reciente arriba)
 
+### [2026-11-16] El proyecto declara su suite local (`test:local`); todo lo que cambia qué se verificó entra en la clave de la marca
+
+**Contexto:** la suite del push (entrada 2026-11-11) corría siempre `<pkg_mgr> test`. Un proyecto cuya suite completa asume Linux no se podía pushear desde Windows sin perder la barrera local. Brief `local-suite`.
+
+**Decisión:** (1) Un directorio Node puede declarar `scripts["test:local"]` (string no vacío) en su `package.json`; el guard corre `<pkg_mgr> run test:local` en vez de `test`. La suite completa queda como barrera en CI. (2) `SUITE_FULL=1` (valor exacto) fuerza `test`: se lee del entorno del proceso del hook y también del texto del comando, donde solo puede subir a completa, nunca bajar. (3) Una declaración mal escrita (`test:local` que no es string ni `null`) bloquea siempre con su razón, también con marcador Python y con `SUITE_FULL=1`: no hereda la cesión a Python de D-06, que existe para el `package.json` de tooling heredado y no para un opt-in explícito. (4) Si se pide la suite completa y no hay ninguna (`SUITE_FULL=1`, solo `test:local`, sin marcador Python) bloquea en vez de pasar. (5) La clave de la marca de estado verificado incluye el modo (`default` | `full`); una verificación en un modo no vale para el otro, en ninguna de las dos direcciones.
+
+**Justificación:** el proyecto es quien sabe qué parte de su suite es portable; un nombre neutro (`test:local`) no ata la convención al hook que la corre. Se registra el modo y no el script resuelto por directorio porque, con el mismo árbol, el script es función pura del contenido de `package.json` (ya en la clave) y del modo. Alternativas descartadas: `test:prepush`/`test:precommit` (atados a un hook), portar la suite completa a Windows, guardar dos claves en la marca (YAGNI), que una declaración mal escrita caiga a `test` (en Windows daría un rojo confuso en vez de la razón).
+
+**Implicación:** un interruptor o una declaración nueva que cambie QUÉ verifica un guard entra en la clave de su marca en el mismo PR, y cambia la versión del encabezado de la clave. Un interruptor que se lee del texto del comando solo puede endurecer. Los predicados sobre `package.json` deciden por el exit code de `jq -e`, no comparando su salida (CRLF en Windows). Los tests de hooks hacen `unset` de toda variable de entorno que el hook lea como interruptor, para no heredar la de la máquina. La regla de la suite tiene un lugar canónico (`README.md`, fila de `pre-push-guard`); cualquier otra mención remite a él y un test lo exige.
+
+
 ### [2026-11-11] La suite corre una vez antes del push, no en cada commit; el estado verificado se recuerda por worktree
 
 **Contexto:** `pre-commit-guard` corría la suite entera en cada `git commit` de Claude (un PR de 5 commits = 5 corridas de 3-9 min; el tope de 540 s llegó a vencer bloqueando commits buenos). Decisión del usuario (brief `suite-on-push`): la suite corre solo antes del push, una vez; se acepta un commit intermedio rojo dentro de una rama.
