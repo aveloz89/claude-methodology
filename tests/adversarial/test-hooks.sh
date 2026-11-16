@@ -4256,6 +4256,41 @@ fi
 _pyrun_report "pre-push-guard: SUITE_FULL=1 con solo test:local y nada más que correr → bloquea con la razón (TL4)" "$PYRUN_CASE_OK"
 _pyrun_cleanup
 
+# TL5 (CA-5): la clave de la marca incluye el modo. Cinco pushes sobre el MISMO
+# árbol, borrando node.argv entre uno y otro: (1) defecto corre "run
+# test:local" y deja marca; (2) defecto no corre ("estado ya verificado");
+# (3) SUITE_FULL=1 CORRE "test" (un verificado en un modo no vale por el
+# otro); (4) SUITE_FULL=1 no corre; (5) defecto corre otra vez. Se rompe si se
+# quita la línea "suite" de la clave (el paso 3 no correría).
+_pyrun_setup
+rm "$PYRUN_DIR/pyproject.toml"
+_pyrun_make_scripts '{"test":"x","test:local":"y"}'
+_pyrun_make_npm 0
+PYRUN_TL5_PATH="$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_CASE_OK=0
+_pyrun_tl5_argv() { { tr -d '\r' < "$PYRUN_MARK/node.argv" | paste -sd, -; } 2>/dev/null; }
+
+_pyrun_run "$PYRUN_TL5_PATH"
+[ "$PYRUN_EXIT" -eq 0 ] && [ "$(_pyrun_tl5_argv)" = "run,test:local" ] || PYRUN_CASE_OK=1
+rm -f "$PYRUN_MARK/node.argv"
+
+_pyrun_run "$PYRUN_TL5_PATH"
+[ "$PYRUN_EXIT" -eq 0 ] && [ ! -f "$PYRUN_MARK/node.argv" ] \
+  && echo "$PYRUN_STDERR" | grep -qF "estado ya verificado" || PYRUN_CASE_OK=1
+
+SUITE_FULL=1 _pyrun_run "$PYRUN_TL5_PATH"
+[ "$PYRUN_EXIT" -eq 0 ] && [ "$(_pyrun_tl5_argv)" = "test" ] || PYRUN_CASE_OK=1
+rm -f "$PYRUN_MARK/node.argv"
+
+SUITE_FULL=1 _pyrun_run "$PYRUN_TL5_PATH"
+[ "$PYRUN_EXIT" -eq 0 ] && [ ! -f "$PYRUN_MARK/node.argv" ] \
+  && echo "$PYRUN_STDERR" | grep -qF "estado ya verificado" || PYRUN_CASE_OK=1
+
+_pyrun_run "$PYRUN_TL5_PATH"
+[ "$PYRUN_EXIT" -eq 0 ] && [ "$(_pyrun_tl5_argv)" = "run,test:local" ] || PYRUN_CASE_OK=1
+_pyrun_report "pre-push-guard: la marca distingue el modo: verificado en un modo corre de nuevo en el otro (TL5, CA-5)" "$PYRUN_CASE_OK"
+_pyrun_cleanup
+
 # TG (D-07): "grep" ausente del PATH → el hook bloquea (exit 2, "falta grep")
 # desde guard_init, antes de evaluar nada. Antes el hook salía 0 en silencio:
 # "! echo ... | grep -qE" invierte el 127 de un grep inexistente y el push

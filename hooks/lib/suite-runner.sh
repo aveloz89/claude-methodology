@@ -600,6 +600,14 @@ _guard_run_suite_in() {
 # versión del runner, y es falsificable por quien escriba la marca a mano
 # (mismo modelo de amenaza que el resto: errores honestos). Salida: borrar la
 # marca o tocar cualquier archivo. Binarios: solo git, cat, mktemp, rm, sleep.
+#
+# La clave incluye el modo ("suite-on-push v2" + línea "suite" con full o
+# default, según SUITE_FULL=1): dado el mismo árbol, qué script corre cada
+# directorio es función pura de (contenido de package.json, modo), y el
+# contenido ya está en la clave. Simétrico: verificado en un modo no vale por
+# el otro (nada garantiza que "test" contenga a "test:local"). La marca guarda
+# una sola clave, así que alternar de modo sobre el mismo estado vuelve a
+# correr. Las marcas "v1" dejan de coincidir al actualizar: una corrida extra.
 GUARD_KEY_CAP=5
 GUARD_STATE_KEY=""
 GUARD_MARK=""
@@ -651,7 +659,7 @@ _guard_state_key() {
   (
     set -o pipefail
     {
-      printf 'suite-on-push v1\n'
+      printf 'suite-on-push v2\n'
       git rev-parse --verify -q 'HEAD^{commit}' || exit 1
       printf 'dirs\n'
       printf '%s\n' "${GUARD_RUN_DIRS[@]}"
@@ -661,6 +669,8 @@ _guard_state_key() {
       git diff --no-ext-diff --no-textconv --no-color --binary HEAD -- || exit 1
       printf 'untracked\n'
       git ls-files --others --exclude-standard | git hash-object --stdin-paths || exit 1
+      printf 'suite\n'
+      if _guard_suite_full; then printf 'full\n'; else printf 'default\n'; fi
     } 2>/dev/null | git hash-object --stdin
   )
 }
