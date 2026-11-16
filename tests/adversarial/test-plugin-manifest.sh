@@ -1920,6 +1920,40 @@ assert_contains "$README" 'SUITE_FULL=1' \
 assert_contains "$README" 'sin CI que declare `test:local` se queda sin suite completa' \
   "README (Fuera de alcance): la barrera completa es CI; sin CI, test:local deja sin suite completa"
 
+# Estructural: toda línea fuera del README que mencione la suite local
+# (test:local, SUITE_FULL) remite también a README.md. Un documento que copia
+# la regla sin puntero se rompe acá. El runbook debe tener al menos una mención
+# (si no, el assert pasaría en vacío).
+LOCAL_SUITE_MENTIONS=0
+LOCAL_SUITE_UNLINKED=""
+for d in global rulebooks skills agents rules; do
+  [ -d "$REPO_ROOT/$d" ] || continue
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    LOCAL_SUITE_MENTIONS=$((LOCAL_SUITE_MENTIONS + 1))
+    case "$hit" in
+      *README.md*) ;;
+      *) LOCAL_SUITE_UNLINKED="$LOCAL_SUITE_UNLINKED ${hit%%:*}" ;;
+    esac
+  done < <(grep -rEn 'test:local|SUITE_FULL' "$REPO_ROOT/$d" 2>/dev/null || true)
+done
+TOTAL=$((TOTAL + 1))
+if [ -z "$LOCAL_SUITE_UNLINKED" ]; then
+  echo -e "${GREEN}PASS${NC}: toda mención de test:local/SUITE_FULL fuera del README remite a README.md"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: mención de test:local/SUITE_FULL sin puntero a README.md en:$LOCAL_SUITE_UNLINKED"
+  FAIL=$((FAIL + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if [ "$(grep -cE 'test:local|SUITE_FULL' "$RUNBOOK")" -ge 3 ]; then
+  echo -e "${GREEN}PASS${NC}: el runbook menciona la suite local en sus tres puntos (Fase 2.7, resume, tabla de errores)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: el runbook debe mencionar test:local/SUITE_FULL en al menos tres líneas (Fase 2.7, resume, tabla de errores)"
+  FAIL=$((FAIL + 1))
+fi
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---
