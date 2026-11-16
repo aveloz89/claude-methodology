@@ -58,6 +58,13 @@
 # un "scripts" que no es un objeto (jq falla y no cuenta): legacy aceptado,
 # mismo comportamiento que origin/dev.
 #
+# Suite local declarada (scripts["test:local"]): un package.json objeto cuyo
+# scripts["test:local"] es un string no vacío corre "<gestor> run test:local"
+# (gestor por lockfile: pnpm-lock.yaml → pnpm, yarn.lock → yarn, si no npm) y
+# NO "test": el proyecto declaró cuál es su suite local. Gana a un marcador
+# Python del mismo directorio y no exige un "scripts.test" usable. "" (o
+# ausente/null) cuenta como no declarado: sigue la cadena de siempre.
+#
 # Salida de la suite en el stderr: el harness solo le pasa al agente el stderr
 # de un hook que bloquea, y la salida del runner sale por stdout (que sigue
 # imprimiéndola entera). Por eso, con la suite roja, tras la línea "BLOCKED:
@@ -431,6 +438,27 @@ _guard_node_test_script_wrong_type() {
   jq -e '.scripts.test | type | . != "string" and . != "null"' package.json > /dev/null 2>&1
 }
 
+# _guard_node_local_script_declared: el package.json del cwd declara
+# scripts["test:local"] como string no vacío. "" cuenta como no declarado
+# (cae a "test"; "npm run" de un script vacío sale 0 sin correr nada, y eso
+# sería un verde falso). Decide por el exit code de "jq -e", no por texto: un
+# jq de Windows puede emitir CRLF. Solo se evalúa si el package.json es un
+# único objeto (_guard_package_json_is_object).
+_guard_node_local_script_declared() {
+  jq -e '.scripts["test:local"] | type == "string" and . != ""' package.json > /dev/null 2>&1
+}
+
+# _guard_node_pkg_mgr: imprime el gestor de paquetes del cwd por lockfile.
+_guard_node_pkg_mgr() {
+  if [ -f "pnpm-lock.yaml" ]; then
+    printf 'pnpm'
+  elif [ -f "yarn.lock" ]; then
+    printf 'yarn'
+  else
+    printf 'npm'
+  fi
+}
+
 # Centinela de "directorio sin runner" (marcador Python sin runner, o
 # package.json inutilizable sin marcador Python). 127 = convención "command not
 # found"; NUNCA viene del runner: el rc de la suite se colapsa a 0/1 en
@@ -456,16 +484,20 @@ _guard_run_suite_in() {
   prev_pwd=$(pwd)
   cd "$dir" || return 1
 
-  local rc=0
-  if [ -f "package.json" ] && _guard_node_has_test_script; then
-    local pkg_mgr
-    if [ -f "pnpm-lock.yaml" ]; then
-      pkg_mgr="pnpm"
-    elif [ -f "yarn.lock" ]; then
-      pkg_mgr="yarn"
-    else
-      pkg_mgr="npm"
-    fi
+  local local_kind=none
+  if [ -f "package.json" ] && _guard_package_json_is_object && _guard_node_local_script_declared; then
+    local_kind=string
+  fi
+
+  local rc=0 pkg_mgr
+  if [ "$local_kind" = string ]; then
+    pkg_mgr=$(_guard_node_pkg_mgr)
+    echo "Running tests before push ($pkg_mgr run test:local) [$dir]... (suite local del proyecto; SUITE_FULL=1 corre 'test')" >&2
+    _guard_run_with_budget "$budget" "$dir" "$pkg_mgr" run test:local
+    rc=$?
+    [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
+  elif [ -f "package.json" ] && _guard_node_has_test_script; then
+    pkg_mgr=$(_guard_node_pkg_mgr)
 
     echo "Running tests before push ($pkg_mgr) [$dir]..." >&2
     _guard_run_with_budget "$budget" "$dir" "$pkg_mgr" test

@@ -10,6 +10,11 @@
 
 set -e
 
+# SUITE_FULL=1 fijo en la máquina del autor (interruptor por máquina de
+# suite-runner.sh) se heredaría en cada caso y rompería los de modo por
+# defecto: la suite del repo no depende del entorno de quien la corre.
+unset SUITE_FULL
+
 # Ruta absoluta a hooks/, calculada desde la ubicación del script: los tests
 # de sandbox hacen `cd` a repos git temporales, así que una ruta relativa
 # como "hooks" dejaría de resolver en cuanto cambia el cwd.
@@ -3554,16 +3559,23 @@ PTEOF
   chmod +x "$PYRUN_PYTEST_BIN/pytest"
 }
 
-# _pyrun_make_npm <rc>: "npm" fake en PYRUN_NPM_BIN. Registra el argv (uno por
+# _pyrun_make_npm <rc> [<nombre>]: gestor fake en PYRUN_NPM_BIN (npm por
+# defecto; pnpm o yarn con el segundo argumento). Registra el argv (uno por
 # línea) en node.argv y "pwd -P" en node.ran, y sale con <rc>.
 _pyrun_make_npm() {
-  cat > "$PYRUN_NPM_BIN/npm" <<NPMEOF
+  cat > "$PYRUN_NPM_BIN/${2:-npm}" <<NPMEOF
 #!/bin/bash
 printf '%s\n' "\$@" > "$PYRUN_MARK/node.argv"
 pwd -P > "$PYRUN_MARK/node.ran"
 exit $1
 NPMEOF
-  chmod +x "$PYRUN_NPM_BIN/npm"
+  chmod +x "$PYRUN_NPM_BIN/${2:-npm}"
+}
+
+# _pyrun_make_scripts <json>: package.json en la raíz del fixture con el
+# objeto "scripts" dado (los modos de _pyrun_make_package_json no se tocan).
+_pyrun_make_scripts() {
+  jq -n --argjson s "$1" '{name: "x", scripts: $s}' > "$PYRUN_DIR/package.json"
 }
 
 # _pyrun_make_package_json <none|placeholder|test|bool|false|object|number|array|null|invalid|empty|multi|trailing>:
@@ -3599,12 +3611,13 @@ _pyrun_make_pyproject() {
   printf '[project]\nname = "x"\nversion = "0"\n\n%s\n' "$1" > "$PYRUN_DIR/pyproject.toml"
 }
 
-# _pyrun_run <PATH>: corre el hook con "$SUITE_PUSH_CMD" desde la raíz del
-# fixture. Deja el exit en PYRUN_EXIT y el stderr en PYRUN_STDERR (mismo
+# _pyrun_run <PATH> [<comando>]: corre el hook con <comando> (por defecto
+# "$SUITE_PUSH_CMD") desde la raíz del fixture. El modo completo por entorno
+# se escribe "SUITE_FULL=1 _pyrun_run ...". Deja el exit en PYRUN_EXIT y el stderr en PYRUN_STDERR (mismo
 # patrón de captura que G2 en "monorepo sin marcador en la raíz").
 _pyrun_run() {
   local run_path="$1" json
-  json=$(jq -n --arg cmd "$SUITE_PUSH_CMD" '{tool_input: {command: $cmd}}')
+  json=$(jq -n --arg cmd "${2:-$SUITE_PUSH_CMD}" '{tool_input: {command: $cmd}}')
   PYRUN_EXIT=0
   PYRUN_STDERR=$(cd "$PYRUN_DIR" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || PYRUN_EXIT=$?
 }
@@ -4103,6 +4116,34 @@ if [ "$PYRUN_EXIT" -eq 0 ] \
 fi
 _pyrun_report "pre-push-guard: package.json con script test + pyproject.toml → corre solo el package manager (TD6b, pin)" "$PYRUN_TD6B_OK"
 _pyrun_cleanup
+
+# --- pre-push-guard.sh: suite local declarada por el proyecto (test:local) ---
+
+# TL1 (CA-2): package.json con "test" y "test:local" (strings), sin marcador
+# Python → corre "<gestor> run test:local" en el directorio y NO "test"; el
+# gestor sale del lockfile (npm por defecto, pnpm-lock.yaml, yarn.lock) y la
+# línea "Running…" nombra el script y el interruptor. Se rompe si la rama
+# local no existe (hoy argv = "test").
+for PYRUN_MGR in npm pnpm yarn; do
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_scripts '{"test":"x","test:local":"y"}'
+  case "$PYRUN_MGR" in
+    pnpm) touch "$PYRUN_DIR/pnpm-lock.yaml" ;;
+    yarn) touch "$PYRUN_DIR/yarn.lock" ;;
+  esac
+  _pyrun_make_npm 0 "$PYRUN_MGR"
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(cat "$PYRUN_MARK/node.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+    && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null | paste -sd, -)" = "run,test:local" ] \
+    && echo "$PYRUN_STDERR" | grep -qF "Running tests before push ($PYRUN_MGR run test:local) [$PYRUN_DIR]..."; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: test:local declarado → corre '$PYRUN_MGR run test:local' y no 'test' (TL1)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
 
 # TG (D-07): "grep" ausente del PATH → el hook bloquea (exit 2, "falta grep")
 # desde guard_init, antes de evaluar nada. Antes el hook salía 0 en silencio:
