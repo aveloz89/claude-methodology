@@ -4335,6 +4335,41 @@ for PYRUN_CMD in \
   _pyrun_cleanup
 done
 
+# TL7 (CA-1, PIN DE REGRESIÓN): con scripts["test:local"] ausente, null o ""
+# el hook corre "<gestor> test" con la línea "Running…" de siempre, exacta, y
+# sin mencionar test:local ni SUITE_FULL, con y sin SUITE_FULL=1 (sin script
+# local el interruptor no tiene nada que ignorar ni avisar). Nace verde.
+# Mutación que lo rompe: en _guard_node_local_script_declared quitar
+# 'and . != ""' (el "" pasa a contar como declarado: argv = "run,test:local").
+for PYRUN_LOCAL in absent null empty; do
+  for PYRUN_ENV in default full; do
+    _pyrun_setup
+    rm "$PYRUN_DIR/pyproject.toml"
+    case "$PYRUN_LOCAL" in
+      absent) _pyrun_make_scripts '{"test":"x"}' ;;
+      null) _pyrun_make_scripts '{"test":"x","test:local":null}' ;;
+      empty) _pyrun_make_scripts '{"test":"x","test:local":""}' ;;
+    esac
+    _pyrun_make_npm 0
+    if [ "$PYRUN_ENV" = full ]; then
+      SUITE_FULL=1 _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+    else
+      _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+    fi
+    PYRUN_CASE_OK=1
+    if [ "$PYRUN_EXIT" -eq 0 ] \
+      && [ "$(cat "$PYRUN_MARK/node.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+      && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null)" = "test" ] \
+      && echo "$PYRUN_STDERR" | grep -qxF "Running tests before push (npm) [$PYRUN_DIR]..." \
+      && ! echo "$PYRUN_STDERR" | grep -qF "test:local" \
+      && ! echo "$PYRUN_STDERR" | grep -qF "SUITE_FULL"; then
+      PYRUN_CASE_OK=0
+    fi
+    _pyrun_report "pre-push-guard: test:local $PYRUN_LOCAL (modo $PYRUN_ENV) → 'npm test' con la línea de siempre (TL7, pin CA-1)" "$PYRUN_CASE_OK"
+    _pyrun_cleanup
+  done
+done
+
 # TG (D-07): "grep" ausente del PATH → el hook bloquea (exit 2, "falta grep")
 # desde guard_init, antes de evaluar nada. Antes el hook salía 0 en silencio:
 # "! echo ... | grep -qE" invierte el 127 de un grep inexistente y el push
