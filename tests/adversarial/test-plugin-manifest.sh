@@ -1917,6 +1917,8 @@ assert_contains "$README" 'scripts\["test:local"\]' \
   "README (pre-push-guard): documenta scripts[\"test:local\"]"
 assert_contains "$README" 'SUITE_FULL=1' \
   "README (pre-push-guard): documenta SUITE_FULL=1"
+assert_contains "$README" 'sin CI que declare `test:local` se queda sin suite completa' \
+  "README (Fuera de alcance): la barrera completa es CI; sin CI, test:local deja sin suite completa"
 
 # --- /code-sweep tests ---
 
