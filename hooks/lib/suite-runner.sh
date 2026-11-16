@@ -76,6 +76,9 @@
 # la cadena de siempre como si la clave no existiera (Node con "test" usable →
 # "<gestor> test"; si no, la rama Python por D-06), con la línea de aviso
 # 'SUITE_FULL=1: se ignora scripts["test:local"] y corre la suite completa'.
+# Si con SUITE_FULL=1 la cadena de siempre no corre ni bloquea nada (sin
+# "scripts.test" usable y sin marcador Python), bloquea (rc 127, razón propia)
+# en vez de pasar en silencio: la completa correría menos que la local.
 #
 # Salida de la suite en el stderr: el harness solo le pasa al agente el stderr
 # de un hook que bloquea, y la salida del runner sale por stdout (que sigue
@@ -498,7 +501,8 @@ GUARD_RC_NO_RUNNER=127
 # GUARD_RC_NO_RUNNER (marcador Python sin runner, o package.json inutilizable
 # sin marcador Python: no es un único objeto JSON, o scripts.test de un tipo
 # que npm no corre; o, con marcador o sin él, scripts["test:local"] de un tipo
-# que no es string; en todos deja la razón en GUARD_PY_RUNNER_REASON). Nunca
+# que no es string, o SUITE_FULL=1 con solo scripts["test:local"] declarado;
+# en todos deja la razón en GUARD_PY_RUNNER_REASON). Nunca
 # hace "exit" salvo el watchdog de _guard_run_with_budget: con más de un
 # directorio el resto corre igual antes de decidir.
 _guard_run_suite_in() {
@@ -567,6 +571,14 @@ _guard_run_suite_in() {
     # sin delegar en npm.
     GUARD_PY_RUNNER_REASON="package.json declara scripts.test que no es un string: el hook no puede saber qué suite correr (corrige el package.json)"
     echo "package.json con scripts.test que no es un string [$dir]." >&2
+    no_runner=1
+  elif [ "$local_kind" = string ]; then
+    # Solo se llega con SUITE_FULL=1 (sin él la rama local de arriba la
+    # toma) y sin "scripts.test" usable ni marcador Python: se pidió la
+    # suite completa y no hay ninguna. Pasar en silencio correría menos que
+    # la local (nada): no pude verificar no es verde.
+    GUARD_PY_RUNNER_REASON='SUITE_FULL=1 pide la suite completa pero package.json solo declara scripts["test:local"], sin scripts.test usable: declara scripts.test o quita SUITE_FULL'
+    echo "SUITE_FULL=1 sin scripts.test usable [$dir]." >&2
     no_runner=1
   fi
 

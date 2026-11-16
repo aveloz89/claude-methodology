@@ -4237,6 +4237,25 @@ fi
 _pyrun_report "pre-push-guard: SUITE_FULL=1 + solo test:local + marcador Python con venv → cede a Python (TL4b, pin)" "$PYRUN_CASE_OK"
 _pyrun_cleanup
 
+# TL4: con SUITE_FULL=1, solo "test:local" declarado (sin "scripts.test" usable
+# ni marcador Python) → bloquea con la razón de que se pidió la suite completa
+# y no hay ninguna. Se rompe si falta la última rama (saldría 0 sin correr
+# nada: la completa correría menos que la local).
+_pyrun_setup
+rm "$PYRUN_DIR/pyproject.toml"
+_pyrun_make_scripts '{"test:local":"y"}'
+_pyrun_make_npm 0
+_pyrun_assert_clean_path TL4
+SUITE_FULL=1 _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_CASE_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. SUITE_FULL=1 pide la suite completa pero package.json solo declara" \
+  && [ ! -f "$PYRUN_MARK/node.ran" ]; then
+  PYRUN_CASE_OK=0
+fi
+_pyrun_report "pre-push-guard: SUITE_FULL=1 con solo test:local y nada más que correr → bloquea con la razón (TL4)" "$PYRUN_CASE_OK"
+_pyrun_cleanup
+
 # TG (D-07): "grep" ausente del PATH → el hook bloquea (exit 2, "falta grep")
 # desde guard_init, antes de evaluar nada. Antes el hook salía 0 en silencio:
 # "! echo ... | grep -qE" invierte el 127 de un grep inexistente y el push
