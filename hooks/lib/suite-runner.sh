@@ -59,11 +59,11 @@
 # mismo comportamiento que origin/dev.
 #
 # Suite local declarada (scripts["test:local"]): un package.json objeto cuyo
-# scripts["test:local"] es un string no vacío corre "<gestor> run test:local"
+# scripts["test:local"] es un string con algún carácter no blanco corre "<gestor> run test:local"
 # (gestor por lockfile: pnpm-lock.yaml → pnpm, yarn.lock → yarn, si no npm) y
 # NO "test": el proyecto declaró cuál es su suite local. Gana a un marcador
-# Python del mismo directorio y no exige un "scripts.test" usable. "" (o
-# ausente/null) cuenta como no declarado: sigue la cadena de siempre.
+# Python del mismo directorio y no exige un "scripts.test" usable. "" o solo
+# espacios (o ausente/null) cuenta como no declarado: sigue la cadena de siempre.
 # Un scripts["test:local"] de un tipo que no es string ni null (true, false,
 # objeto, número, array) bloquea SIEMPRE (rc 127 con razón propia, sin correr
 # ningún runner), también con "scripts.test" usable, con marcador Python y con
@@ -455,13 +455,14 @@ _guard_node_test_script_wrong_type() {
 }
 
 # _guard_node_local_script_declared: el package.json del cwd declara
-# scripts["test:local"] como string no vacío. "" cuenta como no declarado
-# (cae a "test"; "npm run" de un script vacío sale 0 sin correr nada, y eso
-# sería un verde falso). Decide por el exit code de "jq -e", no por texto: un
+# scripts["test:local"] como string con al menos un carácter no blanco. ""
+# y un string de solo espacios cuentan como no declarado (caen a "test"; "npm
+# run" de un script vacío o en blanco sale 0 sin correr nada, y eso sería un
+# verde falso). Decide por el exit code de "jq -e", no por texto: un
 # jq de Windows puede emitir CRLF. Solo se evalúa si el package.json es un
 # único objeto (_guard_package_json_is_object).
 _guard_node_local_script_declared() {
-  jq -e '.scripts["test:local"] | type == "string" and . != ""' package.json > /dev/null 2>&1
+  jq -e '.scripts["test:local"] | type == "string" and test("[^[:space:]]")' package.json > /dev/null 2>&1
 }
 
 # _guard_node_local_script_wrong_type: scripts["test:local"] con un tipo que

@@ -4335,13 +4335,17 @@ for PYRUN_CMD in \
   _pyrun_cleanup
 done
 
-# TL7 (CA-1, PIN DE REGRESIÓN): con scripts["test:local"] ausente, null o ""
+# TL7 (CA-1, PIN DE REGRESIÓN): con scripts["test:local"] ausente, null, "" o
+# solo espacios ("  ")
 # el hook corre "<gestor> test" con la línea "Running…" de siempre, exacta, y
 # sin mencionar test:local ni SUITE_FULL, con y sin SUITE_FULL=1 (sin script
 # local el interruptor no tiene nada que ignorar ni avisar). Nace verde.
-# Mutación que lo rompe: en _guard_node_local_script_declared quitar
-# 'and . != ""' (el "" pasa a contar como declarado: argv = "run,test:local").
-for PYRUN_LOCAL in absent null empty; do
+# Mutaciones que lo rompen: en _guard_node_local_script_declared quitar
+# 'and test("[^[:space:]]")' (el "" pasa a contar como declarado), o dejar
+# 'and . != ""' (el "  " pasa a contar como declarado: npm run de un script de
+# solo espacios sale 0 sin correr nada, verde falso). En ambos, argv =
+# "run,test:local".
+for PYRUN_LOCAL in absent null empty blank; do
   for PYRUN_ENV in default full; do
     _pyrun_setup
     rm "$PYRUN_DIR/pyproject.toml"
@@ -4349,6 +4353,7 @@ for PYRUN_LOCAL in absent null empty; do
       absent) _pyrun_make_scripts '{"test":"x"}' ;;
       null) _pyrun_make_scripts '{"test":"x","test:local":null}' ;;
       empty) _pyrun_make_scripts '{"test":"x","test:local":""}' ;;
+      blank) _pyrun_make_scripts '{"test":"x","test:local":"  "}' ;;
     esac
     _pyrun_make_npm 0
     if [ "$PYRUN_ENV" = full ]; then
