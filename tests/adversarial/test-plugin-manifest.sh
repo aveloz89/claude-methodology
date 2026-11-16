@@ -1913,10 +1913,13 @@ assert_contains "$ORCHESTRATOR_SKILL" "Cada push corre la suite una vez antes de
 echo ""
 echo "--- suite local: regla canónica en el README ---"
 
-assert_contains "$README" 'scripts\["test:local"\]' \
-  "README (pre-push-guard): documenta scripts[\"test:local\"]"
-assert_contains "$README" 'SUITE_FULL=1' \
-  "README (pre-push-guard): documenta SUITE_FULL=1"
+# Anclados al punto (7) de la fila de pre-push-guard (misma línea): «Fuera de
+# alcance» también nombra test:local y SUITE_FULL=1 y satisfaría un assert
+# sobre todo el README.
+assert_contains "$README" '(7) Suite local declarada por el proyecto: .*scripts\["test:local"\]' \
+  "README (pre-push-guard, punto 7): documenta scripts[\"test:local\"]"
+assert_contains "$README" '(7) Suite local declarada por el proyecto: .*SUITE_FULL=1' \
+  "README (pre-push-guard, punto 7): documenta SUITE_FULL=1"
 assert_contains "$README" 'sin CI que declare `test:local` se queda sin suite completa' \
   "README (Fuera de alcance): la barrera completa es CI; sin CI, test:local deja sin suite completa"
 
