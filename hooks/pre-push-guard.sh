@@ -318,8 +318,10 @@ fi
 # git y no al hook, y correría la suite local dando por hecha la completa. El
 # texto solo puede subir a completa, nunca bajar (SUITE_FULL=0 no anula un 1
 # del entorno). Se busca en todo el comando saneado; un falso positivo
-# (git push -o SUITE_FULL=1) corre la suite completa: dirección segura. Entre
-# comillas el saneo lo deja como Q y no se reconoce. Solo el valor exacto 1.
+# (git push -o SUITE_FULL=1) corre la suite completa: dirección segura. Comillas
+# solo alrededor del valor (SUITE_FULL="1", SUITE_FULL='1'): el saneo las une y
+# SÍ se reconoce. La asignación entera entre comillas (-o "SUITE_FULL=1") el
+# saneo la vacía y no se reconoce. Solo el valor exacto 1.
 PPG_SUITE_FULL_RE='(^|[^A-Za-z0-9_])SUITE_FULL=1([[:space:];&|)]|$)'
 if echo "$SANITIZED_COMMAND" | grep -qE "$PPG_SUITE_FULL_RE"; then
   export SUITE_FULL=1

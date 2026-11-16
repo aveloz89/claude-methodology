@@ -4294,10 +4294,16 @@ _pyrun_cleanup
 # TL6 (1.5): "SUITE_FULL=1" escrito en el comando del push fuerza "test" aunque
 # el entorno del hook no lo traiga: prefijo, "env" y "export … &&". Se rompe si
 # falta el chequeo de texto en pre-push-guard.sh (argv = "run,test:local").
+# Verificado ejecutando guard_sanitize: comillas solo alrededor del VALOR
+# (SUITE_FULL="1", SUITE_FULL='1') el saneo las une y el valor queda como 1, así
+# que SÍ se reconoce (TL6n cubre el caso contrario: toda la asignación entre
+# comillas).
 for PYRUN_CMD in \
   "SUITE_FULL=1 git push origin feature/suite" \
   "env SUITE_FULL=1 git push origin feature/suite" \
-  "export SUITE_FULL=1 && git push origin feature/suite"; do
+  "export SUITE_FULL=1 && git push origin feature/suite" \
+  'SUITE_FULL="1" git push origin feature/suite' \
+  "SUITE_FULL='1' git push origin feature/suite"; do
   _pyrun_setup
   rm "$PYRUN_DIR/pyproject.toml"
   _pyrun_make_scripts '{"test":"x","test:local":"y"}'
@@ -4313,14 +4319,18 @@ for PYRUN_CMD in \
 done
 
 # TL6n (1.5, negativos): lo que NO es el interruptor corre "test:local": valor
-# distinto de 1, prefijo pegado a otro nombre y el valor dentro de un argumento
-# entre comillas (el saneo lo deja como Q). Se rompe si el regex pierde un
-# borde (argv = "test").
+# distinto de 1, prefijo pegado a otro nombre y la asignación ENTERA entre
+# comillas dentro de un argumento (-o "SUITE_FULL=1" o -o 'SUITE_FULL=1'): el
+# saneo vacía el span entero (no deja Q) y el regex no lo ve. Como prefijo del
+# comando ('"SUITE_FULL=1" git push') no hay caso: el saneo deja "  git push" y
+# el hook ni lo trata como push; el shell tampoco lo lee como asignación. Se
+# rompe si el regex pierde un borde (argv = "test").
 for PYRUN_CMD in \
   "SUITE_FULL=0 git push origin feature/suite" \
   "SUITE_FULL=10 git push origin feature/suite" \
   "XSUITE_FULL=1 git push origin feature/suite" \
-  'git push -o "SUITE_FULL=1" origin feature/suite'; do
+  'git push -o "SUITE_FULL=1" origin feature/suite' \
+  "git push -o 'SUITE_FULL=1' origin feature/suite"; do
   _pyrun_setup
   rm "$PYRUN_DIR/pyproject.toml"
   _pyrun_make_scripts '{"test":"x","test:local":"y"}'
