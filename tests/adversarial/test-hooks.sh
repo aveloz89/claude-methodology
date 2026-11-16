@@ -4646,6 +4646,24 @@ fi
 _pyrun_report "pre-push-guard: suite roja vía npm → el bloque nombra 'npm test' (E3)" "$PYRUN_E3_OK"
 _pyrun_cleanup
 
+# TL10 (PIN DE REGRESIÓN): con test:local en rojo (npm "chatty", exit 1, como
+# E3) la línea BLOCKED no cambia y el bloque nombra 'npm run test:local'. Nace
+# verde. Mutación que lo rompe: rotular el extracto con el comando sin "run "
+# (local cmd_text="$*"; cmd_text="${cmd_text/run /}" en _guard_run_with_budget).
+_pyrun_setup
+rm "$PYRUN_DIR/pyproject.toml"
+printf '%s\n' "$PYRUN_SUMMARY_LINES" > "$PYRUN_MARK/payload.txt"
+_pyrun_make_scripts '{"test":"x","test:local":"y"}'
+_pyrun_make_chatty "$PYRUN_NPM_BIN/npm" 1 "$PYRUN_MARK/payload.txt"
+_pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TL10_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "npm run test:local" "$PYRUN_DIR" "exit 1; últimas 4 líneas" "$PYRUN_SUMMARY_LINES")")
+PYRUN_CASE_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_TL10_EXPECTED" ]]; then
+  PYRUN_CASE_OK=0
+fi
+_pyrun_report "pre-push-guard: test:local en rojo → BLOCKED sin cambios y el bloque nombra 'npm run test:local' (TL10, pin)" "$PYRUN_CASE_OK"
+_pyrun_cleanup
+
 # E4: el "exit <rc>" del encabezado es el rc CRUDO del runner, no el 1 al que
 # _guard_run_suite_in colapsa el rc (un pytest del PATH que sale con 5), y el
 # cuarto runner (pytest del PATH) se nombra como 'pytest'.
