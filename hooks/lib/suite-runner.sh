@@ -64,6 +64,12 @@
 # NO "test": el proyecto declaró cuál es su suite local. Gana a un marcador
 # Python del mismo directorio y no exige un "scripts.test" usable. "" (o
 # ausente/null) cuenta como no declarado: sigue la cadena de siempre.
+# Un scripts["test:local"] de un tipo que no es string ni null (true, false,
+# objeto, número, array) bloquea SIEMPRE (rc 127 con razón propia, sin correr
+# ningún runner), también con "scripts.test" usable, con marcador Python y con
+# SUITE_FULL=1: se aparta de D-06 a propósito, porque nadie tiene esa clave por
+# accidente (es un opt-in mal escrito) y caer a "test" daría un rojo confuso
+# en vez de la razón real.
 #
 # Salida de la suite en el stderr: el harness solo le pasa al agente el stderr
 # de un hook que bloquea, y la salida del runner sale por stdout (que sigue
@@ -448,6 +454,15 @@ _guard_node_local_script_declared() {
   jq -e '.scripts["test:local"] | type == "string" and . != ""' package.json > /dev/null 2>&1
 }
 
+# _guard_node_local_script_wrong_type: scripts["test:local"] con un tipo que
+# no es string ni null (true, false, objeto, número, array). Ausente o null =
+# no declarado; si "scripts" no es un objeto, jq falla y no cuenta (mismo
+# legacy que scripts.test). Por exit code de "jq -e", y solo se evalúa con un
+# package.json que es un único objeto.
+_guard_node_local_script_wrong_type() {
+  jq -e '.scripts["test:local"] | type | . != "string" and . != "null"' package.json > /dev/null 2>&1
+}
+
 # _guard_node_pkg_mgr: imprime el gestor de paquetes del cwd por lockfile.
 _guard_node_pkg_mgr() {
   if [ -f "pnpm-lock.yaml" ]; then
@@ -472,7 +487,8 @@ GUARD_RC_NO_RUNNER=127
 # y pasó), 1 (la suite falló: cualquier rc != 0 del runner) o
 # GUARD_RC_NO_RUNNER (marcador Python sin runner, o package.json inutilizable
 # sin marcador Python: no es un único objeto JSON, o scripts.test de un tipo
-# que npm no corre; en ambos deja la razón en GUARD_PY_RUNNER_REASON). Nunca
+# que npm no corre; o, con marcador o sin él, scripts["test:local"] de un tipo
+# que no es string; en todos deja la razón en GUARD_PY_RUNNER_REASON). Nunca
 # hace "exit" salvo el watchdog de _guard_run_with_budget: con más de un
 # directorio el resto corre igual antes de decidir.
 _guard_run_suite_in() {
@@ -485,12 +501,20 @@ _guard_run_suite_in() {
   cd "$dir" || return 1
 
   local local_kind=none
-  if [ -f "package.json" ] && _guard_package_json_is_object && _guard_node_local_script_declared; then
-    local_kind=string
+  if [ -f "package.json" ] && _guard_package_json_is_object; then
+    if _guard_node_local_script_wrong_type; then
+      local_kind=wrong
+    elif _guard_node_local_script_declared; then
+      local_kind=string
+    fi
   fi
 
   local rc=0 pkg_mgr
-  if [ "$local_kind" = string ]; then
+  if [ "$local_kind" = wrong ]; then
+    GUARD_PY_RUNNER_REASON='package.json declara scripts["test:local"] que no es un string: el hook no puede saber qué suite local correr (corrige el package.json o quita la clave)'
+    echo "package.json con scripts[\"test:local\"] que no es un string [$dir]." >&2
+    no_runner=1
+  elif [ "$local_kind" = string ]; then
     pkg_mgr=$(_guard_node_pkg_mgr)
     echo "Running tests before push ($pkg_mgr run test:local) [$dir]... (suite local del proyecto; SUITE_FULL=1 corre 'test')" >&2
     _guard_run_with_budget "$budget" "$dir" "$pkg_mgr" run test:local

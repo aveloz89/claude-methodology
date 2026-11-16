@@ -4145,6 +4145,56 @@ for PYRUN_MGR in npm pnpm yarn; do
   _pyrun_cleanup
 done
 
+# TL3 (CA-4): scripts["test:local"] de un tipo que no es string (true, false,
+# objeto, número, array) junto a un "test" usable, sin marcador Python →
+# bloquea con la razón del tipo y no corre ningún runner. Se rompe si falta la
+# rama "wrong" (caería a "npm test" y saldría 0).
+for PYRUN_CASE in 'bool|true' 'false|false' 'objeto|{"cmd":"x"}' 'número|1' 'array|["x"]'; do
+  PYRUN_DESC="${PYRUN_CASE%%|*}"
+  PYRUN_VAL="${PYRUN_CASE#*|}"
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_scripts "{\"test\":\"x\",\"test:local\":$PYRUN_VAL}"
+  _pyrun_make_npm 0
+  _pyrun_assert_clean_path "TL3 $PYRUN_DESC"
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 2 ] \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. package.json declara scripts[\"test:local\"] que no es un string" \
+    && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed" \
+    && [ ! -f "$PYRUN_MARK/node.ran" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: scripts[\"test:local\"] $PYRUN_DESC → bloquea con la razón del tipo sin correr npm (TL3)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TL3b (CA-4): lo mismo con marcador Python (pyproject + .venv/bin/pytest) y,
+# en un segundo caso, con SUITE_FULL=1: "wrong" no cede a Python (se aparta de
+# D-06 a propósito) ni al interruptor. Se rompe si "wrong" cede a Python o al
+# modo completo.
+for PYRUN_ENV in default full; do
+  _pyrun_setup
+  _pyrun_make_scripts '{"test":"x","test:local":true}'
+  _pyrun_make_venv bin 0
+  _pyrun_make_npm 0
+  _pyrun_assert_clean_path "TL3b $PYRUN_ENV"
+  if [ "$PYRUN_ENV" = full ]; then
+    SUITE_FULL=1 _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  else
+    _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  fi
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 2 ] \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. package.json declara scripts[\"test:local\"] que no es un string" \
+    && [ ! -f "$PYRUN_MARK/venv.ran" ] \
+    && [ ! -f "$PYRUN_MARK/node.ran" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: scripts[\"test:local\"] true + marcador Python (modo $PYRUN_ENV) → bloquea con la razón del tipo, no cede a Python (TL3b)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
 # TG (D-07): "grep" ausente del PATH → el hook bloquea (exit 2, "falta grep")
 # desde guard_init, antes de evaluar nada. Antes el hook salía 0 en silencio:
 # "! echo ... | grep -qE" invierte el 127 de un grep inexistente y el push
