@@ -1909,6 +1909,61 @@ assert_contains "$PR_WORKFLOW_SKILL" "una corrida local de la suite (\`pre-push-
 assert_contains "$ORCHESTRATOR_SKILL" "Cada push corre la suite una vez antes de salir" \
   "skill orchestrator: cada push corre la suite una vez"
 
+# --- Suite local (test:local): la regla vive en el README (CA-6) ---
+echo ""
+echo "--- suite local: regla canónica en el README ---"
+
+# Anclados al punto (7) de la fila de pre-push-guard (misma línea): «Fuera de
+# alcance» también nombra test:local y SUITE_FULL=1 y satisfaría un assert
+# sobre todo el README.
+assert_contains "$README" '(7) Suite local declarada por el proyecto: .*scripts\["test:local"\]' \
+  "README (pre-push-guard, punto 7): documenta scripts[\"test:local\"]"
+assert_contains "$README" '(7) Suite local declarada por el proyecto: .*SUITE_FULL=1' \
+  "README (pre-push-guard, punto 7): documenta SUITE_FULL=1"
+assert_contains "$README" 'sin CI que declare `test:local` se queda sin suite completa' \
+  "README (Fuera de alcance): la barrera completa es CI; sin CI, test:local deja sin suite completa"
+
+# Estructural: toda línea fuera del README que mencione la suite local
+# (test:local, SUITE_FULL) remite también a README.md. Un documento que copia
+# la regla sin puntero se rompe acá. El runbook debe tener al menos una mención
+# (si no, el assert pasaría en vacío).
+LOCAL_SUITE_MENTIONS=0
+LOCAL_SUITE_UNLINKED=""
+for d in global rulebooks skills agents rules; do
+  [ -d "$REPO_ROOT/$d" ] || continue
+  # Se evalúa solo el texto de la línea, no la ruta: una ruta que contenga
+  # README.md no debe dar un falso negativo. Por eso grep -l lista los archivos
+  # y grep -En (sin -H) sobre cada uno devuelve "línea:texto".
+  while IFS= read -r mention_file; do
+    [ -n "$mention_file" ] || continue
+    while IFS= read -r hit; do
+      [ -n "$hit" ] || continue
+      LOCAL_SUITE_MENTIONS=$((LOCAL_SUITE_MENTIONS + 1))
+      hit_text="${hit#*:}"
+      case "$hit_text" in
+        *README.md*) ;;
+        *) LOCAL_SUITE_UNLINKED="$LOCAL_SUITE_UNLINKED $mention_file" ;;
+      esac
+    done < <(grep -En 'test:local|SUITE_FULL' "$mention_file" 2>/dev/null || true)
+  done < <(grep -rlE 'test:local|SUITE_FULL' "$REPO_ROOT/$d" 2>/dev/null || true)
+done
+TOTAL=$((TOTAL + 1))
+if [ -z "$LOCAL_SUITE_UNLINKED" ]; then
+  echo -e "${GREEN}PASS${NC}: toda mención de test:local/SUITE_FULL fuera del README remite a README.md"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: mención de test:local/SUITE_FULL sin puntero a README.md en:$LOCAL_SUITE_UNLINKED"
+  FAIL=$((FAIL + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if [ "$(grep -cE 'test:local|SUITE_FULL' "$RUNBOOK")" -ge 3 ]; then
+  echo -e "${GREEN}PASS${NC}: el runbook menciona la suite local en sus tres puntos (Fase 2.7, resume, tabla de errores)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: el runbook debe mencionar test:local/SUITE_FULL en al menos tres líneas (Fase 2.7, resume, tabla de errores)"
+  FAIL=$((FAIL + 1))
+fi
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---

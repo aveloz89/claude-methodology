@@ -58,6 +58,29 @@
 # un "scripts" que no es un objeto (jq falla y no cuenta): legacy aceptado,
 # mismo comportamiento que origin/dev.
 #
+# Suite local declarada (scripts["test:local"]): un package.json objeto cuyo
+# scripts["test:local"] es un string con algún carácter no blanco corre "<gestor> run test:local"
+# (gestor por lockfile: pnpm-lock.yaml → pnpm, yarn.lock → yarn, si no npm) y
+# NO "test": el proyecto declaró cuál es su suite local. Gana a un marcador
+# Python del mismo directorio y no exige un "scripts.test" usable. "" o solo
+# espacios (o ausente/null) cuenta como no declarado: sigue la cadena de siempre.
+# Un scripts["test:local"] de un tipo que no es string ni null (true, false,
+# objeto, número, array) bloquea SIEMPRE (rc 127 con razón propia, sin correr
+# ningún runner), también con "scripts.test" usable, con marcador Python y con
+# SUITE_FULL=1: se aparta de D-06 a propósito, porque nadie tiene esa clave por
+# accidente (es un opt-in mal escrito) y caer a "test" daría un rojo confuso
+# en vez de la razón real.
+#
+# Interruptor SUITE_FULL=1 (entorno del proceso del hook, o escrito en el comando
+# del push, que pre-push-guard.sh exporta antes de llamar acá; solo el valor exacto
+# "1", cualquier otro = modo por defecto): ignora scripts["test:local"] y corre
+# la cadena de siempre como si la clave no existiera (Node con "test" usable →
+# "<gestor> test"; si no, la rama Python por D-06), con la línea de aviso
+# 'SUITE_FULL=1: se ignora scripts["test:local"] y corre la suite completa'.
+# Si con SUITE_FULL=1 la cadena de siempre no corre ni bloquea nada (sin
+# "scripts.test" usable y sin marcador Python), bloquea (rc 127, razón propia)
+# en vez de pasar en silencio: la completa correría menos que la local.
+#
 # Salida de la suite en el stderr: el harness solo le pasa al agente el stderr
 # de un hook que bloquea, y la salida del runner sale por stdout (que sigue
 # imprimiéndola entera). Por eso, con la suite roja, tras la línea "BLOCKED:
@@ -431,6 +454,41 @@ _guard_node_test_script_wrong_type() {
   jq -e '.scripts.test | type | . != "string" and . != "null"' package.json > /dev/null 2>&1
 }
 
+# _guard_node_local_script_declared: el package.json del cwd declara
+# scripts["test:local"] como string con al menos un carácter no blanco. ""
+# y un string de solo espacios cuentan como no declarado (caen a "test"; "npm
+# run" de un script vacío o en blanco sale 0 sin correr nada, y eso sería un
+# verde falso). Decide por el exit code de "jq -e", no por texto: un
+# jq de Windows puede emitir CRLF. Solo se evalúa si el package.json es un
+# único objeto (_guard_package_json_is_object).
+_guard_node_local_script_declared() {
+  jq -e '.scripts["test:local"] | type == "string" and test("[^[:space:]]")' package.json > /dev/null 2>&1
+}
+
+# _guard_node_local_script_wrong_type: scripts["test:local"] con un tipo que
+# no es string ni null (true, false, objeto, número, array). Ausente o null =
+# no declarado; si "scripts" no es un objeto, jq falla y no cuenta (mismo
+# legacy que scripts.test). Por exit code de "jq -e", y solo se evalúa con un
+# package.json que es un único objeto.
+_guard_node_local_script_wrong_type() {
+  jq -e '.scripts["test:local"] | type | . != "string" and . != "null"' package.json > /dev/null 2>&1
+}
+
+# _guard_suite_full: SUITE_FULL=1 en el entorno del hook pide la suite
+# completa. Solo el valor exacto "1" activa el modo (true, yes, 0 y vacío no).
+_guard_suite_full() { [ "${SUITE_FULL:-}" = "1" ]; }
+
+# _guard_node_pkg_mgr: imprime el gestor de paquetes del cwd por lockfile.
+_guard_node_pkg_mgr() {
+  if [ -f "pnpm-lock.yaml" ]; then
+    printf 'pnpm'
+  elif [ -f "yarn.lock" ]; then
+    printf 'yarn'
+  else
+    printf 'npm'
+  fi
+}
+
 # Centinela de "directorio sin runner" (marcador Python sin runner, o
 # package.json inutilizable sin marcador Python). 127 = convención "command not
 # found"; NUNCA viene del runner: el rc de la suite se colapsa a 0/1 en
@@ -444,7 +502,9 @@ GUARD_RC_NO_RUNNER=127
 # y pasó), 1 (la suite falló: cualquier rc != 0 del runner) o
 # GUARD_RC_NO_RUNNER (marcador Python sin runner, o package.json inutilizable
 # sin marcador Python: no es un único objeto JSON, o scripts.test de un tipo
-# que npm no corre; en ambos deja la razón en GUARD_PY_RUNNER_REASON). Nunca
+# que npm no corre; o, con marcador o sin él, scripts["test:local"] de un tipo
+# que no es string, o SUITE_FULL=1 con solo scripts["test:local"] declarado;
+# en todos deja la razón en GUARD_PY_RUNNER_REASON). Nunca
 # hace "exit" salvo el watchdog de _guard_run_with_budget: con más de un
 # directorio el resto corre igual antes de decidir.
 _guard_run_suite_in() {
@@ -456,16 +516,32 @@ _guard_run_suite_in() {
   prev_pwd=$(pwd)
   cd "$dir" || return 1
 
-  local rc=0
-  if [ -f "package.json" ] && _guard_node_has_test_script; then
-    local pkg_mgr
-    if [ -f "pnpm-lock.yaml" ]; then
-      pkg_mgr="pnpm"
-    elif [ -f "yarn.lock" ]; then
-      pkg_mgr="yarn"
-    else
-      pkg_mgr="npm"
+  local local_kind=none
+  if [ -f "package.json" ] && _guard_package_json_is_object; then
+    if _guard_node_local_script_wrong_type; then
+      local_kind=wrong
+    elif _guard_node_local_script_declared; then
+      local_kind=string
     fi
+  fi
+
+  if [ "$local_kind" = string ] && _guard_suite_full; then
+    echo "SUITE_FULL=1: se ignora scripts[\"test:local\"] y corre la suite completa [$dir]." >&2
+  fi
+
+  local rc=0 pkg_mgr
+  if [ "$local_kind" = wrong ]; then
+    GUARD_PY_RUNNER_REASON='package.json declara scripts["test:local"] que no es un string: el hook no puede saber qué suite local correr (corrige el package.json o quita la clave)'
+    echo "package.json con scripts[\"test:local\"] que no es un string [$dir]." >&2
+    no_runner=1
+  elif [ "$local_kind" = string ] && ! _guard_suite_full; then
+    pkg_mgr=$(_guard_node_pkg_mgr)
+    echo "Running tests before push ($pkg_mgr run test:local) [$dir]... (suite local del proyecto; SUITE_FULL=1 corre 'test')" >&2
+    _guard_run_with_budget "$budget" "$dir" "$pkg_mgr" run test:local
+    rc=$?
+    [ "$rc" -eq 0 ] && echo "Tests passed [$dir]." >&2
+  elif [ -f "package.json" ] && _guard_node_has_test_script; then
+    pkg_mgr=$(_guard_node_pkg_mgr)
 
     echo "Running tests before push ($pkg_mgr) [$dir]..." >&2
     _guard_run_with_budget "$budget" "$dir" "$pkg_mgr" test
@@ -498,6 +574,14 @@ _guard_run_suite_in() {
     GUARD_PY_RUNNER_REASON="package.json declara scripts.test que no es un string: el hook no puede saber qué suite correr (corrige el package.json)"
     echo "package.json con scripts.test que no es un string [$dir]." >&2
     no_runner=1
+  elif [ "$local_kind" = string ]; then
+    # Solo se llega con SUITE_FULL=1 (sin él la rama local de arriba la
+    # toma) y sin "scripts.test" usable ni marcador Python: se pidió la
+    # suite completa y no hay ninguna. Pasar en silencio correría menos que
+    # la local (nada): no pude verificar no es verde.
+    GUARD_PY_RUNNER_REASON='SUITE_FULL=1 pide la suite completa pero package.json solo declara scripts["test:local"], sin scripts.test usable: declara scripts.test o quita SUITE_FULL'
+    echo "SUITE_FULL=1 sin scripts.test usable [$dir]." >&2
+    no_runner=1
   fi
 
   cd "$prev_pwd" || true
@@ -518,6 +602,14 @@ _guard_run_suite_in() {
 # versión del runner, y es falsificable por quien escriba la marca a mano
 # (mismo modelo de amenaza que el resto: errores honestos). Salida: borrar la
 # marca o tocar cualquier archivo. Binarios: solo git, cat, mktemp, rm, sleep.
+#
+# La clave incluye el modo ("suite-on-push v2" + línea "suite" con full o
+# default, según SUITE_FULL=1): dado el mismo árbol, qué script corre cada
+# directorio es función pura de (contenido de package.json, modo), y el
+# contenido ya está en la clave. Simétrico: verificado en un modo no vale por
+# el otro (nada garantiza que "test" contenga a "test:local"). La marca guarda
+# una sola clave, así que alternar de modo sobre el mismo estado vuelve a
+# correr. Las marcas "v1" dejan de coincidir al actualizar: una corrida extra.
 GUARD_KEY_CAP=5
 GUARD_STATE_KEY=""
 GUARD_MARK=""
@@ -569,7 +661,7 @@ _guard_state_key() {
   (
     set -o pipefail
     {
-      printf 'suite-on-push v1\n'
+      printf 'suite-on-push v2\n'
       git rev-parse --verify -q 'HEAD^{commit}' || exit 1
       printf 'dirs\n'
       printf '%s\n' "${GUARD_RUN_DIRS[@]}"
@@ -579,6 +671,8 @@ _guard_state_key() {
       git diff --no-ext-diff --no-textconv --no-color --binary HEAD -- || exit 1
       printf 'untracked\n'
       git ls-files --others --exclude-standard | git hash-object --stdin-paths || exit 1
+      printf 'suite\n'
+      if _guard_suite_full; then printf 'full\n'; else printf 'default\n'; fi
     } 2>/dev/null | git hash-object --stdin
   )
 }

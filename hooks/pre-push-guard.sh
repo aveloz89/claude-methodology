@@ -312,6 +312,21 @@ if _ppg_only_push_segments && ! _ppg_push_needs_suite "$PUSH_SEGMENTS" && ! _ppg
   exit 0
 fi
 
+# SUITE_FULL=1 escrito en el comando ("SUITE_FULL=1 git push …", "env
+# SUITE_FULL=1 git push …", "export SUITE_FULL=1 && git push …") pide la suite
+# completa igual que en el entorno del hook: sin esto la variable le llegaría a
+# git y no al hook, y correría la suite local dando por hecha la completa. El
+# texto solo puede subir a completa, nunca bajar (SUITE_FULL=0 no anula un 1
+# del entorno). Se busca en todo el comando saneado; un falso positivo
+# (git push -o SUITE_FULL=1) corre la suite completa: dirección segura. Comillas
+# solo alrededor del valor (SUITE_FULL="1", SUITE_FULL='1'): el saneo las une y
+# SÍ se reconoce. La asignación entera entre comillas (-o "SUITE_FULL=1") el
+# saneo la vacía y no se reconoce. Solo el valor exacto 1.
+PPG_SUITE_FULL_RE='(^|[^A-Za-z0-9_])SUITE_FULL=1([[:space:];&|)]|$)'
+if echo "$SANITIZED_COMMAND" | grep -qE "$PPG_SUITE_FULL_RE"; then
+  export SUITE_FULL=1
+fi
+
 # La suite corre una sola vez, después de TODOS los bloqueos de texto (nada
 # caro ocurre antes). Con marcador de runner entre la sesión y el toplevel
 # corre ese directorio; sin él, la derivación por cambios locales; sin

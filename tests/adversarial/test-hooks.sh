@@ -10,6 +10,11 @@
 
 set -e
 
+# SUITE_FULL=1 fijo en la máquina del autor (interruptor por máquina de
+# suite-runner.sh) se heredaría en cada caso y rompería los de modo por
+# defecto: la suite del repo no depende del entorno de quien la corre.
+unset SUITE_FULL
+
 # Ruta absoluta a hooks/, calculada desde la ubicación del script: los tests
 # de sandbox hacen `cd` a repos git temporales, así que una ruta relativa
 # como "hooks" dejaría de resolver en cuanto cambia el cwd.
@@ -3554,16 +3559,23 @@ PTEOF
   chmod +x "$PYRUN_PYTEST_BIN/pytest"
 }
 
-# _pyrun_make_npm <rc>: "npm" fake en PYRUN_NPM_BIN. Registra el argv (uno por
+# _pyrun_make_npm <rc> [<nombre>]: gestor fake en PYRUN_NPM_BIN (npm por
+# defecto; pnpm o yarn con el segundo argumento). Registra el argv (uno por
 # línea) en node.argv y "pwd -P" en node.ran, y sale con <rc>.
 _pyrun_make_npm() {
-  cat > "$PYRUN_NPM_BIN/npm" <<NPMEOF
+  cat > "$PYRUN_NPM_BIN/${2:-npm}" <<NPMEOF
 #!/bin/bash
 printf '%s\n' "\$@" > "$PYRUN_MARK/node.argv"
 pwd -P > "$PYRUN_MARK/node.ran"
 exit $1
 NPMEOF
-  chmod +x "$PYRUN_NPM_BIN/npm"
+  chmod +x "$PYRUN_NPM_BIN/${2:-npm}"
+}
+
+# _pyrun_make_scripts <json>: package.json en la raíz del fixture con el
+# objeto "scripts" dado (los modos de _pyrun_make_package_json no se tocan).
+_pyrun_make_scripts() {
+  jq -n --argjson s "$1" '{name: "x", scripts: $s}' > "$PYRUN_DIR/package.json"
 }
 
 # _pyrun_make_package_json <none|placeholder|test|bool|false|object|number|array|null|invalid|empty|multi|trailing>:
@@ -3599,12 +3611,13 @@ _pyrun_make_pyproject() {
   printf '[project]\nname = "x"\nversion = "0"\n\n%s\n' "$1" > "$PYRUN_DIR/pyproject.toml"
 }
 
-# _pyrun_run <PATH>: corre el hook con "$SUITE_PUSH_CMD" desde la raíz del
-# fixture. Deja el exit en PYRUN_EXIT y el stderr en PYRUN_STDERR (mismo
+# _pyrun_run <PATH> [<comando>]: corre el hook con <comando> (por defecto
+# "$SUITE_PUSH_CMD") desde la raíz del fixture. El modo completo por entorno
+# se escribe "SUITE_FULL=1 _pyrun_run ...". Deja el exit en PYRUN_EXIT y el stderr en PYRUN_STDERR (mismo
 # patrón de captura que G2 en "monorepo sin marcador en la raíz").
 _pyrun_run() {
   local run_path="$1" json
-  json=$(jq -n --arg cmd "$SUITE_PUSH_CMD" '{tool_input: {command: $cmd}}')
+  json=$(jq -n --arg cmd "${2:-$SUITE_PUSH_CMD}" '{tool_input: {command: $cmd}}')
   PYRUN_EXIT=0
   PYRUN_STDERR=$(cd "$PYRUN_DIR" && echo "$json" | PATH="$run_path" bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || PYRUN_EXIT=$?
 }
@@ -4104,6 +4117,356 @@ fi
 _pyrun_report "pre-push-guard: package.json con script test + pyproject.toml → corre solo el package manager (TD6b, pin)" "$PYRUN_TD6B_OK"
 _pyrun_cleanup
 
+# --- pre-push-guard.sh: suite local declarada por el proyecto (test:local) ---
+
+# TL1 (CA-2): package.json con "test" y "test:local" (strings), sin marcador
+# Python → corre "<gestor> run test:local" en el directorio y NO "test"; el
+# gestor sale del lockfile (npm por defecto, pnpm-lock.yaml, yarn.lock) y la
+# línea "Running…" nombra el script y el interruptor. Se rompe si la rama
+# local no existe (hoy argv = "test").
+for PYRUN_MGR in npm pnpm yarn; do
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_scripts '{"test":"x","test:local":"y"}'
+  case "$PYRUN_MGR" in
+    pnpm) touch "$PYRUN_DIR/pnpm-lock.yaml" ;;
+    yarn) touch "$PYRUN_DIR/yarn.lock" ;;
+  esac
+  _pyrun_make_npm 0 "$PYRUN_MGR"
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(cat "$PYRUN_MARK/node.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+    && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null | paste -sd, -)" = "run,test:local" ] \
+    && echo "$PYRUN_STDERR" | grep -qF "Running tests before push ($PYRUN_MGR run test:local) [$PYRUN_DIR]..."; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: test:local declarado → corre '$PYRUN_MGR run test:local' y no 'test' (TL1)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TL3 (CA-4): scripts["test:local"] de un tipo que no es string (true, false,
+# objeto, número, array) junto a un "test" usable, sin marcador Python →
+# bloquea con la razón del tipo y no corre ningún runner. Se rompe si falta la
+# rama "wrong" (caería a "npm test" y saldría 0).
+for PYRUN_CASE in 'bool|true' 'false|false' 'objeto|{"cmd":"x"}' 'número|1' 'array|["x"]'; do
+  PYRUN_DESC="${PYRUN_CASE%%|*}"
+  PYRUN_VAL="${PYRUN_CASE#*|}"
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_scripts "{\"test\":\"x\",\"test:local\":$PYRUN_VAL}"
+  _pyrun_make_npm 0
+  _pyrun_assert_clean_path "TL3 $PYRUN_DESC"
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 2 ] \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. package.json declara scripts[\"test:local\"] que no es un string" \
+    && ! echo "$PYRUN_STDERR" | grep -qF "Tests failed" \
+    && [ ! -f "$PYRUN_MARK/node.ran" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: scripts[\"test:local\"] $PYRUN_DESC → bloquea con la razón del tipo sin correr npm (TL3)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TL3b (CA-4): lo mismo con marcador Python (pyproject + .venv/bin/pytest) y,
+# en un segundo caso, con SUITE_FULL=1: "wrong" no cede a Python (se aparta de
+# D-06 a propósito) ni al interruptor. Se rompe si "wrong" cede a Python o al
+# modo completo.
+for PYRUN_ENV in default full; do
+  _pyrun_setup
+  _pyrun_make_scripts '{"test":"x","test:local":true}'
+  _pyrun_make_venv bin 0
+  _pyrun_make_npm 0
+  _pyrun_assert_clean_path "TL3b $PYRUN_ENV"
+  if [ "$PYRUN_ENV" = full ]; then
+    SUITE_FULL=1 _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  else
+    _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  fi
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 2 ] \
+    && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. package.json declara scripts[\"test:local\"] que no es un string" \
+    && [ ! -f "$PYRUN_MARK/venv.ran" ] \
+    && [ ! -f "$PYRUN_MARK/node.ran" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: scripts[\"test:local\"] true + marcador Python (modo $PYRUN_ENV) → bloquea con la razón del tipo, no cede a Python (TL3b)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TL2 (CA-3): con SUITE_FULL=1 en el entorno del hook y "test:local"
+# declarado, corre "<gestor> test" (la suite completa) con la línea de aviso.
+# Se rompe si el interruptor no se lee (correría "run test:local").
+for PYRUN_MGR in npm pnpm yarn; do
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_scripts '{"test":"x","test:local":"y"}'
+  case "$PYRUN_MGR" in
+    pnpm) touch "$PYRUN_DIR/pnpm-lock.yaml" ;;
+    yarn) touch "$PYRUN_DIR/yarn.lock" ;;
+  esac
+  _pyrun_make_npm 0 "$PYRUN_MGR"
+  SUITE_FULL=1 _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(cat "$PYRUN_MARK/node.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+    && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null)" = "test" ] \
+    && echo "$PYRUN_STDERR" | grep -qF "SUITE_FULL=1: se ignora scripts[\"test:local\"] y corre la suite completa [$PYRUN_DIR]" \
+    && echo "$PYRUN_STDERR" | grep -qF "Running tests before push ($PYRUN_MGR) [$PYRUN_DIR]..."; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: SUITE_FULL=1 con test:local declarado → corre '$PYRUN_MGR test' con la línea de aviso (TL2)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TL4b (pin): solo "test:local" (sin "scripts.test" usable) + marcador Python
+# con venv y SUITE_FULL=1 → cede a Python (D-06): corre el venv y no npm. Se
+# rompe si el interruptor deja de ceder a D-06.
+_pyrun_setup
+_pyrun_make_scripts '{"test:local":"y"}'
+_pyrun_make_venv bin 0
+_pyrun_make_npm 0
+SUITE_FULL=1 _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_CASE_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] \
+  && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+  && [ ! -f "$PYRUN_MARK/node.ran" ]; then
+  PYRUN_CASE_OK=0
+fi
+_pyrun_report "pre-push-guard: SUITE_FULL=1 + solo test:local + marcador Python con venv → cede a Python (TL4b, pin)" "$PYRUN_CASE_OK"
+_pyrun_cleanup
+
+# TL4: con SUITE_FULL=1, solo "test:local" declarado (sin "scripts.test" usable
+# ni marcador Python) → bloquea con la razón de que se pidió la suite completa
+# y no hay ninguna. Se rompe si falta la última rama (saldría 0 sin correr
+# nada: la completa correría menos que la local).
+_pyrun_setup
+rm "$PYRUN_DIR/pyproject.toml"
+_pyrun_make_scripts '{"test:local":"y"}'
+_pyrun_make_npm 0
+_pyrun_assert_clean_path TL4
+SUITE_FULL=1 _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_CASE_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] \
+  && echo "$PYRUN_STDERR" | grep -qF "no encontró un runner de tests en: $PYRUN_DIR. SUITE_FULL=1 pide la suite completa pero package.json solo declara" \
+  && [ ! -f "$PYRUN_MARK/node.ran" ]; then
+  PYRUN_CASE_OK=0
+fi
+_pyrun_report "pre-push-guard: SUITE_FULL=1 con solo test:local y nada más que correr → bloquea con la razón (TL4)" "$PYRUN_CASE_OK"
+_pyrun_cleanup
+
+# TL5 (CA-5): la clave de la marca incluye el modo. Cinco pushes sobre el MISMO
+# árbol, borrando node.argv entre uno y otro: (1) defecto corre "run
+# test:local" y deja marca; (2) defecto no corre ("estado ya verificado");
+# (3) SUITE_FULL=1 CORRE "test" (un verificado en un modo no vale por el
+# otro); (4) SUITE_FULL=1 no corre; (5) defecto corre otra vez. Se rompe si se
+# quita la línea "suite" de la clave (el paso 3 no correría).
+_pyrun_setup
+rm "$PYRUN_DIR/pyproject.toml"
+_pyrun_make_scripts '{"test":"x","test:local":"y"}'
+_pyrun_make_npm 0
+PYRUN_TL5_PATH="$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_CASE_OK=0
+_pyrun_tl5_argv() { { tr -d '\r' < "$PYRUN_MARK/node.argv" | paste -sd, -; } 2>/dev/null; }
+
+_pyrun_run "$PYRUN_TL5_PATH"
+[ "$PYRUN_EXIT" -eq 0 ] && [ "$(_pyrun_tl5_argv)" = "run,test:local" ] || PYRUN_CASE_OK=1
+rm -f "$PYRUN_MARK/node.argv"
+
+_pyrun_run "$PYRUN_TL5_PATH"
+[ "$PYRUN_EXIT" -eq 0 ] && [ ! -f "$PYRUN_MARK/node.argv" ] \
+  && echo "$PYRUN_STDERR" | grep -qF "estado ya verificado" || PYRUN_CASE_OK=1
+
+SUITE_FULL=1 _pyrun_run "$PYRUN_TL5_PATH"
+[ "$PYRUN_EXIT" -eq 0 ] && [ "$(_pyrun_tl5_argv)" = "test" ] || PYRUN_CASE_OK=1
+rm -f "$PYRUN_MARK/node.argv"
+
+SUITE_FULL=1 _pyrun_run "$PYRUN_TL5_PATH"
+[ "$PYRUN_EXIT" -eq 0 ] && [ ! -f "$PYRUN_MARK/node.argv" ] \
+  && echo "$PYRUN_STDERR" | grep -qF "estado ya verificado" || PYRUN_CASE_OK=1
+
+_pyrun_run "$PYRUN_TL5_PATH"
+[ "$PYRUN_EXIT" -eq 0 ] && [ "$(_pyrun_tl5_argv)" = "run,test:local" ] || PYRUN_CASE_OK=1
+_pyrun_report "pre-push-guard: la marca distingue el modo: verificado en un modo corre de nuevo en el otro (TL5, CA-5)" "$PYRUN_CASE_OK"
+_pyrun_cleanup
+
+# TL6 (1.5): "SUITE_FULL=1" escrito en el comando del push fuerza "test" aunque
+# el entorno del hook no lo traiga: prefijo, "env" y "export … &&". Se rompe si
+# falta el chequeo de texto en pre-push-guard.sh (argv = "run,test:local").
+# Verificado ejecutando guard_sanitize: comillas solo alrededor del VALOR
+# (SUITE_FULL="1", SUITE_FULL='1') el saneo las une y el valor queda como 1, así
+# que SÍ se reconoce (TL6n cubre el caso contrario: toda la asignación entre
+# comillas).
+for PYRUN_CMD in \
+  "SUITE_FULL=1 git push origin feature/suite" \
+  "env SUITE_FULL=1 git push origin feature/suite" \
+  "export SUITE_FULL=1 && git push origin feature/suite" \
+  'SUITE_FULL="1" git push origin feature/suite' \
+  "SUITE_FULL='1' git push origin feature/suite"; do
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_scripts '{"test":"x","test:local":"y"}'
+  _pyrun_make_npm 0
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN" "$PYRUN_CMD"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null)" = "test" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: '$PYRUN_CMD' → corre 'npm test' (TL6)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TL6n (1.5, negativos): lo que NO es el interruptor corre "test:local": valor
+# distinto de 1, prefijo pegado a otro nombre y la asignación ENTERA entre
+# comillas dentro de un argumento (-o "SUITE_FULL=1" o -o 'SUITE_FULL=1'): el
+# saneo vacía el span entero (no deja Q) y el regex no lo ve. Como prefijo del
+# comando ('"SUITE_FULL=1" git push') no hay caso: el saneo deja "  git push" y
+# el hook ni lo trata como push; el shell tampoco lo lee como asignación. Se
+# rompe si el regex pierde un borde (argv = "test").
+for PYRUN_CMD in \
+  "SUITE_FULL=0 git push origin feature/suite" \
+  "SUITE_FULL=10 git push origin feature/suite" \
+  "XSUITE_FULL=1 git push origin feature/suite" \
+  'git push -o "SUITE_FULL=1" origin feature/suite' \
+  "git push -o 'SUITE_FULL=1' origin feature/suite"; do
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_scripts '{"test":"x","test:local":"y"}'
+  _pyrun_make_npm 0
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN" "$PYRUN_CMD"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null | paste -sd, -)" = "run,test:local" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: '$PYRUN_CMD' → no es el interruptor, corre 'npm run test:local' (TL6n)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TL6e (1.5, negativos del ENTORNO): SUITE_FULL con un valor ajeno a "1" en el
+# entorno del hook ("0", "true", vacío) no es el interruptor: corre "run
+# test:local" y no imprime el aviso "SUITE_FULL=1: se ignora". TL6n solo cubre
+# el valor ajeno escrito en el TEXTO del comando, que pasa por otro lector (el
+# regex); este caso ejerce la comparación de _guard_suite_full. Mutación que lo
+# rompe: _guard_suite_full() { [ -n "${SUITE_FULL:-}" ]; } (los dos primeros
+# valores pasan a correr "test"; el vacío sobrevive a esa mutación y se cubre
+# con la mutación [ "${SUITE_FULL+x}" = x ]).
+for PYRUN_VAL in 0 true empty; do
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_scripts '{"test":"x","test:local":"y"}'
+  _pyrun_make_npm 0
+  case "$PYRUN_VAL" in
+    empty) SUITE_FULL= _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN" ;;
+    *) SUITE_FULL="$PYRUN_VAL" _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN" ;;
+  esac
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null | paste -sd, -)" = "run,test:local" ] \
+    && ! echo "$PYRUN_STDERR" | grep -qF "se ignora"; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: SUITE_FULL='$PYRUN_VAL' en el entorno → no es el interruptor, corre 'npm run test:local' sin aviso (TL6e)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TL7 (CA-1, PIN DE REGRESIÓN): con scripts["test:local"] ausente, null, "" o
+# solo espacios ("  ")
+# el hook corre "<gestor> test" con la línea "Running…" de siempre, exacta, y
+# sin mencionar test:local ni SUITE_FULL, con y sin SUITE_FULL=1 (sin script
+# local el interruptor no tiene nada que ignorar ni avisar). Nace verde.
+# Mutaciones que lo rompen: en _guard_node_local_script_declared quitar
+# 'and test("[^[:space:]]")' (el "" pasa a contar como declarado), o dejar
+# 'and . != ""' (el "  " pasa a contar como declarado: npm run de un script de
+# solo espacios sale 0 sin correr nada, verde falso). En ambos, argv =
+# "run,test:local".
+for PYRUN_LOCAL in absent null empty blank; do
+  for PYRUN_ENV in default full; do
+    _pyrun_setup
+    rm "$PYRUN_DIR/pyproject.toml"
+    case "$PYRUN_LOCAL" in
+      absent) _pyrun_make_scripts '{"test":"x"}' ;;
+      null) _pyrun_make_scripts '{"test":"x","test:local":null}' ;;
+      empty) _pyrun_make_scripts '{"test":"x","test:local":""}' ;;
+      blank) _pyrun_make_scripts '{"test":"x","test:local":"  "}' ;;
+    esac
+    _pyrun_make_npm 0
+    if [ "$PYRUN_ENV" = full ]; then
+      SUITE_FULL=1 _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+    else
+      _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+    fi
+    PYRUN_CASE_OK=1
+    if [ "$PYRUN_EXIT" -eq 0 ] \
+      && [ "$(cat "$PYRUN_MARK/node.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+      && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null)" = "test" ] \
+      && echo "$PYRUN_STDERR" | grep -qxF "Running tests before push (npm) [$PYRUN_DIR]..." \
+      && ! echo "$PYRUN_STDERR" | grep -qF "test:local" \
+      && ! echo "$PYRUN_STDERR" | grep -qF "SUITE_FULL"; then
+      PYRUN_CASE_OK=0
+    fi
+    _pyrun_report "pre-push-guard: test:local $PYRUN_LOCAL (modo $PYRUN_ENV) → 'npm test' con la línea de siempre (TL7, pin CA-1)" "$PYRUN_CASE_OK"
+    _pyrun_cleanup
+  done
+done
+
+# TL8 (PIN DE REGRESIÓN): solo "test:local" (sin scripts.test usable) corre en
+# modo por defecto, sin y con marcador Python (pyproject + venv, que no corre).
+# Nace verde. Mutación que lo rompe: en _guard_run_suite_in exigir
+# "_guard_node_has_test_script" en la rama local (la local pasa a pedir "test"
+# usable o a ceder a Python).
+for PYRUN_ENV in node python; do
+  _pyrun_setup
+  _pyrun_make_scripts '{"test:local":"y"}'
+  _pyrun_make_npm 0
+  if [ "$PYRUN_ENV" = node ]; then
+    rm "$PYRUN_DIR/pyproject.toml"
+  else
+    _pyrun_make_venv bin 0
+  fi
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null | paste -sd, -)" = "run,test:local" ] \
+    && [ ! -f "$PYRUN_MARK/venv.ran" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: solo test:local ($PYRUN_ENV) en modo por defecto → corre 'npm run test:local' (TL8, pin)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TL9 (PIN DE REGRESIÓN): monorepo sin marcador en la raíz (fixture
+# MULTIROOT): frontend declara test:local y backend solo "test". Cada
+# directorio decide por su package.json: el fake de npm registra argv por
+# directorio. Nace verde. Mutación que lo rompe: memorizar entre directorios
+# el local_kind del primero en _guard_run_suite_in (la decisión deja de ser por
+# package.json propio).
+_multiroot_setup
+rm "$MULTIROOT_DIR/backend/pyproject.toml"
+jq -n '{name: "frontend", scripts: {test: "x", "test:local": "y"}}' > "$MULTIROOT_DIR/frontend/package.json"
+jq -n '{name: "backend", scripts: {test: "x"}}' > "$MULTIROOT_DIR/backend/package.json"
+cat > "$MULTIROOT_FAKE_BIN/npm" <<NPMEOF
+#!/bin/bash
+printf '%s\n' "\$@" > "$MULTIROOT_MARK/\$(basename "\$(pwd -P)").argv"
+exit 0
+NPMEOF
+chmod +x "$MULTIROOT_FAKE_BIN/npm"
+echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
+echo "cambio" >> "$MULTIROOT_DIR/backend/b.py"
+PYRUN_JSON=$(jq -n --arg cmd "$SUITE_PUSH_CMD" '{tool_input: {command: $cmd}}')
+PYRUN_EXIT=0
+PYRUN_STDERR=$(cd "$MULTIROOT_DIR" && echo "$PYRUN_JSON" | PATH="$MULTIROOT_FAKE_BIN:$PATH" bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || PYRUN_EXIT=$?
+PYRUN_CASE_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] \
+  && [ "$(tr -d '\r' < "$MULTIROOT_MARK/frontend.argv" 2>/dev/null | paste -sd, -)" = "run,test:local" ] \
+  && [ "$(tr -d '\r' < "$MULTIROOT_MARK/backend.argv" 2>/dev/null)" = "test" ]; then
+  PYRUN_CASE_OK=0
+fi
+_pyrun_report "pre-push-guard: monorepo sin marcador en la raíz → frontend corre 'run test:local' y backend 'test', cada uno por su package.json (TL9, pin)" "$PYRUN_CASE_OK"
+_multiroot_cleanup
+
 # TG (D-07): "grep" ausente del PATH → el hook bloquea (exit 2, "falta grep")
 # desde guard_init, antes de evaluar nada. Antes el hook salía 0 en silencio:
 # "! echo ... | grep -qE" invierte el 127 de un grep inexistente y el push
@@ -4323,6 +4686,24 @@ if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_E3_EXPECTED" ]]; th
   PYRUN_E3_OK=0
 fi
 _pyrun_report "pre-push-guard: suite roja vía npm → el bloque nombra 'npm test' (E3)" "$PYRUN_E3_OK"
+_pyrun_cleanup
+
+# TL10 (PIN DE REGRESIÓN): con test:local en rojo (npm "chatty", exit 1, como
+# E3) la línea BLOCKED no cambia y el bloque nombra 'npm run test:local'. Nace
+# verde. Mutación que lo rompe: rotular el extracto con el comando sin "run "
+# (local cmd_text="$*"; cmd_text="${cmd_text/run /}" en _guard_run_with_budget).
+_pyrun_setup
+rm "$PYRUN_DIR/pyproject.toml"
+printf '%s\n' "$PYRUN_SUMMARY_LINES" > "$PYRUN_MARK/payload.txt"
+_pyrun_make_scripts '{"test":"x","test:local":"y"}'
+_pyrun_make_chatty "$PYRUN_NPM_BIN/npm" 1 "$PYRUN_MARK/payload.txt"
+_pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_TL10_EXPECTED=$(_pyrun_expected_tail "$PYRUN_DIR" "$(_pyrun_expected_block "npm run test:local" "$PYRUN_DIR" "exit 1; últimas 4 líneas" "$PYRUN_SUMMARY_LINES")")
+PYRUN_CASE_OK=1
+if [ "$PYRUN_EXIT" -eq 2 ] && [[ "$PYRUN_STDERR" == *"$PYRUN_TL10_EXPECTED" ]]; then
+  PYRUN_CASE_OK=0
+fi
+_pyrun_report "pre-push-guard: test:local en rojo → BLOCKED sin cambios y el bloque nombra 'npm run test:local' (TL10, pin)" "$PYRUN_CASE_OK"
 _pyrun_cleanup
 
 # E4: el "exit <rc>" del encabezado es el rc CRUDO del runner, no el 1 al que
