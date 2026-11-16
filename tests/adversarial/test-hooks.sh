@@ -4345,6 +4345,33 @@ for PYRUN_CMD in \
   _pyrun_cleanup
 done
 
+# TL6e (1.5, negativos del ENTORNO): SUITE_FULL con un valor ajeno a "1" en el
+# entorno del hook ("0", "true", vacío) no es el interruptor: corre "run
+# test:local" y no imprime el aviso "SUITE_FULL=1: se ignora". TL6n solo cubre
+# el valor ajeno escrito en el TEXTO del comando, que pasa por otro lector (el
+# regex); este caso ejerce la comparación de _guard_suite_full. Mutación que lo
+# rompe: _guard_suite_full() { [ -n "${SUITE_FULL:-}" ]; } (los dos primeros
+# valores pasan a correr "test"; el vacío sobrevive a esa mutación y se cubre
+# con la mutación [ "${SUITE_FULL+x}" = x ]).
+for PYRUN_VAL in 0 true empty; do
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_scripts '{"test":"x","test:local":"y"}'
+  _pyrun_make_npm 0
+  case "$PYRUN_VAL" in
+    empty) SUITE_FULL= _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN" ;;
+    *) SUITE_FULL="$PYRUN_VAL" _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN" ;;
+  esac
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null | paste -sd, -)" = "run,test:local" ] \
+    && ! echo "$PYRUN_STDERR" | grep -qF "se ignora"; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: SUITE_FULL='$PYRUN_VAL' en el entorno → no es el interruptor, corre 'npm run test:local' sin aviso (TL6e)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
 # TL7 (CA-1, PIN DE REGRESIÓN): con scripts["test:local"] ausente, null, "" o
 # solo espacios ("  ")
 # el hook corre "<gestor> test" con la línea "Running…" de siempre, exacta, y
