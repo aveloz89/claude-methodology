@@ -1909,6 +1909,15 @@ assert_contains "$PR_WORKFLOW_SKILL" "una corrida local de la suite (\`pre-push-
 assert_contains "$ORCHESTRATOR_SKILL" "Cada push corre la suite una vez antes de salir" \
   "skill orchestrator: cada push corre la suite una vez"
 
+# --- Suite local (test:local): la regla vive en el README (CA-6) ---
+echo ""
+echo "--- suite local: regla canónica en el README ---"
+
+assert_contains "$README" 'scripts\["test:local"\]' \
+  "README (pre-push-guard): documenta scripts[\"test:local\"]"
+assert_contains "$README" 'SUITE_FULL=1' \
+  "README (pre-push-guard): documenta SUITE_FULL=1"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---
