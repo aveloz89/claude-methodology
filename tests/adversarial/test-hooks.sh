@@ -4370,6 +4370,31 @@ for PYRUN_LOCAL in absent null empty; do
   done
 done
 
+# TL8 (PIN DE REGRESIÓN): solo "test:local" (sin scripts.test usable) corre en
+# modo por defecto, sin y con marcador Python (pyproject + venv, que no corre).
+# Nace verde. Mutación que lo rompe: en _guard_run_suite_in exigir
+# "_guard_node_has_test_script" en la rama local (la local pasa a pedir "test"
+# usable o a ceder a Python).
+for PYRUN_ENV in node python; do
+  _pyrun_setup
+  _pyrun_make_scripts '{"test:local":"y"}'
+  _pyrun_make_npm 0
+  if [ "$PYRUN_ENV" = node ]; then
+    rm "$PYRUN_DIR/pyproject.toml"
+  else
+    _pyrun_make_venv bin 0
+  fi
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null | paste -sd, -)" = "run,test:local" ] \
+    && [ ! -f "$PYRUN_MARK/venv.ran" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: solo test:local ($PYRUN_ENV) en modo por defecto → corre 'npm run test:local' (TL8, pin)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
 # TG (D-07): "grep" ausente del PATH → el hook bloquea (exit 2, "falta grep")
 # desde guard_init, antes de evaluar nada. Antes el hook salía 0 en silencio:
 # "! echo ... | grep -qE" invierte el 127 de un grep inexistente y el push
