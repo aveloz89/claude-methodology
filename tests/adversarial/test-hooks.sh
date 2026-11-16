@@ -4395,6 +4395,36 @@ for PYRUN_ENV in node python; do
   _pyrun_cleanup
 done
 
+# TL9 (PIN DE REGRESIÓN): monorepo sin marcador en la raíz (fixture
+# MULTIROOT): frontend declara test:local y backend solo "test". Cada
+# directorio decide por su package.json: el fake de npm registra argv por
+# directorio. Nace verde. Mutación que lo rompe: memorizar entre directorios
+# el local_kind del primero en _guard_run_suite_in (la decisión deja de ser por
+# package.json propio).
+_multiroot_setup
+rm "$MULTIROOT_DIR/backend/pyproject.toml"
+jq -n '{name: "frontend", scripts: {test: "x", "test:local": "y"}}' > "$MULTIROOT_DIR/frontend/package.json"
+jq -n '{name: "backend", scripts: {test: "x"}}' > "$MULTIROOT_DIR/backend/package.json"
+cat > "$MULTIROOT_FAKE_BIN/npm" <<NPMEOF
+#!/bin/bash
+printf '%s\n' "\$@" > "$MULTIROOT_MARK/\$(basename "\$(pwd -P)").argv"
+exit 0
+NPMEOF
+chmod +x "$MULTIROOT_FAKE_BIN/npm"
+echo "cambio" >> "$MULTIROOT_DIR/frontend/a.js"
+echo "cambio" >> "$MULTIROOT_DIR/backend/b.py"
+PYRUN_JSON=$(jq -n --arg cmd "$SUITE_PUSH_CMD" '{tool_input: {command: $cmd}}')
+PYRUN_EXIT=0
+PYRUN_STDERR=$(cd "$MULTIROOT_DIR" && echo "$PYRUN_JSON" | PATH="$MULTIROOT_FAKE_BIN:$PATH" bash "$HOOKS_DIR/pre-push-guard.sh" 2>&1 > /dev/null) || PYRUN_EXIT=$?
+PYRUN_CASE_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] \
+  && [ "$(tr -d '\r' < "$MULTIROOT_MARK/frontend.argv" 2>/dev/null | paste -sd, -)" = "run,test:local" ] \
+  && [ "$(tr -d '\r' < "$MULTIROOT_MARK/backend.argv" 2>/dev/null)" = "test" ]; then
+  PYRUN_CASE_OK=0
+fi
+_pyrun_report "pre-push-guard: monorepo sin marcador en la raíz → frontend corre 'run test:local' y backend 'test', cada uno por su package.json (TL9, pin)" "$PYRUN_CASE_OK"
+_multiroot_cleanup
+
 # TG (D-07): "grep" ausente del PATH → el hook bloquea (exit 2, "falta grep")
 # desde guard_init, antes de evaluar nada. Antes el hook salía 0 en silencio:
 # "! echo ... | grep -qE" invierte el 127 de un grep inexistente y el push
