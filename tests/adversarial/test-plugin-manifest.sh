@@ -1931,14 +1931,21 @@ LOCAL_SUITE_MENTIONS=0
 LOCAL_SUITE_UNLINKED=""
 for d in global rulebooks skills agents rules; do
   [ -d "$REPO_ROOT/$d" ] || continue
-  while IFS= read -r hit; do
-    [ -n "$hit" ] || continue
-    LOCAL_SUITE_MENTIONS=$((LOCAL_SUITE_MENTIONS + 1))
-    case "$hit" in
-      *README.md*) ;;
-      *) LOCAL_SUITE_UNLINKED="$LOCAL_SUITE_UNLINKED ${hit%%:*}" ;;
-    esac
-  done < <(grep -rEn 'test:local|SUITE_FULL' "$REPO_ROOT/$d" 2>/dev/null || true)
+  # Se evalúa solo el texto de la línea, no la ruta: una ruta que contenga
+  # README.md no debe dar un falso negativo. Por eso grep -l lista los archivos
+  # y grep -En (sin -H) sobre cada uno devuelve "línea:texto".
+  while IFS= read -r mention_file; do
+    [ -n "$mention_file" ] || continue
+    while IFS= read -r hit; do
+      [ -n "$hit" ] || continue
+      LOCAL_SUITE_MENTIONS=$((LOCAL_SUITE_MENTIONS + 1))
+      hit_text="${hit#*:}"
+      case "$hit_text" in
+        *README.md*) ;;
+        *) LOCAL_SUITE_UNLINKED="$LOCAL_SUITE_UNLINKED $mention_file" ;;
+      esac
+    done < <(grep -En 'test:local|SUITE_FULL' "$mention_file" 2>/dev/null || true)
+  done < <(grep -rlE 'test:local|SUITE_FULL' "$REPO_ROOT/$d" 2>/dev/null || true)
 done
 TOTAL=$((TOTAL + 1))
 if [ -z "$LOCAL_SUITE_UNLINKED" ]; then
