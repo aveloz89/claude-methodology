@@ -4195,6 +4195,48 @@ for PYRUN_ENV in default full; do
   _pyrun_cleanup
 done
 
+# TL2 (CA-3): con SUITE_FULL=1 en el entorno del hook y "test:local"
+# declarado, corre "<gestor> test" (la suite completa) con la línea de aviso.
+# Se rompe si el interruptor no se lee (correría "run test:local").
+for PYRUN_MGR in npm pnpm yarn; do
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_scripts '{"test":"x","test:local":"y"}'
+  case "$PYRUN_MGR" in
+    pnpm) touch "$PYRUN_DIR/pnpm-lock.yaml" ;;
+    yarn) touch "$PYRUN_DIR/yarn.lock" ;;
+  esac
+  _pyrun_make_npm 0 "$PYRUN_MGR"
+  SUITE_FULL=1 _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(cat "$PYRUN_MARK/node.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+    && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null)" = "test" ] \
+    && echo "$PYRUN_STDERR" | grep -qF "SUITE_FULL=1: se ignora scripts[\"test:local\"] y corre la suite completa [$PYRUN_DIR]" \
+    && echo "$PYRUN_STDERR" | grep -qF "Running tests before push ($PYRUN_MGR) [$PYRUN_DIR]..."; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: SUITE_FULL=1 con test:local declarado → corre '$PYRUN_MGR test' con la línea de aviso (TL2)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TL4b (pin): solo "test:local" (sin "scripts.test" usable) + marcador Python
+# con venv y SUITE_FULL=1 → cede a Python (D-06): corre el venv y no npm. Se
+# rompe si el interruptor deja de ceder a D-06.
+_pyrun_setup
+_pyrun_make_scripts '{"test:local":"y"}'
+_pyrun_make_venv bin 0
+_pyrun_make_npm 0
+SUITE_FULL=1 _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN"
+PYRUN_CASE_OK=1
+if [ "$PYRUN_EXIT" -eq 0 ] \
+  && [ "$(cat "$PYRUN_MARK/venv.ran" 2>/dev/null)" = "$PYRUN_DIR" ] \
+  && [ ! -f "$PYRUN_MARK/node.ran" ]; then
+  PYRUN_CASE_OK=0
+fi
+_pyrun_report "pre-push-guard: SUITE_FULL=1 + solo test:local + marcador Python con venv → cede a Python (TL4b, pin)" "$PYRUN_CASE_OK"
+_pyrun_cleanup
+
 # TG (D-07): "grep" ausente del PATH → el hook bloquea (exit 2, "falta grep")
 # desde guard_init, antes de evaluar nada. Antes el hook salía 0 en silencio:
 # "! echo ... | grep -qE" invierte el 127 de un grep inexistente y el push

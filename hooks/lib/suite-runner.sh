@@ -71,6 +71,12 @@
 # accidente (es un opt-in mal escrito) y caer a "test" daría un rojo confuso
 # en vez de la razón real.
 #
+# Interruptor SUITE_FULL=1 (entorno del proceso del hook; solo el valor exacto
+# "1", cualquier otro = modo por defecto): ignora scripts["test:local"] y corre
+# la cadena de siempre como si la clave no existiera (Node con "test" usable →
+# "<gestor> test"; si no, la rama Python por D-06), con la línea de aviso
+# 'SUITE_FULL=1: se ignora scripts["test:local"] y corre la suite completa'.
+#
 # Salida de la suite en el stderr: el harness solo le pasa al agente el stderr
 # de un hook que bloquea, y la salida del runner sale por stdout (que sigue
 # imprimiéndola entera). Por eso, con la suite roja, tras la línea "BLOCKED:
@@ -463,6 +469,10 @@ _guard_node_local_script_wrong_type() {
   jq -e '.scripts["test:local"] | type | . != "string" and . != "null"' package.json > /dev/null 2>&1
 }
 
+# _guard_suite_full: SUITE_FULL=1 en el entorno del hook pide la suite
+# completa. Solo el valor exacto "1" activa el modo (true, yes, 0 y vacío no).
+_guard_suite_full() { [ "${SUITE_FULL:-}" = "1" ]; }
+
 # _guard_node_pkg_mgr: imprime el gestor de paquetes del cwd por lockfile.
 _guard_node_pkg_mgr() {
   if [ -f "pnpm-lock.yaml" ]; then
@@ -509,12 +519,16 @@ _guard_run_suite_in() {
     fi
   fi
 
+  if [ "$local_kind" = string ] && _guard_suite_full; then
+    echo "SUITE_FULL=1: se ignora scripts[\"test:local\"] y corre la suite completa [$dir]." >&2
+  fi
+
   local rc=0 pkg_mgr
   if [ "$local_kind" = wrong ]; then
     GUARD_PY_RUNNER_REASON='package.json declara scripts["test:local"] que no es un string: el hook no puede saber qué suite local correr (corrige el package.json o quita la clave)'
     echo "package.json con scripts[\"test:local\"] que no es un string [$dir]." >&2
     no_runner=1
-  elif [ "$local_kind" = string ]; then
+  elif [ "$local_kind" = string ] && ! _guard_suite_full; then
     pkg_mgr=$(_guard_node_pkg_mgr)
     echo "Running tests before push ($pkg_mgr run test:local) [$dir]... (suite local del proyecto; SUITE_FULL=1 corre 'test')" >&2
     _guard_run_with_budget "$budget" "$dir" "$pkg_mgr" run test:local
