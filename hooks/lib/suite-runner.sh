@@ -71,7 +71,8 @@
 # accidente (es un opt-in mal escrito) y caer a "test" daría un rojo confuso
 # en vez de la razón real.
 #
-# Interruptor SUITE_FULL=1 (entorno del proceso del hook; solo el valor exacto
+# Interruptor SUITE_FULL=1 (entorno del proceso del hook, o escrito en el comando
+# del push, que pre-push-guard.sh exporta antes de llamar acá; solo el valor exacto
 # "1", cualquier otro = modo por defecto): ignora scripts["test:local"] y corre
 # la cadena de siempre como si la clave no existiera (Node con "test" usable →
 # "<gestor> test"; si no, la rama Python por D-06), con la línea de aviso

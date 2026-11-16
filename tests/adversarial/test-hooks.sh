@@ -4291,6 +4291,50 @@ _pyrun_run "$PYRUN_TL5_PATH"
 _pyrun_report "pre-push-guard: la marca distingue el modo: verificado en un modo corre de nuevo en el otro (TL5, CA-5)" "$PYRUN_CASE_OK"
 _pyrun_cleanup
 
+# TL6 (1.5): "SUITE_FULL=1" escrito en el comando del push fuerza "test" aunque
+# el entorno del hook no lo traiga: prefijo, "env" y "export … &&". Se rompe si
+# falta el chequeo de texto en pre-push-guard.sh (argv = "run,test:local").
+for PYRUN_CMD in \
+  "SUITE_FULL=1 git push origin feature/suite" \
+  "env SUITE_FULL=1 git push origin feature/suite" \
+  "export SUITE_FULL=1 && git push origin feature/suite"; do
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_scripts '{"test":"x","test:local":"y"}'
+  _pyrun_make_npm 0
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN" "$PYRUN_CMD"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null)" = "test" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: '$PYRUN_CMD' → corre 'npm test' (TL6)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
+# TL6n (1.5, negativos): lo que NO es el interruptor corre "test:local": valor
+# distinto de 1, prefijo pegado a otro nombre y el valor dentro de un argumento
+# entre comillas (el saneo lo deja como Q). Se rompe si el regex pierde un
+# borde (argv = "test").
+for PYRUN_CMD in \
+  "SUITE_FULL=0 git push origin feature/suite" \
+  "SUITE_FULL=10 git push origin feature/suite" \
+  "XSUITE_FULL=1 git push origin feature/suite" \
+  'git push -o "SUITE_FULL=1" origin feature/suite'; do
+  _pyrun_setup
+  rm "$PYRUN_DIR/pyproject.toml"
+  _pyrun_make_scripts '{"test":"x","test:local":"y"}'
+  _pyrun_make_npm 0
+  _pyrun_run "$PYRUN_NPM_BIN:$PYRUN_CLEAN_BIN" "$PYRUN_CMD"
+  PYRUN_CASE_OK=1
+  if [ "$PYRUN_EXIT" -eq 0 ] \
+    && [ "$(tr -d '\r' < "$PYRUN_MARK/node.argv" 2>/dev/null | paste -sd, -)" = "run,test:local" ]; then
+    PYRUN_CASE_OK=0
+  fi
+  _pyrun_report "pre-push-guard: '$PYRUN_CMD' → no es el interruptor, corre 'npm run test:local' (TL6n)" "$PYRUN_CASE_OK"
+  _pyrun_cleanup
+done
+
 # TG (D-07): "grep" ausente del PATH → el hook bloquea (exit 2, "falta grep")
 # desde guard_init, antes de evaluar nada. Antes el hook salía 0 en silencio:
 # "! echo ... | grep -qE" invierte el 127 de un grep inexistente y el push
