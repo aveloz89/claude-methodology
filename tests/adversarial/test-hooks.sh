@@ -8709,8 +8709,47 @@ assert_postpr_caso_b "post-pr-create redirección (PR-N3): ls -R . && gh pr crea
   "$(postpr_input "ls -R . && gh pr create --base dev" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
 assert_postpr_caso_b "post-pr-create redirección (PR-4): GH_REPO=owner/otro gh pr create → CASO B" \
   "$(postpr_input "GH_REPO=owner/otro gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
-assert_postpr_caso_a "post-pr-create redirección (PR-N1): cd dentro de --title \"cd x\" → sigue CASO A" \
+# PR-N1 es un control declarado: el grep del cd exige un "gh pr create"
+# DESPUÉS, así que un --title "cd x" no lo dispara ni con el texto crudo; no
+# protege el saneo. Los negativos que sí lo protegen son PR-N4 y PR-N5.
+assert_postpr_caso_a "post-pr-create redirección (PR-N1, control): cd dentro de --title \"cd x\" → sigue CASO A" \
   "$(postpr_input 'gh pr create --base dev --title "cd x"' "$POSTPR_URL" "$SANDBOX_REPO")"
+assert_postpr_caso_a "post-pr-create redirección (PR-N4): cd dentro de un string de un comando previo (git commit -m \"fix; cd x\" && gh pr create) → sigue CASO A" \
+  "$(postpr_input 'git commit -m "fix; cd x" && gh pr create --base dev --title '"'x'" "$POSTPR_URL" "$SANDBOX_REPO")"
+assert_postpr_caso_a "post-pr-create redirección (PR-N5): --repo y GH_REPO= dentro de un --title → sigue CASO A" \
+  "$(postpr_input "gh pr create --base dev --title 'usar --repo y GH_REPO=x'" "$POSTPR_URL" "$SANDBOX_REPO")"
+assert_postpr_caso_a "post-pr-create redirección (PR-N6): ls -R dentro de un --title → sigue CASO A" \
+  "$(postpr_input "gh pr create --base dev --title 'fix ls -R'" "$POSTPR_URL" "$SANDBOX_REPO")"
+# Formas de cd/env que cambian el árbol (Sec LOW): cada una, un caso.
+assert_postpr_caso_b "post-pr-create redirección (PR-6a): builtin cd X && gh pr create → CASO B" \
+  "$(postpr_input "builtin cd /otro/repo && gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-6b): command cd X && gh pr create → CASO B" \
+  "$(postpr_input "command cd /otro/repo && gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-6c): VAR=x cd X && gh pr create → CASO B" \
+  "$(postpr_input "CDPATH=/y cd /otro/repo && gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-6d): env -C X gh pr create → CASO B" \
+  "$(postpr_input "env -C /otro/repo gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+# Prefiltro con flags intercalados (Sec LOW legacy): entran al hook y caen a
+# CASO B por la redirección.
+assert_postpr_caso_b "post-pr-create prefiltro (PR-7a): gh pr -R o/x create → CASO B" \
+  "$(postpr_input "gh pr -R o/x create --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create prefiltro (PR-7b): gh pr --repo o/x create → CASO B" \
+  "$(postpr_input "gh pr --repo o/x create --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create prefiltro (PR-7c): gh -R o/x pr create → CASO B" \
+  "$(postpr_input "gh -R o/x pr create --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+# Negativo del prefiltro: "gh pr list --search create" no es un create;
+# el hook sale sin output aunque el stdout traiga una URL de PR.
+TOTAL=$((TOTAL + 1))
+POSTPR_EXIT_LIST=0
+POSTPR_OUTPUT_LIST=$(cd "$SANDBOX_REPO" && postpr_input "gh pr list --search create" "$POSTPR_URL" "$SANDBOX_REPO" \
+  | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_LIST=$?
+if [ "$POSTPR_EXIT_LIST" -eq 0 ] && [ -z "$POSTPR_OUTPUT_LIST" ]; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create prefiltro (PR-N7): gh pr list --search create no entra al hook"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create prefiltro (PR-N7): gh pr list --search create no entra al hook (exit: $POSTPR_EXIT_LIST, output: $POSTPR_OUTPUT_LIST)"
+  FAIL=$((FAIL + 1))
+fi
 POSTPR_N2_CMD=$'gh pr create --base dev --title "feat" --body "$(cat <<\'EOF\'\ncd /tmp && ls\ngh pr create -R a/b\nGH_REPO=x\nEOF\n)"'
 assert_postpr_caso_a "post-pr-create redirección (PR-N2): cd/-R/GH_REPO= dentro de un body heredoc → sigue CASO A" \
   "$(postpr_input "$POSTPR_N2_CMD" "$POSTPR_URL" "$SANDBOX_REPO")"
@@ -8723,7 +8762,7 @@ sandbox_cleanup
 # falsos positivos/negativos (un "cd" en un --title). El hook no los evalúa:
 # CASO B con el diagnóstico de saneo, aunque haya un CASO A válido y el
 # comando no tenga redirección.
-POSTPR_SANITIZE_DIAG="No se pudo sanear el comando (perl no disponible) — la detección de redirección no es confiable; se trata como PR fuera del flujo."
+POSTPR_SANITIZE_DIAG="No se pudo sanear el comando para descartar una redirección (falta perl o el saneo falló) — se trata como PR fuera del flujo."
 sandbox_create
 (cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
@@ -8748,6 +8787,36 @@ if [ "$POSTPR_EXIT_NOPERL" -eq 0 ] \
   PASS=$((PASS + 1))
 else
   echo -e "${RED}FAIL${NC}: post-pr-create saneo degradado (PR-5): sin perl → CASO B con el diagnóstico de saneo (exit: $POSTPR_EXIT_NOPERL, output: $POSTPR_OUTPUT_NOPERL)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso (PR-5b): perl presente pero abortado (timeout: sale con 142) →
+# guard_sanitize devuelve el comando crudo con estado 1: mismo diagnóstico.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+FAKE_PERL_POSTPR_BIN=$(mktemp -d)
+for cmd in bash cat grep git jq tr head; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$FAKE_PERL_POSTPR_BIN/$cmd"
+done
+printf '#!/bin/bash\nexit 142\n' > "$FAKE_PERL_POSTPR_BIN/perl"
+chmod +x "$FAKE_PERL_POSTPR_BIN/perl"
+POSTPR_INPUT_FAKEPERL=$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$SANDBOX_REPO")
+POSTPR_EXIT_FAKEPERL=0
+POSTPR_OUTPUT_FAKEPERL=$(cd "$SANDBOX_REPO" && printf '%s' "$POSTPR_INPUT_FAKEPERL" \
+  | PATH="$FAKE_PERL_POSTPR_BIN" bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_FAKEPERL=$?
+rm -rf "$FAKE_PERL_POSTPR_BIN"
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_FAKEPERL" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_FAKEPERL" | grep -qF "$POSTPR_SANITIZE_DIAG" \
+  && echo "$POSTPR_OUTPUT_FAKEPERL" | grep -qF "ACCIÓN REQUERIDA: Revisa este PR: $POSTPR_URL" \
+  && ! echo "$POSTPR_OUTPUT_FAKEPERL" | grep -qF "Review dual pre-push verificado"; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create saneo degradado (PR-5b): perl abortado (142) → CASO B con el mismo diagnóstico"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create saneo degradado (PR-5b): perl abortado (142) → CASO B con el mismo diagnóstico (exit: $POSTPR_EXIT_FAKEPERL, output: $POSTPR_OUTPUT_FAKEPERL)"
   FAIL=$((FAIL + 1))
 fi
 

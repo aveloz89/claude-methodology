@@ -50,8 +50,11 @@
 # sobre el comando saneado (guard_sanitize) y aplanado, así que un "cd" en
 # un --title o en el body no cuenta. Falso positivo asumido: el "-R" de
 # otro comando de la cadena ("ls -R . && gh pr create") cae a CASO B (un
-# review redundante, la dirección segura). Límite: "bash -c '...'" no se
-# detecta (el saneo borra el wrapper entero, igual que en la lib).
+# review redundante, la dirección segura). Cubre también "builtin/command cd",
+# "VAR=x cd" (GUARD_ENV_PREFIX) y "env -C/--chdir X gh pr create". Fuera de
+# alcance (CASO A, no se detectan): un flag entero entre comillas ("--repo",
+# '-R': el saneo lo borra), "GIT_DIR=", y "bash -c '...'" (el saneo borra el
+# wrapper entero, igual que en la lib).
 # Saneo degradado (sin perl, o perl abortado): guard_sanitize devuelve el
 # comando crudo y los patrones no son confiables, así que no se evalúan →
 # CASO B con el diagnóstico de saneo.
@@ -65,8 +68,12 @@ command -v jq > /dev/null 2>&1 || exit 0
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-# Solo interceptar gh pr create
-if ! echo "$COMMAND" | grep -qE 'gh\s+pr\s+create'; then
+# Solo interceptar gh pr create. Tolera flags (con su valor) entre gh, pr y
+# create ("gh -R o/x pr create", "gh pr --repo o/x create"): entran al hook y
+# la redirección los manda a CASO B. "gh pr list --search create" no entra.
+GH_FLAGS='(\s+-[^[:space:]]+(\s+[^-[:space:]][^[:space:]]*)?)*'
+GH_PR_CREATE_RE="gh${GH_FLAGS}\s+pr${GH_FLAGS}\s+create"
+if ! echo "$COMMAND" | grep -qE "$GH_PR_CREATE_RE"; then
   exit 0
 fi
 
@@ -118,10 +125,14 @@ if [ -n "$PR_URL" ]; then
       SANITIZE_FAILED=true
     fi
     FLAT=$(printf '%s' "$SANITIZED" | tr '\n' ';')
-    if [ "$SANITIZE_FAILED" = false ] && printf '%s' "$FLAT" | grep -qE "${GUARD_ANCHOR}(cd|pushd)(\s|;|&&|\$).*gh\s+pr\s+create" \
-      || printf '%s' "$FLAT" | grep -qE '(^|[[:space:]])(-R|--repo)([[:space:]=]|$)|(^|[[:space:]])-R[^[:space:]-]' \
-      || printf '%s' "$FLAT" | grep -qE '(^|[^A-Za-z0-9_])GH_REPO='; then
-      REDIRECT=true
+    # Con el saneo degradado no se evalúa ningún patrón (texto crudo).
+    if [ "$SANITIZE_FAILED" = false ]; then
+      if printf '%s' "$FLAT" | grep -qE "${GUARD_ANCHOR}${GUARD_ENV_PREFIX}(builtin\s+)?(cd|pushd)(\s|;|&&|\$).*${GH_PR_CREATE_RE}" \
+        || printf '%s' "$FLAT" | grep -qE "${GUARD_ANCHOR}env\s+([^;&|]*\s)?(-C|--chdir)[^;&|]*${GH_PR_CREATE_RE}" \
+        || printf '%s' "$FLAT" | grep -qE '(^|[[:space:]])(-R|--repo)([[:space:]=]|$)|(^|[[:space:]])-R[^[:space:]-]' \
+        || printf '%s' "$FLAT" | grep -qE '(^|[^A-Za-z0-9_])GH_REPO='; then
+        REDIRECT=true
+      fi
     fi
   fi
   # shellcheck disable=SC2034 # la lee guard_session_dir (lib sourceada arriba)
@@ -153,7 +164,7 @@ if [ -n "$PR_URL" ]; then
   if [ "$SANITIZE_FAILED" = true ]; then
     # Mismo tratamiento que la redirección: sin lectura de evidencia.
     TOPLEVEL=""
-    CASO_B_DIAG="No se pudo sanear el comando (perl no disponible) — la detección de redirección no es confiable; se trata como PR fuera del flujo."
+    CASO_B_DIAG="No se pudo sanear el comando para descartar una redirección (falta perl o el saneo falló) — se trata como PR fuera del flujo."
   fi
   STATE_BRANCH=""
   REVIEW_SHA=""
