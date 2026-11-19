@@ -47,6 +47,7 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.agent_transcript_path // .transcript_path /
 TOPLEVEL=""
 BRANCH=""
 LIB_GM="${0%/*}/lib/guard-matching.sh"
+# shellcheck source=lib/guard-matching.sh
 [ -r "$LIB_GM" ] && . "$LIB_GM"
 if ! type guard_session_dir > /dev/null 2>&1; then
   echo "subagent-stop-log: repo y branch en null: no se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh falta o no define guard_session_dir)" >&2

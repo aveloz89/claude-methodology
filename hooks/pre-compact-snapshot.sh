@@ -23,6 +23,7 @@ echo "$INPUT" | jq empty > /dev/null 2>&1 || exit 0
 # con el motivo en stderr — nunca se cae al árbol del proceso. El valor de
 # ".cwd" no se interpola en ningún mensaje.
 LIB_GM="${0%/*}/lib/guard-matching.sh"
+# shellcheck source=lib/guard-matching.sh
 [ -r "$LIB_GM" ] && . "$LIB_GM"
 if ! type guard_session_dir > /dev/null 2>&1; then
   echo "pre-compact-snapshot: sin snapshot: no se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh falta o no define guard_session_dir)" >&2
