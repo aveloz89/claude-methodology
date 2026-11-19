@@ -53,8 +53,13 @@
 # review redundante, la dirección segura). Cubre también "builtin/command cd",
 # "VAR=x cd" (GUARD_ENV_PREFIX) y "env -C/--chdir X gh pr create". Fuera de
 # alcance (CASO A, no se detectan): un flag entero entre comillas ("--repo",
-# '-R': el saneo lo borra), "GIT_DIR=", y "bash -c '...'" (el saneo borra el
-# wrapper entero, igual que en la lib).
+# '-R': el saneo lo borra), la palabra del comando entre comillas
+# ('cd' /x && gh pr create: el saneo la borra), "GIT_DIR=", "bash -c '...'"
+# (el saneo borra el wrapper entero, igual que en la lib) y "env" con la
+# opcion en cluster o abreviada (env -iC /x, env --chd /x en GNU). Fuera de
+# alcance tambien, en sentido inverso (el hook sale sin checkpoint): un flag
+# de gh con valor que empieza con "-" o de varias palabras entre gh/pr/create
+# (gh -R "o/x y" pr create), que el prefiltro no reconoce.
 # Saneo degradado (sin perl, o perl abortado): guard_sanitize devuelve el
 # comando crudo y los patrones no son confiables, así que no se evalúan →
 # CASO B con el diagnóstico de saneo.
