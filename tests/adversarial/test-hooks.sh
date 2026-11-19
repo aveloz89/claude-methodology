@@ -7231,6 +7231,148 @@ assert_exit0 "PreCompact exit 0 sin jq en PATH (sin crear snapshot)" \
 rm -rf "$NO_JQ_BIN"
 sandbox_cleanup
 
+
+# --- Árbol de la sesión (.cwd): misma regla que post-pr-create ---
+# ".cwd" no vacío gana sobre el cwd del proceso (en una sesión de worktree de
+# la app de escritorio el proceso corre en el checkout principal). Para
+# afirmar stderr se captura 2>&1 a mano (assert_exit0 lo descarta).
+
+# pc_run: corre el hook en run_cwd con HOME=run_home y el stdin dado; deja
+# PC_OUT (stdout+stderr) y PC_RC. run_hooks_dir (opcional) override del dir
+# de hooks.
+pc_run() {
+  PC_RC=0
+  PC_OUT=$(cd "$3" && printf '%s' "$1" | HOME="$2" bash "${4:-$HOOKS_DIR}/pre-compact-snapshot.sh" 2>&1) || PC_RC=$?
+}
+
+# pc_report: PASS/FAIL con el contador estándar de la suite.
+pc_report() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$2" = "ok" ]; then
+    echo -e "${GREEN}PASS${NC}: $1"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $1 ($3)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+PC_MSG_NOTDIR="pre-compact-snapshot: sin snapshot: no se pudo resolver el árbol de la sesión (el .cwd del payload no es un directorio)"
+PC_MSG_NOLIB="pre-compact-snapshot: sin snapshot: no se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh falta o no define guard_session_dir)"
+
+# PC-1: proceso en repo A, .cwd = repo B → snapshot de B, nada de A.
+sandbox_create
+echo "# STATE B" > "$SANDBOX_REPO/.planning/STATE.md"
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/session-b) > /dev/null 2>&1
+PC_B_REPO="$SANDBOX_REPO"
+PC_B_HOME="$SANDBOX_HOME"
+PC_B_HEAD=$(cd "$PC_B_REPO" && git rev-parse --short HEAD)
+sandbox_create
+echo "# STATE A" > "$SANDBOX_REPO/.planning/STATE.md"
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1
+PC_SLUG_A=$(repo_slug "$SANDBOX_REPO")
+PC_SLUG_B=$(repo_slug "$PC_B_REPO")
+pc_run "$(jq -n --arg c "$PC_B_REPO" '{trigger:"auto", cwd:$c}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$PC_SLUG_B" "*-auto")
+if [ "$PC_RC" -eq 0 ] && [ -n "$DIR" ] \
+  && [ "$(cat "$DIR/STATE.md")" = "# STATE B" ] \
+  && [ "$(jq -r .repo "$DIR/meta.json")" = "$PC_B_REPO" ] \
+  && [ "$(jq -r .branch "$DIR/meta.json")" = "feature/session-b" ] \
+  && [ "$(jq -r .head "$DIR/meta.json")" = "$PC_B_HEAD" ] \
+  && [ ! -e "$SANDBOX_HOME/.claude/methodology/snapshots/$PC_SLUG_A" ]; then
+  pc_report "PreCompact árbol de la sesión: .cwd = repo B + proceso en repo A → snapshot y meta.json de B, nada bajo slug(A)" ok
+else
+  pc_report "PreCompact árbol de la sesión: .cwd = repo B + proceso en repo A → snapshot y meta.json de B, nada bajo slug(A)" fail "rc=$PC_RC dir=$DIR out=$PC_OUT"
+fi
+
+# PC-3: .cwd = subdirectorio del repo B → toplevel por git -C.
+rm -rf "$SANDBOX_HOME/.claude"
+pc_run "$(jq -n --arg c "$PC_B_REPO/.planning" '{trigger:"auto", cwd:$c}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$PC_SLUG_B" "*-auto")
+if [ "$PC_RC" -eq 0 ] && [ -n "$DIR" ] \
+  && [ "$(cat "$DIR/STATE.md")" = "# STATE B" ] \
+  && [ "$(jq -r .repo "$DIR/meta.json")" = "$PC_B_REPO" ] \
+  && [ ! -e "$SANDBOX_HOME/.claude/methodology/snapshots/$PC_SLUG_A" ]; then
+  pc_report "PreCompact árbol de la sesión: .cwd en un subdirectorio del repo B → snapshot de B (toplevel por git -C)" ok
+else
+  pc_report "PreCompact árbol de la sesión: .cwd en un subdirectorio del repo B → snapshot de B (toplevel por git -C)" fail "rc=$PC_RC dir=$DIR out=$PC_OUT"
+fi
+
+# PC-4: .cwd no vacío que no es directorio → sin snapshot + mensaje exacto.
+rm -rf "$SANDBOX_HOME/.claude"
+pc_run "$(jq -n --arg c "$SANDBOX_REPO/no-such-dir" '{trigger:"auto", cwd:$c}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+if [ "$PC_RC" -eq 0 ] && [ ! -e "$SANDBOX_HOME/.claude" ] && [ "$PC_OUT" = "$PC_MSG_NOTDIR" ]; then
+  pc_report "PreCompact árbol de la sesión: .cwd que no es directorio → sin snapshot, mensaje exacto en stderr, exit 0" ok
+else
+  pc_report "PreCompact árbol de la sesión: .cwd que no es directorio → sin snapshot, mensaje exacto en stderr, exit 0" fail "rc=$PC_RC out=$PC_OUT"
+fi
+
+# PC-5: .cwd = directorio fuera de un repo git → sin snapshot del proceso, sin ruido.
+PC_PLAIN_DIR=$(mktemp -d)
+PC_PLAIN_DIR=$(cd "$PC_PLAIN_DIR" && pwd -P)
+pc_run "$(jq -n --arg c "$PC_PLAIN_DIR" '{trigger:"auto", cwd:$c}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+if [ "$PC_RC" -eq 0 ] && [ ! -e "$SANDBOX_HOME/.claude" ] && [ -z "$PC_OUT" ]; then
+  pc_report "PreCompact árbol de la sesión: .cwd = directorio fuera de un repo git → sin snapshot del proceso y sin ruido" ok
+else
+  pc_report "PreCompact árbol de la sesión: .cwd = directorio fuera de un repo git → sin snapshot del proceso y sin ruido" fail "rc=$PC_RC out=$PC_OUT"
+fi
+rm -rf "$PC_PLAIN_DIR"
+
+# PC-7 (control): .cwd "" y null equivalen a ausente → snapshot del proceso.
+for PC_EMPTY in '""' 'null'; do
+  rm -rf "$SANDBOX_HOME/.claude"
+  pc_run "{\"trigger\":\"auto\",\"cwd\":$PC_EMPTY}" "$SANDBOX_HOME" "$SANDBOX_REPO"
+  DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$PC_SLUG_A" "*-auto")
+  if [ "$PC_RC" -eq 0 ] && [ -n "$DIR" ] && [ "$(cat "$DIR/STATE.md")" = "# STATE A" ] \
+    && [ "$(jq -r .repo "$DIR/meta.json")" = "$SANDBOX_REPO" ] && [ -z "$PC_OUT" ]; then
+    pc_report "PreCompact árbol de la sesión: .cwd $PC_EMPTY equivale a ausente → snapshot del árbol del proceso" ok
+  else
+    pc_report "PreCompact árbol de la sesión: .cwd $PC_EMPTY equivale a ausente → snapshot del árbol del proceso" fail "rc=$PC_RC dir=$DIR out=$PC_OUT"
+  fi
+done
+
+# PC-6: lib/guard-matching.sh ausente → sin snapshot + mensaje exacto.
+PC_NOLIB_HOOKS=$(mktemp -d)
+cp -R "$HOOKS_DIR/." "$PC_NOLIB_HOOKS/"
+mv "$PC_NOLIB_HOOKS/lib/guard-matching.sh" "$PC_NOLIB_HOOKS/lib/guard-matching.sh.gone"
+rm -rf "$SANDBOX_HOME/.claude"
+pc_run '{"trigger":"auto"}' "$SANDBOX_HOME" "$SANDBOX_REPO" "$PC_NOLIB_HOOKS"
+if [ "$PC_RC" -eq 0 ] && [ ! -e "$SANDBOX_HOME/.claude" ] && [ "$PC_OUT" = "$PC_MSG_NOLIB" ]; then
+  pc_report "PreCompact sin lib/guard-matching.sh → sin snapshot, mensaje exacto en stderr, exit 0" ok
+else
+  pc_report "PreCompact sin lib/guard-matching.sh → sin snapshot, mensaje exacto en stderr, exit 0" fail "rc=$PC_RC out=$PC_OUT"
+fi
+rm -rf "$PC_NOLIB_HOOKS"
+sandbox_cleanup
+rm -rf "$PC_B_REPO" "$PC_B_HOME"
+
+# PC-2: worktree real. Proceso en el checkout principal (otro branch),
+# .cwd = worktree → snapshot del worktree, branch y head del worktree.
+sandbox_create
+PC_WT_PARENT=$(mktemp -d)
+PC_WT_PARENT=$(cd "$PC_WT_PARENT" && pwd -P)
+PC_WT="$PC_WT_PARENT/wt"
+(cd "$SANDBOX_REPO" && git worktree add -q -b feature/session "$PC_WT") > /dev/null 2>&1 || true
+echo "# STATE WT" > "$PC_WT/.planning/STATE.md"
+(cd "$PC_WT" && git -c user.email=s@example.com -c user.name=S commit -q --allow-empty -m "wt commit") > /dev/null 2>&1 || true
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1 || true
+PC_WT_HEAD=$(cd "$PC_WT" && git rev-parse --short HEAD)
+PC_SLUG_WT=$(repo_slug "$PC_WT")
+pc_run "$(jq -n --arg c "$PC_WT" '{trigger:"auto", cwd:$c}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$PC_SLUG_WT" "*-auto")
+if [ "$PC_RC" -eq 0 ] && [ -n "$DIR" ] \
+  && [ "$(cat "$DIR/STATE.md")" = "# STATE WT" ] \
+  && [ "$(jq -r .repo "$DIR/meta.json")" = "$PC_WT" ] \
+  && [ "$(jq -r .branch "$DIR/meta.json")" = "feature/session" ] \
+  && [ "$(jq -r .head "$DIR/meta.json")" = "$PC_WT_HEAD" ] \
+  && [ ! -e "$SANDBOX_HOME/.claude/methodology/snapshots/$(repo_slug "$SANDBOX_REPO")" ]; then
+  pc_report "PreCompact árbol de la sesión: .cwd = git worktree real + proceso en el checkout principal → snapshot del worktree" ok
+else
+  pc_report "PreCompact árbol de la sesión: .cwd = git worktree real + proceso en el checkout principal → snapshot del worktree" fail "rc=$PC_RC dir=$DIR out=$PC_OUT"
+fi
+(cd "$SANDBOX_REPO" && git worktree remove --force "$PC_WT") > /dev/null 2>&1 || true
+rm -rf "$PC_WT_PARENT"
+sandbox_cleanup
 echo ""
 
 # --- subagent-stop-log.sh ---
@@ -7414,6 +7556,127 @@ assert_exit0 "SubagentStop no agrega raw_keys cuando el agente es conocido" \
   "$SANDBOX_REPO" \
   "$SANDBOX_HOME" \
   'LOG="$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl"; [ "$(jq -r .agent "$LOG")" = "backend-dev" ] && [ "$(jq "has(\"raw_keys\")" "$LOG")" = "false" ]'
+sandbox_cleanup
+
+# --- Árbol de la sesión (.cwd): misma regla que post-pr-create y PreCompact ---
+# ".cwd" no vacío gana sobre el cwd del proceso. El hook siempre appendea la
+# línea (D2); lo que cambia es de dónde salen repo y branch. Para afirmar
+# stderr se captura 2>&1 a mano (assert_exit0 lo descarta).
+
+# ss_run: corre el hook en run_cwd con HOME=run_home y el stdin dado; deja
+# SS_OUT (stdout+stderr) y SS_RC. run_hooks_dir (opcional) override del dir
+# de hooks.
+ss_run() {
+  SS_RC=0
+  SS_OUT=$(cd "$3" && printf '%s' "$1" | HOME="$2" bash "${4:-$HOOKS_DIR}/subagent-stop-log.sh" 2>&1) || SS_RC=$?
+}
+
+# ss_report: PASS/FAIL con el contador estándar de la suite.
+ss_report() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$2" = "ok" ]; then
+    echo -e "${GREEN}PASS${NC}: $1"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $1 ($3)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+SS_MSG_NOTDIR="subagent-stop-log: repo y branch en null: no se pudo resolver el árbol de la sesión (el .cwd del payload no es un directorio)"
+SS_MSG_NOLIB="subagent-stop-log: repo y branch en null: no se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh falta o no define guard_session_dir)"
+
+# ss_line_is: la última línea del log tiene agent/session intactos y el
+# repo/branch esperados ("null" = JSON null).
+ss_line_is() {
+  local log="$1/.claude/methodology/logs/subagent-invocations.jsonl"
+  [ -f "$log" ] \
+    && [ "$(wc -l < "$log" | tr -d ' ')" = "1" ] \
+    && [ "$(jq -r .agent "$log")" = "backend-dev" ] \
+    && [ "$(jq -r .session "$log")" = "sess-ss" ] \
+    && [ "$(jq -r .repo "$log")" = "$2" ] \
+    && [ "$(jq -r .branch "$log")" = "$3" ]
+}
+
+SS_PAYLOAD_BASE='{"agent_type":"backend-dev","session_id":"sess-ss"}'
+
+# SS-1: proceso en repo A, .cwd = repo B → repo y branch de B.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/session) > /dev/null 2>&1
+SS_B_REPO="$SANDBOX_REPO"
+SS_B_HOME="$SANDBOX_HOME"
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1
+ss_run "$(jq -c --arg c "$SS_B_REPO" '{agent_type:"backend-dev", session_id:"sess-ss", cwd:$c}' <<< '{}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+if [ "$SS_RC" -eq 0 ] && [ -z "$SS_OUT" ] && ss_line_is "$SANDBOX_HOME" "$SS_B_REPO" "feature/session"; then
+  ss_report "SubagentStop árbol de la sesión: .cwd = repo B + proceso en repo A → repo y branch de B" ok
+else
+  ss_report "SubagentStop árbol de la sesión: .cwd = repo B + proceso en repo A → repo y branch de B" fail "rc=$SS_RC out=$SS_OUT"
+fi
+
+# SS-3: .cwd no vacío que no es directorio → línea con null/null + mensaje exacto.
+rm -rf "$SANDBOX_HOME/.claude"
+ss_run "$(jq -c --arg c "$SANDBOX_REPO/no-such-dir" '{agent_type:"backend-dev", session_id:"sess-ss", cwd:$c}' <<< '{}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+if [ "$SS_RC" -eq 0 ] && [ "$SS_OUT" = "$SS_MSG_NOTDIR" ] && ss_line_is "$SANDBOX_HOME" null null; then
+  ss_report "SubagentStop árbol de la sesión: .cwd que no es directorio → línea con repo/branch null, mensaje exacto en stderr, exit 0" ok
+else
+  ss_report "SubagentStop árbol de la sesión: .cwd que no es directorio → línea con repo/branch null, mensaje exacto en stderr, exit 0" fail "rc=$SS_RC out=$SS_OUT"
+fi
+
+# SS-4: .cwd = directorio fuera de un repo git, proceso en repo → null/null sin ruido.
+SS_PLAIN_DIR=$(mktemp -d)
+SS_PLAIN_DIR=$(cd "$SS_PLAIN_DIR" && pwd -P)
+rm -rf "$SANDBOX_HOME/.claude"
+ss_run "$(jq -c --arg c "$SS_PLAIN_DIR" '{agent_type:"backend-dev", session_id:"sess-ss", cwd:$c}' <<< '{}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+if [ "$SS_RC" -eq 0 ] && [ -z "$SS_OUT" ] && ss_line_is "$SANDBOX_HOME" null null; then
+  ss_report "SubagentStop árbol de la sesión: .cwd = directorio fuera de un repo git → repo/branch null y sin ruido" ok
+else
+  ss_report "SubagentStop árbol de la sesión: .cwd = directorio fuera de un repo git → repo/branch null y sin ruido" fail "rc=$SS_RC out=$SS_OUT"
+fi
+rm -rf "$SS_PLAIN_DIR"
+
+# SS-6 (control): .cwd "" y null equivalen a ausente → repo/branch del proceso.
+for SS_EMPTY in '""' 'null'; do
+  rm -rf "$SANDBOX_HOME/.claude"
+  ss_run "{\"agent_type\":\"backend-dev\",\"session_id\":\"sess-ss\",\"cwd\":$SS_EMPTY}" "$SANDBOX_HOME" "$SANDBOX_REPO"
+  if [ "$SS_RC" -eq 0 ] && [ -z "$SS_OUT" ] && ss_line_is "$SANDBOX_HOME" "$SANDBOX_REPO" "feature/other-tree"; then
+    ss_report "SubagentStop árbol de la sesión: .cwd $SS_EMPTY equivale a ausente → repo/branch del proceso" ok
+  else
+    ss_report "SubagentStop árbol de la sesión: .cwd $SS_EMPTY equivale a ausente → repo/branch del proceso" fail "rc=$SS_RC out=$SS_OUT"
+  fi
+done
+
+# SS-5: lib/guard-matching.sh ausente → línea con null/null + mensaje exacto.
+SS_NOLIB_HOOKS=$(mktemp -d)
+cp -R "$HOOKS_DIR/." "$SS_NOLIB_HOOKS/"
+mv "$SS_NOLIB_HOOKS/lib/guard-matching.sh" "$SS_NOLIB_HOOKS/lib/guard-matching.sh.gone"
+rm -rf "$SANDBOX_HOME/.claude"
+ss_run "$SS_PAYLOAD_BASE" "$SANDBOX_HOME" "$SANDBOX_REPO" "$SS_NOLIB_HOOKS"
+if [ "$SS_RC" -eq 0 ] && [ "$SS_OUT" = "$SS_MSG_NOLIB" ] && ss_line_is "$SANDBOX_HOME" null null; then
+  ss_report "SubagentStop sin lib/guard-matching.sh → línea con repo/branch null, mensaje exacto en stderr, exit 0" ok
+else
+  ss_report "SubagentStop sin lib/guard-matching.sh → línea con repo/branch null, mensaje exacto en stderr, exit 0" fail "rc=$SS_RC out=$SS_OUT"
+fi
+rm -rf "$SS_NOLIB_HOOKS"
+sandbox_cleanup
+rm -rf "$SS_B_REPO" "$SS_B_HOME"
+
+# SS-2: worktree real. Proceso en el checkout principal (otro branch),
+# .cwd = worktree → repo y branch del worktree.
+sandbox_create
+SS_WT_PARENT=$(mktemp -d)
+SS_WT_PARENT=$(cd "$SS_WT_PARENT" && pwd -P)
+SS_WT="$SS_WT_PARENT/wt"
+(cd "$SANDBOX_REPO" && git worktree add -q -b feature/session "$SS_WT") > /dev/null 2>&1 || true
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1 || true
+ss_run "$(jq -c --arg c "$SS_WT" '{agent_type:"backend-dev", session_id:"sess-ss", cwd:$c}' <<< '{}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+if [ "$SS_RC" -eq 0 ] && [ -z "$SS_OUT" ] && ss_line_is "$SANDBOX_HOME" "$SS_WT" "feature/session"; then
+  ss_report "SubagentStop árbol de la sesión: .cwd = git worktree real + proceso en el checkout principal → repo y branch del worktree" ok
+else
+  ss_report "SubagentStop árbol de la sesión: .cwd = git worktree real + proceso en el checkout principal → repo y branch del worktree" fail "rc=$SS_RC out=$SS_OUT"
+fi
+(cd "$SANDBOX_REPO" && git worktree remove --force "$SS_WT") > /dev/null 2>&1 || true
+rm -rf "$SS_WT_PARENT"
 sandbox_cleanup
 
 # --- session-start-context.sh (render de state.json) ---
@@ -7887,13 +8150,16 @@ echo "--- post-pr-create.sh ---"
 # los demás campos del tool_response de Bash (stderr, interrupted, isImage)
 # como los manda el harness. La versión anterior ponía stdout en la raíz,
 # igual que el hook lo leía: fixture autoconfirmante que nunca atrapó el
-# WARNING que el hook emitía en cada "gh pr create" real.
+# WARNING que el hook emitía en cada "gh pr create" real. El 3er argumento
+# (opcional) es ".cwd" en la raíz del payload, donde lo manda el harness:
+# si se omite, el campo queda AUSENTE (mismo patrón que review_sha en
+# postpr_seed_state); los casos de ".cwd" vacío/null lo agregan con jq.
 postpr_input() {
-  jq -n --arg cmd "$1" --arg out "$2" '{
+  jq -n --arg cmd "$1" --arg out "$2" --arg cwd "${3:-}" '{
     hook_event_name: "PostToolUse", tool_name: "Bash",
     tool_input: {command: $cmd},
     tool_response: {stdout: $out, stderr: "", interrupted: false, isImage: false}
-  }'
+  } + (if $cwd == "" then {} else {cwd: $cwd} end)'
 }
 
 # postpr_seed_state: escribe .planning/state.json en el sandbox con el
@@ -7992,7 +8258,8 @@ sandbox_cleanup
 # REQUERIDA conservado de v1 (reviewers + referencia al runbook), AUSENCIA
 # del checkpoint de CASO A y sin ruido de errores en el output (un
 # state.json ilegible degrada limpio, sin filtrar el stderr de jq al
-# orchestrator). Reutilizado por los casos de ausencia, estado, anclaje y
+# orchestrator; un ".cwd" que no es repo git tampoco filtra el "fatal:" de
+# git). Reutilizado por los casos de ausencia, estado, anclaje y
 # degradación.
 assert_postpr_caso_b() {
   local test_name="$1" stdin_json="$2"
@@ -8008,7 +8275,8 @@ assert_postpr_caso_b() {
     && echo "$output" | grep -qF "qa-backend" \
     && echo "$output" | grep -qF "Clasificación del diff por capa" \
     && ! echo "$output" | grep -qF "Review dual pre-push verificado" \
-    && ! echo "$output" | grep -qi "error"; then
+    && ! echo "$output" | grep -qi "error" \
+    && ! echo "$output" | grep -qF "fatal:"; then
     echo -e "${GREEN}PASS${NC}: $test_name"
     PASS=$((PASS + 1))
   else
@@ -8212,9 +8480,345 @@ POSTPR_NONGIT_DIR=$(cd "$POSTPR_NONGIT_DIR" && pwd -P)
 mkdir -p "$POSTPR_NONGIT_DIR/.planning"
 SANDBOX_REPO="$POSTPR_NONGIT_DIR"
 postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "0123456789abcdef0123456789abcdef01234567"
-assert_postpr_caso_b "post-pr-create CASO B: fuera de un repo git (TOPLEVEL vacío) → falla hacia el review" \
-  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")"
+assert_postpr_caso_b "post-pr-create CASO B: fuera de un repo git (TOPLEVEL vacío) → falla hacia el review con el diagnóstico de árbol irresoluble" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")" \
+  "No se pudo resolver el árbol de la sesión (el directorio no está dentro de un repo git) — se trata como PR fuera del flujo."
 rm -rf "$POSTPR_NONGIT_DIR"
+
+# --- Árbol de la sesión: ".cwd" del payload vs cwd del proceso del hook ---
+# Los guards PreToolUse resuelven el árbol de la sesión desde ".cwd" del
+# payload (guard_session_dir, hooks/lib/guard-matching.sh); el checkpoint
+# lo resolvía desde el cwd del PROCESO del hook (hallazgo fuera de scope
+# del review de #114). Cuando difieren (sesión de worktree en la app de
+# escritorio, cd persistido), leía el state.json y el branch de otro árbol
+# y podía emitir CASO A/B del repo equivocado. Los casos con dos árboles
+# montan DOS sandboxes: el del proceso (donde la aserción hace cd antes de
+# correr el hook) y el de la sesión (el ".cwd" del payload, 3er argumento
+# de postpr_input), en branches distintos para que el checkpoint delate de
+# cuál leyó. Una redirección en el TEXTO del comando ("cd X && gh pr
+# create", -R/--repo, GH_REPO=) no la resuelve ".cwd": la cubren los casos
+# de más abajo (issue #125), que caen a CASO B.
+
+# Caso: ".cwd" apunta a un repo con CASO A válido y el proceso del hook
+# corre en OTRO repo, en otro branch y sin state.json → CASO A del repo de
+# ".cwd" (la aserción exige el branch de la sesión, feature/checkpoint-flow,
+# en el checkpoint). RED con la resolución por cwd del proceso: en ese
+# árbol no hay evidencia y daba CASO B.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_SESSION_REPO="$SANDBOX_REPO"
+POSTPR_SESSION_HOME="$SANDBOX_HOME"
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1
+assert_postpr_caso_a "post-pr-create árbol de la sesión: .cwd con CASO A válido + proceso en otro repo sin evidencia → CASO A del repo de .cwd" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$POSTPR_SESSION_REPO")"
+sandbox_cleanup
+rm -rf "$POSTPR_SESSION_REPO" "$POSTPR_SESSION_HOME"
+
+# Caso inverso: el proceso corre en un repo con CASO A válido y ".cwd"
+# apunta a otro repo (otro branch, sin state.json) → CASO B: la evidencia
+# del árbol del proceso no cuenta, el PR se creó desde la sesión. RED con
+# la resolución por cwd del proceso: daba CASO A.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1
+POSTPR_SESSION_REPO="$SANDBOX_REPO"
+POSTPR_SESSION_HOME="$SANDBOX_HOME"
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+assert_postpr_caso_b "post-pr-create árbol de la sesión: proceso con CASO A válido + .cwd en otro repo sin evidencia → CASO B" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$POSTPR_SESSION_REPO")"
+sandbox_cleanup
+rm -rf "$POSTPR_SESSION_REPO" "$POSTPR_SESSION_HOME"
+
+# Caso: ".cwd" presente pero inválido (directorio inexistente) con el
+# proceso en un repo con CASO A válido → CASO B, nunca CASO A: un ".cwd"
+# que no se puede resolver no cae al árbol del proceso (sería evaluar la
+# evidencia del repo equivocado), igual que guard_session_dir devuelve 1
+# en los guards. El diagnóstico nombra la causa (".cwd" no es un
+# directorio) en vez del genérico "no hay evidencia": el orchestrator no
+# tiene que buscar una evidencia que el hook nunca miró. Sin ruido de git.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+assert_postpr_caso_b "post-pr-create árbol de la sesión: .cwd presente pero inexistente + proceso con CASO A válido → CASO B con diagnóstico, nunca CASO A" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$SANDBOX_REPO/no-such-dir")" \
+  "No se pudo resolver el árbol de la sesión (el .cwd del payload no es un directorio) — se trata como PR fuera del flujo."
+sandbox_cleanup
+
+# Caso: ".cwd" es un directorio válido que NO es un repo git (mktemp -d) con
+# el proceso en un repo con CASO A válido → CASO B: el "-d" pasa, pero
+# "git -C" no resuelve toplevel ahí; nada cae al árbol del proceso y el
+# "fatal:" de git no se filtra al output (lo rechaza assert_postpr_caso_b).
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_NONGIT_CWD=$(mktemp -d)
+assert_postpr_caso_b "post-pr-create árbol de la sesión: .cwd es un directorio que no es repo git + proceso con CASO A válido → CASO B con diagnóstico, sin 'fatal:' de git" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$POSTPR_NONGIT_CWD")" \
+  "No se pudo resolver el árbol de la sesión (el directorio no está dentro de un repo git) — se trata como PR fuera del flujo."
+rm -rf "$POSTPR_NONGIT_CWD"
+sandbox_cleanup
+
+# Caso: ".cwd" es un SUBDIRECTORIO del repo de la sesión (cd persistido a
+# .planning/, por ejemplo) → el toplevel se resuelve con "git -C" desde ahí
+# y el CASO A sale del repo de la sesión, no del proceso (que corre en otro
+# repo, en otro branch y sin evidencia).
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_SESSION_REPO="$SANDBOX_REPO"
+POSTPR_SESSION_HOME="$SANDBOX_HOME"
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1
+assert_postpr_caso_a "post-pr-create árbol de la sesión: .cwd en un subdirectorio del repo de la sesión → toplevel por git -C, CASO A del repo de .cwd" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$POSTPR_SESSION_REPO/.planning")"
+sandbox_cleanup
+rm -rf "$POSTPR_SESSION_REPO" "$POSTPR_SESSION_HOME"
+
+# Caso: ".cwd" presente pero VACÍO ("") o null → equivale a ausente y cae al
+# cwd del proceso (misma semántica que guard_init: ".cwd // empty"), no a
+# CASO B: con el proceso en un repo con CASO A válido, CASO A. Fija la
+# frontera que documentan el header del hook y el README: "inválido" es un
+# valor NO vacío que no es un directorio; vacío/null es "no viene".
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+assert_postpr_caso_a "post-pr-create árbol de la sesión: .cwd vacío (\"\") → equivale a ausente, cwd del proceso, CASO A" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" | jq '. + {cwd: ""}')"
+assert_postpr_caso_a "post-pr-create árbol de la sesión: .cwd null → equivale a ausente, cwd del proceso, CASO A" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" | jq '. + {cwd: null}')"
+sandbox_cleanup
+
+# Caso: modo degradado — sin hooks/lib/guard-matching.sh el hook no tiene
+# guard_session_dir con qué resolver el árbol → CASO B (dirección segura:
+# un review redundante), nunca el árbol del proceso aunque ahí haya un
+# CASO A válido; exit 0, con un diagnóstico que NOMBRA la lib (degradación
+# visible: si no, todo PR caería a CASO B sin que nadie supiera por qué
+# dejó de haber CASO A) y sin "command not found". Copia de hooks/ con la
+# lib renombrada (nunca se toca el hooks/ real). RED con la regla replicada
+# dentro del hook (no dependía de la lib y daba CASO A) y RED otra vez con
+# el diagnóstico genérico.
+POSTPR_DEGRADED_HOOKS_DIR=$(mktemp -d)
+cp -R "$HOOKS_DIR/." "$POSTPR_DEGRADED_HOOKS_DIR/"
+mv "$POSTPR_DEGRADED_HOOKS_DIR/lib/guard-matching.sh" "$POSTPR_DEGRADED_HOOKS_DIR/lib/guard-matching.sh.disabled"
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_INPUT_NOLIB=$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")
+POSTPR_EXIT_NOLIB=0
+POSTPR_OUTPUT_NOLIB=$(cd "$SANDBOX_REPO" && printf '%s' "$POSTPR_INPUT_NOLIB" \
+  | bash "$POSTPR_DEGRADED_HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_NOLIB=$?
+sandbox_cleanup
+rm -rf "$POSTPR_DEGRADED_HOOKS_DIR"
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_NOLIB" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_NOLIB" | grep -qF "No se pudo resolver el árbol de la sesión (falta hooks/lib/guard-matching.sh) — se trata como PR fuera del flujo." \
+  && echo "$POSTPR_OUTPUT_NOLIB" | grep -qF "ACCIÓN REQUERIDA: Revisa este PR: $POSTPR_URL" \
+  && ! echo "$POSTPR_OUTPUT_NOLIB" | grep -qF "Review dual pre-push verificado" \
+  && ! echo "$POSTPR_OUTPUT_NOLIB" | grep -qiE "command not found|no such file|error"; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create modo degradado: sin hooks/lib/guard-matching.sh → CASO B con diagnóstico que nombra la lib (nunca el árbol del proceso), exit 0 sin ruido"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create modo degradado: sin hooks/lib/guard-matching.sh → CASO B con diagnóstico que nombra la lib (nunca el árbol del proceso), exit 0 sin ruido (exit: $POSTPR_EXIT_NOLIB, output: $POSTPR_OUTPUT_NOLIB)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: modo degradado — la lib existe y se sourcea pero no define
+# guard_session_dir (instalación con una lib anterior a la función) →
+# CASO B con un diagnóstico que nombra ESA causa, no "falta la lib": el
+# operador buscaría un archivo que sí está. Copia de hooks/ con la lib
+# reemplazada por un archivo vacío (legible, sin funciones).
+POSTPR_STALE_HOOKS_DIR=$(mktemp -d)
+cp -R "$HOOKS_DIR/." "$POSTPR_STALE_HOOKS_DIR/"
+: > "$POSTPR_STALE_HOOKS_DIR/lib/guard-matching.sh"
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+POSTPR_INPUT_STALE=$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL")
+POSTPR_EXIT_STALE=0
+POSTPR_OUTPUT_STALE=$(cd "$SANDBOX_REPO" && printf '%s' "$POSTPR_INPUT_STALE" \
+  | bash "$POSTPR_STALE_HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_STALE=$?
+sandbox_cleanup
+rm -rf "$POSTPR_STALE_HOOKS_DIR"
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_STALE" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_STALE" | grep -qF "No se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh no define guard_session_dir: lib desactualizada) — se trata como PR fuera del flujo." \
+  && echo "$POSTPR_OUTPUT_STALE" | grep -qF "ACCIÓN REQUERIDA: Revisa este PR: $POSTPR_URL" \
+  && ! echo "$POSTPR_OUTPUT_STALE" | grep -qF "falta hooks/lib/guard-matching.sh" \
+  && ! echo "$POSTPR_OUTPUT_STALE" | grep -qF "Review dual pre-push verificado" \
+  && ! echo "$POSTPR_OUTPUT_STALE" | grep -qiE "command not found|no such file|error"; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create modo degradado: lib presente sin guard_session_dir → CASO B con diagnóstico de lib desactualizada, no 'falta la lib'"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create modo degradado: lib presente sin guard_session_dir → CASO B con diagnóstico de lib desactualizada, no 'falta la lib' (exit: $POSTPR_EXIT_STALE, output: $POSTPR_OUTPUT_STALE)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso: el escenario real que motiva el fix — un git worktree del MISMO
+# repo. El proceso del hook corre en el checkout principal (otro branch,
+# sin state.json) y ".cwd" es el worktree, con state.json sembrado ahí y
+# CASO A válido para el branch del worktree → CASO A del worktree. Los
+# pares de sandboxes anteriores son repos independientes; este comparte
+# .git (archivo gitdir) y el mismo HEAD en ambos árboles, así que solo el
+# branch y el state.json distinguen el árbol correcto. El setup y el
+# teardown del worktree llevan "|| true": la suite corre con set -e y un
+# fallo ahí debe aparecer como FAIL de la aserción (CASO B en vez de A,
+# con el output), no abortar la suite en silencio saltándose el guard
+# final de repo intacto.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1
+POSTPR_WT_PARENT=$(mktemp -d)
+POSTPR_WT_PARENT=$(cd "$POSTPR_WT_PARENT" && pwd -P)
+POSTPR_WT="$POSTPR_WT_PARENT/wt"
+(cd "$SANDBOX_REPO" && git worktree add -q -b feature/checkpoint-flow "$POSTPR_WT") > /dev/null 2>&1 || true
+POSTPR_MAIN_REPO="$SANDBOX_REPO"
+SANDBOX_REPO="$POSTPR_WT"
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$POSTPR_WT" && git rev-parse HEAD)"
+SANDBOX_REPO="$POSTPR_MAIN_REPO"
+assert_postpr_caso_a "post-pr-create árbol de la sesión: .cwd es un git worktree del mismo repo + proceso en el checkout principal sin evidencia → CASO A del worktree" \
+  "$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$POSTPR_WT")"
+(cd "$POSTPR_MAIN_REPO" && git worktree remove --force "$POSTPR_WT") > /dev/null 2>&1 || true
+rm -rf "$POSTPR_WT_PARENT"
+sandbox_cleanup
+
+# Casos: redirección en el TEXTO del comando (#125). Con CASO A válido en
+# el repo de .cwd, un "cd/pushd X && gh pr create", un flag -R/--repo o un
+# "GH_REPO=" crean el PR en otro repo: la evidencia de .cwd no aplica →
+# CASO B con el diagnóstico de redirección. Los negativos (cd/flag dentro
+# de un string o heredoc, cd DESPUÉS del gh) siguen en CASO A porque la
+# detección corre sobre el comando saneado (guard_sanitize).
+POSTPR_REDIR_DIAG="El PR se creó con una redirección en el comando; la evidencia de .cwd no aplica (cd/pushd antes de gh pr create, -R/--repo o GH_REPO=) — se trata como PR fuera del flujo."
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+assert_postpr_caso_b "post-pr-create redirección (PR-1): cd X && gh pr create → CASO B" \
+  "$(postpr_input "cd /otro/repo && gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-2): pushd X; gh pr create → CASO B" \
+  "$(postpr_input "pushd /otro/repo; gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección: cd en una línea anterior (newline) → CASO B" \
+  "$(postpr_input $'cd /otro/repo\ngh pr create --base dev --title \'x\'' "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-3a): -R owner/otro → CASO B" \
+  "$(postpr_input "gh pr create -R owner/otro --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-3b): --repo owner/otro → CASO B" \
+  "$(postpr_input "gh pr create --repo owner/otro --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-3c): --repo=owner/otro → CASO B" \
+  "$(postpr_input "gh pr create --repo=owner/otro --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-N3): ls -R . && gh pr create → CASO B (falso positivo asumido)" \
+  "$(postpr_input "ls -R . && gh pr create --base dev" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-4): GH_REPO=owner/otro gh pr create → CASO B" \
+  "$(postpr_input "GH_REPO=owner/otro gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+# PR-N1 es un control declarado: el grep del cd exige un "gh pr create"
+# DESPUÉS, así que un --title "cd x" no lo dispara ni con el texto crudo; no
+# protege el saneo. Los negativos que sí lo protegen son PR-N4 y PR-N5.
+assert_postpr_caso_a "post-pr-create redirección (PR-N1, control): cd dentro de --title \"cd x\" → sigue CASO A" \
+  "$(postpr_input 'gh pr create --base dev --title "cd x"' "$POSTPR_URL" "$SANDBOX_REPO")"
+assert_postpr_caso_a "post-pr-create redirección (PR-N4): cd dentro de un string de un comando previo (git commit -m \"fix; cd x\" && gh pr create) → sigue CASO A" \
+  "$(postpr_input 'git commit -m "fix; cd x" && gh pr create --base dev --title '"'x'" "$POSTPR_URL" "$SANDBOX_REPO")"
+assert_postpr_caso_a "post-pr-create redirección (PR-N5): --repo y GH_REPO= dentro de un --title → sigue CASO A" \
+  "$(postpr_input "gh pr create --base dev --title 'usar --repo y GH_REPO=x'" "$POSTPR_URL" "$SANDBOX_REPO")"
+assert_postpr_caso_a "post-pr-create redirección (PR-N6): ls -R dentro de un --title → sigue CASO A" \
+  "$(postpr_input "gh pr create --base dev --title 'fix ls -R'" "$POSTPR_URL" "$SANDBOX_REPO")"
+# Formas de cd/env que cambian el árbol (Sec LOW): cada una, un caso.
+assert_postpr_caso_b "post-pr-create redirección (PR-6a): builtin cd X && gh pr create → CASO B" \
+  "$(postpr_input "builtin cd /otro/repo && gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-6b): command cd X && gh pr create → CASO B" \
+  "$(postpr_input "command cd /otro/repo && gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-6c): VAR=x cd X && gh pr create → CASO B" \
+  "$(postpr_input "CDPATH=/y cd /otro/repo && gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-6d): env -C X gh pr create → CASO B" \
+  "$(postpr_input "env -C /otro/repo gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+# Prefiltro con flags intercalados (Sec LOW legacy): entran al hook y caen a
+# CASO B por la redirección.
+assert_postpr_caso_b "post-pr-create prefiltro (PR-7a): gh pr -R o/x create → CASO B" \
+  "$(postpr_input "gh pr -R o/x create --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create prefiltro (PR-7b): gh pr --repo o/x create → CASO B" \
+  "$(postpr_input "gh pr --repo o/x create --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create prefiltro (PR-7c): gh -R o/x pr create → CASO B" \
+  "$(postpr_input "gh -R o/x pr create --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+# Negativo del prefiltro: "gh pr list --search create" no es un create;
+# el hook sale sin output aunque el stdout traiga una URL de PR.
+TOTAL=$((TOTAL + 1))
+POSTPR_EXIT_LIST=0
+POSTPR_OUTPUT_LIST=$(cd "$SANDBOX_REPO" && postpr_input "gh pr list --search create" "$POSTPR_URL" "$SANDBOX_REPO" \
+  | bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_LIST=$?
+if [ "$POSTPR_EXIT_LIST" -eq 0 ] && [ -z "$POSTPR_OUTPUT_LIST" ]; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create prefiltro (PR-N7): gh pr list --search create no entra al hook"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create prefiltro (PR-N7): gh pr list --search create no entra al hook (exit: $POSTPR_EXIT_LIST, output: $POSTPR_OUTPUT_LIST)"
+  FAIL=$((FAIL + 1))
+fi
+POSTPR_N2_CMD=$'gh pr create --base dev --title "feat" --body "$(cat <<\'EOF\'\ncd /tmp && ls\ngh pr create -R a/b\nGH_REPO=x\nEOF\n)"'
+assert_postpr_caso_a "post-pr-create redirección (PR-N2): cd/-R/GH_REPO= dentro de un body heredoc → sigue CASO A" \
+  "$(postpr_input "$POSTPR_N2_CMD" "$POSTPR_URL" "$SANDBOX_REPO")"
+assert_postpr_caso_a "post-pr-create redirección: cd DESPUÉS de gh pr create → sigue CASO A" \
+  "$(postpr_input "gh pr create --base dev --title 'x' && cd /tmp" "$POSTPR_URL" "$SANDBOX_REPO")"
+sandbox_cleanup
+
+# Caso (PR-5): saneo degradado — sin perl en PATH guard_sanitize devuelve el
+# comando crudo, y los patrones de redirección sobre texto sin sanear darían
+# falsos positivos/negativos (un "cd" en un --title). El hook no los evalúa:
+# CASO B con el diagnóstico de saneo, aunque haya un CASO A válido y el
+# comando no tenga redirección.
+POSTPR_SANITIZE_DIAG="No se pudo sanear el comando para descartar una redirección (falta perl o el saneo falló) — se trata como PR fuera del flujo."
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+NO_PERL_POSTPR_BIN=$(mktemp -d)
+for cmd in bash cat grep git jq tr head; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_PERL_POSTPR_BIN/$cmd"
+done
+POSTPR_INPUT_NOPERL=$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$SANDBOX_REPO")
+POSTPR_EXIT_NOPERL=0
+POSTPR_OUTPUT_NOPERL=$(cd "$SANDBOX_REPO" && printf '%s' "$POSTPR_INPUT_NOPERL" \
+  | PATH="$NO_PERL_POSTPR_BIN" bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_NOPERL=$?
+rm -rf "$NO_PERL_POSTPR_BIN"
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_NOPERL" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_NOPERL" | grep -qF "$POSTPR_SANITIZE_DIAG" \
+  && echo "$POSTPR_OUTPUT_NOPERL" | grep -qF "ACCIÓN REQUERIDA: Revisa este PR: $POSTPR_URL" \
+  && ! echo "$POSTPR_OUTPUT_NOPERL" | grep -qF "Review dual pre-push verificado" \
+  && ! echo "$POSTPR_OUTPUT_NOPERL" | grep -qiE "command not found|no such file"; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create saneo degradado (PR-5): sin perl → CASO B con el diagnóstico de saneo"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create saneo degradado (PR-5): sin perl → CASO B con el diagnóstico de saneo (exit: $POSTPR_EXIT_NOPERL, output: $POSTPR_OUTPUT_NOPERL)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Caso (PR-5b): perl presente pero abortado (timeout: sale con 142) →
+# guard_sanitize devuelve el comando crudo con estado 1: mismo diagnóstico.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+FAKE_PERL_POSTPR_BIN=$(mktemp -d)
+for cmd in bash cat grep git jq tr head; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$FAKE_PERL_POSTPR_BIN/$cmd"
+done
+printf '#!/bin/bash\nexit 142\n' > "$FAKE_PERL_POSTPR_BIN/perl"
+chmod +x "$FAKE_PERL_POSTPR_BIN/perl"
+POSTPR_INPUT_FAKEPERL=$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$SANDBOX_REPO")
+POSTPR_EXIT_FAKEPERL=0
+POSTPR_OUTPUT_FAKEPERL=$(cd "$SANDBOX_REPO" && printf '%s' "$POSTPR_INPUT_FAKEPERL" \
+  | PATH="$FAKE_PERL_POSTPR_BIN" bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_FAKEPERL=$?
+rm -rf "$FAKE_PERL_POSTPR_BIN"
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_FAKEPERL" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_FAKEPERL" | grep -qF "$POSTPR_SANITIZE_DIAG" \
+  && echo "$POSTPR_OUTPUT_FAKEPERL" | grep -qF "ACCIÓN REQUERIDA: Revisa este PR: $POSTPR_URL" \
+  && ! echo "$POSTPR_OUTPUT_FAKEPERL" | grep -qF "Review dual pre-push verificado"; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create saneo degradado (PR-5b): perl abortado (142) → CASO B con el mismo diagnóstico"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create saneo degradado (PR-5b): perl abortado (142) → CASO B con el mismo diagnóstico (exit: $POSTPR_EXIT_FAKEPERL, output: $POSTPR_OUTPUT_FAKEPERL)"
+  FAIL=$((FAIL + 1))
+fi
 
 # Caso: degradación — state.json malformado (JSON inválido) → CASO B, y el
 # error de parseo de jq NO se filtra al output (el orchestrator recibe el

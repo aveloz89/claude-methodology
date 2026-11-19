@@ -37,8 +37,32 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.agent_transcript_path // .transcript_path /
 
 # Sin gate de repo: puede correr fuera de cualquier repo git (D2). Si no hay
 # repo, TOPLEVEL/BRANCH quedan vacíos y se serializan como null más abajo.
-TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
-BRANCH=$(git branch --show-current 2>/dev/null)
+# Árbol de la sesión: ".cwd" del payload si viene no vacío (en una sesión de
+# worktree de la app de escritorio el proceso corre en el checkout principal
+# y ".cwd" es el worktree), el cwd del proceso si no viene o viene vacío/null
+# (misma regla que post-pr-create, vía guard_session_dir). Un ".cwd" no
+# vacío que no es directorio, o una lib ausente, dejan repo/branch en null
+# con el motivo en stderr — nunca se cae al árbol del proceso, y la línea se
+# appendea igual (D2). El valor de ".cwd" no se interpola en ningún mensaje.
+TOPLEVEL=""
+BRANCH=""
+LIB_GM="${0%/*}/lib/guard-matching.sh"
+# shellcheck source=lib/guard-matching.sh
+[ -r "$LIB_GM" ] && . "$LIB_GM"
+if ! type guard_session_dir > /dev/null 2>&1; then
+  echo "subagent-stop-log: repo y branch en null: no se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh falta o no define guard_session_dir)" >&2
+else
+  # shellcheck disable=SC2034 # la lee guard_session_dir (lib sourceada arriba)
+  INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+  if SESSION_DIR=$(guard_session_dir 2>/dev/null) && [ -n "$SESSION_DIR" ]; then
+    # git -C siempre sobre una ruta resuelta y no vacía (con '' git -C deja
+    # el cwd del proceso). Fuera de un repo git: null/null sin ruido.
+    TOPLEVEL=$(git -C "$SESSION_DIR" rev-parse --show-toplevel 2>/dev/null)
+    [ -n "$TOPLEVEL" ] && BRANCH=$(git -C "$TOPLEVEL" branch --show-current 2>/dev/null)
+  else
+    echo "subagent-stop-log: repo y branch en null: no se pudo resolver el árbol de la sesión (el .cwd del payload no es un directorio)" >&2
+  fi
+fi
 
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
