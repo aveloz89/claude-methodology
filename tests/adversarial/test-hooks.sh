@@ -8496,8 +8496,8 @@ rm -rf "$POSTPR_NONGIT_DIR"
 # correr el hook) y el de la sesión (el ".cwd" del payload, 3er argumento
 # de postpr_input), en branches distintos para que el checkpoint delate de
 # cuál leyó. Una redirección en el TEXTO del comando ("cd X && gh pr
-# create", -R/--repo, GH_REPO=) queda fuera de alcance del checkpoint
-# (issue #125): ".cwd" no la resuelve.
+# create", -R/--repo, GH_REPO=) no la resuelve ".cwd": la cubren los casos
+# de más abajo (issue #125), que caen a CASO B.
 
 # Caso: ".cwd" apunta a un repo con CASO A válido y el proceso del hook
 # corre en OTRO repo, en otro branch y sin state.json → CASO A del repo de
@@ -8717,6 +8717,39 @@ assert_postpr_caso_a "post-pr-create redirección (PR-N2): cd/-R/GH_REPO= dentro
 assert_postpr_caso_a "post-pr-create redirección: cd DESPUÉS de gh pr create → sigue CASO A" \
   "$(postpr_input "gh pr create --base dev --title 'x' && cd /tmp" "$POSTPR_URL" "$SANDBOX_REPO")"
 sandbox_cleanup
+
+# Caso (PR-5): saneo degradado — sin perl en PATH guard_sanitize devuelve el
+# comando crudo, y los patrones de redirección sobre texto sin sanear darían
+# falsos positivos/negativos (un "cd" en un --title). El hook no los evalúa:
+# CASO B con el diagnóstico de saneo, aunque haya un CASO A válido y el
+# comando no tenga redirección.
+POSTPR_SANITIZE_DIAG="No se pudo sanear el comando (perl no disponible) — la detección de redirección no es confiable; se trata como PR fuera del flujo."
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+NO_PERL_POSTPR_BIN=$(mktemp -d)
+for cmd in bash cat grep git jq tr head; do
+  CMD_PATH=$(command -v "$cmd" 2>/dev/null)
+  [ -n "$CMD_PATH" ] && ln -s "$CMD_PATH" "$NO_PERL_POSTPR_BIN/$cmd"
+done
+POSTPR_INPUT_NOPERL=$(postpr_input "gh pr create --base dev --title 'feat: checkpoint'" "$POSTPR_URL" "$SANDBOX_REPO")
+POSTPR_EXIT_NOPERL=0
+POSTPR_OUTPUT_NOPERL=$(cd "$SANDBOX_REPO" && printf '%s' "$POSTPR_INPUT_NOPERL" \
+  | PATH="$NO_PERL_POSTPR_BIN" bash "$HOOKS_DIR/post-pr-create.sh" 2>&1) || POSTPR_EXIT_NOPERL=$?
+rm -rf "$NO_PERL_POSTPR_BIN"
+sandbox_cleanup
+TOTAL=$((TOTAL + 1))
+if [ "$POSTPR_EXIT_NOPERL" -eq 0 ] \
+  && echo "$POSTPR_OUTPUT_NOPERL" | grep -qF "$POSTPR_SANITIZE_DIAG" \
+  && echo "$POSTPR_OUTPUT_NOPERL" | grep -qF "ACCIÓN REQUERIDA: Revisa este PR: $POSTPR_URL" \
+  && ! echo "$POSTPR_OUTPUT_NOPERL" | grep -qF "Review dual pre-push verificado" \
+  && ! echo "$POSTPR_OUTPUT_NOPERL" | grep -qiE "command not found|no such file"; then
+  echo -e "${GREEN}PASS${NC}: post-pr-create saneo degradado (PR-5): sin perl → CASO B con el diagnóstico de saneo"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: post-pr-create saneo degradado (PR-5): sin perl → CASO B con el diagnóstico de saneo (exit: $POSTPR_EXIT_NOPERL, output: $POSTPR_OUTPUT_NOPERL)"
+  FAIL=$((FAIL + 1))
+fi
 
 # Caso: degradación — state.json malformado (JSON inválido) → CASO B, y el
 # error de parseo de jq NO se filtra al output (el orchestrator recibe el

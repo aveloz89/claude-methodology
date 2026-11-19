@@ -52,6 +52,9 @@
 # otro comando de la cadena ("ls -R . && gh pr create") cae a CASO B (un
 # review redundante, la dirección segura). Límite: "bash -c '...'" no se
 # detecta (el saneo borra el wrapper entero, igual que en la lib).
+# Saneo degradado (sin perl, o perl abortado): guard_sanitize devuelve el
+# comando crudo y los patrones no son confiables, así que no se evalúan →
+# CASO B con el diagnóstico de saneo.
 # Siempre exit 0 (checkpoint, no guard). Sin jq en PATH: no-op limpio
 # (degradación estándar de hooks de observabilidad, ARCHITECTURE 2026-08-14).
 # NOTA: Este hook NO ejecuta agentes directamente — emite instrucciones en stdout
@@ -105,10 +108,17 @@ if [ -n "$PR_URL" ]; then
   # también es "antes"). Sin guard_sanitize (lib ausente o desactualizada)
   # no se evalúa: ya hay un diagnóstico de lib arriba y es CASO B.
   REDIRECT=false
+  SANITIZE_FAILED=false
   if type guard_sanitize > /dev/null 2>&1; then
-    SANITIZED=$(guard_sanitize "$COMMAND" 2>/dev/null)
+    # Saneo degradado (sin perl, o perl abortado por timeout): guard_sanitize
+    # devuelve el comando crudo con estado 1. Los patrones sobre texto sin
+    # sanear no son confiables (un "cd" en un --title cuenta), así que no se
+    # evalúan: CASO B con el diagnóstico de saneo.
+    if ! SANITIZED=$(guard_sanitize "$COMMAND" 2>/dev/null); then
+      SANITIZE_FAILED=true
+    fi
     FLAT=$(printf '%s' "$SANITIZED" | tr '\n' ';')
-    if printf '%s' "$FLAT" | grep -qE "${GUARD_ANCHOR}(cd|pushd)(\s|;|&&|\$).*gh\s+pr\s+create" \
+    if [ "$SANITIZE_FAILED" = false ] && printf '%s' "$FLAT" | grep -qE "${GUARD_ANCHOR}(cd|pushd)(\s|;|&&|\$).*gh\s+pr\s+create" \
       || printf '%s' "$FLAT" | grep -qE '(^|[[:space:]])(-R|--repo)([[:space:]=]|$)|(^|[[:space:]])-R[^[:space:]-]' \
       || printf '%s' "$FLAT" | grep -qE '(^|[^A-Za-z0-9_])GH_REPO='; then
       REDIRECT=true
@@ -139,6 +149,11 @@ if [ -n "$PR_URL" ]; then
     # ni CASO A); el diagnóstico de redirección gana sobre el de árbol.
     TOPLEVEL=""
     CASO_B_DIAG="El PR se creó con una redirección en el comando; la evidencia de .cwd no aplica (cd/pushd antes de gh pr create, -R/--repo o GH_REPO=) — se trata como PR fuera del flujo."
+  fi
+  if [ "$SANITIZE_FAILED" = true ]; then
+    # Mismo tratamiento que la redirección: sin lectura de evidencia.
+    TOPLEVEL=""
+    CASO_B_DIAG="No se pudo sanear el comando (perl no disponible) — la detección de redirección no es confiable; se trata como PR fuera del flujo."
   fi
   STATE_BRANCH=""
   REVIEW_SHA=""
