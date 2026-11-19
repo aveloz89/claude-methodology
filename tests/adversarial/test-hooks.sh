@@ -7558,6 +7558,127 @@ assert_exit0 "SubagentStop no agrega raw_keys cuando el agente es conocido" \
   'LOG="$SANDBOX_HOME/.claude/methodology/logs/subagent-invocations.jsonl"; [ "$(jq -r .agent "$LOG")" = "backend-dev" ] && [ "$(jq "has(\"raw_keys\")" "$LOG")" = "false" ]'
 sandbox_cleanup
 
+# --- Árbol de la sesión (.cwd): misma regla que post-pr-create y PreCompact ---
+# ".cwd" no vacío gana sobre el cwd del proceso. El hook siempre appendea la
+# línea (D2); lo que cambia es de dónde salen repo y branch. Para afirmar
+# stderr se captura 2>&1 a mano (assert_exit0 lo descarta).
+
+# ss_run: corre el hook en run_cwd con HOME=run_home y el stdin dado; deja
+# SS_OUT (stdout+stderr) y SS_RC. run_hooks_dir (opcional) override del dir
+# de hooks.
+ss_run() {
+  SS_RC=0
+  SS_OUT=$(cd "$3" && printf '%s' "$1" | HOME="$2" bash "${4:-$HOOKS_DIR}/subagent-stop-log.sh" 2>&1) || SS_RC=$?
+}
+
+# ss_report: PASS/FAIL con el contador estándar de la suite.
+ss_report() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$2" = "ok" ]; then
+    echo -e "${GREEN}PASS${NC}: $1"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $1 ($3)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+SS_MSG_NOTDIR="subagent-stop-log: repo y branch en null: no se pudo resolver el árbol de la sesión (el .cwd del payload no es un directorio)"
+SS_MSG_NOLIB="subagent-stop-log: repo y branch en null: no se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh falta o no define guard_session_dir)"
+
+# ss_line_is: la última línea del log tiene agent/session intactos y el
+# repo/branch esperados ("null" = JSON null).
+ss_line_is() {
+  local log="$1/.claude/methodology/logs/subagent-invocations.jsonl"
+  [ -f "$log" ] \
+    && [ "$(wc -l < "$log" | tr -d ' ')" = "1" ] \
+    && [ "$(jq -r .agent "$log")" = "backend-dev" ] \
+    && [ "$(jq -r .session "$log")" = "sess-ss" ] \
+    && [ "$(jq -r .repo "$log")" = "$2" ] \
+    && [ "$(jq -r .branch "$log")" = "$3" ]
+}
+
+SS_PAYLOAD_BASE='{"agent_type":"backend-dev","session_id":"sess-ss"}'
+
+# SS-1: proceso en repo A, .cwd = repo B → repo y branch de B.
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/session) > /dev/null 2>&1
+SS_B_REPO="$SANDBOX_REPO"
+SS_B_HOME="$SANDBOX_HOME"
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1
+ss_run "$(jq -c --arg c "$SS_B_REPO" '{agent_type:"backend-dev", session_id:"sess-ss", cwd:$c}' <<< '{}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+if [ "$SS_RC" -eq 0 ] && [ -z "$SS_OUT" ] && ss_line_is "$SANDBOX_HOME" "$SS_B_REPO" "feature/session"; then
+  ss_report "SubagentStop árbol de la sesión: .cwd = repo B + proceso en repo A → repo y branch de B" ok
+else
+  ss_report "SubagentStop árbol de la sesión: .cwd = repo B + proceso en repo A → repo y branch de B" fail "rc=$SS_RC out=$SS_OUT"
+fi
+
+# SS-3: .cwd no vacío que no es directorio → línea con null/null + mensaje exacto.
+rm -rf "$SANDBOX_HOME/.claude"
+ss_run "$(jq -c --arg c "$SANDBOX_REPO/no-such-dir" '{agent_type:"backend-dev", session_id:"sess-ss", cwd:$c}' <<< '{}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+if [ "$SS_RC" -eq 0 ] && [ "$SS_OUT" = "$SS_MSG_NOTDIR" ] && ss_line_is "$SANDBOX_HOME" null null; then
+  ss_report "SubagentStop árbol de la sesión: .cwd que no es directorio → línea con repo/branch null, mensaje exacto en stderr, exit 0" ok
+else
+  ss_report "SubagentStop árbol de la sesión: .cwd que no es directorio → línea con repo/branch null, mensaje exacto en stderr, exit 0" fail "rc=$SS_RC out=$SS_OUT"
+fi
+
+# SS-4: .cwd = directorio fuera de un repo git, proceso en repo → null/null sin ruido.
+SS_PLAIN_DIR=$(mktemp -d)
+SS_PLAIN_DIR=$(cd "$SS_PLAIN_DIR" && pwd -P)
+rm -rf "$SANDBOX_HOME/.claude"
+ss_run "$(jq -c --arg c "$SS_PLAIN_DIR" '{agent_type:"backend-dev", session_id:"sess-ss", cwd:$c}' <<< '{}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+if [ "$SS_RC" -eq 0 ] && [ -z "$SS_OUT" ] && ss_line_is "$SANDBOX_HOME" null null; then
+  ss_report "SubagentStop árbol de la sesión: .cwd = directorio fuera de un repo git → repo/branch null y sin ruido" ok
+else
+  ss_report "SubagentStop árbol de la sesión: .cwd = directorio fuera de un repo git → repo/branch null y sin ruido" fail "rc=$SS_RC out=$SS_OUT"
+fi
+rm -rf "$SS_PLAIN_DIR"
+
+# SS-6 (control): .cwd "" y null equivalen a ausente → repo/branch del proceso.
+for SS_EMPTY in '""' 'null'; do
+  rm -rf "$SANDBOX_HOME/.claude"
+  ss_run "{\"agent_type\":\"backend-dev\",\"session_id\":\"sess-ss\",\"cwd\":$SS_EMPTY}" "$SANDBOX_HOME" "$SANDBOX_REPO"
+  if [ "$SS_RC" -eq 0 ] && [ -z "$SS_OUT" ] && ss_line_is "$SANDBOX_HOME" "$SANDBOX_REPO" "feature/other-tree"; then
+    ss_report "SubagentStop árbol de la sesión: .cwd $SS_EMPTY equivale a ausente → repo/branch del proceso" ok
+  else
+    ss_report "SubagentStop árbol de la sesión: .cwd $SS_EMPTY equivale a ausente → repo/branch del proceso" fail "rc=$SS_RC out=$SS_OUT"
+  fi
+done
+
+# SS-5: lib/guard-matching.sh ausente → línea con null/null + mensaje exacto.
+SS_NOLIB_HOOKS=$(mktemp -d)
+cp -R "$HOOKS_DIR/." "$SS_NOLIB_HOOKS/"
+mv "$SS_NOLIB_HOOKS/lib/guard-matching.sh" "$SS_NOLIB_HOOKS/lib/guard-matching.sh.gone"
+rm -rf "$SANDBOX_HOME/.claude"
+ss_run "$SS_PAYLOAD_BASE" "$SANDBOX_HOME" "$SANDBOX_REPO" "$SS_NOLIB_HOOKS"
+if [ "$SS_RC" -eq 0 ] && [ "$SS_OUT" = "$SS_MSG_NOLIB" ] && ss_line_is "$SANDBOX_HOME" null null; then
+  ss_report "SubagentStop sin lib/guard-matching.sh → línea con repo/branch null, mensaje exacto en stderr, exit 0" ok
+else
+  ss_report "SubagentStop sin lib/guard-matching.sh → línea con repo/branch null, mensaje exacto en stderr, exit 0" fail "rc=$SS_RC out=$SS_OUT"
+fi
+rm -rf "$SS_NOLIB_HOOKS"
+sandbox_cleanup
+rm -rf "$SS_B_REPO" "$SS_B_HOME"
+
+# SS-2: worktree real. Proceso en el checkout principal (otro branch),
+# .cwd = worktree → repo y branch del worktree.
+sandbox_create
+SS_WT_PARENT=$(mktemp -d)
+SS_WT_PARENT=$(cd "$SS_WT_PARENT" && pwd -P)
+SS_WT="$SS_WT_PARENT/wt"
+(cd "$SANDBOX_REPO" && git worktree add -q -b feature/session "$SS_WT") > /dev/null 2>&1 || true
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1 || true
+ss_run "$(jq -c --arg c "$SS_WT" '{agent_type:"backend-dev", session_id:"sess-ss", cwd:$c}' <<< '{}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+if [ "$SS_RC" -eq 0 ] && [ -z "$SS_OUT" ] && ss_line_is "$SANDBOX_HOME" "$SS_WT" "feature/session"; then
+  ss_report "SubagentStop árbol de la sesión: .cwd = git worktree real + proceso en el checkout principal → repo y branch del worktree" ok
+else
+  ss_report "SubagentStop árbol de la sesión: .cwd = git worktree real + proceso en el checkout principal → repo y branch del worktree" fail "rc=$SS_RC out=$SS_OUT"
+fi
+(cd "$SANDBOX_REPO" && git worktree remove --force "$SS_WT") > /dev/null 2>&1 || true
+rm -rf "$SS_WT_PARENT"
+sandbox_cleanup
+
 # --- session-start-context.sh (render de state.json) ---
 echo "--- session-start-context.sh ---"
 
