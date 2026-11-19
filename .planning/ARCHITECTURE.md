@@ -46,7 +46,7 @@ A diferencia de `DESIGN.md` (que vive solo durante una feature), este archivo pe
 
 **Justificación:** una sola copia de la regla (la lib) en vez de reimplementarla con `git -C` en cada hook. En un checkpoint el falso positivo cuesta un review redundante y el falso negativo un PR sin review, así que la detección amplia (un `-R` de otro comando de la cadena dispara) es la dirección segura; acotar al segmento exige más parseo de shell, que es la carrera que la entrada del 2026-09-26 decidió no correr.
 
-**Implicación:** un hook nuevo de observabilidad que dependa del directorio sigue (1) y (2) y lleva tres tests mínimos: dos sandboxes (proceso vs `.cwd`), un `git worktree add` real, y `.cwd` inválido sin artefacto del proceso. Los mensajes de degradación no interpolan el valor de `.cwd`. Fuera de alcance, como en los guards: lo que el saneo borra entero (`bash -c "…"`, un flag entero entre comillas como `"--repo"`) y `GIT_DIR=`.
+**Implicación:** un hook nuevo de observabilidad que dependa del directorio sigue (1) y (2) y lleva tres tests mínimos: dos sandboxes (proceso vs `.cwd`), un `git worktree add` real, y `.cwd` inválido sin artefacto del proceso. Los mensajes de degradación no interpolan el valor de `.cwd`. Fuera de alcance, como en los guards: lo que el saneo borra entero (`bash -c "…"`, un flag entero entre comillas como `"--repo"`, o la palabra del comando como `'cd'`), `env` con la opción en cluster o abreviada (`env -iC`, `env --chd`) y `GIT_DIR=`; un flag de `gh` con valor que empieza con `-` o de varias palabras (`gh -R "o/x y" pr create`) escapa al prefiltro y el hook sale sin checkpoint.
 
 ### [2026-11-16] El proyecto declara su suite local (`test:local`); todo lo que cambia qué se verificó entra en la clave de la marca
 
