@@ -8683,6 +8683,41 @@ assert_postpr_caso_a "post-pr-create árbol de la sesión: .cwd es un git worktr
 rm -rf "$POSTPR_WT_PARENT"
 sandbox_cleanup
 
+# Casos: redirección en el TEXTO del comando (#125). Con CASO A válido en
+# el repo de .cwd, un "cd/pushd X && gh pr create", un flag -R/--repo o un
+# "GH_REPO=" crean el PR en otro repo: la evidencia de .cwd no aplica →
+# CASO B con el diagnóstico de redirección. Los negativos (cd/flag dentro
+# de un string o heredoc, cd DESPUÉS del gh) siguen en CASO A porque la
+# detección corre sobre el comando saneado (guard_sanitize).
+POSTPR_REDIR_DIAG="El PR se creó con una redirección en el comando; la evidencia de .cwd no aplica (cd/pushd antes de gh pr create, -R/--repo o GH_REPO=) — se trata como PR fuera del flujo."
+sandbox_create
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/checkpoint-flow) > /dev/null 2>&1
+postpr_seed_state "done" "feature/checkpoint-flow" "checkpoint-flow" "$(cd "$SANDBOX_REPO" && git rev-parse HEAD)"
+assert_postpr_caso_b "post-pr-create redirección (PR-1): cd X && gh pr create → CASO B" \
+  "$(postpr_input "cd /otro/repo && gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-2): pushd X; gh pr create → CASO B" \
+  "$(postpr_input "pushd /otro/repo; gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección: cd en una línea anterior (newline) → CASO B" \
+  "$(postpr_input $'cd /otro/repo\ngh pr create --base dev --title \'x\'' "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-3a): -R owner/otro → CASO B" \
+  "$(postpr_input "gh pr create -R owner/otro --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-3b): --repo owner/otro → CASO B" \
+  "$(postpr_input "gh pr create --repo owner/otro --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-3c): --repo=owner/otro → CASO B" \
+  "$(postpr_input "gh pr create --repo=owner/otro --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-N3): ls -R . && gh pr create → CASO B (falso positivo asumido)" \
+  "$(postpr_input "ls -R . && gh pr create --base dev" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_b "post-pr-create redirección (PR-4): GH_REPO=owner/otro gh pr create → CASO B" \
+  "$(postpr_input "GH_REPO=owner/otro gh pr create --base dev --title 'x'" "$POSTPR_URL" "$SANDBOX_REPO")" "$POSTPR_REDIR_DIAG"
+assert_postpr_caso_a "post-pr-create redirección (PR-N1): cd dentro de --title \"cd x\" → sigue CASO A" \
+  "$(postpr_input 'gh pr create --base dev --title "cd x"' "$POSTPR_URL" "$SANDBOX_REPO")"
+POSTPR_N2_CMD=$'gh pr create --base dev --title "feat" --body "$(cat <<\'EOF\'\ncd /tmp && ls\ngh pr create -R a/b\nGH_REPO=x\nEOF\n)"'
+assert_postpr_caso_a "post-pr-create redirección (PR-N2): cd/-R/GH_REPO= dentro de un body heredoc → sigue CASO A" \
+  "$(postpr_input "$POSTPR_N2_CMD" "$POSTPR_URL" "$SANDBOX_REPO")"
+assert_postpr_caso_a "post-pr-create redirección: cd DESPUÉS de gh pr create → sigue CASO A" \
+  "$(postpr_input "gh pr create --base dev --title 'x' && cd /tmp" "$POSTPR_URL" "$SANDBOX_REPO")"
+sandbox_cleanup
+
 # Caso: degradación — state.json malformado (JSON inválido) → CASO B, y el
 # error de parseo de jq NO se filtra al output (el orchestrator recibe el
 # diagnóstico limpio, no un stack de jq).

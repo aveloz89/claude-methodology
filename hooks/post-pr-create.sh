@@ -44,9 +44,14 @@
 # función, ".cwd" que no es un directorio, directorio fuera de un repo
 # git), CASO B con un diagnóstico que nombra la causa en vez del genérico
 # "no hay evidencia" (degradación visible, no silenciosa).
-# Fuera de alcance (#125): una redirección en el TEXTO del comando ("cd X
-# && gh pr create", "gh pr create -R o/r", "GH_REPO=o/r gh …") crea el PR
-# desde otro repo y la evidencia se sigue evaluando sobre ".cwd".
+# Redirección en el TEXTO del comando (#125): "cd/pushd X" antes de "gh pr
+# create", "-R/--repo" o "GH_REPO=" crean el PR en otro repo y la evidencia
+# de ".cwd" no aplica → CASO B con diagnóstico propio. La detección corre
+# sobre el comando saneado (guard_sanitize) y aplanado, así que un "cd" en
+# un --title o en el body no cuenta. Falso positivo asumido: el "-R" de
+# otro comando de la cadena ("ls -R . && gh pr create") cae a CASO B (un
+# review redundante, la dirección segura). Límite: "bash -c '...'" no se
+# detecta (el saneo borra el wrapper entero, igual que en la lib).
 # Siempre exit 0 (checkpoint, no guard). Sin jq en PATH: no-op limpio
 # (degradación estándar de hooks de observabilidad, ARCHITECTURE 2026-08-14).
 # NOTA: Este hook NO ejecuta agentes directamente — emite instrucciones en stdout
@@ -92,6 +97,23 @@ if [ -n "$PR_URL" ]; then
   else
     CASO_B_DIAG="No se pudo resolver el árbol de la sesión (falta hooks/lib/guard-matching.sh) — se trata como PR fuera del flujo."
   fi
+  # Redirección en el TEXTO del comando (#125): cd/pushd en posición de
+  # comando antes de gh pr create, -R/--repo o GH_REPO= crean el PR en otro
+  # repo; la evidencia de .cwd no aplica. Se detecta sobre el comando
+  # saneado (guard_sanitize borra strings y heredocs: un "cd" dentro de un
+  # --title o un body no cuenta) y aplanado (un cd en una línea anterior
+  # también es "antes"). Sin guard_sanitize (lib ausente o desactualizada)
+  # no se evalúa: ya hay un diagnóstico de lib arriba y es CASO B.
+  REDIRECT=false
+  if type guard_sanitize > /dev/null 2>&1; then
+    SANITIZED=$(guard_sanitize "$COMMAND" 2>/dev/null)
+    FLAT=$(printf '%s' "$SANITIZED" | tr '\n' ';')
+    if printf '%s' "$FLAT" | grep -qE "${GUARD_ANCHOR}(cd|pushd)(\s|;|&&|\$).*gh\s+pr\s+create" \
+      || printf '%s' "$FLAT" | grep -qE '(^|[[:space:]])(-R|--repo)([[:space:]=]|$)|(^|[[:space:]])-R[^[:space:]-]' \
+      || printf '%s' "$FLAT" | grep -qE '(^|[^A-Za-z0-9_])GH_REPO='; then
+      REDIRECT=true
+    fi
+  fi
   # shellcheck disable=SC2034 # la lee guard_session_dir (lib sourceada arriba)
   INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
   SESSION_DIR=""
@@ -112,6 +134,12 @@ if [ -n "$PR_URL" ]; then
   fi
   STATE_FILE="$TOPLEVEL/.planning/state.json"
   REVIEW_PHASE=""
+  if [ "$REDIRECT" = true ]; then
+    # Con redirección no se lee la evidencia (TOPLEVEL vacío: sin state.json
+    # ni CASO A); el diagnóstico de redirección gana sobre el de árbol.
+    TOPLEVEL=""
+    CASO_B_DIAG="El PR se creó con una redirección en el comando; la evidencia de .cwd no aplica (cd/pushd antes de gh pr create, -R/--repo o GH_REPO=) — se trata como PR fuera del flujo."
+  fi
   STATE_BRANCH=""
   REVIEW_SHA=""
   if [ -n "$TOPLEVEL" ] && [ -f "$STATE_FILE" ]; then
