@@ -15,8 +15,30 @@ INPUT=$(cat 2>/dev/null)
 [ -n "$INPUT" ] || exit 0
 echo "$INPUT" | jq empty > /dev/null 2>&1 || exit 0
 
-TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-[ -d "$TOPLEVEL/.planning" ] || exit 0
+# Árbol de la sesión: ".cwd" del payload si viene no vacío (en una sesión de
+# worktree de la app de escritorio el proceso corre en el checkout principal
+# y ".cwd" es el worktree), el cwd del proceso si no viene o viene vacío/null
+# (misma regla que post-pr-create, vía guard_session_dir). Un ".cwd" no
+# vacío que no es directorio, o una lib ausente, deja la sesión sin snapshot
+# con el motivo en stderr — nunca se cae al árbol del proceso. El valor de
+# ".cwd" no se interpola en ningún mensaje.
+LIB_GM="${0%/*}/lib/guard-matching.sh"
+[ -r "$LIB_GM" ] && . "$LIB_GM"
+if ! type guard_session_dir > /dev/null 2>&1; then
+  echo "pre-compact-snapshot: sin snapshot: no se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh falta o no define guard_session_dir)" >&2
+  exit 0
+fi
+# shellcheck disable=SC2034 # la lee guard_session_dir (lib sourceada arriba)
+INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+if ! SESSION_DIR=$(guard_session_dir 2>/dev/null) || [ -z "$SESSION_DIR" ]; then
+  echo "pre-compact-snapshot: sin snapshot: no se pudo resolver el árbol de la sesión (el .cwd del payload no es un directorio)" >&2
+  exit 0
+fi
+
+# git -C siempre sobre una ruta resuelta y no vacía (con '' git -C deja el
+# cwd del proceso). Fuera de un repo git: no-op silencioso, no es un fallo.
+TOPLEVEL=$(git -C "$SESSION_DIR" rev-parse --show-toplevel 2>/dev/null) || exit 0
+[ -n "$TOPLEVEL" ] && [ -d "$TOPLEVEL/.planning" ] || exit 0
 
 TRIGGER=$(echo "$INPUT" | jq -r '.trigger // "unknown"' 2>/dev/null)
 [ -n "$TRIGGER" ] && [ "$TRIGGER" != "null" ] || TRIGGER="unknown"
@@ -39,8 +61,8 @@ SNAPSHOT_DIR="$HOME/.claude/methodology/snapshots/$SLUG/${TS}-${TRIGGER}"
 mkdir -p "$SNAPSHOT_DIR" 2>/dev/null
 cp -R "$TOPLEVEL/.planning/." "$SNAPSHOT_DIR/" 2>/dev/null
 
-BRANCH=$(git branch --show-current 2>/dev/null)
-HEAD=$(git rev-parse --short HEAD 2>/dev/null)
+BRANCH=$(git -C "$TOPLEVEL" branch --show-current 2>/dev/null)
+HEAD=$(git -C "$TOPLEVEL" rev-parse --short HEAD 2>/dev/null)
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Escritura atómica: si jq falla a mitad de camino, el redirect ya truncó

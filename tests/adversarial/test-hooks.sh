@@ -7231,6 +7231,148 @@ assert_exit0 "PreCompact exit 0 sin jq en PATH (sin crear snapshot)" \
 rm -rf "$NO_JQ_BIN"
 sandbox_cleanup
 
+
+# --- Árbol de la sesión (.cwd): misma regla que post-pr-create ---
+# ".cwd" no vacío gana sobre el cwd del proceso (en una sesión de worktree de
+# la app de escritorio el proceso corre en el checkout principal). Para
+# afirmar stderr se captura 2>&1 a mano (assert_exit0 lo descarta).
+
+# pc_run: corre el hook en run_cwd con HOME=run_home y el stdin dado; deja
+# PC_OUT (stdout+stderr) y PC_RC. run_hooks_dir (opcional) override del dir
+# de hooks.
+pc_run() {
+  PC_RC=0
+  PC_OUT=$(cd "$3" && printf '%s' "$1" | HOME="$2" bash "${4:-$HOOKS_DIR}/pre-compact-snapshot.sh" 2>&1) || PC_RC=$?
+}
+
+# pc_report: PASS/FAIL con el contador estándar de la suite.
+pc_report() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$2" = "ok" ]; then
+    echo -e "${GREEN}PASS${NC}: $1"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $1 ($3)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+PC_MSG_NOTDIR="pre-compact-snapshot: sin snapshot: no se pudo resolver el árbol de la sesión (el .cwd del payload no es un directorio)"
+PC_MSG_NOLIB="pre-compact-snapshot: sin snapshot: no se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh falta o no define guard_session_dir)"
+
+# PC-1: proceso en repo A, .cwd = repo B → snapshot de B, nada de A.
+sandbox_create
+echo "# STATE B" > "$SANDBOX_REPO/.planning/STATE.md"
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/session-b) > /dev/null 2>&1
+PC_B_REPO="$SANDBOX_REPO"
+PC_B_HOME="$SANDBOX_HOME"
+PC_B_HEAD=$(cd "$PC_B_REPO" && git rev-parse --short HEAD)
+sandbox_create
+echo "# STATE A" > "$SANDBOX_REPO/.planning/STATE.md"
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1
+PC_SLUG_A=$(repo_slug "$SANDBOX_REPO")
+PC_SLUG_B=$(repo_slug "$PC_B_REPO")
+pc_run "$(jq -n --arg c "$PC_B_REPO" '{trigger:"auto", cwd:$c}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$PC_SLUG_B" "*-auto")
+if [ "$PC_RC" -eq 0 ] && [ -n "$DIR" ] \
+  && [ "$(cat "$DIR/STATE.md")" = "# STATE B" ] \
+  && [ "$(jq -r .repo "$DIR/meta.json")" = "$PC_B_REPO" ] \
+  && [ "$(jq -r .branch "$DIR/meta.json")" = "feature/session-b" ] \
+  && [ "$(jq -r .head "$DIR/meta.json")" = "$PC_B_HEAD" ] \
+  && [ ! -e "$SANDBOX_HOME/.claude/methodology/snapshots/$PC_SLUG_A" ]; then
+  pc_report "PreCompact árbol de la sesión: .cwd = repo B + proceso en repo A → snapshot y meta.json de B, nada bajo slug(A)" ok
+else
+  pc_report "PreCompact árbol de la sesión: .cwd = repo B + proceso en repo A → snapshot y meta.json de B, nada bajo slug(A)" fail "rc=$PC_RC dir=$DIR out=$PC_OUT"
+fi
+
+# PC-3: .cwd = subdirectorio del repo B → toplevel por git -C.
+rm -rf "$SANDBOX_HOME/.claude"
+pc_run "$(jq -n --arg c "$PC_B_REPO/.planning" '{trigger:"auto", cwd:$c}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$PC_SLUG_B" "*-auto")
+if [ "$PC_RC" -eq 0 ] && [ -n "$DIR" ] \
+  && [ "$(cat "$DIR/STATE.md")" = "# STATE B" ] \
+  && [ "$(jq -r .repo "$DIR/meta.json")" = "$PC_B_REPO" ] \
+  && [ ! -e "$SANDBOX_HOME/.claude/methodology/snapshots/$PC_SLUG_A" ]; then
+  pc_report "PreCompact árbol de la sesión: .cwd en un subdirectorio del repo B → snapshot de B (toplevel por git -C)" ok
+else
+  pc_report "PreCompact árbol de la sesión: .cwd en un subdirectorio del repo B → snapshot de B (toplevel por git -C)" fail "rc=$PC_RC dir=$DIR out=$PC_OUT"
+fi
+
+# PC-4: .cwd no vacío que no es directorio → sin snapshot + mensaje exacto.
+rm -rf "$SANDBOX_HOME/.claude"
+pc_run "$(jq -n --arg c "$SANDBOX_REPO/no-such-dir" '{trigger:"auto", cwd:$c}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+if [ "$PC_RC" -eq 0 ] && [ ! -e "$SANDBOX_HOME/.claude" ] && [ "$PC_OUT" = "$PC_MSG_NOTDIR" ]; then
+  pc_report "PreCompact árbol de la sesión: .cwd que no es directorio → sin snapshot, mensaje exacto en stderr, exit 0" ok
+else
+  pc_report "PreCompact árbol de la sesión: .cwd que no es directorio → sin snapshot, mensaje exacto en stderr, exit 0" fail "rc=$PC_RC out=$PC_OUT"
+fi
+
+# PC-5: .cwd = directorio fuera de un repo git → sin snapshot del proceso, sin ruido.
+PC_PLAIN_DIR=$(mktemp -d)
+PC_PLAIN_DIR=$(cd "$PC_PLAIN_DIR" && pwd -P)
+pc_run "$(jq -n --arg c "$PC_PLAIN_DIR" '{trigger:"auto", cwd:$c}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+if [ "$PC_RC" -eq 0 ] && [ ! -e "$SANDBOX_HOME/.claude" ] && [ -z "$PC_OUT" ]; then
+  pc_report "PreCompact árbol de la sesión: .cwd = directorio fuera de un repo git → sin snapshot del proceso y sin ruido" ok
+else
+  pc_report "PreCompact árbol de la sesión: .cwd = directorio fuera de un repo git → sin snapshot del proceso y sin ruido" fail "rc=$PC_RC out=$PC_OUT"
+fi
+rm -rf "$PC_PLAIN_DIR"
+
+# PC-7 (control): .cwd "" y null equivalen a ausente → snapshot del proceso.
+for PC_EMPTY in '""' 'null'; do
+  rm -rf "$SANDBOX_HOME/.claude"
+  pc_run "{\"trigger\":\"auto\",\"cwd\":$PC_EMPTY}" "$SANDBOX_HOME" "$SANDBOX_REPO"
+  DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$PC_SLUG_A" "*-auto")
+  if [ "$PC_RC" -eq 0 ] && [ -n "$DIR" ] && [ "$(cat "$DIR/STATE.md")" = "# STATE A" ] \
+    && [ "$(jq -r .repo "$DIR/meta.json")" = "$SANDBOX_REPO" ] && [ -z "$PC_OUT" ]; then
+    pc_report "PreCompact árbol de la sesión: .cwd $PC_EMPTY equivale a ausente → snapshot del árbol del proceso" ok
+  else
+    pc_report "PreCompact árbol de la sesión: .cwd $PC_EMPTY equivale a ausente → snapshot del árbol del proceso" fail "rc=$PC_RC dir=$DIR out=$PC_OUT"
+  fi
+done
+
+# PC-6: lib/guard-matching.sh ausente → sin snapshot + mensaje exacto.
+PC_NOLIB_HOOKS=$(mktemp -d)
+cp -R "$HOOKS_DIR/." "$PC_NOLIB_HOOKS/"
+mv "$PC_NOLIB_HOOKS/lib/guard-matching.sh" "$PC_NOLIB_HOOKS/lib/guard-matching.sh.gone"
+rm -rf "$SANDBOX_HOME/.claude"
+pc_run '{"trigger":"auto"}' "$SANDBOX_HOME" "$SANDBOX_REPO" "$PC_NOLIB_HOOKS"
+if [ "$PC_RC" -eq 0 ] && [ ! -e "$SANDBOX_HOME/.claude" ] && [ "$PC_OUT" = "$PC_MSG_NOLIB" ]; then
+  pc_report "PreCompact sin lib/guard-matching.sh → sin snapshot, mensaje exacto en stderr, exit 0" ok
+else
+  pc_report "PreCompact sin lib/guard-matching.sh → sin snapshot, mensaje exacto en stderr, exit 0" fail "rc=$PC_RC out=$PC_OUT"
+fi
+rm -rf "$PC_NOLIB_HOOKS"
+sandbox_cleanup
+rm -rf "$PC_B_REPO" "$PC_B_HOME"
+
+# PC-2: worktree real. Proceso en el checkout principal (otro branch),
+# .cwd = worktree → snapshot del worktree, branch y head del worktree.
+sandbox_create
+PC_WT_PARENT=$(mktemp -d)
+PC_WT_PARENT=$(cd "$PC_WT_PARENT" && pwd -P)
+PC_WT="$PC_WT_PARENT/wt"
+(cd "$SANDBOX_REPO" && git worktree add -q -b feature/session "$PC_WT") > /dev/null 2>&1 || true
+echo "# STATE WT" > "$PC_WT/.planning/STATE.md"
+(cd "$PC_WT" && git -c user.email=s@example.com -c user.name=S commit -q --allow-empty -m "wt commit") > /dev/null 2>&1 || true
+(cd "$SANDBOX_REPO" && git checkout -q -b feature/other-tree) > /dev/null 2>&1 || true
+PC_WT_HEAD=$(cd "$PC_WT" && git rev-parse --short HEAD)
+PC_SLUG_WT=$(repo_slug "$PC_WT")
+pc_run "$(jq -n --arg c "$PC_WT" '{trigger:"auto", cwd:$c}')" "$SANDBOX_HOME" "$SANDBOX_REPO"
+DIR=$(snapshot_dir_for "$SANDBOX_HOME" "$PC_SLUG_WT" "*-auto")
+if [ "$PC_RC" -eq 0 ] && [ -n "$DIR" ] \
+  && [ "$(cat "$DIR/STATE.md")" = "# STATE WT" ] \
+  && [ "$(jq -r .repo "$DIR/meta.json")" = "$PC_WT" ] \
+  && [ "$(jq -r .branch "$DIR/meta.json")" = "feature/session" ] \
+  && [ "$(jq -r .head "$DIR/meta.json")" = "$PC_WT_HEAD" ] \
+  && [ ! -e "$SANDBOX_HOME/.claude/methodology/snapshots/$(repo_slug "$SANDBOX_REPO")" ]; then
+  pc_report "PreCompact árbol de la sesión: .cwd = git worktree real + proceso en el checkout principal → snapshot del worktree" ok
+else
+  pc_report "PreCompact árbol de la sesión: .cwd = git worktree real + proceso en el checkout principal → snapshot del worktree" fail "rc=$PC_RC dir=$DIR out=$PC_OUT"
+fi
+(cd "$SANDBOX_REPO" && git worktree remove --force "$PC_WT") > /dev/null 2>&1 || true
+rm -rf "$PC_WT_PARENT"
+sandbox_cleanup
 echo ""
 
 # --- subagent-stop-log.sh ---
