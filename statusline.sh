@@ -132,8 +132,19 @@ fi
 effort_level=$(escape_b "$effort_level")
 
 # ===== Claude CLI version (cached, 1h TTL) =====
-# STATUSLINE_CACHE_DIR cambia el directorio de cachés (default /tmp/claude).
-cache_dir="${STATUSLINE_CACHE_DIR:-/tmp/claude}"
+# Cachés en un directorio propio del usuario bajo TMPDIR (modo 700). Si ya
+# existe y no es un directorio real del usuario (p. ej. un symlink plantado en
+# un /tmp compartido), no se usa: se degrada a un directorio efímero, o sea sin
+# caché entre ejecuciones, sin error.
+cache_dir="${TMPDIR:-/tmp}/claude-statusline-$UID"
+if [ ! -e "$cache_dir" ] && [ ! -L "$cache_dir" ]; then
+    mkdir -m 700 "$cache_dir" 2>/dev/null
+fi
+if [ -L "$cache_dir" ] || [ ! -d "$cache_dir" ] || [ ! -O "$cache_dir" ]; then
+    cache_dir=$(mktemp -d 2>/dev/null) || cache_dir="/dev/null/claude-statusline"
+    # shellcheck disable=SC2064 # se expande ahora a propósito: el dir ya existe
+    [ -d "$cache_dir" ] && trap "rm -rf '$cache_dir'" EXIT
+fi
 cli_version_cache="$cache_dir/statusline-cli-version"
 cli_version=""
 cli_version_max_age=3600

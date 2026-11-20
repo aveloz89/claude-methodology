@@ -9181,12 +9181,13 @@ for SL_CMD in curl security claude secret-tool; do
   printf '#!/bin/bash\nexit 1\n' > "$SL_BIN/$SL_CMD"
   chmod +x "$SL_BIN/$SL_CMD"
 done
-# Cachés en un dir propio (STATUSLINE_CACHE_DIR): nunca toca /tmp/claude real.
-SL_CACHE="$SL_HOME/cache"
-mkdir -p "$SL_CACHE"
-SL_REAL_STAMP=$(ls -la /tmp/claude 2>/dev/null | md5 -q 2>/dev/null || ls -la /tmp/claude 2>/dev/null | md5sum)
+# Cachés por usuario bajo TMPDIR: el sandbox es el TMPDIR, nunca toca /tmp real.
+SL_TMP="$SL_HOME/tmp"
+SL_CACHE="$SL_TMP/claude-statusline-$(id -u)"
+mkdir -p "$SL_TMP"
+mkdir -m 700 "$SL_CACHE"
 sl_run() { # <payload>: stdout del statusline con entorno aislado
-  printf '%s' "$1" | HOME="$SL_HOME" STATUSLINE_CACHE_DIR="$SL_CACHE" STATUSLINE_CHECK_UPDATES=false PATH="$SL_BIN:$PATH" bash "$REPO_ROOT/statusline.sh" 2>/dev/null
+  printf '%s' "$1" | HOME="$SL_HOME" TMPDIR="${SL_RUN_TMP:-$SL_TMP}" STATUSLINE_CHECK_UPDATES=false PATH="${SL_RUN_BIN:-$SL_BIN}:$PATH" bash "$REPO_ROOT/statusline.sh" 2>/dev/null
 }
 sl_report() { # <nombre> <ok 0/1> <detalle>
   TOTAL=$((TOTAL + 1))
@@ -9227,10 +9228,24 @@ SL_OUT=$(sl_run "$(jq -n --arg m "Mod$(printf '\xc2\x9b')31mX" '{model:{display_
 sl_ok=1; printf '%s' "$SL_OUT" | grep -qF 'Mod31mX' && ! printf '%s' "$SL_OUT" | LC_ALL=C grep -q "$(printf '\xc2\x9b')" && sl_ok=0
 sl_report "statusline: control C1 (CSI U+009B) en el nombre del modelo se elimina" "$sl_ok" "salida: $(printf '%s' "$SL_OUT" | od -c | head -3)"
 
-# Aislamiento: las cachés fueron al dir de prueba, no a /tmp/claude.
-SL_REAL_STAMP_AFTER=$(ls -la /tmp/claude 2>/dev/null | md5 -q 2>/dev/null || ls -la /tmp/claude 2>/dev/null | md5sum)
-sl_ok=1; [ "$SL_REAL_STAMP" = "$SL_REAL_STAMP_AFTER" ] && ls "$SL_CACHE" > /dev/null 2>&1 && sl_ok=0
-sl_report "statusline: el test no toca /tmp/claude real" "$sl_ok" "antes: $SL_REAL_STAMP, después: $SL_REAL_STAMP_AFTER"
+# Aislamiento: con un claude que responde, la caché de versión se crea en
+# <TMPDIR>/claude-statusline-<uid> (modo 700), no en el /tmp real.
+SL_OKBIN=$(mktemp -d)
+printf '#!/bin/bash\necho 7.7.7\n' > "$SL_OKBIN/claude"; chmod +x "$SL_OKBIN/claude"
+for SL_CMD in curl security secret-tool; do cp "$SL_BIN/$SL_CMD" "$SL_OKBIN/$SL_CMD"; done
+SL_T2="$SL_HOME/tmp2"; mkdir -p "$SL_T2"
+SL_RUN_TMP="$SL_T2" SL_RUN_BIN="$SL_OKBIN" sl_run '{"model":{"display_name":"M"}}' > /dev/null
+SL_D2="$SL_T2/claude-statusline-$(id -u)"
+sl_ok=1; [ -f "$SL_D2/statusline-cli-version" ] && [ "$(ls -ld "$SL_D2" | cut -c1-10)" = "drwx------" ] && sl_ok=0
+sl_report "statusline: las cachés van a <TMPDIR>/claude-statusline-<uid> con modo 700" "$sl_ok" "contenido: $(ls -la "$SL_T2" "$SL_D2" 2>&1 | tr '\n' ' ')"
+
+# Un dir de caché preexistente que es symlink: no se escribe a través de él y la salida sigue.
+SL_T3="$SL_HOME/tmp3"; SL_TARGET="$SL_HOME/target"; mkdir -p "$SL_T3" "$SL_TARGET"
+ln -s "$SL_TARGET" "$SL_T3/claude-statusline-$(id -u)"
+SL_OUT=$(SL_RUN_TMP="$SL_T3" SL_RUN_BIN="$SL_OKBIN" sl_run '{"model":{"display_name":"M"}}')
+sl_ok=1; [ -z "$(ls -A "$SL_TARGET")" ] && [ -n "$SL_OUT" ] && sl_ok=0
+sl_report "statusline: dir de caché symlink no se usa (sin caché, sin error)" "$sl_ok" "destino: $(ls -A "$SL_TARGET"), salida: $SL_OUT"
+rm -rf "$SL_OKBIN"
 rm -rf "$SL_HOME" "$SL_BIN"
 echo ""
 
