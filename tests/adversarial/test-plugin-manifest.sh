@@ -1644,15 +1644,15 @@ ln -s "$INST_FAKE_REPO/settings.json.secret" "$INST_HOME/.claude/settings.json"
 INST_EXIT=0
 INST_OUT=$(HOME="$INST_HOME" bash "$INST_FAKE_REPO/install.sh" 2>&1) || INST_EXIT=$?
 INST_LEFTOVER=$(find "$INST_HOME/.claude" -maxdepth 1 -name 'settings.json.*' | head -1)
-TOTAL=$((TOTAL + 1))
 if [ "$(id -u)" -eq 0 ]; then
   # root lee cualquier archivo aunque tenga modo 000: cp -L no falla y el caso no ejerce el camino.
-  echo -e "${GREEN}PASS${NC}: install.sh: target legacy ilegible no aborta ni deja temporales (SKIP: corre como root, chmod 000 no impide leer)"
-  PASS=$((PASS + 1))
+  echo "SKIP: install.sh: target legacy ilegible no aborta ni deja temporales (corre como root, chmod 000 no impide leer)"
 elif [ "$INST_EXIT" -eq 0 ] && [ -z "$INST_LEFTOVER" ] && [ -L "$INST_HOME/.claude/settings.json" ]; then
+  TOTAL=$((TOTAL + 1))
   echo -e "${GREEN}PASS${NC}: install.sh: target legacy ilegible no aborta ni deja temporales"
   PASS=$((PASS + 1))
 else
+  TOTAL=$((TOTAL + 1))
   echo -e "${RED}FAIL${NC}: install.sh: target legacy ilegible no aborta ni deja temporales (exit: $INST_EXIT, temporal: \"$INST_LEFTOVER\", salida final: $(echo "$INST_OUT" | tail -3))"
   FAIL=$((FAIL + 1))
 fi
