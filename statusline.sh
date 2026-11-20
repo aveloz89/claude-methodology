@@ -144,6 +144,9 @@ effort_level=$(escape_b "$effort_level")
 # Límites aceptados: otra cuenta puede inutilizar la caché por usuario en un
 # /tmp compartido (p. ej. creando antes ese nombre): se degrada a sin caché, sin
 # lectura ni escritura cruzada.
+# cache_write <archivo>: copia stdin al archivo de caché; si no se puede escribir
+# (dir ausente o /dev/null/...) falla en silencio: sin caché, sin ruido en stderr.
+cache_write() { cat > "$1"; } 2>/dev/null
 cache_dir="${TMPDIR:-/tmp}/claude-statusline-$UID"
 if [ ! -e "$cache_dir" ] && [ ! -L "$cache_dir" ]; then
     mkdir -m 700 "$cache_dir" 2>/dev/null
@@ -172,7 +175,7 @@ fi
 if [ -z "$cli_version" ]; then
     cli_version=$(claude --version 2>/dev/null | awk '{print $1}')
     if [ -n "$cli_version" ]; then
-        echo "$cli_version" 2>/dev/null > "$cli_version_cache"
+        echo "$cli_version" | cache_write "$cli_version_cache"
     fi
 fi
 cli_version=$(escape_b "$cli_version")
@@ -334,7 +337,7 @@ if $needs_refresh; then
         # Only cache valid usage responses (not error/rate-limit JSON)
         if [ -n "$response" ] && echo "$response" | jq -e '.five_hour' >/dev/null 2>&1; then
             usage_data="$response"
-            echo "$response" 2>/dev/null > "$cache_file"
+            echo "$response" | cache_write "$cache_file"
         fi
     fi
     # Remove the stampede sentinel if the fetch failed to produce valid JSON —
@@ -484,7 +487,7 @@ if $effective_builtin; then
     printf '{"five_hour":{"utilization":%s,"resets_at":%s},"seven_day":{"utilization":%s,"resets_at":%s},"extra_usage":%s}' \
         "${builtin_five_hour_pct:-0}" "$_fh_reset_json" \
         "${builtin_seven_day_pct:-0}" "$_sd_reset_json" \
-        "$_extra_json" 2>/dev/null > "$cache_file"
+        "$_extra_json" | cache_write "$cache_file"
 elif [ -n "$usage_data" ] && echo "$usage_data" | jq -e '.five_hour' >/dev/null 2>&1; then
     # ---- Fall back: API-fetched usage data ----
     # ---- 5-hour (current) ----
@@ -539,7 +542,7 @@ if [ "${STATUSLINE_CHECK_UPDATES:-true}" != "false" ]; then
             "https://api.github.com/repos/daniel3303/ClaudeCodeStatusLine/releases/latest" 2>/dev/null)
         if [ -n "$vc_response" ] && echo "$vc_response" | jq -e '.tag_name' >/dev/null 2>&1; then
             version_data="$vc_response"
-            echo "$vc_response" 2>/dev/null > "$version_cache_file"
+            echo "$vc_response" | cache_write "$version_cache_file"
         elif [ ! -s "$version_cache_file" ]; then
             rm -f "$version_cache_file" 2>/dev/null
         fi
