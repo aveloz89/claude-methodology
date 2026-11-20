@@ -30,10 +30,13 @@ guard_init "block-force-push"
 # "-f" de un comando distinto después del separador.
 
 # El branch se decide por el cwd DE LA SESIÓN (guard_session_dir), no por lo
-# que diga el propio comando: un "cd"/"git -C" junto al "git push" en el
-# mismo comando no lo redirige acá, lo bloquea pre-push-guard.sh (mismo
-# criterio que ese guard) antes de que este código corra.
-#
+# que diga el propio comando. pre-push-guard.sh acepta "cd /ruta/absoluta &&
+# git push …" (resuelve ese árbol), así que acá un "cd"/"pushd" en el mismo
+# comando deja sin efecto la excepción de --force-with-lease: la rama de la
+# sesión no es la del árbol al que va el push. "-C", "--git-dir" y "GIT_DIR="
+# siguen bloqueados por pre-push-guard.sh.
+CD_PUSHD_RE="${GUARD_ANCHOR}(cd|pushd)(\\s|;|&&|\$)"
+
 # guard_raw_push_has_quote: 0 si algún trozo del comando CRUDO que es un "git
 # push" lleva una comilla, una barra invertida o un "$". No depende del ancla
 # literal "git" sobre el texto crudo (g''it, g\it o "git" partido por una
@@ -78,6 +81,10 @@ guard_raw_push_has_quote() {
 # security MEDIUM).
 guard_force_with_lease_allowed() {
   local dir branch push_segment push_segments
+  if echo "$SANITIZED_COMMAND" | grep -qE "$CD_PUSHD_RE"; then
+    LEASE_CD_BLOCK=1
+    return 1
+  fi
   dir=$(guard_session_dir) || return 1
   branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2> /dev/null) || return 1
   case "$branch" in
@@ -134,6 +141,7 @@ LEASE_STRIPPED_COMMAND=$(echo "$SANITIZED_COMMAND" | sed -E 's/--force-with-leas
 if echo "$SANITIZED_COMMAND" | grep -qE "$FORCE_PATTERN"; then
   if echo "$LEASE_STRIPPED_COMMAND" | grep -qE "$FORCE_PATTERN" || ! guard_force_with_lease_allowed; then
     echo "BLOCKED: --force push can overwrite remote history and bypass branch protections. Use normal push." >&2
+    [ -n "${LEASE_CD_BLOCK:-}" ] && echo "Con 'cd' en el mismo comando la excepción de --force-with-lease no aplica; haz el cd en una llamada previa." >&2
     exit 2
   fi
 fi

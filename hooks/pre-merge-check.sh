@@ -60,7 +60,7 @@ guard_init "pre-merge-check" " "
 
 # "perl falló en tiempo de ejecución" y "perl ausente" (chequeado arriba,
 # antes de leer stdin) son el mismo estado para este guard: bloquea. Los
-# otros dos guards que sanean (block-admin-merge.sh, pre-commit-guard.sh)
+# otros guards que sanean (block-admin-merge.sh y los de git)
 # toleran el fallback de guard_sanitize (comando sin sanear) porque solo
 # BLOQUEAN de más sobre texto crudo — la dirección segura. Este guard es
 # distinto: EXTRAE el número de PR del texto (abajo) para decidir A CUÁL

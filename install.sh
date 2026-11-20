@@ -158,11 +158,23 @@ echo "Materializando settings.json (deja de distribuirse: solo se migra el symli
 SETTINGS_DEST="$CLAUDE_DIR/settings.json"
 if [ -L "$SETTINGS_DEST" ]; then
   if is_symlink_into_repo "$SETTINGS_DEST"; then
-    TMP_SETTINGS="$(mktemp "$CLAUDE_DIR/settings.json.XXXXXX")"
-    cp -L "$SETTINGS_DEST" "$TMP_SETTINGS"
-    rm "$SETTINGS_DEST"
-    mv "$TMP_SETTINGS" "$SETTINGS_DEST"
-    echo "  MATERIALIZE: $SETTINGS_DEST (era symlink al repo, ahora archivo real desacoplado)"
+    if [ ! -e "$SETTINGS_DEST" ]; then
+      # Colgante: no hay contenido que materializar (cp -L abortaría bajo set -e
+      # y dejaría un temporal huérfano). Se deja tal cual, el usuario decide.
+      echo "  SKIP: $SETTINGS_DEST es un symlink colgante al repo (su target no existe), no hay nada que materializar; bórralo si ya no lo necesitas"
+    else
+      TMP_SETTINGS="$(mktemp "$CLAUDE_DIR/settings.json.XXXXXX")"
+      # Un cp -L fallido (p. ej. target ilegible) no debe abortar ni dejar el
+      # temporal: se limpia y el symlink queda intacto.
+      if cp -L "$SETTINGS_DEST" "$TMP_SETTINGS"; then
+        rm "$SETTINGS_DEST"
+        mv "$TMP_SETTINGS" "$SETTINGS_DEST"
+        echo "  MATERIALIZE: $SETTINGS_DEST (era symlink al repo, ahora archivo real desacoplado)"
+      else
+        rm -f "$TMP_SETTINGS"
+        echo "  SKIP: no se pudo leer el target de $SETTINGS_DEST (permisos), se deja el symlink tal cual"
+      fi
+    fi
   else
     echo "  SKIP: $SETTINGS_DEST es symlink a otra ubicación, no se toca"
   fi

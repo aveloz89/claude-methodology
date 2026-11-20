@@ -28,7 +28,7 @@ El dev actualiza `.planning/state.json` (`tasks_done` y `current_task` de **su**
 > 1. Parar de implementar nuevas tareas
 > 2. Si hay código a medio escribir, commitearlo con prefijo `wip:`
 > 3. Escribir `.planning/HANDOFF.md` con: tarea en curso, qué falta, decisiones tomadas
-> 4. **Push del branch** — la única excepción a "el dev no pushea" que no es un fix de CI (inventario completo en `dev-common.md`): sin push, el HANDOFF y los commits parciales viven solo en el working tree local
+> 4. **Push del branch** — la única excepción a "el dev no pushea" que no es un fix de CI (inventario completo en `dev-common.md`): sin push, el HANDOFF y los commits parciales viven solo en el working tree local. Ese push corre la suite (`pre-push-guard`); si bloquea, no lo esquives: deja los commits locales, anótalo en `HANDOFF.md` y repórtalo
 > 5. Reportar: `BUDGET LIMIT — N de M tareas completadas, ver HANDOFF.md`
 
 El fallback es frágil (requiere que el agente monitoree su propio progreso) pero garantiza salida ordenada en vez de corte abrupto.

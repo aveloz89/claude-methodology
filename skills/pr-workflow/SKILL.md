@@ -75,7 +75,7 @@ El agente `docs` se invoca **después del último lote y ANTES del push + PR** (
 
 ### 3.2 Un push por ronda de review post-PR, nunca por fix
 
-Las rondas pre-PR (Fase 2.6) **no pushean nada**: los fixes viajan en el push inicial. Post-PR (re-reviews de Fase 3, reviews sobre PR existente): al cerrar una ronda, consolidar en un **solo push** los fixes de todos los reviewers + sugerencias auto-aplicadas. Nunca pushear fix por fix — el orchestrator acumula y pushea una vez que la ronda está completa.
+Las rondas pre-PR (Fase 2.6) **no pushean nada**: los fixes viajan en el push inicial. Post-PR (re-reviews de Fase 3, reviews sobre PR existente): al cerrar una ronda, consolidar en un **solo push** los fixes de todos los reviewers + sugerencias auto-aplicadas. Nunca pushear fix por fix — el orchestrator acumula y pushea una vez que la ronda está completa. Cada push cuesta además una corrida local de la suite (`pre-push-guard`); un re-push del mismo estado no la repite, y el push va en su propia llamada Bash.
 
 ### 3.3 Reproducir localmente antes de re-push en ciclos de fix de CI
 
