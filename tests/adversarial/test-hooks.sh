@@ -2594,6 +2594,23 @@ else
 fi
 rm -f "$BUDGET_571_STDERR"
 
+# Ceros a la izquierda: se normalizan a base 10 (en `$(( ))` "0540" sería
+# octal = 352 y "08" un error de aritmética que apaga el corte por tiempo).
+TOTAL=$((TOTAL + 1))
+BUDGET_OCT_STDERR=$(mktemp)
+BUDGET_OCT_OUT=$(PRECOMMIT_TEST_BUDGET=0540 _guard_resolve_test_budget 2>"$BUDGET_OCT_STDERR")
+BUDGET_OCT_ARITH=$(bash -c 'echo $(( $1 / 1 ))' _ "$BUDGET_OCT_OUT" 2>/dev/null || echo error)
+BUDGET_OCT8_OUT=$(PRECOMMIT_TEST_BUDGET=08 _guard_resolve_test_budget 2>/dev/null)
+BUDGET_OCT8_ARITH=$(bash -c 'echo $(( $1 / 1 ))' _ "$BUDGET_OCT8_OUT" 2>/dev/null || echo error)
+if [ "$BUDGET_OCT_OUT" = "540" ] && [ "$BUDGET_OCT_ARITH" = "540" ] && [ "$BUDGET_OCT8_OUT" = "8" ] && [ "$BUDGET_OCT8_ARITH" = "8" ] && [ ! -s "$BUDGET_OCT_STDERR" ]; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET con ceros a la izquierda (0540, 08) se normaliza a base 10"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET con ceros a la izquierda (0540, 08) se normaliza a base 10 (0540 -> \"$BUDGET_OCT_OUT\" / \"$BUDGET_OCT_ARITH\", 08 -> \"$BUDGET_OCT8_OUT\" / \"$BUDGET_OCT8_ARITH\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_OCT_STDERR"
+
 TOTAL=$((TOTAL + 1))
 BUDGET_VALID_STDERR=$(mktemp)
 BUDGET_VALID_OUT=$(PRECOMMIT_TEST_BUDGET=30 _guard_resolve_test_budget 2>"$BUDGET_VALID_STDERR")

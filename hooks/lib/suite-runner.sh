@@ -237,8 +237,10 @@ _guard_resolve_test_budget() {
     echo 540
     return 0
   fi
-  if [[ "$raw" =~ ^[0-9]+$ ]] && [ "$raw" -le 570 ]; then
-    echo "$raw"
+  # 10# fuerza base 10: con ceros a la izquierda ("0540", "08") un consumidor
+  # aritmético lo leería como octal (352) o fallaría.
+  if [[ "$raw" =~ ^[0-9]+$ ]] && [ "$((10#$raw))" -le 570 ]; then
+    echo "$((10#$raw))"
     return 0
   fi
   echo "PRECOMMIT_TEST_BUDGET=\"$raw\" inválido (debe ser un entero <= 570); usando el default 540." >&2
