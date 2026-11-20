@@ -14,19 +14,78 @@ if ! echo "$COMMAND" | grep -qE '^\s*git\s+push|gh\s+pr\s+create'; then
   exit 0
 fi
 
-# Check if docker-compose exists
-if [ ! -f "docker-compose.yml" ] && [ ! -f "compose.yml" ]; then
+# Árbol de la sesión: ".cwd" del payload si viene no vacío (en una sesión de
+# worktree el proceso corre en el checkout principal y ".cwd" es el worktree),
+# el cwd del proceso si no (misma regla que post-pr-create, vía
+# guard_session_dir). Un ".cwd" que no es directorio, o una lib ausente, deja
+# el aviso sin emitir con el motivo en stderr — nunca se cae al árbol del
+# proceso. El valor de ".cwd" no se interpola en ningún mensaje.
+LIB_GM="${0%/*}/lib/guard-matching.sh"
+# shellcheck source=lib/guard-matching.sh
+[ -r "$LIB_GM" ] && . "$LIB_GM"
+if ! type guard_session_dir > /dev/null 2>&1; then
+  echo "docker-refresh: sin aviso de Docker: no se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh falta o no define guard_session_dir)" >&2
+  exit 0
+fi
+# shellcheck disable=SC2034 # la lee guard_session_dir (lib sourceada arriba)
+INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+if ! SESSION_DIR=$(guard_session_dir 2>/dev/null) || [ -z "$SESSION_DIR" ]; then
+  echo "docker-refresh: sin aviso de Docker: no se pudo resolver el árbol de la sesión (el .cwd del payload no es un directorio)" >&2
+  exit 0
+fi
+cd "$SESSION_DIR" || exit 0
+
+# ROOT: toplevel de git de la sesión; sin repo, el dir donde se encontró el
+# compose. Se calcula sin GIT_DIR/GIT_WORK_TREE del entorno (apuntarían a otro
+# repo y moverían el corte de la búsqueda y la regla de hot reload).
+# "docker compose" sube por los directorios padres buscando el compose: se
+# replica la búsqueda desde el dir de la sesión hasta ROOT (incluido); corta
+# también si el dir de búsqueda deja de tener a ROOT como prefijo. Sin repo
+# solo cuenta el dir de la sesión. El compose corre en el dir donde se encontró.
+SESSION_PHYS=$(pwd -P)
+ROOT=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$SESSION_PHYS" rev-parse --show-toplevel 2>/dev/null)
+COMPOSE_DIR=""
+SEARCH_DIR="$SESSION_PHYS"
+while :; do
+  for NAME in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+    if [ -f "$SEARCH_DIR/$NAME" ]; then
+      COMPOSE_DIR="$SEARCH_DIR"
+      break 2
+    fi
+  done
+  # Corte: sin repo, al llegar a ROOT, o si el siguiente dir saldría de ROOT.
+  [ -n "$ROOT" ] && [ "$SEARCH_DIR" != "$ROOT" ] || break
+  SEARCH_DIR="${SEARCH_DIR%/*}"
+  [ "$SEARCH_DIR" = "$ROOT" ] || [ "${SEARCH_DIR#"$ROOT"/}" != "$SEARCH_DIR" ] || break
+done
+if [ -z "$COMPOSE_DIR" ]; then
+  exit 0
+fi
+cd "$COMPOSE_DIR" || exit 0
+[ -n "$ROOT" ] || ROOT="$COMPOSE_DIR"
+
+# Compose config una sola vez, como JSON con los paths ya normalizados a
+# absolutos (".", "..", "${PWD}" resueltos por compose): de ahí salen los
+# servicios y los binds, sin depender de flags de la versión de compose.
+COMPOSE_JSON=$(docker compose config --format json 2>/dev/null)
+# Una sola invocación de jq lista "<hot 0/1> <servicio>" por servicio: hot = algún
+# bind cuyo source (absoluto) es ROOT o cae dentro de él, ordenados por nombre.
+# Un volumen que no es objeto o un bind sin source cuentan como no-hot y no
+# cortan la salida de los demás. Los nombres de servicio de compose no llevan espacios.
+# Límites aceptados: sin repo git ROOT es el dir del compose, así que un bind a
+# ".." no cuenta; y un bind escrito con una ruta que pasa por un symlink no se
+# compara contra la ruta física de ROOT.
+SERVICE_FLAGS=$(echo "$COMPOSE_JSON" | jq -r --arg root "$ROOT" '
+  .services // {} | to_entries | sort_by(.key)[] |
+  "\([.value.volumes[]? | objects | select(.type == "bind" and (((.source | strings) // "") | . == $root or startswith($root + "/")))] | length | if . > 0 then 1 else 0 end) \(.key)"
+' 2>/dev/null)
+if [ -z "$SERVICE_FLAGS" ]; then
   exit 0
 fi
 
-# Get services
-SERVICES=$(docker compose config --services 2>/dev/null)
-if [ -z "$SERVICES" ]; then
-  exit 0
-fi
-
-# Check what files changed in the last commit
-CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+# Check what files changed in the last commit, en el repo de la sesión (ROOT) y
+# sin GIT_DIR/GIT_WORK_TREE heredados, que apuntarían a otro repo.
+CHANGED_FILES=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$ROOT" diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
 
 # Detect if dependency/infra files changed (needs full rebuild)
 REBUILD_NEEDED=false
@@ -34,24 +93,12 @@ if echo "$CHANGED_FILES" | grep -qiE '(package\.json|pnpm-lock\.yaml|yarn\.lock|
   REBUILD_NEEDED=true
 fi
 
-# Get compose config as JSON for volume analysis
-COMPOSE_JSON=$(docker compose config --format json 2>/dev/null)
-
 OUTPUT=""
 ACTIONS_NEEDED=false
 
-for SERVICE in $SERVICES; do
+while read -r HOT SERVICE; do
   HAS_HOT_RELOAD=false
-
-  if [ -n "$COMPOSE_JSON" ]; then
-    # Bind mount volumes = local code mounted into container = hot reload likely
-    BIND_COUNT=$(echo "$COMPOSE_JSON" | jq -r --arg svc "$SERVICE" '
-      .services[$svc].volumes // [] |
-      map(select(.type == "bind" and (.source | test("^\\./|^\\.\\./"))))  |
-      length
-    ' 2>/dev/null)
-    [ "$BIND_COUNT" != "0" ] && [ -n "$BIND_COUNT" ] && HAS_HOT_RELOAD=true
-  fi
+  [ "$HOT" = "1" ] && HAS_HOT_RELOAD=true
 
   if $REBUILD_NEEDED; then
     OUTPUT="${OUTPUT}\n  - ${SERVICE}: rebuild necesario (dependencia o Dockerfile cambió) → docker compose up -d --build ${SERVICE}"
@@ -62,7 +109,7 @@ for SERVICE in $SERVICES; do
   else
     OUTPUT="${OUTPUT}\n  - ${SERVICE}: hot reload activo — no requiere acción"
   fi
-done
+done <<< "$SERVICE_FLAGS"
 
 if $ACTIONS_NEEDED; then
   echo ""

@@ -70,9 +70,31 @@ version_gt() {
     [ "$a3" -gt "$b3" ] 2>/dev/null && return 0
     return 1
 }
+# La salida final pasa por printf "%b" (los colores son secuencias \033
+# literales): todo dato no confiable que se interpola en $out (modelo, cwd,
+# rama, tag) se escapa antes, para que un "\c" o "\033[..." en un nombre se
+# imprima literal en vez de interpretarse. También se eliminan los bytes de
+# control (C0 0x00-0x1f, DEL 0x7f y C1 U+0080-U+009F en UTF-8, p. ej. CSI
+# \xc2\x9b): ni un ESC ni un CSI literal en un nombre deben llegar a la
+# terminal. Bash puro (sin subshell ni tr), con locale C local para que los
+# rangos sean de bytes; compatible con bash 3.2. Tras quitar los C1 puede
+# quedar un \xc2 pegado a un \x80-\x9f nuevo, así que se repite hasta estabilizar.
+# Límite aceptado: un byte C1 suelto de 8 bits (\x9b, no UTF-8) no se filtra: es
+# indistinguible de un byte de continuación de UTF-8.
+escape_b() {
+    local LC_ALL=C clean="$1" prev=""
+    clean="${clean//[$'\001'-$'\037'$'\177']/}"
+    while [ "$clean" != "$prev" ]; do
+        prev="$clean"
+        clean="${clean//$'\302'[$'\200'-$'\237']/}"
+    done
+    printf '%s' "${clean//\\/\\\\}"
+}
+
 # ===== Extract data from JSON =====
 model_name=$(echo "$input" | jq -r '.model.display_name // "Claude"')
 model_name=$(echo "$model_name" | sed 's/ *(\([0-9.]*[kKmM]*\) context)/ \1/')  # "(1M context)" → "1M"
+model_name=$(escape_b "$model_name")
 
 # Context window
 size=$(echo "$input" | jq -r '.context_window.context_window_size // 200000')
@@ -109,9 +131,35 @@ elif [ -f "$settings_path" ]; then
     [ -n "$effort_val" ] && effort_level="$effort_val"
 fi
 [ -z "$effort_level" ] && effort_level="medium"
+effort_level=$(escape_b "$effort_level")
 
 # ===== Claude CLI version (cached, 1h TTL) =====
-cli_version_cache="/tmp/claude/statusline-cli-version"
+# Cachés en un directorio propio del usuario bajo TMPDIR (modo 700). Si ya
+# existe y no es un directorio real del usuario (p. ej. un symlink plantado en
+# un /tmp compartido), no se usa: se degrada a un directorio efímero, o sea sin
+# caché entre ejecuciones, sin error. Es el único punto que prepara el
+# directorio: los usos posteriores no lo recrean (un mkdir -p tardío saltaría
+# la validación y el modo 700); si desaparece a mitad de ejecución, las
+# escrituras fallan en silencio y se degrada a sin caché.
+# Límites aceptados: otra cuenta puede inutilizar la caché por usuario en un
+# /tmp compartido (p. ej. creando antes ese nombre): se degrada a sin caché, sin
+# lectura ni escritura cruzada.
+# cache_write <archivo>: copia stdin al archivo de caché; si no se puede escribir
+# (dir ausente o /dev/null/...) falla en silencio: sin caché, sin ruido en stderr.
+cache_write() { cat > "$1"; } 2>/dev/null
+cache_dir="${TMPDIR:-/tmp}/claude-statusline-$UID"
+if [ ! -e "$cache_dir" ] && [ ! -L "$cache_dir" ]; then
+    mkdir -m 700 "$cache_dir" 2>/dev/null
+fi
+if [ -L "$cache_dir" ] || [ ! -d "$cache_dir" ] || [ ! -O "$cache_dir" ]; then
+    if cache_tmp=$(mktemp -d "${TMPDIR:-/tmp}/claude-statusline.XXXXXX" 2>/dev/null); then
+        cache_dir="$cache_tmp"
+        trap 'rm -rf "$cache_tmp"' EXIT
+    else
+        cache_dir="/dev/null/claude-statusline"
+    fi
+fi
+cli_version_cache="$cache_dir/statusline-cli-version"
 cli_version=""
 cli_version_max_age=3600
 
@@ -127,10 +175,10 @@ fi
 if [ -z "$cli_version" ]; then
     cli_version=$(claude --version 2>/dev/null | awk '{print $1}')
     if [ -n "$cli_version" ]; then
-        mkdir -p /tmp/claude 2>/dev/null
-        echo "$cli_version" > "$cli_version_cache"
+        echo "$cli_version" | cache_write "$cli_version_cache"
     fi
 fi
+cli_version=$(escape_b "$cli_version")
 
 # ===== Build single-line output =====
 out=""
@@ -139,8 +187,8 @@ out+="${blue}${model_name}${reset}"
 # Current working directory
 cwd=$(echo "$input" | jq -r '.cwd // empty')
 if [ -n "$cwd" ]; then
-    display_dir="${cwd##*/}"
-    git_branch=$(git -C "${cwd}" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    display_dir=$(escape_b "${cwd##*/}")
+    git_branch=$(escape_b "$(git -C "${cwd}" rev-parse --abbrev-ref HEAD 2>/dev/null)")
     out+=" ${dim}|${reset} "
     out+="${cyan}${display_dir}${reset}"
     if [ -n "$git_branch" ]; then
@@ -235,9 +283,8 @@ fi
 # Cache setup — shared across all Claude Code instances to avoid rate limits
 claude_config_dir_hash=$(echo -n "$claude_config_dir" | shasum -a 256 2>/dev/null || echo -n "$claude_config_dir" | sha256sum 2>/dev/null)
 claude_config_dir_hash=$(echo "$claude_config_dir_hash" | cut -c1-8)
-cache_file="/tmp/claude/statusline-usage-cache-${claude_config_dir_hash}.json"
+cache_file="$cache_dir/statusline-usage-cache-${claude_config_dir_hash}.json"
 cache_max_age=60  # seconds between API calls
-mkdir -p /tmp/claude
 
 needs_refresh=true
 usage_data=""
@@ -277,7 +324,7 @@ fi
 # extra_usage is only exposed through the OAuth usage endpoint (not stdin JSON).
 # Throttled to cache_max_age and stampede-locked via touch for shared panes.
 if $needs_refresh; then
-    touch "$cache_file"  # stampede lock: prevent parallel panes from fetching simultaneously
+    touch "$cache_file" 2>/dev/null  # stampede lock: prevent parallel panes from fetching simultaneously
     token=$(get_oauth_token)
     if [ -n "$token" ] && [ "$token" != "null" ]; then
         response=$(curl -s --max-time 10 \
@@ -290,7 +337,7 @@ if $needs_refresh; then
         # Only cache valid usage responses (not error/rate-limit JSON)
         if [ -n "$response" ] && echo "$response" | jq -e '.five_hour' >/dev/null 2>&1; then
             usage_data="$response"
-            echo "$response" > "$cache_file"
+            echo "$response" | cache_write "$cache_file"
         fi
     fi
     # Remove the stampede sentinel if the fetch failed to produce valid JSON —
@@ -440,7 +487,7 @@ if $effective_builtin; then
     printf '{"five_hour":{"utilization":%s,"resets_at":%s},"seven_day":{"utilization":%s,"resets_at":%s},"extra_usage":%s}' \
         "${builtin_five_hour_pct:-0}" "$_fh_reset_json" \
         "${builtin_seven_day_pct:-0}" "$_sd_reset_json" \
-        "$_extra_json" > "$cache_file" 2>/dev/null
+        "$_extra_json" | cache_write "$cache_file"
 elif [ -n "$usage_data" ] && echo "$usage_data" | jq -e '.five_hour' >/dev/null 2>&1; then
     # ---- Fall back: API-fetched usage data ----
     # ---- 5-hour (current) ----
@@ -472,7 +519,7 @@ fi
 # Set STATUSLINE_CHECK_UPDATES=false to disable the update check (no network calls).
 update_line=""
 if [ "${STATUSLINE_CHECK_UPDATES:-true}" != "false" ]; then
-    version_cache_file="/tmp/claude/statusline-version-cache.json"
+    version_cache_file="$cache_dir/statusline-version-cache.json"
     version_cache_max_age=86400  # 24 hours
 
     version_needs_refresh=true
@@ -495,7 +542,7 @@ if [ "${STATUSLINE_CHECK_UPDATES:-true}" != "false" ]; then
             "https://api.github.com/repos/daniel3303/ClaudeCodeStatusLine/releases/latest" 2>/dev/null)
         if [ -n "$vc_response" ] && echo "$vc_response" | jq -e '.tag_name' >/dev/null 2>&1; then
             version_data="$vc_response"
-            echo "$vc_response" > "$version_cache_file"
+            echo "$vc_response" | cache_write "$version_cache_file"
         elif [ ! -s "$version_cache_file" ]; then
             rm -f "$version_cache_file" 2>/dev/null
         fi
@@ -504,7 +551,7 @@ if [ "${STATUSLINE_CHECK_UPDATES:-true}" != "false" ]; then
     if [ -n "$version_data" ]; then
         latest_tag=$(echo "$version_data" | jq -r '.tag_name // empty')
         if [ -n "$latest_tag" ] && version_gt "$latest_tag" "$VERSION"; then
-            update_line="\n${dim}Update available: ${latest_tag} → Tell Claude: \"Find my installed status bar and update it\"${reset}"
+            update_line="\n${dim}Update available: $(escape_b "$latest_tag") → Tell Claude: \"Find my installed status bar and update it\"${reset}"
         fi
     fi
 fi

@@ -237,9 +237,17 @@ _guard_resolve_test_budget() {
     echo 540
     return 0
   fi
-  if [[ "$raw" =~ ^[0-9]+$ ]] && [ "$raw" -le 570 ]; then
-    echo "$raw"
-    return 0
+  # Se quitan los ceros a la izquierda ("0540" sería octal en `$(( ))`, "08"
+  # un error) y se rechaza lo de más de 4 dígitos significativos ANTES de
+  # cualquier aritmética: con cadenas largas `$((10#...))` desborda 64 bits
+  # y da negativos que pasarían el "-le 570".
+  if [[ "$raw" =~ ^[0-9]+$ ]]; then
+    local sig="${raw#"${raw%%[!0]*}"}"
+    : "${sig:=0}"
+    if [ "${#sig}" -le 4 ] && [ "$sig" -le 570 ]; then
+      echo "$sig"
+      return 0
+    fi
   fi
   echo "PRECOMMIT_TEST_BUDGET=\"$raw\" inválido (debe ser un entero <= 570); usando el default 540." >&2
   echo 540

@@ -2594,6 +2594,59 @@ else
 fi
 rm -f "$BUDGET_571_STDERR"
 
+# Ceros a la izquierda: se normalizan a base 10 (en `$(( ))` "0540" sería
+# octal = 352 y "08" un error de aritmética que apaga el corte por tiempo).
+TOTAL=$((TOTAL + 1))
+BUDGET_OCT_STDERR=$(mktemp)
+BUDGET_OCT_OUT=$(PRECOMMIT_TEST_BUDGET=0540 _guard_resolve_test_budget 2>"$BUDGET_OCT_STDERR")
+BUDGET_OCT_ARITH=$(bash -c 'echo $(( $1 / 1 ))' _ "$BUDGET_OCT_OUT" 2>/dev/null || echo error)
+BUDGET_OCT8_OUT=$(PRECOMMIT_TEST_BUDGET=08 _guard_resolve_test_budget 2>/dev/null)
+BUDGET_OCT8_ARITH=$(bash -c 'echo $(( $1 / 1 ))' _ "$BUDGET_OCT8_OUT" 2>/dev/null || echo error)
+if [ "$BUDGET_OCT_OUT" = "540" ] && [ "$BUDGET_OCT_ARITH" = "540" ] && [ "$BUDGET_OCT8_OUT" = "8" ] && [ "$BUDGET_OCT8_ARITH" = "8" ] && [ ! -s "$BUDGET_OCT_STDERR" ]; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET con ceros a la izquierda (0540, 08) se normaliza a base 10"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET con ceros a la izquierda (0540, 08) se normaliza a base 10 (0540 -> \"$BUDGET_OCT_OUT\" / \"$BUDGET_OCT_ARITH\", 08 -> \"$BUDGET_OCT8_OUT\" / \"$BUDGET_OCT8_ARITH\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_OCT_STDERR"
+
+# Cadenas largas: $((10#...)) desborda en 64 bits (18446744073709551000 -> -616,
+# que pasaría el "-le 570"). Más de 4 dígitos significativos se rechaza antes
+# de cualquier aritmética; los ceros a la izquierda no cuentan; "0" se respeta.
+for BUDGET_LONG in 18446744073709551000 9223372036854775808 00000000000000000000123; do
+  TOTAL=$((TOTAL + 1))
+  BUDGET_LONG_STDERR=$(mktemp)
+  BUDGET_LONG_OUT=$(PRECOMMIT_TEST_BUDGET=$BUDGET_LONG _guard_resolve_test_budget 2>"$BUDGET_LONG_STDERR")
+  BUDGET_LONG_WANT=540; BUDGET_LONG_WARN=1
+  case "$BUDGET_LONG" in 0*) BUDGET_LONG_WANT=123; BUDGET_LONG_WARN=0 ;; esac
+  BUDGET_LONG_STDERR_OK=1
+  if [ "$BUDGET_LONG_WARN" -eq 0 ]; then
+    [ ! -s "$BUDGET_LONG_STDERR" ] && BUDGET_LONG_STDERR_OK=0
+  else
+    grep -qF "inválido" "$BUDGET_LONG_STDERR" && BUDGET_LONG_STDERR_OK=0
+  fi
+  if [ "$BUDGET_LONG_OUT" = "$BUDGET_LONG_WANT" ] && [ "$BUDGET_LONG_STDERR_OK" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=$BUDGET_LONG sin desbordar (-> $BUDGET_LONG_WANT)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=$BUDGET_LONG sin desbordar (salida: \"$BUDGET_LONG_OUT\", stderr: \"$(cat "$BUDGET_LONG_STDERR")\")"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$BUDGET_LONG_STDERR"
+done
+TOTAL=$((TOTAL + 1))
+BUDGET_ZERO_STDERR=$(mktemp)
+BUDGET_ZERO_OUT=$(PRECOMMIT_TEST_BUDGET=0 _guard_resolve_test_budget 2>"$BUDGET_ZERO_STDERR")
+if [ "$BUDGET_ZERO_OUT" = "0" ] && [ ! -s "$BUDGET_ZERO_STDERR" ]; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=0 se respeta como hoy"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=0 se respeta como hoy (salida: \"$BUDGET_ZERO_OUT\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_ZERO_STDERR"
+
 TOTAL=$((TOTAL + 1))
 BUDGET_VALID_STDERR=$(mktemp)
 BUDGET_VALID_OUT=$(PRECOMMIT_TEST_BUDGET=30 _guard_resolve_test_budget 2>"$BUDGET_VALID_STDERR")
@@ -8986,6 +9039,312 @@ fi
 
 rm -rf "$GITIGNORE_TEST_DIR"
 
+echo ""
+# --- docker-refresh.sh: hot reload por bind mounts absolutos, .yaml y .cwd ---
+echo "--- docker-refresh.sh ---"
+
+# docker falso en PATH: "config --format json" imprime el fixture de
+# $DR_FAKE_JSON (con los .source ABSOLUTOS, como los normaliza compose), anota
+# su cwd en $DR_PWD_LOG y suma una línea a $DR_CALL_LOG por invocación; cualquier
+# otro subcomando no imprime nada. La suite no depende de docker.
+DR_FAKE_BIN=$(mktemp -d)
+cat > "$DR_FAKE_BIN/docker" <<'DRFAKE'
+#!/bin/bash
+case "$*" in
+  *"--format json"*) pwd > "$DR_PWD_LOG"; echo "$*" >> "$DR_CALL_LOG"; cat "$DR_FAKE_JSON" ;;
+esac
+exit 0
+DRFAKE
+chmod +x "$DR_FAKE_BIN/docker"
+DR_PUSH_JSON='{"tool_input":{"command":"git push origin feature/x"}}'
+DR_FIXTURE=$(mktemp)
+DR_PWD_LOG=$(mktemp)
+DR_CALL_LOG=$(mktemp)
+
+# dr_run <cwd del proceso> <payload>: stdout del hook; stderr en $DR_STDERR.
+DR_STDERR=$(mktemp)
+dr_run() {
+  (cd "$1" && printf '%s' "$2" | DR_FAKE_JSON="$DR_FIXTURE" DR_PWD_LOG="$DR_PWD_LOG" DR_CALL_LOG="$DR_CALL_LOG" PATH="$DR_FAKE_BIN:$PATH" bash "$HOOKS_DIR/docker-refresh.sh" 2>"$DR_STDERR")
+}
+dr_report() { # <nombre> <ok 0/1> <detalle>
+  TOTAL=$((TOTAL + 1))
+  if [ "$2" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC}: $1"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $1 ($3)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+dr_fixture_bind() { # <source absoluto>
+  printf '{"services":{"web":{"volumes":[{"type":"bind","source":"%s","target":"/app"}]}}}' "$1" > "$DR_FIXTURE"
+}
+DR_BINDS_OK() { dr_ok=1; echo "$DR_OUT" | grep -qF "Todos los servicios tienen hot reload" && ! echo "$DR_OUT" | grep -qF "docker compose restart" && dr_ok=0; return 0; }
+DR_BINDS_NO() { dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0; return 0; }
+
+sandbox_create
+: > "$SANDBOX_REPO/compose.yml"
+DR_PARENT=$(dirname "$SANDBOX_REPO")
+
+# Source == ROOT (".:/app" normalizado por compose) y dentro de ROOT: hot reload.
+for DR_SRC in "$SANDBOX_REPO" "$SANDBOX_REPO/src" "$SANDBOX_REPO/src/deep"; do
+  dr_fixture_bind "$DR_SRC"
+  DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON"); DR_BINDS_OK
+  dr_report "docker-refresh: bind absoluto '${DR_SRC#"$SANDBOX_REPO"}' dentro del repo cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
+done
+
+# Fuera de ROOT: ../otro, docker.sock y un hermano con prefijo común no cuentan.
+for DR_SRC in "$DR_PARENT/otro" "/var/run/docker.sock" "$SANDBOX_REPO-other/src"; do
+  dr_fixture_bind "$DR_SRC"
+  DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON"); DR_BINDS_NO
+  dr_report "docker-refresh: bind '${DR_SRC#"$DR_PARENT"}' fuera del repo no cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
+done
+
+# Monorepo: compose en un subdirectorio, "../shared" cae en la raíz del repo.
+mkdir -p "$SANDBOX_REPO/svc"
+mv "$SANDBOX_REPO/compose.yml" "$SANDBOX_REPO/svc/compose.yml"
+dr_fixture_bind "$SANDBOX_REPO/shared"
+DR_OUT=$(dr_run "$SANDBOX_REPO/svc" "$DR_PUSH_JSON"); DR_BINDS_OK
+dr_report "docker-refresh: monorepo: ../shared dentro del repo cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
+mv "$SANDBOX_REPO/svc/compose.yml" "$SANDBOX_REPO/compose.yml"
+
+# Una sola invocación de compose config por ejecución.
+dr_fixture_bind "$SANDBOX_REPO/src"
+: > "$DR_CALL_LOG"
+DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
+dr_ok=1; [ "$(wc -l < "$DR_CALL_LOG" | tr -d ' ')" = "1" ] && ! grep -qF -e "--no-path-resolution" "$DR_CALL_LOG" && dr_ok=0
+dr_report "docker-refresh: invoca compose config una sola vez y sin --no-path-resolution" "$dr_ok" "llamadas: $(cat "$DR_CALL_LOG")"
+
+# GIT_DIR/GIT_WORK_TREE de otro repo en el entorno no cambian ROOT. Escenario:
+# la sesión está en un repo con compose cuyo bind "." (source == ROOT) debe contar
+# como hot reload; el repo ajeno (sin compose) es el de GIT_DIR. Con un ROOT
+# equivocado (el ajeno) el bind cae fuera de ROOT y sale "restart".
+DR_OUTER=$(mktemp -d); DR_OUTER=$(cd "$DR_OUTER" && pwd -P)
+mkdir -p "$DR_OUTER/session" "$DR_OUTER/foreign"
+git -C "$DR_OUTER/session" init -q 2>/dev/null
+git -C "$DR_OUTER/foreign" init -q 2>/dev/null
+: > "$DR_OUTER/session/compose.yml"
+dr_fixture_bind "$DR_OUTER/session"
+DR_OUT=$( (export GIT_DIR="$DR_OUTER/foreign/.git" GIT_WORK_TREE="$DR_OUTER/foreign"; dr_run "$DR_OUTER/session" "$DR_PUSH_JSON") )
+DR_BINDS_OK
+dr_report "docker-refresh: GIT_DIR/GIT_WORK_TREE ajenos no cambian ROOT (bind '.' del repo de la sesión cuenta)" "$dr_ok" "salida: $DR_OUT"
+
+# CHANGED_FILES sale del repo de la sesión aunque GIT_DIR apunte a otro.
+dr_commit_pair() { # <repo> <archivo del segundo commit>
+  git -C "$1" -c user.email=t@t -c user.name=t commit -q --allow-empty -m base 2>/dev/null
+  : > "$1/$2"; git -C "$1" add "$2" 2>/dev/null
+  git -C "$1" -c user.email=t@t -c user.name=t commit -q -m second 2>/dev/null
+  # Sin los dos commits el diff HEAD~1..HEAD queda vacío y los casos pasarían en vacío.
+  if ! git -C "$1" rev-parse -q --verify HEAD~1 > /dev/null 2>&1; then
+    dr_report "docker-refresh: fixture GIT_DIR: $1 tiene los dos commits" 1 "rev-parse HEAD~1 falló"
+  fi
+}
+dr_commit_pair "$DR_OUTER/session" package.json
+dr_commit_pair "$DR_OUTER/foreign" notes.txt
+DR_OUT=$( (export GIT_DIR="$DR_OUTER/foreign/.git" GIT_WORK_TREE="$DR_OUTER/foreign"; dr_run "$DR_OUTER/session" "$DR_PUSH_JSON") )
+dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose up -d --build web" && dr_ok=0
+dr_report "docker-refresh: package.json del repo de la sesión dispara --build con GIT_DIR ajeno" "$dr_ok" "salida: $DR_OUT"
+rm -rf "$DR_OUTER/session/.git" "$DR_OUTER/foreign/.git"
+git -C "$DR_OUTER/session" init -q 2>/dev/null; git -C "$DR_OUTER/foreign" init -q 2>/dev/null
+dr_commit_pair "$DR_OUTER/session" notes.txt
+dr_commit_pair "$DR_OUTER/foreign" package.json
+DR_OUT=$( (export GIT_DIR="$DR_OUTER/foreign/.git" GIT_WORK_TREE="$DR_OUTER/foreign"; dr_run "$DR_OUTER/session" "$DR_PUSH_JSON") )
+dr_ok=1; echo "$DR_OUT" | grep -qF "Todos los servicios tienen hot reload" && ! echo "$DR_OUT" | grep -qF -e "--build" && dr_ok=0
+dr_report "docker-refresh: package.json de un repo ajeno (GIT_DIR) no dispara --build" "$dr_ok" "salida: $DR_OUT"
+rm -rf "$DR_OUTER"
+
+# Una sola invocación de jq para la regla de hot reload con 3 servicios, y cada
+# servicio con su propio veredicto. jq falso: registra las invocaciones con
+# "--arg root" (la regla) y delega en el real.
+DR_REAL_JQ=$(command -v jq)
+cat > "$DR_FAKE_BIN/jq" <<DRJQ
+#!/bin/bash
+case "\$*" in *"--arg root"*) echo x >> "\$DR_JQ_LOG" ;; esac
+exec "$DR_REAL_JQ" "\$@"
+DRJQ
+chmod +x "$DR_FAKE_BIN/jq"
+DR_JQ_LOG=$(mktemp)
+export DR_JQ_LOG
+printf '{"services":{"a":{"volumes":[{"type":"bind","source":"%s","target":"/x"}]},"b":{},"c":{"volumes":[{"type":"bind","source":"/var/run/docker.sock","target":"/s"}]}}}' "$SANDBOX_REPO/src" > "$DR_FIXTURE"
+DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
+dr_ok=1
+[ "$(wc -l < "$DR_JQ_LOG" | tr -d ' ')" = "1" ] \
+  && echo "$DR_OUT" | grep -qF "a: hot reload activo" \
+  && echo "$DR_OUT" | grep -qF "docker compose restart b" \
+  && echo "$DR_OUT" | grep -qF "docker compose restart c" && dr_ok=0
+dr_report "docker-refresh: una sola invocación de jq para la regla con 3 servicios y veredicto por servicio" "$dr_ok" "jq: $(wc -l < "$DR_JQ_LOG" | tr -d ' ') llamadas, salida: $DR_OUT"
+rm -f "$DR_FAKE_BIN/jq" "$DR_JQ_LOG"; unset DR_JQ_LOG
+dr_fixture_bind "$SANDBOX_REPO/src"
+
+# Entradas raras no cortan la salida de los demás servicios: un volumen string y un
+# bind sin source conviven con servicios válidos. Compose declarado en orden
+# inverso: la salida sale en orden alfabético.
+printf '{"services":{"z":{"volumes":[{"type":"bind","source":"%s","target":"/x"}]},"y":{"volumes":["solo-string",{"type":"bind","target":"/t"}]},"b":{"volumes":[{"type":"bind","source":"%s","target":"/x"}]},"a":{}}}' "$SANDBOX_REPO/src" "$SANDBOX_REPO/src" > "$DR_FIXTURE"
+DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
+DR_ORDER=$(echo "$DR_OUT" | grep -oE -e '- (a|b|y|z):' | tr -d '\n')
+dr_ok=1
+echo "$DR_OUT" | grep -qF "z: hot reload activo" \
+  && echo "$DR_OUT" | grep -qF "b: hot reload activo" \
+  && echo "$DR_OUT" | grep -qF "docker compose restart y" \
+  && echo "$DR_OUT" | grep -qF "docker compose restart a" \
+  && [ "$DR_ORDER" = "- a:- b:- y:- z:" ] && dr_ok=0
+dr_report "docker-refresh: volumen string o bind sin source no cortan a los demás servicios y salen en orden alfabético" "$dr_ok" "orden: $DR_ORDER, salida: $DR_OUT"
+dr_fixture_bind "$SANDBOX_REPO/src"
+
+
+# compose.yaml / docker-compose.yaml se reconocen.
+printf '{"services":{"web":{}}}' > "$DR_FIXTURE"
+for DR_NAME in compose.yaml docker-compose.yaml; do
+  rm -f "$SANDBOX_REPO"/compose.y*ml "$SANDBOX_REPO"/docker-compose.y*ml
+  : > "$SANDBOX_REPO/$DR_NAME"
+  DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
+  dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0
+  dr_report "docker-refresh: reconoce $DR_NAME" "$dr_ok" "salida: $DR_OUT"
+done
+
+# Compose en la raíz del repo, sesión en un subdirectorio: compose sube por los
+# padres hasta el toplevel de git y corre en el dir donde lo encontró.
+rm -f "$SANDBOX_REPO"/compose.y*ml "$SANDBOX_REPO"/docker-compose.y*ml
+: > "$SANDBOX_REPO/compose.yml"
+mkdir -p "$SANDBOX_REPO/sub/deep"
+DR_OUT=$(dr_run "$SANDBOX_REPO/sub/deep" "$DR_PUSH_JSON")
+dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && [ "$(cat "$DR_PWD_LOG")" = "$(cd "$SANDBOX_REPO" && pwd -P)" -o "$(cat "$DR_PWD_LOG")" = "$SANDBOX_REPO" ] && dr_ok=0
+dr_report "docker-refresh: encuentra el compose en la raíz del repo desde un subdirectorio" "$dr_ok" "salida: $DR_OUT, pwd: $(cat "$DR_PWD_LOG")"
+# No sube más allá del toplevel de git: compose fuera del repo se ignora.
+DR_OUTER=$(mktemp -d); mkdir -p "$DR_OUTER/repo"; : > "$DR_OUTER/compose.yml"
+git -C "$DR_OUTER/repo" init -q 2>/dev/null
+DR_OUT=$(dr_run "$DR_OUTER/repo" "$DR_PUSH_JSON")
+dr_ok=1; [ -z "$DR_OUT" ] && dr_ok=0
+dr_report "docker-refresh: no busca compose por encima del toplevel de git" "$dr_ok" "salida: $DR_OUT"
+rm -rf "$DR_OUTER"
+
+# .cwd del payload manda sobre el cwd del proceso (sesión de worktree).
+DR_OUT=$(dr_run "$SANDBOX_HOME" "{\"tool_input\":{\"command\":\"git push\"},\"cwd\":\"$SANDBOX_REPO\"}")
+dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0
+dr_report "docker-refresh: resuelve el compose desde .cwd del payload, no del cwd del proceso" "$dr_ok" "salida: $DR_OUT"
+
+# .cwd que no es directorio: sin aviso y con motivo en stderr (sin interpolar el valor).
+DR_OUT=$(dr_run "$SANDBOX_REPO" '{"tool_input":{"command":"git push"},"cwd":"/no/existe/secreto"}')
+dr_ok=1; [ -z "$DR_OUT" ] && grep -qF "no es un directorio" "$DR_STDERR" && ! grep -qF "secreto" "$DR_STDERR" && dr_ok=0
+dr_report "docker-refresh: .cwd inválido no emite aviso y explica el motivo en stderr" "$dr_ok" "salida: $DR_OUT, stderr: $(cat "$DR_STDERR")"
+
+# Sin lib: degradación visible, sin aviso.
+DR_NOLIB=$(mktemp -d)
+cp "$HOOKS_DIR/docker-refresh.sh" "$DR_NOLIB/docker-refresh.sh"
+DR_OUT=$(cd "$SANDBOX_REPO" && printf '%s' "$DR_PUSH_JSON" | DR_FAKE_JSON="$DR_FIXTURE" DR_PWD_LOG="$DR_PWD_LOG" PATH="$DR_FAKE_BIN:$PATH" bash "$DR_NOLIB/docker-refresh.sh" 2>"$DR_STDERR")
+dr_ok=1; [ -z "$DR_OUT" ] && grep -qF "guard-matching.sh" "$DR_STDERR" && dr_ok=0
+dr_report "docker-refresh: sin hooks/lib/guard-matching.sh degrada con aviso en stderr" "$dr_ok" "salida: $DR_OUT, stderr: $(cat "$DR_STDERR")"
+
+sandbox_cleanup
+rm -rf "$DR_FAKE_BIN" "$DR_NOLIB" "$DR_FIXTURE" "$DR_STDERR" "$DR_PWD_LOG" "$DR_CALL_LOG"
+echo ""
+
+# --- statusline.sh: datos no confiables no pasan por la interpretación de escapes ---
+echo "--- statusline.sh ---"
+# HOME falso y red/credenciales neutralizadas (curl, security, claude,
+# secret-tool fallan): nunca toca el ~/.claude real ni la red.
+SL_HOME=$(mktemp -d)
+SL_BIN=$(mktemp -d)
+for SL_CMD in curl security claude secret-tool; do
+  printf '#!/bin/bash\nexit 1\n' > "$SL_BIN/$SL_CMD"
+  chmod +x "$SL_BIN/$SL_CMD"
+done
+# Cachés por usuario bajo TMPDIR: el sandbox es el TMPDIR, nunca toca /tmp real.
+SL_TMP="$SL_HOME/tmp"
+SL_CACHE="$SL_TMP/claude-statusline-$(id -u)"
+mkdir -p "$SL_TMP"
+mkdir -m 700 "$SL_CACHE"
+sl_run() { # <payload>: stdout del statusline con entorno aislado
+  printf '%s' "$1" | HOME="$SL_HOME" TMPDIR="${SL_RUN_TMP:-$SL_TMP}" STATUSLINE_CHECK_UPDATES=false PATH="${SL_RUN_BIN:-$SL_BIN}:$PATH" bash "$REPO_ROOT/statusline.sh" 2>/dev/null
+}
+sl_report() { # <nombre> <ok 0/1> <detalle>
+  TOTAL=$((TOTAL + 1))
+  if [ "$2" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC}: $1"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $1 ($3)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+mkdir -p "$SL_HOME/proj\\c"
+SL_PAYLOAD=$(jq -n --arg dir "$SL_HOME/proj\\c" '{model:{display_name:"Mod\\033[31mX"},cwd:$dir}')
+SL_OUT=$(sl_run "$SL_PAYLOAD")
+sl_ok=1; printf '%s' "$SL_OUT" | grep -qF 'proj\c' && printf '%s' "$SL_OUT" | grep -qF 'Mod\033[31mX' && sl_ok=0
+sl_report "statusline: backslashes en el basename del cwd y el nombre del modelo se imprimen literales" "$sl_ok" "salida: $(printf '%s' "$SL_OUT" | od -c | head -3)"
+
+# effort (rama *) y cli_version vienen de datos no confiables.
+SL_OUT=$(sl_run '{"model":{"display_name":"M"},"effort":{"level":"x\\cy"}}')
+sl_ok=1; printf '%s' "$SL_OUT" | grep -qF 'x\cy' && sl_ok=0
+sl_report "statusline: effort con backslash se imprime literal" "$sl_ok" "salida: $(printf '%s' "$SL_OUT" | od -c | head -3)"
+
+printf '%s' '1.0\033[31m' > "$SL_CACHE/statusline-cli-version"
+SL_OUT=$(sl_run '{"model":{"display_name":"M"}}')
+sl_ok=1; printf '%s' "$SL_OUT" | grep -qF 'v1.0\033[31m' && sl_ok=0
+sl_report "statusline: cli_version con escapes en la caché se imprime literal" "$sl_ok" "salida: $(printf '%s' "$SL_OUT" | od -c | head -3)"
+rm -f "$SL_CACHE/statusline-cli-version"
+
+# Bytes de control en el basename del cwd (ESC literal) no llegan a la salida.
+SL_ESC_DIR="$SL_HOME/pro$(printf '\033')[31mj"
+mkdir -p "$SL_ESC_DIR"
+SL_OUT=$(sl_run "$(jq -n --arg dir "$SL_ESC_DIR" '{model:{display_name:"M"},cwd:$dir}')")
+sl_ok=1; printf '%s' "$SL_OUT" | grep -qF 'pro[31mj' && ! printf '%s' "$SL_OUT" | grep -q "pro$(printf '\033')" && sl_ok=0
+sl_report "statusline: byte ESC en el basename del cwd se elimina" "$sl_ok" "salida: $(printf '%s' "$SL_OUT" | od -c | head -3)"
+
+# Controles C1 en UTF-8 (U+0080-U+009F, p. ej. CSI = \xc2\x9b) no llegan a la salida.
+SL_OUT=$(sl_run "$(jq -n --arg m "Mod$(printf '\xc2\x9b')31mX" '{model:{display_name:$m}}')")
+sl_ok=1; printf '%s' "$SL_OUT" | grep -qF 'Mod31mX' && ! printf '%s' "$SL_OUT" | LC_ALL=C grep -q "$(printf '\xc2\x9b')" && sl_ok=0
+sl_report "statusline: control C1 (CSI U+009B) en el nombre del modelo se elimina" "$sl_ok" "salida: $(printf '%s' "$SL_OUT" | od -c | head -3)"
+
+# Aislamiento: con un claude que responde, la caché de versión se crea en
+# <TMPDIR>/claude-statusline-<uid> (modo 700), no en el /tmp real.
+SL_OKBIN=$(mktemp -d)
+printf '#!/bin/bash\necho 7.7.7\n' > "$SL_OKBIN/claude"; chmod +x "$SL_OKBIN/claude"
+for SL_CMD in curl security secret-tool; do cp "$SL_BIN/$SL_CMD" "$SL_OKBIN/$SL_CMD"; done
+SL_T2="$SL_HOME/tmp2"; mkdir -p "$SL_T2"
+SL_RUN_TMP="$SL_T2" SL_RUN_BIN="$SL_OKBIN" sl_run '{"model":{"display_name":"M"}}' > /dev/null
+SL_D2="$SL_T2/claude-statusline-$(id -u)"
+sl_ok=1; [ -f "$SL_D2/statusline-cli-version" ] && [ "$(ls -ld "$SL_D2" | cut -c1-10)" = "drwx------" ] && sl_ok=0
+sl_report "statusline: las cachés van a <TMPDIR>/claude-statusline-<uid> con modo 700" "$sl_ok" "contenido: $(ls -la "$SL_T2" "$SL_D2" 2>&1 | tr '\n' ' ')"
+
+# Un dir de caché preexistente que es symlink: no se escribe a través de él y la salida sigue.
+SL_T3="$SL_HOME/tmp3"; SL_TARGET="$SL_HOME/target"; mkdir -p "$SL_T3" "$SL_TARGET"
+ln -s "$SL_TARGET" "$SL_T3/claude-statusline-$(id -u)"
+SL_OUT=$(SL_RUN_TMP="$SL_T3" SL_RUN_BIN="$SL_OKBIN" sl_run '{"model":{"display_name":"M"}}')
+sl_ok=1; [ -z "$(ls -A "$SL_TARGET")" ] && [ -n "$SL_OUT" ] && sl_ok=0
+sl_report "statusline: dir de caché symlink no se usa (sin caché, sin error)" "$sl_ok" "destino: $(ls -A "$SL_TARGET"), salida: $SL_OUT"
+# El dir efímero del fallback se borra al salir (trap por variable). TMPDIR con una
+# comilla simple: un trap armado con el path interpolado en comillas simples se
+# rompe y el dir queda; solo queda el symlink que forzó el fallback.
+SL_T5="$SL_HOME/it's"; mkdir -p "$SL_T5"
+ln -s "$SL_TARGET" "$SL_T5/claude-statusline-$(id -u)"
+SL_OUT=$(SL_RUN_TMP="$SL_T5" SL_RUN_BIN="$SL_OKBIN" sl_run '{"model":{"display_name":"M"}}')
+sl_ok=1; [ "$(ls -A "$SL_T5")" = "claude-statusline-$(id -u)" ] && [ -n "$SL_OUT" ] && sl_ok=0
+sl_report "statusline: el dir efímero del fallback se elimina al terminar aunque TMPDIR lleve una comilla" "$sl_ok" "contenido: $(ls -A "$SL_T5" | tr '\n' ' ')"
+
+# Si el dir de caché desaparece a mitad de ejecución (claude falso lo borra), no se
+# recrea fuera de la validación inicial: o no existe o conserva el modo 700.
+SL_DELBIN=$(mktemp -d)
+printf '#!/bin/bash\nrm -rf "$TMPDIR/claude-statusline-$(id -u)"\necho 7.7.7\n' > "$SL_DELBIN/claude"; chmod +x "$SL_DELBIN/claude"
+for SL_CMD in curl security secret-tool; do cp "$SL_BIN/$SL_CMD" "$SL_DELBIN/$SL_CMD"; done
+SL_T4="$SL_HOME/tmp4"; mkdir -p "$SL_T4"
+SL_OUT=$(SL_RUN_TMP="$SL_T4" SL_RUN_BIN="$SL_DELBIN" sl_run '{"model":{"display_name":"M"}}')
+SL_D4="$SL_T4/claude-statusline-$(id -u)"
+sl_ok=1
+if [ -n "$SL_OUT" ] && { [ ! -e "$SL_D4" ] || [ "$(ls -ld "$SL_D4" | cut -c1-10)" = "drwx------" ]; }; then sl_ok=0; fi
+sl_report "statusline: dir de caché borrado a mitad de ejecución no se recrea sin modo 700" "$sl_ok" "dir: $(ls -ld "$SL_D4" 2>&1)"
+
+# Sin directorio de caché utilizable (mktemp también falla: dir "/dev/null/...") no hay ruido en stderr.
+SL_NOMK=$(mktemp -d)
+cp "$SL_OKBIN"/* "$SL_NOMK/"
+printf '#!/bin/bash\nexit 1\n' > "$SL_NOMK/mktemp"; chmod +x "$SL_NOMK/mktemp"
+SL_ERR=$(printf '%s' '{"model":{"display_name":"M"}}' | HOME="$SL_HOME" TMPDIR="$SL_HOME/no-existe" STATUSLINE_CHECK_UPDATES=false PATH="$SL_NOMK:$PATH" bash "$REPO_ROOT/statusline.sh" 2>&1 >/dev/null)
+sl_ok=1; [ -z "$SL_ERR" ] && sl_ok=0
+sl_report "statusline: sin directorio de caché utilizable no escribe en stderr" "$sl_ok" "stderr: $SL_ERR"
+rm -rf "$SL_NOMK"
+rm -rf "$SL_DELBIN"
+rm -rf "$SL_OKBIN"
+rm -rf "$SL_HOME" "$SL_BIN"
 echo ""
 
 # --- Guard de no-contaminación: el repo real debe seguir intacto ---
