@@ -74,11 +74,18 @@ version_gt() {
 # literales): todo dato no confiable que se interpola en $out (modelo, cwd,
 # rama, tag) se escapa antes, para que un "\c" o "\033[..." en un nombre se
 # imprima literal en vez de interpretarse. También se eliminan los bytes de
-# control (0x00-0x1f, 0x7f): un ESC literal en un nombre no debe llegar a la
-# terminal.
+# control (C0 0x00-0x1f, DEL 0x7f y C1 U+0080-U+009F en UTF-8, p. ej. CSI
+# \xc2\x9b): ni un ESC ni un CSI literal en un nombre deben llegar a la
+# terminal. Bash puro (sin subshell ni tr), con locale C local para que los
+# rangos sean de bytes; compatible con bash 3.2. Tras quitar los C1 puede
+# quedar un \xc2 pegado a un \x80-\x9f nuevo, así que se repite hasta estabilizar.
 escape_b() {
-    local clean
-    clean=$(printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177')
+    local LC_ALL=C clean="$1" prev=""
+    clean="${clean//[$'\001'-$'\037'$'\177']/}"
+    while [ "$clean" != "$prev" ]; do
+        prev="$clean"
+        clean="${clean//$'\302'[$'\200'-$'\237']/}"
+    done
     printf '%s' "${clean//\\/\\\\}"
 }
 

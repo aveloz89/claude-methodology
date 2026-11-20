@@ -9222,6 +9222,11 @@ SL_OUT=$(sl_run "$(jq -n --arg dir "$SL_ESC_DIR" '{model:{display_name:"M"},cwd:
 sl_ok=1; printf '%s' "$SL_OUT" | grep -qF 'pro[31mj' && ! printf '%s' "$SL_OUT" | grep -q "pro$(printf '\033')" && sl_ok=0
 sl_report "statusline: byte ESC en el basename del cwd se elimina" "$sl_ok" "salida: $(printf '%s' "$SL_OUT" | od -c | head -3)"
 
+# Controles C1 en UTF-8 (U+0080-U+009F, p. ej. CSI = \xc2\x9b) no llegan a la salida.
+SL_OUT=$(sl_run "$(jq -n --arg m "Mod$(printf '\xc2\x9b')31mX" '{model:{display_name:$m}}')")
+sl_ok=1; printf '%s' "$SL_OUT" | grep -qF 'Mod31mX' && ! printf '%s' "$SL_OUT" | LC_ALL=C grep -q "$(printf '\xc2\x9b')" && sl_ok=0
+sl_report "statusline: control C1 (CSI U+009B) en el nombre del modelo se elimina" "$sl_ok" "salida: $(printf '%s' "$SL_OUT" | od -c | head -3)"
+
 # Aislamiento: las cachés fueron al dir de prueba, no a /tmp/claude.
 SL_REAL_STAMP_AFTER=$(ls -la /tmp/claude 2>/dev/null | md5 -q 2>/dev/null || ls -la /tmp/claude 2>/dev/null | md5sum)
 sl_ok=1; [ "$SL_REAL_STAMP" = "$SL_REAL_STAMP_AFTER" ] && ls "$SL_CACHE" > /dev/null 2>&1 && sl_ok=0
