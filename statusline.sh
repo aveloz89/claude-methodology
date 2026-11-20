@@ -70,9 +70,18 @@ version_gt() {
     [ "$a3" -gt "$b3" ] 2>/dev/null && return 0
     return 1
 }
+# La salida final pasa por printf "%b" (los colores son secuencias \033
+# literales): todo dato no confiable que se interpola en $out (modelo, cwd,
+# rama, tag) se escapa antes, para que un "\c" o "\033[..." en un nombre se
+# imprima literal en vez de interpretarse.
+escape_b() {
+    printf '%s' "${1//\\/\\\\}"
+}
+
 # ===== Extract data from JSON =====
 model_name=$(echo "$input" | jq -r '.model.display_name // "Claude"')
 model_name=$(echo "$model_name" | sed 's/ *(\([0-9.]*[kKmM]*\) context)/ \1/')  # "(1M context)" → "1M"
+model_name=$(escape_b "$model_name")
 
 # Context window
 size=$(echo "$input" | jq -r '.context_window.context_window_size // 200000')
@@ -139,8 +148,8 @@ out+="${blue}${model_name}${reset}"
 # Current working directory
 cwd=$(echo "$input" | jq -r '.cwd // empty')
 if [ -n "$cwd" ]; then
-    display_dir="${cwd##*/}"
-    git_branch=$(git -C "${cwd}" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    display_dir=$(escape_b "${cwd##*/}")
+    git_branch=$(escape_b "$(git -C "${cwd}" rev-parse --abbrev-ref HEAD 2>/dev/null)")
     out+=" ${dim}|${reset} "
     out+="${cyan}${display_dir}${reset}"
     if [ -n "$git_branch" ]; then
@@ -504,7 +513,7 @@ if [ "${STATUSLINE_CHECK_UPDATES:-true}" != "false" ]; then
     if [ -n "$version_data" ]; then
         latest_tag=$(echo "$version_data" | jq -r '.tag_name // empty')
         if [ -n "$latest_tag" ] && version_gt "$latest_tag" "$VERSION"; then
-            update_line="\n${dim}Update available: ${latest_tag} → Tell Claude: \"Find my installed status bar and update it\"${reset}"
+            update_line="\n${dim}Update available: $(escape_b "$latest_tag") → Tell Claude: \"Find my installed status bar and update it\"${reset}"
         fi
     fi
 fi

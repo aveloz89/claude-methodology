@@ -9093,6 +9093,30 @@ sandbox_cleanup
 rm -rf "$DR_FAKE_BIN" "$DR_NOLIB" "$DR_FIXTURE" "$DR_STDERR"
 echo ""
 
+# --- statusline.sh: datos no confiables no pasan por la interpretación de escapes ---
+echo "--- statusline.sh ---"
+# HOME falso y red/credenciales neutralizadas (curl, security, claude,
+# secret-tool fallan): nunca toca el ~/.claude real ni la red.
+SL_HOME=$(mktemp -d)
+SL_BIN=$(mktemp -d)
+for SL_CMD in curl security claude secret-tool; do
+  printf '#!/bin/bash\nexit 1\n' > "$SL_BIN/$SL_CMD"
+  chmod +x "$SL_BIN/$SL_CMD"
+done
+mkdir -p "$SL_HOME/proj\\c"
+SL_PAYLOAD=$(jq -n --arg dir "$SL_HOME/proj\\c" '{model:{display_name:"Mod\\033[31mX"},cwd:$dir}')
+SL_OUT=$(printf '%s' "$SL_PAYLOAD" | HOME="$SL_HOME" PATH="$SL_BIN:$PATH" bash "$REPO_ROOT/statusline.sh" 2>/dev/null)
+TOTAL=$((TOTAL + 1))
+if printf '%s' "$SL_OUT" | grep -qF 'proj\c' && printf '%s' "$SL_OUT" | grep -qF 'Mod\033[31mX'; then
+  echo -e "${GREEN}PASS${NC}: statusline: backslashes en el basename del cwd y el nombre del modelo se imprimen literales"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: statusline: backslashes en el basename del cwd y el nombre del modelo se imprimen literales (salida: $(printf '%s' "$SL_OUT" | od -c | head -3))"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$SL_HOME" "$SL_BIN"
+echo ""
+
 # --- Guard de no-contaminación: el repo real debe seguir intacto ---
 TOTAL=$((TOTAL + 1))
 REPO_GUARD_BRANCH_AFTER=$(git -C "$REPO_ROOT" branch --show-current)
