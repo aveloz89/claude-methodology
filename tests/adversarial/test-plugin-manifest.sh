@@ -1631,6 +1631,30 @@ else
 fi
 rm -rf "$INST_HOME"
 
+# Target legacy ilegible: cp -L falla, no debe dejar settings.json.XXXXXX. Repo
+# falso (copia de install.sh) y HOME falso: nunca toca el repo ni ~/.claude reales.
+INST_FAKE_REPO=$(mktemp -d)
+INST_FAKE_REPO=$(cd "$INST_FAKE_REPO" && pwd -P)
+cp "$REPO_ROOT/install.sh" "$INST_FAKE_REPO/install.sh"
+INST_HOME=$(mktemp -d)
+mkdir -p "$INST_HOME/.claude"
+echo '{}' > "$INST_FAKE_REPO/settings.json.secret"
+chmod 000 "$INST_FAKE_REPO/settings.json.secret"
+ln -s "$INST_FAKE_REPO/settings.json.secret" "$INST_HOME/.claude/settings.json"
+INST_EXIT=0
+INST_OUT=$(HOME="$INST_HOME" bash "$INST_FAKE_REPO/install.sh" 2>&1) || INST_EXIT=$?
+INST_LEFTOVER=$(find "$INST_HOME/.claude" -maxdepth 1 -name 'settings.json.*' | head -1)
+TOTAL=$((TOTAL + 1))
+if [ "$INST_EXIT" -eq 0 ] && [ -z "$INST_LEFTOVER" ] && [ -L "$INST_HOME/.claude/settings.json" ]; then
+  echo -e "${GREEN}PASS${NC}: install.sh: target legacy ilegible no aborta ni deja temporales"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: install.sh: target legacy ilegible no aborta ni deja temporales (exit: $INST_EXIT, temporal: \"$INST_LEFTOVER\", salida final: $(echo "$INST_OUT" | tail -3))"
+  FAIL=$((FAIL + 1))
+fi
+chmod 600 "$INST_FAKE_REPO/settings.json.secret"
+rm -rf "$INST_HOME" "$INST_FAKE_REPO"
+
 # --- Configuración recomendada del harness (README e install.sh) ---
 README_MD="$REPO_ROOT/README.md"
 for term in "Configuración recomendada del harness" fallbackModel baseRef agent-memory security-guidance; do
