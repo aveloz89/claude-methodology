@@ -9313,9 +9313,14 @@ ln -s "$SL_TARGET" "$SL_T3/claude-statusline-$(id -u)"
 SL_OUT=$(SL_RUN_TMP="$SL_T3" SL_RUN_BIN="$SL_OKBIN" sl_run '{"model":{"display_name":"M"}}')
 sl_ok=1; [ -z "$(ls -A "$SL_TARGET")" ] && [ -n "$SL_OUT" ] && sl_ok=0
 sl_report "statusline: dir de caché symlink no se usa (sin caché, sin error)" "$sl_ok" "destino: $(ls -A "$SL_TARGET"), salida: $SL_OUT"
-# El dir efímero del fallback se borra al salir (trap por variable): solo queda el symlink.
-sl_ok=1; [ "$(ls -A "$SL_T3")" = "claude-statusline-$(id -u)" ] && [ -n "$SL_OUT" ] && sl_ok=0
-sl_report "statusline: el dir efímero del fallback se elimina al terminar" "$sl_ok" "contenido: $(ls -A "$SL_T3" | tr '\n' ' ')"
+# El dir efímero del fallback se borra al salir (trap por variable). TMPDIR con una
+# comilla simple: un trap armado con el path interpolado en comillas simples se
+# rompe y el dir queda; solo queda el symlink que forzó el fallback.
+SL_T5="$SL_HOME/it's"; mkdir -p "$SL_T5"
+ln -s "$SL_TARGET" "$SL_T5/claude-statusline-$(id -u)"
+SL_OUT=$(SL_RUN_TMP="$SL_T5" SL_RUN_BIN="$SL_OKBIN" sl_run '{"model":{"display_name":"M"}}')
+sl_ok=1; [ "$(ls -A "$SL_T5")" = "claude-statusline-$(id -u)" ] && [ -n "$SL_OUT" ] && sl_ok=0
+sl_report "statusline: el dir efímero del fallback se elimina al terminar aunque TMPDIR lleve una comilla" "$sl_ok" "contenido: $(ls -A "$SL_T5" | tr '\n' ' ')"
 
 # Si el dir de caché desaparece a mitad de ejecución (claude falso lo borra), no se
 # recrea fuera de la validación inicial: o no existe o conserva el modo 700.
