@@ -9115,14 +9115,62 @@ DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
 dr_ok=1; [ "$(wc -l < "$DR_CALL_LOG" | tr -d ' ')" = "1" ] && ! grep -qF -e "--no-path-resolution" "$DR_CALL_LOG" && dr_ok=0
 dr_report "docker-refresh: invoca compose config una sola vez y sin --no-path-resolution" "$dr_ok" "llamadas: $(cat "$DR_CALL_LOG")"
 
-# GIT_DIR/GIT_WORK_TREE de otro repo en el entorno no sacan la búsqueda del repo de la sesión.
+# GIT_DIR/GIT_WORK_TREE de otro repo en el entorno no cambian ROOT. Escenario:
+# la sesión está en un repo con compose cuyo bind "." (source == ROOT) debe contar
+# como hot reload; el repo ajeno (sin compose) es el de GIT_DIR. Con un ROOT
+# equivocado (el ajeno) el bind cae fuera de ROOT y sale "restart".
 DR_OUTER=$(mktemp -d); DR_OUTER=$(cd "$DR_OUTER" && pwd -P)
-mkdir -p "$DR_OUTER/repo"; : > "$DR_OUTER/compose.yml"
-git -C "$DR_OUTER/repo" init -q 2>/dev/null
-DR_OUT=$( (export GIT_DIR="$SANDBOX_REPO/.git" GIT_WORK_TREE="$SANDBOX_REPO"; dr_run "$DR_OUTER/repo" "$DR_PUSH_JSON") )
-dr_ok=1; [ -z "$DR_OUT" ] && dr_ok=0
-dr_report "docker-refresh: GIT_DIR/GIT_WORK_TREE ajenos no hacen subir la búsqueda fuera del repo" "$dr_ok" "salida: $DR_OUT"
+mkdir -p "$DR_OUTER/session" "$DR_OUTER/foreign"
+git -C "$DR_OUTER/session" init -q 2>/dev/null
+git -C "$DR_OUTER/foreign" init -q 2>/dev/null
+: > "$DR_OUTER/session/compose.yml"
+dr_fixture_bind "$DR_OUTER/session"
+DR_OUT=$( (export GIT_DIR="$DR_OUTER/foreign/.git" GIT_WORK_TREE="$DR_OUTER/foreign"; dr_run "$DR_OUTER/session" "$DR_PUSH_JSON") )
+DR_BINDS_OK
+dr_report "docker-refresh: GIT_DIR/GIT_WORK_TREE ajenos no cambian ROOT (bind '.' del repo de la sesión cuenta)" "$dr_ok" "salida: $DR_OUT"
+
+# CHANGED_FILES sale del repo de la sesión aunque GIT_DIR apunte a otro.
+dr_commit_pair() { # <repo> <archivo del segundo commit>
+  git -C "$1" -c user.email=t@t -c user.name=t commit -q --allow-empty -m base 2>/dev/null
+  : > "$1/$2"; git -C "$1" add "$2" 2>/dev/null
+  git -C "$1" -c user.email=t@t -c user.name=t commit -q -m second 2>/dev/null
+}
+dr_commit_pair "$DR_OUTER/session" package.json
+dr_commit_pair "$DR_OUTER/foreign" notes.txt
+DR_OUT=$( (export GIT_DIR="$DR_OUTER/foreign/.git" GIT_WORK_TREE="$DR_OUTER/foreign"; dr_run "$DR_OUTER/session" "$DR_PUSH_JSON") )
+dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose up -d --build web" && dr_ok=0
+dr_report "docker-refresh: package.json del repo de la sesión dispara --build con GIT_DIR ajeno" "$dr_ok" "salida: $DR_OUT"
+rm -rf "$DR_OUTER/session/.git" "$DR_OUTER/foreign/.git"
+git -C "$DR_OUTER/session" init -q 2>/dev/null; git -C "$DR_OUTER/foreign" init -q 2>/dev/null
+dr_commit_pair "$DR_OUTER/session" notes.txt
+dr_commit_pair "$DR_OUTER/foreign" package.json
+DR_OUT=$( (export GIT_DIR="$DR_OUTER/foreign/.git" GIT_WORK_TREE="$DR_OUTER/foreign"; dr_run "$DR_OUTER/session" "$DR_PUSH_JSON") )
+dr_ok=1; ! echo "$DR_OUT" | grep -qF -e "--build" && dr_ok=0
+dr_report "docker-refresh: package.json de un repo ajeno (GIT_DIR) no dispara --build" "$dr_ok" "salida: $DR_OUT"
 rm -rf "$DR_OUTER"
+
+# Una sola invocación de jq para la regla de hot reload con 3 servicios, y cada
+# servicio con su propio veredicto. jq falso: registra las invocaciones con
+# "--arg root" (la regla) y delega en el real.
+DR_REAL_JQ=$(command -v jq)
+cat > "$DR_FAKE_BIN/jq" <<DRJQ
+#!/bin/bash
+case "\$*" in *"--arg root"*) echo x >> "\$DR_JQ_LOG" ;; esac
+exec "$DR_REAL_JQ" "\$@"
+DRJQ
+chmod +x "$DR_FAKE_BIN/jq"
+DR_JQ_LOG=$(mktemp)
+export DR_JQ_LOG
+printf '{"services":{"a":{"volumes":[{"type":"bind","source":"%s","target":"/x"}]},"b":{},"c":{"volumes":[{"type":"bind","source":"/var/run/docker.sock","target":"/s"}]}}}' "$SANDBOX_REPO/src" > "$DR_FIXTURE"
+DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
+dr_ok=1
+[ "$(wc -l < "$DR_JQ_LOG" | tr -d ' ')" = "1" ] \
+  && echo "$DR_OUT" | grep -qF "a: hot reload activo" \
+  && echo "$DR_OUT" | grep -qF "docker compose restart b" \
+  && echo "$DR_OUT" | grep -qF "docker compose restart c" && dr_ok=0
+dr_report "docker-refresh: una sola invocación de jq para la regla con 3 servicios y veredicto por servicio" "$dr_ok" "jq: $(wc -l < "$DR_JQ_LOG" | tr -d ' ') llamadas, salida: $DR_OUT"
+rm -f "$DR_FAKE_BIN/jq" "$DR_JQ_LOG"; unset DR_JQ_LOG
+dr_fixture_bind "$SANDBOX_REPO/src"
 
 
 # compose.yaml / docker-compose.yaml se reconocen.

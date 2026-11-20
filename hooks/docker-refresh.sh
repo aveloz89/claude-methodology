@@ -68,13 +68,23 @@ cd "$COMPOSE_DIR" || exit 0
 # absolutos (".", "..", "${PWD}" resueltos por compose): de ahí salen los
 # servicios y los binds, sin depender de flags de la versión de compose.
 COMPOSE_JSON=$(docker compose config --format json 2>/dev/null)
-SERVICES=$(echo "$COMPOSE_JSON" | jq -r '.services // {} | keys[]' 2>/dev/null)
-if [ -z "$SERVICES" ]; then
+# Una sola invocación de jq lista "<hot 0/1> <servicio>" por servicio: hot = algún
+# bind cuyo source (absoluto) es ROOT o cae dentro de él. Los nombres de servicio
+# de compose no llevan espacios.
+# Límites aceptados: sin repo git ROOT es el dir del compose, así que un bind a
+# ".." no cuenta; y un bind escrito con una ruta que pasa por un symlink no se
+# compara contra la ruta física de ROOT.
+SERVICE_FLAGS=$(echo "$COMPOSE_JSON" | jq -r --arg root "$ROOT" '
+  .services // {} | to_entries[] |
+  "\((.value.volumes // [] | map(select(.type == "bind" and (.source | . == $root or startswith($root + "/")))) | length) | if . > 0 then 1 else 0 end) \(.key)"
+' 2>/dev/null)
+if [ -z "$SERVICE_FLAGS" ]; then
   exit 0
 fi
 
-# Check what files changed in the last commit
-CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+# Check what files changed in the last commit, en el repo de la sesión (ROOT) y
+# sin GIT_DIR/GIT_WORK_TREE heredados, que apuntarían a otro repo.
+CHANGED_FILES=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$ROOT" diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
 
 # Detect if dependency/infra files changed (needs full rebuild)
 REBUILD_NEEDED=false
@@ -85,17 +95,9 @@ fi
 OUTPUT=""
 ACTIONS_NEEDED=false
 
-for SERVICE in $SERVICES; do
+while read -r HOT SERVICE; do
   HAS_HOT_RELOAD=false
-
-  # Bind mount de código local = hot reload probable: el source (absoluto)
-  # es ROOT o cae dentro de él.
-  BIND_COUNT=$(echo "$COMPOSE_JSON" | jq -r --arg svc "$SERVICE" --arg root "$ROOT" '
-    .services[$svc].volumes // [] |
-    map(select(.type == "bind" and (.source | . == $root or startswith($root + "/")))) |
-    length
-  ' 2>/dev/null)
-  [ "$BIND_COUNT" != "0" ] && [ -n "$BIND_COUNT" ] && HAS_HOT_RELOAD=true
+  [ "$HOT" = "1" ] && HAS_HOT_RELOAD=true
 
   if $REBUILD_NEEDED; then
     OUTPUT="${OUTPUT}\n  - ${SERVICE}: rebuild necesario (dependencia o Dockerfile cambió) → docker compose up -d --build ${SERVICE}"
@@ -106,7 +108,7 @@ for SERVICE in $SERVICES; do
   else
     OUTPUT="${OUTPUT}\n  - ${SERVICE}: hot reload activo — no requiere acción"
   fi
-done
+done <<< "$SERVICE_FLAGS"
 
 if $ACTIONS_NEEDED; then
   echo ""
