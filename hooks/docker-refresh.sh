@@ -14,8 +14,30 @@ if ! echo "$COMMAND" | grep -qE '^\s*git\s+push|gh\s+pr\s+create'; then
   exit 0
 fi
 
-# Check if docker-compose exists
-if [ ! -f "docker-compose.yml" ] && [ ! -f "compose.yml" ]; then
+# Árbol de la sesión: ".cwd" del payload si viene no vacío (en una sesión de
+# worktree el proceso corre en el checkout principal y ".cwd" es el worktree),
+# el cwd del proceso si no (misma regla que post-pr-create, vía
+# guard_session_dir). Un ".cwd" que no es directorio, o una lib ausente, deja
+# el aviso sin emitir con el motivo en stderr — nunca se cae al árbol del
+# proceso. El valor de ".cwd" no se interpola en ningún mensaje.
+LIB_GM="${0%/*}/lib/guard-matching.sh"
+# shellcheck source=lib/guard-matching.sh
+[ -r "$LIB_GM" ] && . "$LIB_GM"
+if ! type guard_session_dir > /dev/null 2>&1; then
+  echo "docker-refresh: sin aviso de Docker: no se pudo resolver el árbol de la sesión (hooks/lib/guard-matching.sh falta o no define guard_session_dir)" >&2
+  exit 0
+fi
+# shellcheck disable=SC2034 # la lee guard_session_dir (lib sourceada arriba)
+INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+if ! SESSION_DIR=$(guard_session_dir 2>/dev/null) || [ -z "$SESSION_DIR" ]; then
+  echo "docker-refresh: sin aviso de Docker: no se pudo resolver el árbol de la sesión (el .cwd del payload no es un directorio)" >&2
+  exit 0
+fi
+cd "$SESSION_DIR" || exit 0
+
+# Check if a compose file exists
+if [ ! -f "docker-compose.yml" ] && [ ! -f "docker-compose.yaml" ] \
+  && [ ! -f "compose.yml" ] && [ ! -f "compose.yaml" ]; then
   exit 0
 fi
 
@@ -45,9 +67,12 @@ for SERVICE in $SERVICES; do
 
   if [ -n "$COMPOSE_JSON" ]; then
     # Bind mount volumes = local code mounted into container = hot reload likely
-    BIND_COUNT=$(echo "$COMPOSE_JSON" | jq -r --arg svc "$SERVICE" '
+    # "docker compose config" resuelve los paths relativos a ABSOLUTOS
+    # (./src -> /ruta/proyecto/src): un bind de código es el que cae dentro
+    # del directorio del proyecto, no el que empieza con "./".
+    BIND_COUNT=$(echo "$COMPOSE_JSON" | jq -r --arg svc "$SERVICE" --arg dir "$SESSION_DIR" '
       .services[$svc].volumes // [] |
-      map(select(.type == "bind" and (.source | test("^\\./|^\\.\\./"))))  |
+      map(select(.type == "bind" and (.source | startswith($dir + "/")))) |
       length
     ' 2>/dev/null)
     [ "$BIND_COUNT" != "0" ] && [ -n "$BIND_COUNT" ] && HAS_HOT_RELOAD=true

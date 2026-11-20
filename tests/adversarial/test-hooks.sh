@@ -9005,6 +9005,94 @@ rm -rf "$GITIGNORE_TEST_DIR"
 
 echo ""
 
+# --- docker-refresh.sh: hot reload por bind mounts absolutos, .yaml y .cwd ---
+echo "--- docker-refresh.sh ---"
+
+# docker falso en PATH: "config --services" imprime "web" y "config --format
+# json" imprime el fixture de $DR_FAKE_JSON (forma real de
+# `docker compose config --format json`: los binds relativos salen con
+# .source ABSOLUTO). La suite no depende de docker.
+DR_FAKE_BIN=$(mktemp -d)
+cat > "$DR_FAKE_BIN/docker" <<'DRFAKE'
+#!/bin/bash
+case "$*" in
+  *"--services"*) echo web ;;
+  *"--format json"*) cat "$DR_FAKE_JSON" ;;
+esac
+exit 0
+DRFAKE
+chmod +x "$DR_FAKE_BIN/docker"
+DR_PUSH_JSON='{"tool_input":{"command":"git push origin feature/x"}}'
+DR_FIXTURE=$(mktemp)
+
+# dr_run <cwd del proceso> <payload>: stdout del hook; stderr en $DR_STDERR.
+DR_STDERR=$(mktemp)
+dr_run() {
+  (cd "$1" && printf '%s' "$2" | DR_FAKE_JSON="$DR_FIXTURE" PATH="$DR_FAKE_BIN:$PATH" bash "$HOOKS_DIR/docker-refresh.sh" 2>"$DR_STDERR")
+}
+dr_report() { # <nombre> <ok 0/1> <detalle>
+  TOTAL=$((TOTAL + 1))
+  if [ "$2" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC}: $1"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $1 ($3)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+sandbox_create
+: > "$SANDBOX_REPO/compose.yml"
+
+# Bind relativo ya resuelto a absoluto dentro del proyecto => hot reload.
+printf '{"services":{"web":{"volumes":[{"type":"bind","source":"%s/src","target":"/app/src"}]}}}' "$SANDBOX_REPO" > "$DR_FIXTURE"
+DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
+dr_ok=1; echo "$DR_OUT" | grep -qF "Todos los servicios tienen hot reload" && ! echo "$DR_OUT" | grep -qF "docker compose restart" && dr_ok=0
+dr_report "docker-refresh: bind mount absoluto dentro del proyecto cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
+
+# Bind fuera del proyecto (docker.sock) no es hot reload => restart.
+printf '{"services":{"web":{"volumes":[{"type":"bind","source":"/var/run/docker.sock","target":"/var/run/docker.sock"}]}}}' > "$DR_FIXTURE"
+DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
+dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0
+dr_report "docker-refresh: bind mount fuera del proyecto no cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
+
+# Directorio hermano con el mismo prefijo ("<proyecto>-other") no es el proyecto.
+printf '{"services":{"web":{"volumes":[{"type":"bind","source":"%s-other/src","target":"/app"}]}}}' "$SANDBOX_REPO" > "$DR_FIXTURE"
+DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
+dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0
+dr_report "docker-refresh: bind en un directorio hermano con prefijo común no cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
+
+# compose.yaml / docker-compose.yaml se reconocen.
+printf '{"services":{"web":{}}}' > "$DR_FIXTURE"
+for DR_NAME in compose.yaml docker-compose.yaml; do
+  rm -f "$SANDBOX_REPO"/compose.y*ml "$SANDBOX_REPO"/docker-compose.y*ml
+  : > "$SANDBOX_REPO/$DR_NAME"
+  DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
+  dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0
+  dr_report "docker-refresh: reconoce $DR_NAME" "$dr_ok" "salida: $DR_OUT"
+done
+
+# .cwd del payload manda sobre el cwd del proceso (sesión de worktree).
+DR_OUT=$(dr_run "$SANDBOX_HOME" "{\"tool_input\":{\"command\":\"git push\"},\"cwd\":\"$SANDBOX_REPO\"}")
+dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0
+dr_report "docker-refresh: resuelve el compose desde .cwd del payload, no del cwd del proceso" "$dr_ok" "salida: $DR_OUT"
+
+# .cwd que no es directorio: sin aviso y con motivo en stderr (sin interpolar el valor).
+DR_OUT=$(dr_run "$SANDBOX_REPO" '{"tool_input":{"command":"git push"},"cwd":"/no/existe/secreto"}')
+dr_ok=1; [ -z "$DR_OUT" ] && grep -qF "no es un directorio" "$DR_STDERR" && ! grep -qF "secreto" "$DR_STDERR" && dr_ok=0
+dr_report "docker-refresh: .cwd inválido no emite aviso y explica el motivo en stderr" "$dr_ok" "salida: $DR_OUT, stderr: $(cat "$DR_STDERR")"
+
+# Sin lib: degradación visible, sin aviso.
+DR_NOLIB=$(mktemp -d)
+cp "$HOOKS_DIR/docker-refresh.sh" "$DR_NOLIB/docker-refresh.sh"
+DR_OUT=$(cd "$SANDBOX_REPO" && printf '%s' "$DR_PUSH_JSON" | DR_FAKE_JSON="$DR_FIXTURE" PATH="$DR_FAKE_BIN:$PATH" bash "$DR_NOLIB/docker-refresh.sh" 2>"$DR_STDERR")
+dr_ok=1; [ -z "$DR_OUT" ] && grep -qF "guard-matching.sh" "$DR_STDERR" && dr_ok=0
+dr_report "docker-refresh: sin hooks/lib/guard-matching.sh degrada con aviso en stderr" "$dr_ok" "salida: $DR_OUT, stderr: $(cat "$DR_STDERR")"
+
+sandbox_cleanup
+rm -rf "$DR_FAKE_BIN" "$DR_NOLIB" "$DR_FIXTURE" "$DR_STDERR"
+echo ""
+
 # --- Guard de no-contaminación: el repo real debe seguir intacto ---
 TOTAL=$((TOTAL + 1))
 REPO_GUARD_BRANCH_AFTER=$(git -C "$REPO_ROOT" branch --show-current)
