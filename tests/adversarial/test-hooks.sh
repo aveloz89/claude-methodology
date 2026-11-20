@@ -9039,22 +9039,18 @@ fi
 rm -rf "$GITIGNORE_TEST_DIR"
 
 echo ""
-
 # --- docker-refresh.sh: hot reload por bind mounts absolutos, .yaml y .cwd ---
 echo "--- docker-refresh.sh ---"
 
-# docker falso en PATH: "config --services" imprime "web" y "config --format
-# json" imprime el fixture de $DR_FAKE_JSON. Con --no-path-resolution los
-# .source salen tal como se declararon ("." , "../shared", "./src"); sin el
-# flag (o con DR_FAKE_NOFLAG=1, compose viejo que rechaza el flag) salen
-# ABSOLUTOS. La suite no depende de docker.
+# docker falso en PATH: "config --format json" imprime el fixture de
+# $DR_FAKE_JSON (con los .source ABSOLUTOS, como los normaliza compose), anota
+# su cwd en $DR_PWD_LOG y suma una línea a $DR_CALL_LOG por invocación; cualquier
+# otro subcomando no imprime nada. La suite no depende de docker.
 DR_FAKE_BIN=$(mktemp -d)
 cat > "$DR_FAKE_BIN/docker" <<'DRFAKE'
 #!/bin/bash
 case "$*" in
-  *"--services"*) pwd > "$DR_PWD_LOG"; echo web ;;
-  *"--no-path-resolution"*) [ -n "$DR_FAKE_NOFLAG" ] && exit 1; cat "$DR_FAKE_JSON" ;;
-  *"--format json"*) cat "$DR_FAKE_JSON" ;;
+  *"--format json"*) pwd > "$DR_PWD_LOG"; echo "$*" >> "$DR_CALL_LOG"; cat "$DR_FAKE_JSON" ;;
 esac
 exit 0
 DRFAKE
@@ -9062,11 +9058,12 @@ chmod +x "$DR_FAKE_BIN/docker"
 DR_PUSH_JSON='{"tool_input":{"command":"git push origin feature/x"}}'
 DR_FIXTURE=$(mktemp)
 DR_PWD_LOG=$(mktemp)
+DR_CALL_LOG=$(mktemp)
 
 # dr_run <cwd del proceso> <payload>: stdout del hook; stderr en $DR_STDERR.
 DR_STDERR=$(mktemp)
 dr_run() {
-  (cd "$1" && printf '%s' "$2" | DR_FAKE_JSON="$DR_FIXTURE" DR_PWD_LOG="$DR_PWD_LOG" DR_FAKE_NOFLAG="${DR_NOFLAG:-}" PATH="$DR_FAKE_BIN:$PATH" bash "$HOOKS_DIR/docker-refresh.sh" 2>"$DR_STDERR")
+  (cd "$1" && printf '%s' "$2" | DR_FAKE_JSON="$DR_FIXTURE" DR_PWD_LOG="$DR_PWD_LOG" DR_CALL_LOG="$DR_CALL_LOG" PATH="$DR_FAKE_BIN:$PATH" bash "$HOOKS_DIR/docker-refresh.sh" 2>"$DR_STDERR")
 }
 dr_report() { # <nombre> <ok 0/1> <detalle>
   TOTAL=$((TOTAL + 1))
@@ -9078,47 +9075,54 @@ dr_report() { # <nombre> <ok 0/1> <detalle>
     FAIL=$((FAIL + 1))
   fi
 }
+dr_fixture_bind() { # <source absoluto>
+  printf '{"services":{"web":{"volumes":[{"type":"bind","source":"%s","target":"/app"}]}}}' "$1" > "$DR_FIXTURE"
+}
+DR_BINDS_OK() { dr_ok=1; echo "$DR_OUT" | grep -qF "Todos los servicios tienen hot reload" && ! echo "$DR_OUT" | grep -qF "docker compose restart" && dr_ok=0; return 0; }
+DR_BINDS_NO() { dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0; return 0; }
 
 sandbox_create
 : > "$SANDBOX_REPO/compose.yml"
+DR_PARENT=$(dirname "$SANDBOX_REPO")
 
-# Modo con flag: .source tal como se declaró (relativo).
-DR_BINDS_OK() { dr_ok=1; echo "$DR_OUT" | grep -qF "Todos los servicios tienen hot reload" && ! echo "$DR_OUT" | grep -qF "docker compose restart" && dr_ok=0; return 0; }
-DR_BINDS_NO() { dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0; return 0; }
-for DR_SRC in "." ".." "./src" "../shared"; do
-  printf '{"services":{"web":{"volumes":[{"type":"bind","source":"%s","target":"/app"}]}}}' "$DR_SRC" > "$DR_FIXTURE"
+# Source == ROOT (".:/app" normalizado por compose) y dentro de ROOT: hot reload.
+for DR_SRC in "$SANDBOX_REPO" "$SANDBOX_REPO/src" "$SANDBOX_REPO/src/deep"; do
+  dr_fixture_bind "$DR_SRC"
   DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON"); DR_BINDS_OK
-  dr_report "docker-refresh: bind relativo '$DR_SRC' (con --no-path-resolution) cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
+  dr_report "docker-refresh: bind absoluto '${DR_SRC#"$SANDBOX_REPO"}' dentro del repo cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
 done
-printf '{"services":{"web":{"volumes":[{"type":"bind","source":"/var/run/docker.sock","target":"/var/run/docker.sock"}]}}}' > "$DR_FIXTURE"
-DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON"); DR_BINDS_NO
-dr_report "docker-refresh: bind absoluto ajeno (docker.sock) con --no-path-resolution no cuenta" "$dr_ok" "salida: $DR_OUT"
 
-# Fallback: compose viejo rechaza --no-path-resolution => modo absoluto.
-DR_NOFLAG=1
-printf '{"services":{"web":{"volumes":[{"type":"bind","source":"%s","target":"/app"}]}}}' "$SANDBOX_REPO" > "$DR_FIXTURE"
-DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON"); DR_BINDS_OK
-dr_report "docker-refresh: fallback sin el flag: source == dir de la sesión cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
+# Fuera de ROOT: ../otro, docker.sock y un hermano con prefijo común no cuentan.
+for DR_SRC in "$DR_PARENT/otro" "/var/run/docker.sock" "$SANDBOX_REPO-other/src"; do
+  dr_fixture_bind "$DR_SRC"
+  DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON"); DR_BINDS_NO
+  dr_report "docker-refresh: bind '${DR_SRC#"$DR_PARENT"}' fuera del repo no cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
+done
 
-# Bind relativo ya resuelto a absoluto dentro del proyecto => hot reload.
-printf '{"services":{"web":{"volumes":[{"type":"bind","source":"%s/src","target":"/app/src"}]}}}' "$SANDBOX_REPO" > "$DR_FIXTURE"
+# Monorepo: compose en un subdirectorio, "../shared" cae en la raíz del repo.
+mkdir -p "$SANDBOX_REPO/svc"
+mv "$SANDBOX_REPO/compose.yml" "$SANDBOX_REPO/svc/compose.yml"
+dr_fixture_bind "$SANDBOX_REPO/shared"
+DR_OUT=$(dr_run "$SANDBOX_REPO/svc" "$DR_PUSH_JSON"); DR_BINDS_OK
+dr_report "docker-refresh: monorepo: ../shared dentro del repo cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
+mv "$SANDBOX_REPO/svc/compose.yml" "$SANDBOX_REPO/compose.yml"
+
+# Una sola invocación de compose config por ejecución.
+dr_fixture_bind "$SANDBOX_REPO/src"
+: > "$DR_CALL_LOG"
 DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
-dr_ok=1; echo "$DR_OUT" | grep -qF "Todos los servicios tienen hot reload" && ! echo "$DR_OUT" | grep -qF "docker compose restart" && dr_ok=0
-dr_report "docker-refresh: bind mount absoluto dentro del proyecto cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
+dr_ok=1; [ "$(wc -l < "$DR_CALL_LOG" | tr -d ' ')" = "1" ] && ! grep -qF -e "--no-path-resolution" "$DR_CALL_LOG" && dr_ok=0
+dr_report "docker-refresh: invoca compose config una sola vez y sin --no-path-resolution" "$dr_ok" "llamadas: $(cat "$DR_CALL_LOG")"
 
-# Bind fuera del proyecto (docker.sock) no es hot reload => restart.
-printf '{"services":{"web":{"volumes":[{"type":"bind","source":"/var/run/docker.sock","target":"/var/run/docker.sock"}]}}}' > "$DR_FIXTURE"
-DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
-dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0
-dr_report "docker-refresh: bind mount fuera del proyecto no cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
+# GIT_DIR/GIT_WORK_TREE de otro repo en el entorno no sacan la búsqueda del repo de la sesión.
+DR_OUTER=$(mktemp -d); DR_OUTER=$(cd "$DR_OUTER" && pwd -P)
+mkdir -p "$DR_OUTER/repo"; : > "$DR_OUTER/compose.yml"
+git -C "$DR_OUTER/repo" init -q 2>/dev/null
+DR_OUT=$( (export GIT_DIR="$SANDBOX_REPO/.git" GIT_WORK_TREE="$SANDBOX_REPO"; dr_run "$DR_OUTER/repo" "$DR_PUSH_JSON") )
+dr_ok=1; [ -z "$DR_OUT" ] && dr_ok=0
+dr_report "docker-refresh: GIT_DIR/GIT_WORK_TREE ajenos no hacen subir la búsqueda fuera del repo" "$dr_ok" "salida: $DR_OUT"
+rm -rf "$DR_OUTER"
 
-# Directorio hermano con el mismo prefijo ("<proyecto>-other") no es el proyecto.
-printf '{"services":{"web":{"volumes":[{"type":"bind","source":"%s-other/src","target":"/app"}]}}}' "$SANDBOX_REPO" > "$DR_FIXTURE"
-DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
-dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0
-dr_report "docker-refresh: bind en un directorio hermano con prefijo común no cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
-
-DR_NOFLAG=
 
 # compose.yaml / docker-compose.yaml se reconocen.
 printf '{"services":{"web":{}}}' > "$DR_FIXTURE"
@@ -9164,7 +9168,7 @@ dr_ok=1; [ -z "$DR_OUT" ] && grep -qF "guard-matching.sh" "$DR_STDERR" && dr_ok=
 dr_report "docker-refresh: sin hooks/lib/guard-matching.sh degrada con aviso en stderr" "$dr_ok" "salida: $DR_OUT, stderr: $(cat "$DR_STDERR")"
 
 sandbox_cleanup
-rm -rf "$DR_FAKE_BIN" "$DR_NOLIB" "$DR_FIXTURE" "$DR_STDERR" "$DR_PWD_LOG"
+rm -rf "$DR_FAKE_BIN" "$DR_NOLIB" "$DR_FIXTURE" "$DR_STDERR" "$DR_PWD_LOG" "$DR_CALL_LOG"
 echo ""
 
 # --- statusline.sh: datos no confiables no pasan por la interpretación de escapes ---

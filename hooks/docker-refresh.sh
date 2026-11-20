@@ -35,12 +35,15 @@ if ! SESSION_DIR=$(guard_session_dir 2>/dev/null) || [ -z "$SESSION_DIR" ]; then
 fi
 cd "$SESSION_DIR" || exit 0
 
+# ROOT: toplevel de git de la sesión; sin repo, el dir donde se encontró el
+# compose. Se calcula sin GIT_DIR/GIT_WORK_TREE del entorno (apuntarían a otro
+# repo y moverían el corte de la búsqueda y la regla de hot reload).
 # "docker compose" sube por los directorios padres buscando el compose: se
-# replica la búsqueda desde el dir de la sesión hasta el toplevel de git
-# (incluido). Sin repo git solo cuenta el dir de la sesión. El compose corre
-# en el dir donde se encontró.
+# replica la búsqueda desde el dir de la sesión hasta ROOT (incluido); corta
+# también si el dir de búsqueda deja de tener a ROOT como prefijo. Sin repo
+# solo cuenta el dir de la sesión. El compose corre en el dir donde se encontró.
 SESSION_PHYS=$(pwd -P)
-GIT_TOP=$(git rev-parse --show-toplevel 2>/dev/null)
+ROOT=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$SESSION_PHYS" rev-parse --show-toplevel 2>/dev/null)
 COMPOSE_DIR=""
 SEARCH_DIR="$SESSION_PHYS"
 while :; do
@@ -50,17 +53,22 @@ while :; do
       break 2
     fi
   done
-  # Corte: sin repo, o al llegar al toplevel, o a la raíz del filesystem.
-  [ -z "$GIT_TOP" ] || [ "$SEARCH_DIR" = "$GIT_TOP" ] || [ -z "$SEARCH_DIR" ] && break
+  # Corte: sin repo, al llegar a ROOT, o si el siguiente dir saldría de ROOT.
+  [ -n "$ROOT" ] && [ "$SEARCH_DIR" != "$ROOT" ] || break
   SEARCH_DIR="${SEARCH_DIR%/*}"
+  [ "$SEARCH_DIR" = "$ROOT" ] || [ "${SEARCH_DIR#"$ROOT"/}" != "$SEARCH_DIR" ] || break
 done
 if [ -z "$COMPOSE_DIR" ]; then
   exit 0
 fi
 cd "$COMPOSE_DIR" || exit 0
+[ -n "$ROOT" ] || ROOT="$COMPOSE_DIR"
 
-# Get services
-SERVICES=$(docker compose config --services 2>/dev/null)
+# Compose config una sola vez, como JSON con los paths ya normalizados a
+# absolutos (".", "..", "${PWD}" resueltos por compose): de ahí salen los
+# servicios y los binds, sin depender de flags de la versión de compose.
+COMPOSE_JSON=$(docker compose config --format json 2>/dev/null)
+SERVICES=$(echo "$COMPOSE_JSON" | jq -r '.services // {} | keys[]' 2>/dev/null)
 if [ -z "$SERVICES" ]; then
   exit 0
 fi
@@ -74,39 +82,20 @@ if echo "$CHANGED_FILES" | grep -qiE '(package\.json|pnpm-lock\.yaml|yarn\.lock|
   REBUILD_NEEDED=true
 fi
 
-# Compose config como JSON para analizar los volúmenes. --no-path-resolution
-# devuelve los .source tal como se declararon ("." , "../shared", "./src"); un
-# compose viejo sin el flag falla y se cae al modo absoluto (paths resueltos).
-BIND_MODE=relative
-COMPOSE_JSON=$(docker compose config --no-path-resolution --format json 2>/dev/null)
-if [ -z "$COMPOSE_JSON" ]; then
-  BIND_MODE=absolute
-  COMPOSE_JSON=$(docker compose config --format json 2>/dev/null)
-fi
-
 OUTPUT=""
 ACTIONS_NEEDED=false
 
 for SERVICE in $SERVICES; do
   HAS_HOT_RELOAD=false
 
-  if [ -n "$COMPOSE_JSON" ]; then
-    # Bind mount volumes = local code mounted into container = hot reload likely.
-    # relative: el source declarado es "." / ".." / "./x" / "../x".
-    # absolute: el source es el dir del compose o cae dentro de él.
-    BIND_COUNT=$(echo "$COMPOSE_JSON" | jq -r --arg svc "$SERVICE" --arg dir "$COMPOSE_DIR" --arg mode "$BIND_MODE" '
-      def local_src:
-        if $mode == "relative" then
-          . == "." or . == ".." or startswith("./") or startswith("../")
-        else
-          . == $dir or startswith($dir + "/")
-        end;
-      .services[$svc].volumes // [] |
-      map(select(.type == "bind" and (.source | local_src))) |
-      length
-    ' 2>/dev/null)
-    [ "$BIND_COUNT" != "0" ] && [ -n "$BIND_COUNT" ] && HAS_HOT_RELOAD=true
-  fi
+  # Bind mount de código local = hot reload probable: el source (absoluto)
+  # es ROOT o cae dentro de él.
+  BIND_COUNT=$(echo "$COMPOSE_JSON" | jq -r --arg svc "$SERVICE" --arg root "$ROOT" '
+    .services[$svc].volumes // [] |
+    map(select(.type == "bind" and (.source | . == $root or startswith($root + "/")))) |
+    length
+  ' 2>/dev/null)
+  [ "$BIND_COUNT" != "0" ] && [ -n "$BIND_COUNT" ] && HAS_HOT_RELOAD=true
 
   if $REBUILD_NEEDED; then
     OUTPUT="${OUTPUT}\n  - ${SERVICE}: rebuild necesario (dependencia o Dockerfile cambió) → docker compose up -d --build ${SERVICE}"
