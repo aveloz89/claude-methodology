@@ -9134,6 +9134,10 @@ dr_commit_pair() { # <repo> <archivo del segundo commit>
   git -C "$1" -c user.email=t@t -c user.name=t commit -q --allow-empty -m base 2>/dev/null
   : > "$1/$2"; git -C "$1" add "$2" 2>/dev/null
   git -C "$1" -c user.email=t@t -c user.name=t commit -q -m second 2>/dev/null
+  # Sin los dos commits el diff HEAD~1..HEAD queda vacío y los casos pasarían en vacío.
+  if ! git -C "$1" rev-parse -q --verify HEAD~1 > /dev/null 2>&1; then
+    dr_report "docker-refresh: fixture GIT_DIR: $1 tiene los dos commits" 1 "rev-parse HEAD~1 falló"
+  fi
 }
 dr_commit_pair "$DR_OUTER/session" package.json
 dr_commit_pair "$DR_OUTER/foreign" notes.txt
@@ -9145,7 +9149,7 @@ git -C "$DR_OUTER/session" init -q 2>/dev/null; git -C "$DR_OUTER/foreign" init 
 dr_commit_pair "$DR_OUTER/session" notes.txt
 dr_commit_pair "$DR_OUTER/foreign" package.json
 DR_OUT=$( (export GIT_DIR="$DR_OUTER/foreign/.git" GIT_WORK_TREE="$DR_OUTER/foreign"; dr_run "$DR_OUTER/session" "$DR_PUSH_JSON") )
-dr_ok=1; ! echo "$DR_OUT" | grep -qF -e "--build" && dr_ok=0
+dr_ok=1; echo "$DR_OUT" | grep -qF "Todos los servicios tienen hot reload" && ! echo "$DR_OUT" | grep -qF -e "--build" && dr_ok=0
 dr_report "docker-refresh: package.json de un repo ajeno (GIT_DIR) no dispara --build" "$dr_ok" "salida: $DR_OUT"
 rm -rf "$DR_OUTER"
 
