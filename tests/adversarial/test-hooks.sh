@@ -2611,6 +2611,41 @@ else
 fi
 rm -f "$BUDGET_OCT_STDERR"
 
+# Cadenas largas: $((10#...)) desborda en 64 bits (18446744073709551000 -> -616,
+# que pasaría el "-le 570"). Más de 4 dígitos significativos se rechaza antes
+# de cualquier aritmética; los ceros a la izquierda no cuentan; "0" se respeta.
+for BUDGET_LONG in 18446744073709551000 9223372036854775808 00000000000000000000540; do
+  TOTAL=$((TOTAL + 1))
+  BUDGET_LONG_STDERR=$(mktemp)
+  BUDGET_LONG_OUT=$(PRECOMMIT_TEST_BUDGET=$BUDGET_LONG _guard_resolve_test_budget 2>"$BUDGET_LONG_STDERR")
+  case "$BUDGET_LONG" in 0*) BUDGET_LONG_WANT=540; BUDGET_LONG_WARN=0 ;; *) BUDGET_LONG_WANT=540; BUDGET_LONG_WARN=1 ;; esac
+  BUDGET_LONG_STDERR_OK=1
+  if [ "$BUDGET_LONG_WARN" -eq 0 ]; then
+    [ ! -s "$BUDGET_LONG_STDERR" ] && BUDGET_LONG_STDERR_OK=0
+  else
+    grep -qF "inválido" "$BUDGET_LONG_STDERR" && BUDGET_LONG_STDERR_OK=0
+  fi
+  if [ "$BUDGET_LONG_OUT" = "$BUDGET_LONG_WANT" ] && [ "$BUDGET_LONG_STDERR_OK" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=$BUDGET_LONG sin desbordar (-> $BUDGET_LONG_WANT)"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=$BUDGET_LONG sin desbordar (salida: \"$BUDGET_LONG_OUT\", stderr: \"$(cat "$BUDGET_LONG_STDERR")\")"
+    FAIL=$((FAIL + 1))
+  fi
+  rm -f "$BUDGET_LONG_STDERR"
+done
+TOTAL=$((TOTAL + 1))
+BUDGET_ZERO_STDERR=$(mktemp)
+BUDGET_ZERO_OUT=$(PRECOMMIT_TEST_BUDGET=0 _guard_resolve_test_budget 2>"$BUDGET_ZERO_STDERR")
+if [ "$BUDGET_ZERO_OUT" = "0" ] && [ ! -s "$BUDGET_ZERO_STDERR" ]; then
+  echo -e "${GREEN}PASS${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=0 se respeta como hoy"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}FAIL${NC}: _guard_resolve_test_budget: PRECOMMIT_TEST_BUDGET=0 se respeta como hoy (salida: \"$BUDGET_ZERO_OUT\")"
+  FAIL=$((FAIL + 1))
+fi
+rm -f "$BUDGET_ZERO_STDERR"
+
 TOTAL=$((TOTAL + 1))
 BUDGET_VALID_STDERR=$(mktemp)
 BUDGET_VALID_OUT=$(PRECOMMIT_TEST_BUDGET=30 _guard_resolve_test_budget 2>"$BUDGET_VALID_STDERR")
