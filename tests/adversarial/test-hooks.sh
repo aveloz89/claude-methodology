@@ -9009,14 +9009,16 @@ echo ""
 echo "--- docker-refresh.sh ---"
 
 # docker falso en PATH: "config --services" imprime "web" y "config --format
-# json" imprime el fixture de $DR_FAKE_JSON (forma real de
-# `docker compose config --format json`: los binds relativos salen con
-# .source ABSOLUTO). La suite no depende de docker.
+# json" imprime el fixture de $DR_FAKE_JSON. Con --no-path-resolution los
+# .source salen tal como se declararon ("." , "../shared", "./src"); sin el
+# flag (o con DR_FAKE_NOFLAG=1, compose viejo que rechaza el flag) salen
+# ABSOLUTOS. La suite no depende de docker.
 DR_FAKE_BIN=$(mktemp -d)
 cat > "$DR_FAKE_BIN/docker" <<'DRFAKE'
 #!/bin/bash
 case "$*" in
-  *"--services"*) echo web ;;
+  *"--services"*) pwd > "$DR_PWD_LOG"; echo web ;;
+  *"--no-path-resolution"*) [ -n "$DR_FAKE_NOFLAG" ] && exit 1; cat "$DR_FAKE_JSON" ;;
   *"--format json"*) cat "$DR_FAKE_JSON" ;;
 esac
 exit 0
@@ -9024,11 +9026,12 @@ DRFAKE
 chmod +x "$DR_FAKE_BIN/docker"
 DR_PUSH_JSON='{"tool_input":{"command":"git push origin feature/x"}}'
 DR_FIXTURE=$(mktemp)
+DR_PWD_LOG=$(mktemp)
 
 # dr_run <cwd del proceso> <payload>: stdout del hook; stderr en $DR_STDERR.
 DR_STDERR=$(mktemp)
 dr_run() {
-  (cd "$1" && printf '%s' "$2" | DR_FAKE_JSON="$DR_FIXTURE" PATH="$DR_FAKE_BIN:$PATH" bash "$HOOKS_DIR/docker-refresh.sh" 2>"$DR_STDERR")
+  (cd "$1" && printf '%s' "$2" | DR_FAKE_JSON="$DR_FIXTURE" DR_PWD_LOG="$DR_PWD_LOG" DR_FAKE_NOFLAG="${DR_NOFLAG:-}" PATH="$DR_FAKE_BIN:$PATH" bash "$HOOKS_DIR/docker-refresh.sh" 2>"$DR_STDERR")
 }
 dr_report() { # <nombre> <ok 0/1> <detalle>
   TOTAL=$((TOTAL + 1))
@@ -9043,6 +9046,24 @@ dr_report() { # <nombre> <ok 0/1> <detalle>
 
 sandbox_create
 : > "$SANDBOX_REPO/compose.yml"
+
+# Modo con flag: .source tal como se declaró (relativo).
+DR_BINDS_OK() { dr_ok=1; echo "$DR_OUT" | grep -qF "Todos los servicios tienen hot reload" && ! echo "$DR_OUT" | grep -qF "docker compose restart" && dr_ok=0; return 0; }
+DR_BINDS_NO() { dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0; return 0; }
+for DR_SRC in "." ".." "./src" "../shared"; do
+  printf '{"services":{"web":{"volumes":[{"type":"bind","source":"%s","target":"/app"}]}}}' "$DR_SRC" > "$DR_FIXTURE"
+  DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON"); DR_BINDS_OK
+  dr_report "docker-refresh: bind relativo '$DR_SRC' (con --no-path-resolution) cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
+done
+printf '{"services":{"web":{"volumes":[{"type":"bind","source":"/var/run/docker.sock","target":"/var/run/docker.sock"}]}}}' > "$DR_FIXTURE"
+DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON"); DR_BINDS_NO
+dr_report "docker-refresh: bind absoluto ajeno (docker.sock) con --no-path-resolution no cuenta" "$dr_ok" "salida: $DR_OUT"
+
+# Fallback: compose viejo rechaza --no-path-resolution => modo absoluto.
+DR_NOFLAG=1
+printf '{"services":{"web":{"volumes":[{"type":"bind","source":"%s","target":"/app"}]}}}' "$SANDBOX_REPO" > "$DR_FIXTURE"
+DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON"); DR_BINDS_OK
+dr_report "docker-refresh: fallback sin el flag: source == dir de la sesión cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
 
 # Bind relativo ya resuelto a absoluto dentro del proyecto => hot reload.
 printf '{"services":{"web":{"volumes":[{"type":"bind","source":"%s/src","target":"/app/src"}]}}}' "$SANDBOX_REPO" > "$DR_FIXTURE"
@@ -9062,6 +9083,8 @@ DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
 dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0
 dr_report "docker-refresh: bind en un directorio hermano con prefijo común no cuenta como hot reload" "$dr_ok" "salida: $DR_OUT"
 
+DR_NOFLAG=
+
 # compose.yaml / docker-compose.yaml se reconocen.
 printf '{"services":{"web":{}}}' > "$DR_FIXTURE"
 for DR_NAME in compose.yaml docker-compose.yaml; do
@@ -9071,6 +9094,22 @@ for DR_NAME in compose.yaml docker-compose.yaml; do
   dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && dr_ok=0
   dr_report "docker-refresh: reconoce $DR_NAME" "$dr_ok" "salida: $DR_OUT"
 done
+
+# Compose en la raíz del repo, sesión en un subdirectorio: compose sube por los
+# padres hasta el toplevel de git y corre en el dir donde lo encontró.
+rm -f "$SANDBOX_REPO"/compose.y*ml "$SANDBOX_REPO"/docker-compose.y*ml
+: > "$SANDBOX_REPO/compose.yml"
+mkdir -p "$SANDBOX_REPO/sub/deep"
+DR_OUT=$(dr_run "$SANDBOX_REPO/sub/deep" "$DR_PUSH_JSON")
+dr_ok=1; echo "$DR_OUT" | grep -qF "docker compose restart web" && [ "$(cat "$DR_PWD_LOG")" = "$(cd "$SANDBOX_REPO" && pwd -P)" -o "$(cat "$DR_PWD_LOG")" = "$SANDBOX_REPO" ] && dr_ok=0
+dr_report "docker-refresh: encuentra el compose en la raíz del repo desde un subdirectorio" "$dr_ok" "salida: $DR_OUT, pwd: $(cat "$DR_PWD_LOG")"
+# No sube más allá del toplevel de git: compose fuera del repo se ignora.
+DR_OUTER=$(mktemp -d); mkdir -p "$DR_OUTER/repo"; : > "$DR_OUTER/compose.yml"
+git -C "$DR_OUTER/repo" init -q 2>/dev/null
+DR_OUT=$(dr_run "$DR_OUTER/repo" "$DR_PUSH_JSON")
+dr_ok=1; [ -z "$DR_OUT" ] && dr_ok=0
+dr_report "docker-refresh: no busca compose por encima del toplevel de git" "$dr_ok" "salida: $DR_OUT"
+rm -rf "$DR_OUTER"
 
 # .cwd del payload manda sobre el cwd del proceso (sesión de worktree).
 DR_OUT=$(dr_run "$SANDBOX_HOME" "{\"tool_input\":{\"command\":\"git push\"},\"cwd\":\"$SANDBOX_REPO\"}")
@@ -9085,12 +9124,12 @@ dr_report "docker-refresh: .cwd inválido no emite aviso y explica el motivo en 
 # Sin lib: degradación visible, sin aviso.
 DR_NOLIB=$(mktemp -d)
 cp "$HOOKS_DIR/docker-refresh.sh" "$DR_NOLIB/docker-refresh.sh"
-DR_OUT=$(cd "$SANDBOX_REPO" && printf '%s' "$DR_PUSH_JSON" | DR_FAKE_JSON="$DR_FIXTURE" PATH="$DR_FAKE_BIN:$PATH" bash "$DR_NOLIB/docker-refresh.sh" 2>"$DR_STDERR")
+DR_OUT=$(cd "$SANDBOX_REPO" && printf '%s' "$DR_PUSH_JSON" | DR_FAKE_JSON="$DR_FIXTURE" DR_PWD_LOG="$DR_PWD_LOG" PATH="$DR_FAKE_BIN:$PATH" bash "$DR_NOLIB/docker-refresh.sh" 2>"$DR_STDERR")
 dr_ok=1; [ -z "$DR_OUT" ] && grep -qF "guard-matching.sh" "$DR_STDERR" && dr_ok=0
 dr_report "docker-refresh: sin hooks/lib/guard-matching.sh degrada con aviso en stderr" "$dr_ok" "salida: $DR_OUT, stderr: $(cat "$DR_STDERR")"
 
 sandbox_cleanup
-rm -rf "$DR_FAKE_BIN" "$DR_NOLIB" "$DR_FIXTURE" "$DR_STDERR"
+rm -rf "$DR_FAKE_BIN" "$DR_NOLIB" "$DR_FIXTURE" "$DR_STDERR" "$DR_PWD_LOG"
 echo ""
 
 # --- statusline.sh: datos no confiables no pasan por la interpretación de escapes ---

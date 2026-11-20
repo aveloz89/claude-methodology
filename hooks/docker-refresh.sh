@@ -35,11 +35,29 @@ if ! SESSION_DIR=$(guard_session_dir 2>/dev/null) || [ -z "$SESSION_DIR" ]; then
 fi
 cd "$SESSION_DIR" || exit 0
 
-# Check if a compose file exists
-if [ ! -f "docker-compose.yml" ] && [ ! -f "docker-compose.yaml" ] \
-  && [ ! -f "compose.yml" ] && [ ! -f "compose.yaml" ]; then
+# "docker compose" sube por los directorios padres buscando el compose: se
+# replica la búsqueda desde el dir de la sesión hasta el toplevel de git
+# (incluido). Sin repo git solo cuenta el dir de la sesión. El compose corre
+# en el dir donde se encontró.
+SESSION_PHYS=$(pwd -P)
+GIT_TOP=$(git rev-parse --show-toplevel 2>/dev/null)
+COMPOSE_DIR=""
+SEARCH_DIR="$SESSION_PHYS"
+while :; do
+  for NAME in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+    if [ -f "$SEARCH_DIR/$NAME" ]; then
+      COMPOSE_DIR="$SEARCH_DIR"
+      break 2
+    fi
+  done
+  # Corte: sin repo, o al llegar al toplevel, o a la raíz del filesystem.
+  [ -z "$GIT_TOP" ] || [ "$SEARCH_DIR" = "$GIT_TOP" ] || [ -z "$SEARCH_DIR" ] && break
+  SEARCH_DIR="${SEARCH_DIR%/*}"
+done
+if [ -z "$COMPOSE_DIR" ]; then
   exit 0
 fi
+cd "$COMPOSE_DIR" || exit 0
 
 # Get services
 SERVICES=$(docker compose config --services 2>/dev/null)
@@ -56,8 +74,15 @@ if echo "$CHANGED_FILES" | grep -qiE '(package\.json|pnpm-lock\.yaml|yarn\.lock|
   REBUILD_NEEDED=true
 fi
 
-# Get compose config as JSON for volume analysis
-COMPOSE_JSON=$(docker compose config --format json 2>/dev/null)
+# Compose config como JSON para analizar los volúmenes. --no-path-resolution
+# devuelve los .source tal como se declararon ("." , "../shared", "./src"); un
+# compose viejo sin el flag falla y se cae al modo absoluto (paths resueltos).
+BIND_MODE=relative
+COMPOSE_JSON=$(docker compose config --no-path-resolution --format json 2>/dev/null)
+if [ -z "$COMPOSE_JSON" ]; then
+  BIND_MODE=absolute
+  COMPOSE_JSON=$(docker compose config --format json 2>/dev/null)
+fi
 
 OUTPUT=""
 ACTIONS_NEEDED=false
@@ -66,13 +91,18 @@ for SERVICE in $SERVICES; do
   HAS_HOT_RELOAD=false
 
   if [ -n "$COMPOSE_JSON" ]; then
-    # Bind mount volumes = local code mounted into container = hot reload likely
-    # "docker compose config" resuelve los paths relativos a ABSOLUTOS
-    # (./src -> /ruta/proyecto/src): un bind de código es el que cae dentro
-    # del directorio del proyecto, no el que empieza con "./".
-    BIND_COUNT=$(echo "$COMPOSE_JSON" | jq -r --arg svc "$SERVICE" --arg dir "$SESSION_DIR" '
+    # Bind mount volumes = local code mounted into container = hot reload likely.
+    # relative: el source declarado es "." / ".." / "./x" / "../x".
+    # absolute: el source es el dir del compose o cae dentro de él.
+    BIND_COUNT=$(echo "$COMPOSE_JSON" | jq -r --arg svc "$SERVICE" --arg dir "$COMPOSE_DIR" --arg mode "$BIND_MODE" '
+      def local_src:
+        if $mode == "relative" then
+          . == "." or . == ".." or startswith("./") or startswith("../")
+        else
+          . == $dir or startswith($dir + "/")
+        end;
       .services[$svc].volumes // [] |
-      map(select(.type == "bind" and (.source | startswith($dir + "/")))) |
+      map(select(.type == "bind" and (.source | local_src))) |
       length
     ' 2>/dev/null)
     [ "$BIND_COUNT" != "0" ] && [ -n "$BIND_COUNT" ] && HAS_HOT_RELOAD=true
