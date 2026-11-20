@@ -157,7 +157,11 @@ echo ""
 echo "Materializando settings.json (deja de distribuirse: solo se migra el symlink legacy si existe)..."
 SETTINGS_DEST="$CLAUDE_DIR/settings.json"
 if [ -L "$SETTINGS_DEST" ]; then
-  if is_symlink_into_repo "$SETTINGS_DEST"; then
+  if is_symlink_into_repo "$SETTINGS_DEST" && [ ! -e "$SETTINGS_DEST" ]; then
+    # Colgante: no hay contenido que materializar (cp -L abortaría bajo set -e
+    # y dejaría un temporal huérfano). Se deja tal cual, el usuario decide.
+    echo "  SKIP: $SETTINGS_DEST es un symlink colgante al repo (su target no existe), no hay nada que materializar; bórralo si ya no lo necesitas"
+  elif is_symlink_into_repo "$SETTINGS_DEST"; then
     TMP_SETTINGS="$(mktemp "$CLAUDE_DIR/settings.json.XXXXXX")"
     cp -L "$SETTINGS_DEST" "$TMP_SETTINGS"
     rm "$SETTINGS_DEST"
