@@ -79,6 +79,8 @@ version_gt() {
 # terminal. Bash puro (sin subshell ni tr), con locale C local para que los
 # rangos sean de bytes; compatible con bash 3.2. Tras quitar los C1 puede
 # quedar un \xc2 pegado a un \x80-\x9f nuevo, así que se repite hasta estabilizar.
+# Límite aceptado: un byte C1 suelto de 8 bits (\x9b, no UTF-8) no se filtra: es
+# indistinguible de un byte de continuación de UTF-8.
 escape_b() {
     local LC_ALL=C clean="$1" prev=""
     clean="${clean//[$'\001'-$'\037'$'\177']/}"
@@ -141,8 +143,7 @@ effort_level=$(escape_b "$effort_level")
 # escrituras fallan en silencio y se degrada a sin caché.
 # Límites aceptados: otra cuenta puede inutilizar la caché por usuario en un
 # /tmp compartido (p. ej. creando antes ese nombre): se degrada a sin caché, sin
-# lectura ni escritura cruzada. Un byte C1 suelto de 8 bits (\x9b, no UTF-8) no
-# se filtra: es indistinguible de un byte de continuación de UTF-8.
+# lectura ni escritura cruzada.
 cache_dir="${TMPDIR:-/tmp}/claude-statusline-$UID"
 if [ ! -e "$cache_dir" ] && [ ! -L "$cache_dir" ]; then
     mkdir -m 700 "$cache_dir" 2>/dev/null
