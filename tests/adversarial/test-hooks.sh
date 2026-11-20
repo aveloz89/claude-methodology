@@ -9177,17 +9177,51 @@ for SL_CMD in curl security claude secret-tool; do
   printf '#!/bin/bash\nexit 1\n' > "$SL_BIN/$SL_CMD"
   chmod +x "$SL_BIN/$SL_CMD"
 done
+# Cachés en un dir propio (STATUSLINE_CACHE_DIR): nunca toca /tmp/claude real.
+SL_CACHE="$SL_HOME/cache"
+mkdir -p "$SL_CACHE"
+SL_REAL_STAMP=$(ls -la /tmp/claude 2>/dev/null | md5 -q 2>/dev/null || ls -la /tmp/claude 2>/dev/null | md5sum)
+sl_run() { # <payload>: stdout del statusline con entorno aislado
+  printf '%s' "$1" | HOME="$SL_HOME" STATUSLINE_CACHE_DIR="$SL_CACHE" STATUSLINE_CHECK_UPDATES=false PATH="$SL_BIN:$PATH" bash "$REPO_ROOT/statusline.sh" 2>/dev/null
+}
+sl_report() { # <nombre> <ok 0/1> <detalle>
+  TOTAL=$((TOTAL + 1))
+  if [ "$2" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC}: $1"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}: $1 ($3)"
+    FAIL=$((FAIL + 1))
+  fi
+}
 mkdir -p "$SL_HOME/proj\\c"
 SL_PAYLOAD=$(jq -n --arg dir "$SL_HOME/proj\\c" '{model:{display_name:"Mod\\033[31mX"},cwd:$dir}')
-SL_OUT=$(printf '%s' "$SL_PAYLOAD" | HOME="$SL_HOME" PATH="$SL_BIN:$PATH" bash "$REPO_ROOT/statusline.sh" 2>/dev/null)
-TOTAL=$((TOTAL + 1))
-if printf '%s' "$SL_OUT" | grep -qF 'proj\c' && printf '%s' "$SL_OUT" | grep -qF 'Mod\033[31mX'; then
-  echo -e "${GREEN}PASS${NC}: statusline: backslashes en el basename del cwd y el nombre del modelo se imprimen literales"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}FAIL${NC}: statusline: backslashes en el basename del cwd y el nombre del modelo se imprimen literales (salida: $(printf '%s' "$SL_OUT" | od -c | head -3))"
-  FAIL=$((FAIL + 1))
-fi
+SL_OUT=$(sl_run "$SL_PAYLOAD")
+sl_ok=1; printf '%s' "$SL_OUT" | grep -qF 'proj\c' && printf '%s' "$SL_OUT" | grep -qF 'Mod\033[31mX' && sl_ok=0
+sl_report "statusline: backslashes en el basename del cwd y el nombre del modelo se imprimen literales" "$sl_ok" "salida: $(printf '%s' "$SL_OUT" | od -c | head -3)"
+
+# effort (rama *) y cli_version vienen de datos no confiables.
+SL_OUT=$(sl_run '{"model":{"display_name":"M"},"effort":{"level":"x\\cy"}}')
+sl_ok=1; printf '%s' "$SL_OUT" | grep -qF 'x\cy' && sl_ok=0
+sl_report "statusline: effort con backslash se imprime literal" "$sl_ok" "salida: $(printf '%s' "$SL_OUT" | od -c | head -3)"
+
+printf '%s' '1.0\033[31m' > "$SL_CACHE/statusline-cli-version"
+SL_OUT=$(sl_run '{"model":{"display_name":"M"}}')
+sl_ok=1; printf '%s' "$SL_OUT" | grep -qF 'v1.0\033[31m' && sl_ok=0
+sl_report "statusline: cli_version con escapes en la caché se imprime literal" "$sl_ok" "salida: $(printf '%s' "$SL_OUT" | od -c | head -3)"
+rm -f "$SL_CACHE/statusline-cli-version"
+
+# Bytes de control en el basename del cwd (ESC literal) no llegan a la salida.
+SL_ESC_DIR="$SL_HOME/pro$(printf '\033')[31mj"
+mkdir -p "$SL_ESC_DIR"
+SL_OUT=$(sl_run "$(jq -n --arg dir "$SL_ESC_DIR" '{model:{display_name:"M"},cwd:$dir}')")
+sl_ok=1; printf '%s' "$SL_OUT" | grep -qF 'pro[31mj' && ! printf '%s' "$SL_OUT" | grep -q "pro$(printf '\033')" && sl_ok=0
+sl_report "statusline: byte ESC en el basename del cwd se elimina" "$sl_ok" "salida: $(printf '%s' "$SL_OUT" | od -c | head -3)"
+
+# Aislamiento: las cachés fueron al dir de prueba, no a /tmp/claude.
+SL_REAL_STAMP_AFTER=$(ls -la /tmp/claude 2>/dev/null | md5 -q 2>/dev/null || ls -la /tmp/claude 2>/dev/null | md5sum)
+sl_ok=1; [ "$SL_REAL_STAMP" = "$SL_REAL_STAMP_AFTER" ] && ls "$SL_CACHE" > /dev/null 2>&1 && sl_ok=0
+sl_report "statusline: el test no toca /tmp/claude real" "$sl_ok" "antes: $SL_REAL_STAMP, después: $SL_REAL_STAMP_AFTER"
 rm -rf "$SL_HOME" "$SL_BIN"
 echo ""
 

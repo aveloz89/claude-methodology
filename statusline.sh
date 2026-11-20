@@ -73,9 +73,13 @@ version_gt() {
 # La salida final pasa por printf "%b" (los colores son secuencias \033
 # literales): todo dato no confiable que se interpola en $out (modelo, cwd,
 # rama, tag) se escapa antes, para que un "\c" o "\033[..." en un nombre se
-# imprima literal en vez de interpretarse.
+# imprima literal en vez de interpretarse. También se eliminan los bytes de
+# control (0x00-0x1f, 0x7f): un ESC literal en un nombre no debe llegar a la
+# terminal.
 escape_b() {
-    printf '%s' "${1//\\/\\\\}"
+    local clean
+    clean=$(printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177')
+    printf '%s' "${clean//\\/\\\\}"
 }
 
 # ===== Extract data from JSON =====
@@ -118,9 +122,12 @@ elif [ -f "$settings_path" ]; then
     [ -n "$effort_val" ] && effort_level="$effort_val"
 fi
 [ -z "$effort_level" ] && effort_level="medium"
+effort_level=$(escape_b "$effort_level")
 
 # ===== Claude CLI version (cached, 1h TTL) =====
-cli_version_cache="/tmp/claude/statusline-cli-version"
+# STATUSLINE_CACHE_DIR cambia el directorio de cachés (default /tmp/claude).
+cache_dir="${STATUSLINE_CACHE_DIR:-/tmp/claude}"
+cli_version_cache="$cache_dir/statusline-cli-version"
 cli_version=""
 cli_version_max_age=3600
 
@@ -136,10 +143,11 @@ fi
 if [ -z "$cli_version" ]; then
     cli_version=$(claude --version 2>/dev/null | awk '{print $1}')
     if [ -n "$cli_version" ]; then
-        mkdir -p /tmp/claude 2>/dev/null
+        mkdir -p "$cache_dir" 2>/dev/null
         echo "$cli_version" > "$cli_version_cache"
     fi
 fi
+cli_version=$(escape_b "$cli_version")
 
 # ===== Build single-line output =====
 out=""
@@ -244,9 +252,9 @@ fi
 # Cache setup — shared across all Claude Code instances to avoid rate limits
 claude_config_dir_hash=$(echo -n "$claude_config_dir" | shasum -a 256 2>/dev/null || echo -n "$claude_config_dir" | sha256sum 2>/dev/null)
 claude_config_dir_hash=$(echo "$claude_config_dir_hash" | cut -c1-8)
-cache_file="/tmp/claude/statusline-usage-cache-${claude_config_dir_hash}.json"
+cache_file="$cache_dir/statusline-usage-cache-${claude_config_dir_hash}.json"
 cache_max_age=60  # seconds between API calls
-mkdir -p /tmp/claude
+mkdir -p "$cache_dir"
 
 needs_refresh=true
 usage_data=""
@@ -481,7 +489,7 @@ fi
 # Set STATUSLINE_CHECK_UPDATES=false to disable the update check (no network calls).
 update_line=""
 if [ "${STATUSLINE_CHECK_UPDATES:-true}" != "false" ]; then
-    version_cache_file="/tmp/claude/statusline-version-cache.json"
+    version_cache_file="$cache_dir/statusline-version-cache.json"
     version_cache_max_age=86400  # 24 hours
 
     version_needs_refresh=true
