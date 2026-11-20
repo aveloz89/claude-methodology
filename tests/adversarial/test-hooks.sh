@@ -9294,6 +9294,31 @@ ln -s "$SL_TARGET" "$SL_T3/claude-statusline-$(id -u)"
 SL_OUT=$(SL_RUN_TMP="$SL_T3" SL_RUN_BIN="$SL_OKBIN" sl_run '{"model":{"display_name":"M"}}')
 sl_ok=1; [ -z "$(ls -A "$SL_TARGET")" ] && [ -n "$SL_OUT" ] && sl_ok=0
 sl_report "statusline: dir de caché symlink no se usa (sin caché, sin error)" "$sl_ok" "destino: $(ls -A "$SL_TARGET"), salida: $SL_OUT"
+# El dir efímero del fallback se borra al salir (trap por variable): solo queda el symlink.
+sl_ok=1; [ "$(ls -A "$SL_T3")" = "claude-statusline-$(id -u)" ] && [ -n "$SL_OUT" ] && sl_ok=0
+sl_report "statusline: el dir efímero del fallback se elimina al terminar" "$sl_ok" "contenido: $(ls -A "$SL_T3" | tr '\n' ' ')"
+
+# Si el dir de caché desaparece a mitad de ejecución (claude falso lo borra), no se
+# recrea fuera de la validación inicial: o no existe o conserva el modo 700.
+SL_DELBIN=$(mktemp -d)
+printf '#!/bin/bash\nrm -rf "$TMPDIR/claude-statusline-$(id -u)"\necho 7.7.7\n' > "$SL_DELBIN/claude"; chmod +x "$SL_DELBIN/claude"
+for SL_CMD in curl security secret-tool; do cp "$SL_BIN/$SL_CMD" "$SL_DELBIN/$SL_CMD"; done
+SL_T4="$SL_HOME/tmp4"; mkdir -p "$SL_T4"
+SL_OUT=$(SL_RUN_TMP="$SL_T4" SL_RUN_BIN="$SL_DELBIN" sl_run '{"model":{"display_name":"M"}}')
+SL_D4="$SL_T4/claude-statusline-$(id -u)"
+sl_ok=1
+if [ -n "$SL_OUT" ] && { [ ! -e "$SL_D4" ] || [ "$(ls -ld "$SL_D4" | cut -c1-10)" = "drwx------" ]; }; then sl_ok=0; fi
+sl_report "statusline: dir de caché borrado a mitad de ejecución no se recrea sin modo 700" "$sl_ok" "dir: $(ls -ld "$SL_D4" 2>&1)"
+
+# Sin directorio de caché utilizable (mktemp también falla: dir "/dev/null/...") no hay ruido en stderr.
+SL_NOMK=$(mktemp -d)
+cp "$SL_OKBIN"/* "$SL_NOMK/"
+printf '#!/bin/bash\nexit 1\n' > "$SL_NOMK/mktemp"; chmod +x "$SL_NOMK/mktemp"
+SL_ERR=$(printf '%s' '{"model":{"display_name":"M"}}' | HOME="$SL_HOME" TMPDIR="$SL_HOME/no-existe" STATUSLINE_CHECK_UPDATES=false PATH="$SL_NOMK:$PATH" bash "$REPO_ROOT/statusline.sh" 2>&1 >/dev/null)
+sl_ok=1; [ -z "$SL_ERR" ] && sl_ok=0
+sl_report "statusline: sin directorio de caché utilizable no escribe en stderr" "$sl_ok" "stderr: $SL_ERR"
+rm -rf "$SL_NOMK"
+rm -rf "$SL_DELBIN"
 rm -rf "$SL_OKBIN"
 rm -rf "$SL_HOME" "$SL_BIN"
 echo ""

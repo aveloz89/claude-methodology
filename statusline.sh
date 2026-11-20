@@ -135,15 +135,25 @@ effort_level=$(escape_b "$effort_level")
 # Cachés en un directorio propio del usuario bajo TMPDIR (modo 700). Si ya
 # existe y no es un directorio real del usuario (p. ej. un symlink plantado en
 # un /tmp compartido), no se usa: se degrada a un directorio efímero, o sea sin
-# caché entre ejecuciones, sin error.
+# caché entre ejecuciones, sin error. Es el único punto que prepara el
+# directorio: los usos posteriores no lo recrean (un mkdir -p tardío saltaría
+# la validación y el modo 700); si desaparece a mitad de ejecución, las
+# escrituras fallan en silencio y se degrada a sin caché.
+# Límites aceptados: otra cuenta puede inutilizar la caché por usuario en un
+# /tmp compartido (p. ej. creando antes ese nombre): se degrada a sin caché, sin
+# lectura ni escritura cruzada. Un byte C1 suelto de 8 bits (\x9b, no UTF-8) no
+# se filtra: es indistinguible de un byte de continuación de UTF-8.
 cache_dir="${TMPDIR:-/tmp}/claude-statusline-$UID"
 if [ ! -e "$cache_dir" ] && [ ! -L "$cache_dir" ]; then
     mkdir -m 700 "$cache_dir" 2>/dev/null
 fi
 if [ -L "$cache_dir" ] || [ ! -d "$cache_dir" ] || [ ! -O "$cache_dir" ]; then
-    cache_dir=$(mktemp -d 2>/dev/null) || cache_dir="/dev/null/claude-statusline"
-    # shellcheck disable=SC2064 # se expande ahora a propósito: el dir ya existe
-    [ -d "$cache_dir" ] && trap "rm -rf '$cache_dir'" EXIT
+    if cache_tmp=$(mktemp -d "${TMPDIR:-/tmp}/claude-statusline.XXXXXX" 2>/dev/null); then
+        cache_dir="$cache_tmp"
+        trap 'rm -rf "$cache_tmp"' EXIT
+    else
+        cache_dir="/dev/null/claude-statusline"
+    fi
 fi
 cli_version_cache="$cache_dir/statusline-cli-version"
 cli_version=""
@@ -161,8 +171,7 @@ fi
 if [ -z "$cli_version" ]; then
     cli_version=$(claude --version 2>/dev/null | awk '{print $1}')
     if [ -n "$cli_version" ]; then
-        mkdir -p "$cache_dir" 2>/dev/null
-        echo "$cli_version" > "$cli_version_cache"
+        echo "$cli_version" 2>/dev/null > "$cli_version_cache"
     fi
 fi
 cli_version=$(escape_b "$cli_version")
@@ -272,7 +281,6 @@ claude_config_dir_hash=$(echo -n "$claude_config_dir" | shasum -a 256 2>/dev/nul
 claude_config_dir_hash=$(echo "$claude_config_dir_hash" | cut -c1-8)
 cache_file="$cache_dir/statusline-usage-cache-${claude_config_dir_hash}.json"
 cache_max_age=60  # seconds between API calls
-mkdir -p "$cache_dir"
 
 needs_refresh=true
 usage_data=""
@@ -312,7 +320,7 @@ fi
 # extra_usage is only exposed through the OAuth usage endpoint (not stdin JSON).
 # Throttled to cache_max_age and stampede-locked via touch for shared panes.
 if $needs_refresh; then
-    touch "$cache_file"  # stampede lock: prevent parallel panes from fetching simultaneously
+    touch "$cache_file" 2>/dev/null  # stampede lock: prevent parallel panes from fetching simultaneously
     token=$(get_oauth_token)
     if [ -n "$token" ] && [ "$token" != "null" ]; then
         response=$(curl -s --max-time 10 \
@@ -325,7 +333,7 @@ if $needs_refresh; then
         # Only cache valid usage responses (not error/rate-limit JSON)
         if [ -n "$response" ] && echo "$response" | jq -e '.five_hour' >/dev/null 2>&1; then
             usage_data="$response"
-            echo "$response" > "$cache_file"
+            echo "$response" 2>/dev/null > "$cache_file"
         fi
     fi
     # Remove the stampede sentinel if the fetch failed to produce valid JSON —
@@ -475,7 +483,7 @@ if $effective_builtin; then
     printf '{"five_hour":{"utilization":%s,"resets_at":%s},"seven_day":{"utilization":%s,"resets_at":%s},"extra_usage":%s}' \
         "${builtin_five_hour_pct:-0}" "$_fh_reset_json" \
         "${builtin_seven_day_pct:-0}" "$_sd_reset_json" \
-        "$_extra_json" > "$cache_file" 2>/dev/null
+        "$_extra_json" 2>/dev/null > "$cache_file"
 elif [ -n "$usage_data" ] && echo "$usage_data" | jq -e '.five_hour' >/dev/null 2>&1; then
     # ---- Fall back: API-fetched usage data ----
     # ---- 5-hour (current) ----
@@ -530,7 +538,7 @@ if [ "${STATUSLINE_CHECK_UPDATES:-true}" != "false" ]; then
             "https://api.github.com/repos/daniel3303/ClaudeCodeStatusLine/releases/latest" 2>/dev/null)
         if [ -n "$vc_response" ] && echo "$vc_response" | jq -e '.tag_name' >/dev/null 2>&1; then
             version_data="$vc_response"
-            echo "$vc_response" > "$version_cache_file"
+            echo "$vc_response" 2>/dev/null > "$version_cache_file"
         elif [ ! -s "$version_cache_file" ]; then
             rm -f "$version_cache_file" 2>/dev/null
         fi
