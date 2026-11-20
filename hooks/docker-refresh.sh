@@ -69,14 +69,15 @@ cd "$COMPOSE_DIR" || exit 0
 # servicios y los binds, sin depender de flags de la versión de compose.
 COMPOSE_JSON=$(docker compose config --format json 2>/dev/null)
 # Una sola invocación de jq lista "<hot 0/1> <servicio>" por servicio: hot = algún
-# bind cuyo source (absoluto) es ROOT o cae dentro de él. Los nombres de servicio
-# de compose no llevan espacios.
+# bind cuyo source (absoluto) es ROOT o cae dentro de él, ordenados por nombre.
+# Un volumen que no es objeto o un bind sin source cuentan como no-hot y no
+# cortan la salida de los demás. Los nombres de servicio de compose no llevan espacios.
 # Límites aceptados: sin repo git ROOT es el dir del compose, así que un bind a
 # ".." no cuenta; y un bind escrito con una ruta que pasa por un symlink no se
 # compara contra la ruta física de ROOT.
 SERVICE_FLAGS=$(echo "$COMPOSE_JSON" | jq -r --arg root "$ROOT" '
-  .services // {} | to_entries[] |
-  "\((.value.volumes // [] | map(select(.type == "bind" and (.source | . == $root or startswith($root + "/")))) | length) | if . > 0 then 1 else 0 end) \(.key)"
+  .services // {} | to_entries | sort_by(.key)[] |
+  "\([.value.volumes[]? | objects | select(.type == "bind" and (((.source | strings) // "") | . == $root or startswith($root + "/")))] | length | if . > 0 then 1 else 0 end) \(.key)"
 ' 2>/dev/null)
 if [ -z "$SERVICE_FLAGS" ]; then
   exit 0

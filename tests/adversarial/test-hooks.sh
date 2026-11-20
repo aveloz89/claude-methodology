@@ -9172,6 +9172,21 @@ dr_report "docker-refresh: una sola invocación de jq para la regla con 3 servic
 rm -f "$DR_FAKE_BIN/jq" "$DR_JQ_LOG"; unset DR_JQ_LOG
 dr_fixture_bind "$SANDBOX_REPO/src"
 
+# Entradas raras no cortan la salida de los demás servicios: un volumen string y un
+# bind sin source conviven con servicios válidos. Compose declarado en orden
+# inverso: la salida sale en orden alfabético.
+printf '{"services":{"z":{"volumes":[{"type":"bind","source":"%s","target":"/x"}]},"y":{"volumes":["solo-string",{"type":"bind","target":"/t"}]},"b":{"volumes":[{"type":"bind","source":"%s","target":"/x"}]},"a":{}}}' "$SANDBOX_REPO/src" "$SANDBOX_REPO/src" > "$DR_FIXTURE"
+DR_OUT=$(dr_run "$SANDBOX_REPO" "$DR_PUSH_JSON")
+DR_ORDER=$(echo "$DR_OUT" | grep -oE -e '- (a|b|y|z):' | tr -d '\n')
+dr_ok=1
+echo "$DR_OUT" | grep -qF "z: hot reload activo" \
+  && echo "$DR_OUT" | grep -qF "b: hot reload activo" \
+  && echo "$DR_OUT" | grep -qF "docker compose restart y" \
+  && echo "$DR_OUT" | grep -qF "docker compose restart a" \
+  && [ "$DR_ORDER" = "- a:- b:- y:- z:" ] && dr_ok=0
+dr_report "docker-refresh: volumen string o bind sin source no cortan a los demás servicios y salen en orden alfabético" "$dr_ok" "orden: $DR_ORDER, salida: $DR_OUT"
+dr_fixture_bind "$SANDBOX_REPO/src"
+
 
 # compose.yaml / docker-compose.yaml se reconocen.
 printf '{"services":{"web":{}}}' > "$DR_FIXTURE"
