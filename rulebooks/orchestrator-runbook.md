@@ -74,6 +74,8 @@ Un conflicto en ese merge significa que los lotes no eran disjuntos: detienes y 
 
 Cada invocación de dev lleva `description` `Lote N: …` (ver "Template del prompt de handoff a devs"); los lotes de fixes (review, CI) se añaden a `batches[]` antes de lanzar al dev (contrato en "`STATE.md` + `state.json`").
 
+**Si el reporte llega con el dev aún trabajando en segundo plano** (el harness avisa que el agente sigue esperando trabajo propio): no esperes en silencio ni lances el siguiente lote. Revisa `git status`, `git log` y los procesos de la suite (`ps`), dile al usuario lo que viste y pídele al dev con `SendMessage` que cierre o reporte qué quedó corriendo. Lanza el siguiente lote solo con el árbol quieto. Es una violación de `rulebooks/dev-common.md` §7: si se repite, abre un issue.
+
 **Si un dev reporta `BUDGET LIMIT`**: lee `.planning/HANDOFF.md`, reinvócalo con solo las tareas restantes, y abre un issue si el patrón se repite.
 
 **Si un dev reporta error de build/CI que no resuelve**: reinvócalo con `rulebooks/build-errors.md`, en el mismo branch.
@@ -223,6 +225,8 @@ Rules aplicables:
 Si no es el primer lote: lee `git log`, `.planning/STATE.md` y `.planning/state.json` antes de empezar.
 
 Si trabajas o corres suites desde un worktree: exporta tu propia base de test (`TEST_DATABASE_URL` o el equivalente del proyecto, ej. `<base>_<lote>`) para no pisar la corrida del árbol principal ni la corrida de otro agente (ningún hook corre tests en el commit; la colisión de bases entre worktrees sigue en las corridas manuales y en la suite del push).
+
+Corre todo en primer plano y espera su resultado antes de reportar: no dejes comandos en segundo plano (`rulebooks/dev-common.md` §7).
 
 Si last_batch=false: NO push, NO PR. Reporta completado.
 Si last_batch=true: verificación final completa del branch y reporta listo.
