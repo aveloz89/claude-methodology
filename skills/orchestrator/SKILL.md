@@ -19,17 +19,17 @@ El rol y sus invariantes viven en `~/.claude/CLAUDE.md`, sección "Rol de la ses
 | Fase | Qué haces | Artefacto | Sección del runbook |
 |---|---|---|---|
 | 0. Brainstorming | Preguntas en rondas hasta tener claridad; confirmación explícita antes de avanzar | `.planning/BRIEF.md` | "Fase 0" |
-| 0.5. Design system | Invocas `ui-ux` solo si no existe `MASTER.md` o el brief trae página crítica/patrón nuevo; si no, el `architect` referencia `MASTER.md` | `design-system/<proyecto>/MASTER.md` | "Fase 0.5" |
+| 0.5. Design system | Invocas `ui-ux` solo si no existe `MASTER.md` o el brief trae página crítica/patrón nuevo, o un control o interacción que `MASTER.md` no cubre; si no, el `architect` referencia `MASTER.md` | `design-system/<proyecto>/MASTER.md` | "Fase 0.5" |
 | 1. Diseño | El `architect` diseña y parte en lotes | `.planning/DESIGN.md` | "Fase 1" |
 | 2. Implementación | Invocas devs por lote, con `last_batch=true|false` | commits locales | "Fase 2" |
 | 2.5. Documentación | Invocas `docs` sobre el diff local, sin push; salta `docs` si el diff no toca superficie pública (registra el salto en el body del PR); cambios en hooks, permisos, auth o controles de seguridad siempre invocan `docs` | docs actualizados | "Fase 2.5" |
 | 2.6. Review dual local | `security-reviewer` + `qa-*` en paralelo sobre el diff local; fixes sin push hasta veredictos limpios. En `liviano`: review simple = un `Agent` general-purpose fresco que invoca la skill nativa `code-review` vía tool `Skill` sobre `<base>...<branch>` (sin `--fix`; corre como fork aislado y devuelve los hallazgos como texto; esperas su informe antes de tocar el árbol; nunca `Skill(code-review)` desde tu contexto: en la app corre inline y no es independiente, #106); `security-reviewer` solo si toca las señales 1, 4 u 8 del runbook; mismo cierre (`phases.review = done` + `review_sha`). Si no hay `Agent`, o el subagente no tiene `Skill`/`code-review`, un `qa-*` según la capa | `.planning/reviews/<slug>.md` | skill `pr-workflow` |
 | 2.7. Push + PR | Push + `gh pr create` (lo haces tú) | PR abierto | "Comandos `gh` específicos" |
 | 2.8. Monitoreo CI | `gh pr checks --watch --fail-fast` | CI verde | "Fase 2.8" |
-| 3. Post-PR | Re-reviews solo si CI obligó fixes sobre código ya revisado; `e2e-runner` Modo B si el PR va a `main` | reviews actualizados | "Fase 3" |
+| 3. Post-PR | Re-reviews solo si CI obligó fixes sobre código ya revisado; `e2e-runner` Modo B si el PR va a `main`, y `ui-ux` en modo audit acotado a sus pantallas si toca UI (P1 bloquea el merge) | reviews actualizados, `audits/<fecha>.md` | "Fase 3", "Auditoría UX pre-release" |
 | 5. Merge | Verificación pre-merge + merge; `state.json` local con `phases.merge=done` después del merge | PR mergeado | "Fase 5" |
 
-**Variante `liviano`** (criterio en el runbook, "Tier del flujo"): quedan Fase 0 breve, creación del branch, implementación (edición directa tuya o un solo lote), review simple, push + PR, CI y merge. No hay 0.5, 1 (sin `architect` ni `DESIGN.md`), 2.5 (sin `docs`) ni review dual. El `tier` vive en `state.json` (ausente = `completo`).
+**Variante `liviano`** (criterio en el runbook, "Tier del flujo"): quedan Fase 0 breve, creación del branch, implementación (edición directa tuya o un solo lote), review simple, push + PR, CI y, si el PR va a `main` y toca UI, la auditoría UX pre-release, y merge. No hay 0.5, 1 (sin `architect` ni `DESIGN.md`), 2.5 (sin `docs`) ni review dual. El `tier` vive en `state.json` (ausente = `completo`).
 
 **Reglas clave** (detalle en el runbook, sección "Fase 2: Implementación", y en la skill `pr-workflow`):
 
@@ -68,7 +68,7 @@ En cualquier duda, brainstormeas igual. Con confirmación explícita, escribes `
 | Agente | Modelo | Rol | Cuándo invocar | Tier |
 |--------|--------|-----|----------------|------|
 | `architect` | fable | Diseña soluciones, define contratos/schemas, entrega plan de lotes | Antes de implementar feature nueva | completo |
-| `ui-ux` | opus | Genera design system y valida flujos | Después del brainstorming, ANTES del architect, si hay UI | completo (si hay UI) |
+| `ui-ux` | opus | Genera design system, valida flujos y audita | Después del brainstorming, ANTES del architect, si hay UI nueva o un control que `MASTER.md` no cubre; modo audit en todo PR a `main` que toque UI; "Incorporar anti-patterns" tras decidir los findings | completo (si hay UI); el audit pre-release, en ambos |
 | `backend-dev` | sonnet | Implementa backend con TDD, incluyendo migraciones simples y complejas (lotes `db-complejo`) | Lotes con trabajo server-side | ambos (en liviano, un solo lote al sexto archivo) |
 | `frontend-dev` | sonnet | Implementa frontend (capa delgada, cero lógica de negocio) | Lotes con trabajo client-side | ambos (en liviano, un solo lote al sexto archivo) |
 | `security-reviewer` | opus | Auditoría OWASP, secrets, dependencias (read-only). Bloqueante | Fase 2.6 y re-reviews post-PR | completo; en liviano solo si toca las señales 1, 4 u 8 del runbook |
@@ -126,6 +126,14 @@ Archivos: `STATE.md` (decisiones, blockers), `state.json` (fase, lotes, progreso
 Reportas progreso en cada fase — nunca en silencio. Escribes simple y corto: una línea que resume, detalle solo si te lo piden, salvo un blocker (riesgo + remediación siempre, aunque no te los pidan).
 
 Toda decisión del usuario se pregunta con `AskUserQuestion`: 2-4 opciones concretas y mutuamente excluyentes, cada una con su consecuencia en una línea, la recomendada primero y marcada, con la investigación ya hecha. Aplica a aprobaciones de merge, cortes de scope, prioridades, cualquier bifurcación donde la respuesta cambie lo que haces después. No aplica a rondas exploratorias de texto libre (brainstorming, tono de `ui-ux`) — pero el cierre de esas rondas sí es una decisión y va con opciones.
+
+**Reporte de cierre.** Al terminar cualquier trabajo (feature, fix, investigación, release; cualquier tier, con o sin PR) cierras con un reporte de 5-10 líneas en tres partes, sin repetir el detalle de las fases:
+
+- **Qué había que hacer** — una línea.
+- **Qué encontramos** — lo relevante o inesperado, incluido lo que no se verificó.
+- **Qué hicimos** — el resultado y lo pendiente.
+
+En Fase 5, tras el merge, es el mensaje final. Los reportes de los subagentes son insumo: el usuario solo ve esta síntesis.
 
 Ante algo inesperado (reviewers en conflicto, hook que falló, agente cortado, build roto post-merge), consultas `governance-playbook.md` antes de improvisar.
 

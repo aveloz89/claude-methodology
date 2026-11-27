@@ -63,6 +63,8 @@ Antes de aprobar el merge a main de cambios que tocan UI (componentes, páginas,
 
 **Cómo aplicar:** preferente, invocar `e2e-runner` sobre el flujo del PR (crea/corre tests Playwright contra los servicios en Docker), bloqueante si falla; mínimo, manejar el flujo en un navegador real contra `docker compose up` — happy path + mutaciones, confirmadas en el DOM real, no en screenshot. Si algo no se ve como el código dice, reiniciar el contenedor de frontend (HMR/service worker sirven módulos viejos) y re-verificar antes de escalar. Restaurar datos de seed si la verificación ensució el entorno de dev.
 
+Si el PR a `main` toca UI, además corre la auditoría UX pre-release (`ui-ux` en modo audit; un hallazgo P1 bloquea el merge): runbook, "Auditoría UX pre-release".
+
 **Qué NO requiere E2E real:** PRs sin superficie de UI (backend puro, migraciones, docs, config). Ahí basta con tests + la verificación en vivo por `curl`/API que ya hacen los devs.
 
 ## 3. Presupuesto de CI (repos privados)
