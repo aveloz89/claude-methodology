@@ -2027,6 +2027,27 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# --- Proceso UX continuo ---
+echo "--- Proceso UX continuo: auditoría pre-release, evidencia visual y anti-patterns ---"
+assert_contains "$RUNBOOK" '^## Auditoría UX pre-release' "runbook: sección Auditoría UX pre-release"
+assert_contains "$RUNBOOK" '\[Auditoría UX pre-release\](#auditoría-ux-pre-release)' "runbook: índice enlaza la auditoría UX pre-release"
+assert_contains "$RUNBOOK" '\*\*P1 bloquea el merge\*\*' "runbook: P1 bloquea el merge"
+assert_contains "$RUNBOOK" 'Incorporar anti-patterns' "runbook: paso Incorporar anti-patterns"
+assert_contains "$RUNBOOK" 'un control o interacción que `MASTER.md` no cubre' "runbook: Fase 0.5 invoca ui-ux ante un control que MASTER.md no cubre"
+assert_contains "$ORCHESTRATOR_SKILL" 'P1 bloquea el merge' "orchestrator SKILL: fila Fase 3 declara que P1 bloquea el merge"
+assert_contains "$ORCHESTRATOR_SKILL" 'un control o interacción que `MASTER.md` no cubre' "orchestrator SKILL: fila 0.5 con el disparador del control nuevo"
+assert_contains "$REPO_ROOT/skills/pr-workflow/SKILL.md" 'Auditoría UX pre-release' "pr-workflow remite a la auditoría UX pre-release del runbook"
+assert_contains "$REPO_ROOT/agents/frontend-dev.md" 'Evidencia visual del lote' "frontend-dev: bullet de evidencia visual del lote"
+assert_contains "$REPO_ROOT/agents/frontend-dev.md" '390, 768 y 1280' "frontend-dev: capturas a 390, 768 y 1280 px"
+assert_contains "$REPO_ROOT/agents/frontend-dev.md" 'evidencia.md' "frontend-dev: evidencia.md junto a las capturas"
+assert_contains "$REPO_ROOT/agents/qa-frontend.md" '\*\*Revisión visual\.\*\*' "qa-frontend: párrafo Revisión visual"
+assert_contains "$REPO_ROOT/agents/qa-frontend.md" 'SIN EVIDENCIA' "qa-frontend: estado SIN EVIDENCIA en la revisión visual"
+assert_contains "$REPO_ROOT/agents/ui-ux.md" 'Aprendidos de auditorías' "ui-ux: subsección Aprendidos de auditorías"
+assert_contains "$REPO_ROOT/agents/ui-ux.md" 'Incorporar anti-patterns' "ui-ux: modo Incorporar anti-patterns"
+assert_contains "$REPO_ROOT/agents/ui-ux.md" 'Anti-patterns candidatos' "ui-ux: reporte cierra con Anti-patterns candidatos"
+assert_contains "$REPO_ROOT/agents/ui-ux.md" 'viewports 390, 768 y 1280' "ui-ux: viewports 390, 768 y 1280"
+assert_not_contains "$REPO_ROOT/agents/ui-ux.md" '~1440px' "ui-ux: ya no usa el viewport ~1440px"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---
