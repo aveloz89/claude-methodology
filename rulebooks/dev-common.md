@@ -161,6 +161,8 @@ Antes de cerrar el lote, muestra evidencia concreta: tests (X pasando, 0 falland
 
 Push y PR: ver "Push: quién y cuándo" arriba.
 
+**Nada en segundo plano al reportar.** La suite, el build, el lint y cualquier otra verificación corren en primer plano, y esperas su resultado antes de reportar: sin `run_in_background`, sin Monitor y sin procesos que sigan vivos después del reporte. Si un comando no cabe en el timeout de una llamada, pártelo (por ejemplo, un archivo de tests a la vez) o repórtalo como blocker; no lo dejes corriendo. Un reporte con trabajo vivo deja al orchestrator esperando un aviso que puede no llegar, y ese trabajo puede volver a tocar el árbol mientras otro lote edita los mismos archivos.
+
 **Si `last_batch=true`** (último lote del PR), verificación final completa del branch (todos los lotes integrados) y reporta:
 
 ```

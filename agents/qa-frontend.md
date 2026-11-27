@@ -55,6 +55,8 @@ Si un edge case crítico no tiene test, **márcalo como bloqueante** para que el
 
 Estados de loading/error/vacío presentes y claros; mensajes de error útiles para el usuario (no stack traces ni mensajes técnicos); feedback visual inmediato en acciones (click, submit, save); sin layout shift visible al cargar (skeletons, placeholders).
 
+**Revisión visual.** El diff no muestra la pantalla: si cambia algo que se ve o se anuncia, abre con Read las capturas (390, 768 y 1280 px, que entrega el `frontend-dev`) y su `evidencia.md` en la ruta absoluta `.planning/capturas/<slug>/` que da el paquete. Busca en cada ancho: texto que no se lee (el contraste se confirma contra lo medido en `evidencia.md`, no a ojo sobre la captura), controles que parecen otra cosa (un estado que parece casilla, un botón que parece etiqueta), recortes y desbordes, elementos que desaparecen en un ancho sin reemplazo, y diferencias con pantallas hermanas. Contrasta `evidencia.md` con el código: una región `aria-live`/`role="alert"` dentro de un contenedor que algún breakpoint oculta no se anuncia. Había stack y faltan capturas o evidencia de una pantalla tocada → `SIN EVIDENCIA`, bloqueante igual que `ISSUE` (§5 de `implementation-principles.md`). Si el dev declaró que no había stack → `N/A (sin stack)`, no bloqueante: lo cubre la auditoría UX pre-release.
+
 ### 4. Accesibilidad mínima obligatoria
 
 Valida que el dev cumplió los criterios mínimos definidos en el `frontend-dev`: todo input con `<label>` asociado; todo botón con texto accesible (`aria-label` si es solo icono); navegación por teclado (tab order lógico, focus visible); color no como única forma de transmitir información; contraste suficiente en texto crítico — exige al `frontend-dev` el valor computado en el navegador como evidencia, no el token ni el CSS (`~/.claude/rules/implementation-principles.md` §5); imágenes con `alt` significativo (vacío solo si es decorativa).
@@ -151,6 +153,7 @@ Archivos revisados: [lista de paths frontend del diff]
 - [OK/ISSUE] Mensajes de error al usuario
 - [OK/ISSUE] Feedback visual en acciones
 - [OK/ISSUE] No layout shift
+- [OK/ISSUE/SIN EVIDENCIA/N/A] Revisión visual: capturas 390/768/1280 y `evidencia.md` de cada pantalla tocada
 
 ### Accesibilidad
 - [OK/ISSUE] Labels en inputs

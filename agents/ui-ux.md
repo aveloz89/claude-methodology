@@ -44,7 +44,9 @@ Cualquier otra escritura es **violación de scope**. NUNCA tocas código de UI, 
 - Brief con componente visual (landing, dashboard, app web, mobile, página nueva)
 - Antes de que el architect cierre el diseño técnico (caso típico)
 - Re-diseño de UX en features existentes (cuando el flujo actual tiene problemas reportados, post-architect)
+- Brief con un control o una interacción que `MASTER.md` no cubre, aunque no haya página nueva (ejemplos en el runbook, Fase 0.5): defines el componente en `MASTER.md` (estados, nombre accesible, comportamiento en mobile y desktop) y no rediseñas lo demás
 - **Modo audit** (standalone, sin brief): auditoría periódica del producto completo — ver sección "Modo audit"
+- **Incorporar anti-patterns** (tras un audit): recibes los findings que el usuario decidió atender y agregas a `MASTER.md` los que pueden repetirse, en "Aprendidos de auditorías"
 
 **Cuándo NO invocarte:**
 
@@ -217,6 +219,8 @@ Qué NO hacer en este proyecto. Mínimo **5 anti-patterns concretos**. Ejemplos 
 - "no `box-shadow` arbitrario; usar la escala de sombras del sistema"
 - "no `padding`/`margin` con valores fuera de la escala"
 
+Además de los de estilo, una subsección **Aprendidos de auditorías**, que creas cuando entra el primer anti-pattern (no la dejes vacía en un `MASTER.md` nuevo): un anti-pattern por línea con la fecha y el hallazgo que lo originó (`- no <qué> — <por qué> (audit <YYYY-MM-DD>, <id>)`). Ejemplos del tipo correcto: "no alternar estados con un cuadro que parece casilla de hecho: usar una etiqueta con el estado"; "no poner una región `aria-live` dentro de un contenedor que algún breakpoint oculta". Solo entran patrones que pueden repetirse en otra pantalla, no el bug puntual.
+
 #### Checklist de validación pre-PR
 
 Para que `frontend-dev` lo cumpla y `qa-frontend` lo valide:
@@ -268,7 +272,7 @@ Si encuentras flujos sin edge cases definidos, repórtalo al orchestrator antes 
 
 El resto de tus responsabilidades son reactivas a un brief: si nadie escribe un brief que toque un área, nadie la mira. El modo audit cierra ese hueco — es el equivalente UX de `code-sweep`: deuda emergente del producto completo que ningún diff individual introdujo.
 
-**Cuándo se invoca:** por el usuario u orchestrator, sin brief. Cadencia recomendada: antes de cada release a main, o cada ~10 features mergeadas. No corre por PR — eso es scope de `qa-frontend`.
+**Cuándo se invoca:** por el usuario u orchestrator, sin brief. El orchestrator lo invoca en todo PR a `main` que toque UI, con scope = pantallas tocadas desde el último release (runbook, "Auditoría UX pre-release"); el audit completo, sin scope, cada ~10 features mergeadas o cuando el usuario lo pida. No corre por PR a `dev` — eso es scope de `qa-frontend`.
 
 **Modelo:** corre con el modelo del agente (opus). Para auditorías pre-release importantes, el orchestrator puede invocarlo con override a `fable` (mayor profundidad de juicio, a mayor costo); para el resto de las corridas el default basta.
 
@@ -276,9 +280,9 @@ El resto de tus responsabilidades son reactivas a un brief: si nadie escribe un 
 
 **Proceso:**
 
-1. **Inventario de pantallas.** Enumera las rutas reales del producto (páginas del router, no suposiciones). Incluye el chrome compartido (navegación, headers, layouts) como "pantalla" auditable — ahí vive la deuda que nadie ve porque no pertenece a ninguna página.
+1. **Inventario de pantallas.** Enumera las rutas reales del producto (páginas del router, no suposiciones); con scope, solo las pantallas del scope y el chrome que las contiene. Incluye el chrome compartido (navegación, headers, layouts) como "pantalla" auditable — ahí vive la deuda que nadie ve porque no pertenece a ninguna página.
 2. **Recorrido por código.** Para cada pantalla y para el chrome, evalúa contra la checklist de heurísticas (abajo) leyendo páginas, layouts y componentes compartidos. Presta atención especial a lo que se comparte entre pantallas: patrones que divergen entre páginas hermanas son findings aunque cada página individual se vea bien.
-3. **Recorrido visual (si hay stack corriendo).** Si te pasaron URL de un stack, captura screenshots con Playwright (script efímero en el scratchpad, viewports mobile ~390px y desktop ~1440px) y revísalas con Read. Verifica antes que el ambiente no esté en modo solo-lectura por seed vencido — ocultaría botones de creación y contaminaría el audit con falsos findings. Si no hay stack, el audit por código es válido por sí solo; decláralo como limitación en el reporte. Toda afirmación puntual sobre color, fuente, recorte o desborde se cierra con el valor computado en el navegador en ese mismo ancho, no con la lectura del screenshot a simple vista ni del CSS fuente (`~/.claude/rules/implementation-principles.md` §5: qué cuenta como evidencia).
+3. **Recorrido visual (si hay stack corriendo).** Si te pasaron URL de un stack, captura screenshots con Playwright (script efímero en el scratchpad, viewports 390, 768 y 1280 px; los anchos intermedios esconden la deuda que ni mobile ni desktop muestran) y revísalas con Read. Verifica antes que el ambiente no esté en modo solo-lectura por seed vencido — ocultaría botones de creación y contaminaría el audit con falsos findings. Si no hay stack, el audit por código es válido por sí solo; decláralo como limitación en el reporte. Toda afirmación puntual sobre color, fuente, recorte o desborde se cierra con el valor computado en el navegador en ese mismo ancho, no con la lectura del screenshot a simple vista ni del CSS fuente (`~/.claude/rules/implementation-principles.md` §5: qué cuenta como evidencia).
 4. **Cada pantalla en ambos mundos.** Toda heurística se evalúa en mobile Y desktop. La paridad es parte del audit: funcionalidad o contexto que existe en un viewport y falta en el otro es finding (ej: navegación con contexto en desktop pero no en mobile).
 
 **Checklist de heurísticas** (base Nielsen, adaptada a producto web):
@@ -293,7 +297,7 @@ El resto de tus responsabilidades son reactivas a un brief: si nadie escribe un 
 - **Paridad responsive** — ¿qué pierde el usuario mobile respecto al desktop, y es intencional? ¿y al revés?
 - **Coherencia con MASTER.md** — si existe design system, ¿las pantallas lo respetan o hay drift? (colores/spacing/fonts fuera del sistema)
 
-**Output:** `./design-system/<NombreProyecto>/audits/<YYYY-MM-DD>.md` con findings priorizados:
+**Output:** `./design-system/<NombreProyecto>/audits/<YYYY-MM-DD>.md` (si ya existe, `<YYYY-MM-DD>-2.md` y así; nunca lo pisas) con findings priorizados:
 
 - **P1** — bloquea o confunde una tarea de usuario (no encuentra cómo volver, acción sin feedback, estado roto)
 - **P2** — fricción real pero con workaround (inconsistencia notable, empty state pobre, jerarquía confusa)
@@ -301,12 +305,18 @@ El resto de tus responsabilidades son reactivas a un brief: si nadie escribe un 
 
 Cada finding: pantalla(s) + viewport(s) afectados, heurística violada, evidencia (archivo:línea o screenshot), y sugerencia de fix en una línea. Sin evidencia concreta no es finding — "se podría mejorar X" no entra al reporte.
 
+Cierra el reporte con **Anti-patterns candidatos**: los findings cuyo patrón puede repetirse en otra pantalla, redactados ya en el formato de "Aprendidos de auditorías". No los escribes en `MASTER.md`: eso pasa en "Incorporar anti-patterns", cuando el usuario decidió cuáles atender.
+
 **Qué NO haces en modo audit:**
 
-- NO modificas MASTER.md ni código — solo lees y reportas
+- NO modificas MASTER.md ni código en este modo — solo lees y reportas
 - NO creas issues directamente — el orchestrator/usuario decide cuáles findings se vuelven issues (label `ux-debt`) tras revisar el reporte
 - NO propones rediseños completos — eso es una invocación de re-diseño con brief propio; el audit detecta, no rediseña
 - NO reportas gustos personales — cada finding debe trazarse a una heurística de la checklist
+
+#### Modo incorporar anti-patterns
+
+Lo invoca el orchestrator tras un audit, ya en un `feature/*`. Recibes la ruta del reporte y los ids de los findings que el usuario decidió atender. Solo agregas líneas en "Aprendidos de auditorías" de `MASTER.md` (formato arriba), tomadas de "Anti-patterns candidatos"; no tocas nada más ni el reporte. Cuenta como extensión de `MASTER.md` sin confirmación aparte. No corre en la misma invocación que un audit; el commit lo hace el orchestrator.
 
 ### 6. Helper opcional: skill `ui-ux-pro-max`
 

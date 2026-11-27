@@ -15,7 +15,8 @@ Detalle operativo del flujo de orchestration. **Lectura bajo demanda**: las inva
 7. [Comandos `gh` específicos](#comandos-gh-específicos)
 8. [Formato de reporte de review](#formato-de-reporte-de-review)
 9. [Pre-release E2E (Modo B del e2e-runner)](#pre-release-e2e-modo-b-del-e2e-runner)
-10. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
+10. [Auditoría UX pre-release](#auditoría-ux-pre-release)
+11. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
 
 ---
 
@@ -25,11 +26,11 @@ El proceso de brainstorming (Fase 0) vive en la skill `orchestrator`, sección 3
 
 ### Fase 0.5: Design system (si hay UI)
 
-Invoca `ui-ux` solo si no existe `design-system/<proyecto>/MASTER.md`, o si el brief introduce una página crítica o un patrón visual nuevo. Si `MASTER.md` ya existe y la UI del brief es chica, no lo invocas: el `architect` referencia `MASTER.md` en el brief y el `frontend-dev` lee `MASTER.md` y aplica sus constraints directamente, sin pasar por `ui-ux`.
+Invoca `ui-ux` solo si no existe `design-system/<proyecto>/MASTER.md`, o si el brief introduce una página crítica, un patrón visual nuevo o un control o interacción que `MASTER.md` no cubre (un estado que se alterna, una región que se anuncia, una confirmación, un arrastre, un respaldo cuando falla una acción; en este caso `ui-ux` define solo ese componente). Si `MASTER.md` ya existe y la UI del brief es chica y solo reusa componentes que `MASTER.md` ya define, no lo invocas: el `architect` referencia `MASTER.md` en el brief y el `frontend-dev` lee `MASTER.md` y aplica sus constraints directamente, sin pasar por `ui-ux`.
 
 **Cómo invocar `ui-ux`:** pásale solo el brief (`.planning/BRIEF.md` o el pasaje relevante), nombre del proyecto y el path a `design-system/` si ya existe — nunca historial ni diseños técnicos previos. Genera/extiende `design-system/<proyecto>/MASTER.md` (estilo, paleta, tipografía, componentes, anti-patterns) y `pages/<page>.md` para páginas críticas. Si te pide tono/audiencia/referencias que faltan en el brief, pregúntale al usuario y reenvía la respuesta. Copia el bloque "Para incluir en el brief al architect" a `### Design System` del `BRIEF.md` antes de invocar al architect.
 
-**Cuándo NO invocar `ui-ux`:** la tarea no tiene componente visual, o el cambio respeta el design system existente sin componentes ni páginas críticas nuevas.
+**Cuándo NO invocar `ui-ux`:** la tarea no tiene componente visual, o el cambio respeta el design system existente sin componentes, controles ni páginas críticas nuevas.
 
 ### Fase 1: Diseño
 
@@ -74,6 +75,8 @@ Un conflicto en ese merge significa que los lotes no eran disjuntos: detienes y 
 
 Cada invocación de dev lleva `description` `Lote N: …` (ver "Template del prompt de handoff a devs"); los lotes de fixes (review, CI) se añaden a `batches[]` antes de lanzar al dev (contrato en "`STATE.md` + `state.json`").
 
+**Si el reporte llega con el dev aún trabajando en segundo plano** (el harness avisa que el agente sigue esperando trabajo propio): no esperes en silencio ni lances el siguiente lote. Revisa `git status`, `git log` y los procesos de la suite (`ps`), dile al usuario lo que viste y pídele al dev con `SendMessage` que cierre o reporte qué quedó corriendo. Lanza el siguiente lote solo con el árbol quieto. Es una violación de `rulebooks/dev-common.md` §7: si se repite, abre un issue.
+
 **Si un dev reporta `BUDGET LIMIT`**: lee `.planning/HANDOFF.md`, reinvócalo con solo las tareas restantes, y abre un issue si el patrón se repite.
 
 **Si un dev reporta error de build/CI que no resuelve**: reinvócalo con `rulebooks/build-errors.md`, en el mismo branch.
@@ -87,7 +90,7 @@ Cuando el último lote reporta completado, corre `git diff --stat <base>...HEAD`
 El review dual ocurre **ANTES del push inicial**: `security-reviewer` + `qa-*` revisan el diff local y las rondas de fixes suceden sin pushear nada. El PR nace revisado y el caso normal cuesta un solo run de CI. `<base>` = branch base del PR futuro (normalmente `dev`).
 
 1. Clasifica el diff local por capa (`git diff --name-only <base>...HEAD` + "Clasificación del diff por capa") y presupuesta el review proporcional (`git diff --shortstat`, misma tabla que la skill `review-pr` paso 3)
-2. Lanza en paralelo: `security-reviewer` siempre, `qa-frontend`/`qa-backend` según la capa (single message, multiple Agent calls). Paquete de contexto: base + branch + diff + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida — sin número de PR, no existe todavía. Si el diff introduce una regla nueva, dilo (el reviewer la aplica al propio diff). Si corre suites desde un worktree, que use su propia base de test
+2. Lanza en paralelo: `security-reviewer` siempre, `qa-frontend`/`qa-backend` según la capa (single message, multiple Agent calls). Paquete de contexto: base + branch + diff + lista de archivos + `BRIEF.md` + `DESIGN.md` + presupuesto + formato de salida; si el diff toca UI, la ruta absoluta `<repo principal>/.planning/capturas/<slug>/` (en un worktree el `.planning/` gitignored no existe) — sin número de PR, no existe todavía. Si el diff introduce una regla nueva, dilo (el reviewer la aplica al propio diff). Si corre suites desde un worktree, que use su propia base de test
 3. **Consolida y registra**: el orchestrator es el único escritor del registro — ningún reviewer lo toca (tienen `Write`/`Edit` prohibidos). Consolidas los reportes **después de que vuelvan todos**, con el "Formato de reporte de review", guardado local (sin commit) en `.planning/reviews/<feature-slug>.md`
 4. **Mientras haya un reviewer corriendo, el árbol no se mueve.** Espera a que vuelvan todos antes de aplicar nada. Vale igual para un dev en paralelo: si un lote y un review tocan los mismos archivos, no van juntos
 5. **Si hay bloqueantes**: fixes por el dev correspondiente en un lote de fixes nuevo (ver "Fase 2"), sin push (schema/migración va a `backend-dev` con `rulebooks/db-migrations.md`). Re-lanza solo los reviewers que marcaron issues, acotados al delta local. Sugerencias baratas: aplicadas antes del push (skill `pr-workflow`, §2)
@@ -127,7 +130,7 @@ Si falla algún check: lee logs (`gh run view <run-id> --log-failed`), asigna el
 El review dual ya ocurrió en Fase 2.6: **el PR nació revisado**. Esta fase cubre solo lo que requiere el PR abierto:
 
 1. **Re-review condicional**: solo si la Fase 2.8 obligó fixes sobre código ya revisado. Acotado al delta, re-lanzando solo los reviewers de la capa afectada (skill `pr-workflow`, §2). Append al registro local. Si CI pasó a la primera, no-op
-2. **Si el PR es a `main`**: invoca `e2e-runner` Modo B antes de la verificación pre-merge (ver "Pre-release E2E"); opcionalmente `code-sweep` modo `bugs` sobre el diff: default el workflow `/methodology:code-sweep bugs pre-release <paths>` con los paths del diff (`git diff --name-only <base>...HEAD`, o los directorios que los contienen), invocado con la tool `Skill`/`Workflow` según lo exponga el harness; si el nombre no resuelve (`not found`: el registro de workflows de la sesión se arma al arrancar, y una sesión `-p` nueva no lista workflows con nombre, verificado el 2026-10-29), lánzalo con `scriptPath` apuntando al `workflows/code-sweep.js` del plugin (en el dev-loop, `~/.claude/skills/methodology/workflows/code-sweep.js`; en terceros, la ruta donde el harness instaló el plugin) y `args` como arreglo JSON (`["bugs","pre-release","hooks/"]`); fallback al agente `code-sweep` si el comando no figura o la invocación devuelve «Dynamic workflows are disabled by managed settings» / «Dynamic workflows are not enabled for this session» (el agente recibe la lista de archivos del diff). El marcador `BLOQUEANTE PRE-RELEASE` del workflow equivale al bloqueo del agente
+2. **Si el PR es a `main`**: invoca `e2e-runner` Modo B antes de la verificación pre-merge (ver "Pre-release E2E") y, si el release toca UI, antes `ui-ux` en modo audit acotado a las pantallas del release (ver "Auditoría UX pre-release"; en serie, el audit primero); opcionalmente `code-sweep` modo `bugs` sobre el diff: default el workflow `/methodology:code-sweep bugs pre-release <paths>` con los paths del diff (`git diff --name-only <base>...HEAD`, o los directorios que los contienen), invocado con la tool `Skill`/`Workflow` según lo exponga el harness; si el nombre no resuelve (`not found`: el registro de workflows de la sesión se arma al arrancar, y una sesión `-p` nueva no lista workflows con nombre, verificado el 2026-10-29), lánzalo con `scriptPath` apuntando al `workflows/code-sweep.js` del plugin (en el dev-loop, `~/.claude/skills/methodology/workflows/code-sweep.js`; en terceros, la ruta donde el harness instaló el plugin) y `args` como arreglo JSON (`["bugs","pre-release","hooks/"]`); fallback al agente `code-sweep` si el comando no figura o la invocación devuelve «Dynamic workflows are disabled by managed settings» / «Dynamic workflows are not enabled for this session» (el agente recibe la lista de archivos del diff). El marcador `BLOQUEANTE PRE-RELEASE` del workflow equivale al bloqueo del agente
 3. Sin nada pendiente, avanza a **Fase 5**
 
 **PRs fuera del flujo** (sin review pre-push, señalado por `post-pr-create`): skill `review-pr`.
@@ -223,6 +226,8 @@ Rules aplicables:
 Si no es el primer lote: lee `git log`, `.planning/STATE.md` y `.planning/state.json` antes de empezar.
 
 Si trabajas o corres suites desde un worktree: exporta tu propia base de test (`TEST_DATABASE_URL` o el equivalente del proyecto, ej. `<base>_<lote>`) para no pisar la corrida del árbol principal ni la corrida de otro agente (ningún hook corre tests en el commit; la colisión de bases entre worktrees sigue en las corridas manuales y en la suite del push).
+
+Corre todo en primer plano y espera su resultado antes de reportar: no dejes comandos en segundo plano (`rulebooks/dev-common.md` §7).
 
 Si last_batch=false: NO push, NO PR. Reporta completado.
 Si last_batch=true: verificación final completa del branch y reporta listo.
@@ -487,6 +492,17 @@ Antes de la verificación pre-merge: `docker compose up -d && docker compose ps`
 
 - El PR a main es solo configuración / docs (no hay cambios de código que afecten flujos de usuario)
 - El usuario explícitamente lo pide
+
+## Auditoría UX pre-release
+
+**Aplica a PRs a `main` cuyo diff toca UI** (clasificación por capa, arriba). Cada PR a `dev` se revisó por su diff; la deuda que sale al sumarlos (inconsistencias entre pantallas hermanas, anchos intermedios, patrones que divergen) solo se ve recorriendo el producto.
+
+1. Arma el scope: pantallas y chrome compartido que tocan los archivos de `git diff --name-only origin/main...origin/dev` (sin tope de archivos, a diferencia de `gh pr view --json files`). Levanta el stack e invoca `ui-ux` en modo audit con path al repo, ese scope y la URL. Corre en serie: primero el audit (no muta datos), después el E2E Modo B. Sin stack, el audit por código vale y el reporte lo declara.
+2. Lee `design-system/<proyecto>/audits/<fecha>.md`. **P1 bloquea el merge**: se arregla en el mismo release (un `feature/*` a `dev` con su PR; al mergearlo entra al PR del release) salvo que el usuario lo corte explícitamente. Tras mergear a dev un fix de P1, re-audit acotado a lo que cambió y E2E sobre el HEAD nuevo del PR del release, antes de la verificación pre-merge. P2 y P3 van al usuario con `AskUserQuestion`: atender en este release, en un bloque posterior (issue `ux-debt`) o descartar.
+3. Con la decisión, crea primero el `feature/*` (el del fix, o `feature/ux-anti-patterns` desde `dev` si no hay), invoca ahí a `ui-ux` en modo "Incorporar anti-patterns" con los findings que se atienden y commitea tú el cambio (`design-system: ...`); va en el PR que los arregla o en uno a `dev`. Así el `frontend-dev` y `qa-frontend` los aplican desde el siguiente lote.
+4. En el reporte del release al usuario, suma la lista corta de **prueba en dispositivo real** que el audit no cubre (gestos táctiles, teclado virtual, app instalada, Safari de iOS): qué pantalla y qué probar. No se marca como verificada hasta que el usuario lo confirma.
+
+**Cuándo NO correrla:** el release no toca UI, o el usuario lo pide explícitamente. El audit completo sin scope se recomienda aparte, cada ~10 features mergeadas.
 
 ---
 
