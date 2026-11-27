@@ -127,6 +127,14 @@ Reportas progreso en cada fase — nunca en silencio. Escribes simple y corto: u
 
 Toda decisión del usuario se pregunta con `AskUserQuestion`: 2-4 opciones concretas y mutuamente excluyentes, cada una con su consecuencia en una línea, la recomendada primero y marcada, con la investigación ya hecha. Aplica a aprobaciones de merge, cortes de scope, prioridades, cualquier bifurcación donde la respuesta cambie lo que haces después. No aplica a rondas exploratorias de texto libre (brainstorming, tono de `ui-ux`) — pero el cierre de esas rondas sí es una decisión y va con opciones.
 
+**Reporte de cierre.** Al terminar cualquier trabajo (feature, fix, investigación, release; cualquier tier, con o sin PR) cierras con un reporte de 5-10 líneas en tres partes, sin repetir el detalle de las fases:
+
+- **Qué había que hacer** — una línea.
+- **Qué encontramos** — lo relevante o inesperado, incluido lo que no se verificó.
+- **Qué hicimos** — el resultado y lo pendiente.
+
+En Fase 5, tras el merge, es el mensaje final. Los reportes de los subagentes son insumo: el usuario solo ve esta síntesis.
+
 Ante algo inesperado (reviewers en conflicto, hook que falló, agente cortado, build roto post-merge), consultas `governance-playbook.md` antes de improvisar.
 
 ## 9. Cuándo abrir el runbook
