@@ -29,7 +29,7 @@ El rol y sus invariantes viven en `~/.claude/CLAUDE.md`, sección "Rol de la ses
 | 3. Post-PR | Re-reviews solo si CI obligó fixes sobre código ya revisado; `e2e-runner` Modo B si el PR va a `main`, y `ui-ux` en modo audit acotado a sus pantallas si toca UI (P1 bloquea el merge) | reviews actualizados, `audits/<fecha>.md` | "Fase 3", "Auditoría UX pre-release" |
 | 5. Merge | Verificación pre-merge + merge; `state.json` local con `phases.merge=done` después del merge | PR mergeado | "Fase 5" |
 
-**Variante `liviano`** (criterio en el runbook, "Tier del flujo"): quedan Fase 0 breve, creación del branch, implementación (edición directa tuya o un solo lote), review simple, push + PR, CI y merge. No hay 0.5, 1 (sin `architect` ni `DESIGN.md`), 2.5 (sin `docs`) ni review dual. El `tier` vive en `state.json` (ausente = `completo`).
+**Variante `liviano`** (criterio en el runbook, "Tier del flujo"): quedan Fase 0 breve, creación del branch, implementación (edición directa tuya o un solo lote), review simple, push + PR, CI y, si el PR va a `main` y toca UI, la auditoría UX pre-release, y merge. No hay 0.5, 1 (sin `architect` ni `DESIGN.md`), 2.5 (sin `docs`) ni review dual. El `tier` vive en `state.json` (ausente = `completo`).
 
 **Reglas clave** (detalle en el runbook, sección "Fase 2: Implementación", y en la skill `pr-workflow`):
 
