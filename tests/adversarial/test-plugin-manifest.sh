@@ -2032,21 +2032,41 @@ echo "--- Proceso UX continuo: auditoría pre-release, evidencia visual y anti-p
 assert_contains "$RUNBOOK" '^## Auditoría UX pre-release' "runbook: sección Auditoría UX pre-release"
 assert_contains "$RUNBOOK" '\[Auditoría UX pre-release\](#auditoría-ux-pre-release)' "runbook: índice enlaza la auditoría UX pre-release"
 assert_contains "$RUNBOOK" '\*\*P1 bloquea el merge\*\*' "runbook: P1 bloquea el merge"
-assert_contains "$RUNBOOK" 'Incorporar anti-patterns' "runbook: paso Incorporar anti-patterns"
+assert_contains "$RUNBOOK" '^3\. .*Incorporar anti-patterns' "runbook: paso 3 Incorporar anti-patterns"
+assert_contains "$RUNBOOK" 'git diff --name-only origin/main\.\.\.origin/dev' "runbook: scope del audit con git diff --name-only origin/main...origin/dev"
+assert_contains "$RUNBOOK" 'primero el audit (no muta datos), después el E2E' "runbook: audit y E2E en serie, audit primero"
+assert_not_contains "$RUNBOOK" 'en paralelo con el E2E' "runbook: ya no dice audit en paralelo con el E2E"
+assert_contains "$RUNBOOK" 'en serie, el audit primero);' "runbook: Fase 3 paso 2 en serie"
+assert_contains "$RUNBOOK" 're-audit acotado a lo que cambió y E2E sobre el HEAD nuevo' "runbook: re-audit y E2E tras fix de P1"
+assert_contains "$RUNBOOK" 'ver "Auditoría UX pre-release"' "runbook: Fase 3 paso 2 remite a Auditoría UX pre-release"
+assert_contains "$RUNBOOK" '\.planning/capturas/<slug>/` (en un worktree' "runbook: paquete de qa-* con ruta absoluta de capturas"
 assert_contains "$RUNBOOK" 'un control o interacción que `MASTER.md` no cubre' "runbook: Fase 0.5 invoca ui-ux ante un control que MASTER.md no cubre"
-assert_contains "$ORCHESTRATOR_SKILL" 'P1 bloquea el merge' "orchestrator SKILL: fila Fase 3 declara que P1 bloquea el merge"
+assert_contains "$ORCHESTRATOR_SKILL" '^| 3\. Post-PR.*P1 bloquea el merge' "orchestrator SKILL: fila Fase 3 declara que P1 bloquea el merge"
+assert_contains "$ORCHESTRATOR_SKILL" 'la auditoría UX pre-release, y merge' "orchestrator SKILL: variante liviano incluye la auditoría UX pre-release"
 assert_contains "$ORCHESTRATOR_SKILL" 'un control o interacción que `MASTER.md` no cubre' "orchestrator SKILL: fila 0.5 con el disparador del control nuevo"
 assert_contains "$REPO_ROOT/skills/pr-workflow/SKILL.md" 'Auditoría UX pre-release' "pr-workflow remite a la auditoría UX pre-release del runbook"
 assert_contains "$REPO_ROOT/agents/frontend-dev.md" 'Evidencia visual del lote' "frontend-dev: bullet de evidencia visual del lote"
 assert_contains "$REPO_ROOT/agents/frontend-dev.md" '390, 768 y 1280' "frontend-dev: capturas a 390, 768 y 1280 px"
-assert_contains "$REPO_ROOT/agents/frontend-dev.md" 'evidencia.md' "frontend-dev: evidencia.md junto a las capturas"
+assert_contains "$REPO_ROOT/agents/frontend-dev.md" 'evidencia\.md' "frontend-dev: evidencia.md junto a las capturas"
 assert_contains "$REPO_ROOT/agents/qa-frontend.md" '\*\*Revisión visual\.\*\*' "qa-frontend: párrafo Revisión visual"
-assert_contains "$REPO_ROOT/agents/qa-frontend.md" 'SIN EVIDENCIA' "qa-frontend: estado SIN EVIDENCIA en la revisión visual"
+assert_contains "$REPO_ROOT/agents/qa-frontend.md" 'Había stack y faltan capturas.*`SIN EVIDENCIA`, bloqueante' "qa-frontend: SIN EVIDENCIA bloqueante solo si había stack"
+assert_contains "$REPO_ROOT/agents/qa-frontend.md" 'N/A (sin stack)' "qa-frontend: N/A (sin stack) no bloqueante"
+assert_contains "$REPO_ROOT/agents/frontend-dev.md" 'N/A (sin stack)' "frontend-dev: sin stack la revisión visual queda N/A (sin stack)"
 assert_contains "$REPO_ROOT/agents/ui-ux.md" 'Aprendidos de auditorías' "ui-ux: subsección Aprendidos de auditorías"
-assert_contains "$REPO_ROOT/agents/ui-ux.md" 'Incorporar anti-patterns' "ui-ux: modo Incorporar anti-patterns"
+assert_contains "$REPO_ROOT/agents/ui-ux.md" '^- \*\*Incorporar anti-patterns\*\*' "ui-ux: bullet Incorporar anti-patterns"
+assert_contains "$REPO_ROOT/agents/ui-ux.md" '^#### Modo incorporar anti-patterns' "ui-ux: subsección Modo incorporar anti-patterns"
+assert_not_contains "$REPO_ROOT/agents/ui-ux.md" 'Cadencia recomendada: antes de cada release' "ui-ux: ya no recomienda la cadencia antes de cada release"
+assert_contains "$REPO_ROOT/agents/ui-ux.md" '<YYYY-MM-DD>-2\.md' "ui-ux: el reporte no pisa uno existente"
 assert_contains "$REPO_ROOT/agents/ui-ux.md" 'Anti-patterns candidatos' "ui-ux: reporte cierra con Anti-patterns candidatos"
 assert_contains "$REPO_ROOT/agents/ui-ux.md" 'viewports 390, 768 y 1280' "ui-ux: viewports 390, 768 y 1280"
-assert_not_contains "$REPO_ROOT/agents/ui-ux.md" '~1440px' "ui-ux: ya no usa el viewport ~1440px"
+TOTAL=$((TOTAL + 1))
+if grep -rqF -- '~1440px' "$REPO_ROOT/agents" "$REPO_ROOT/rulebooks" "$REPO_ROOT/skills"; then
+  echo -e "${RED}FAIL${NC}: queda ~1440px en agents/, rulebooks/ o skills/"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "${GREEN}PASS${NC}: no queda ~1440px en agents/, rulebooks/ ni skills/"
+  PASS=$((PASS + 1))
+fi
 
 # --- /code-sweep tests ---
 
