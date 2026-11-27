@@ -2068,6 +2068,15 @@ else
   PASS=$((PASS + 1))
 fi
 
+# --- Reporte de cierre ---
+assert_contains "$REPO_ROOT/global/CLAUDE.md" '\*\*Reporte de cierre\*\*.*qué había que hacer, qué encontramos y qué hicimos.*orchestrator` §8' "global: regla Reporte de cierre remite a orchestrator §8"
+assert_contains "$REPO_ROOT/skills/orchestrator/SKILL.md" '^\*\*Reporte de cierre\.\*\*' "orchestrator §8: formato del Reporte de cierre"
+assert_contains "$REPO_ROOT/skills/orchestrator/SKILL.md" '^- \*\*Qué había que hacer\*\*' "orchestrator §8: parte Qué había que hacer"
+assert_contains "$REPO_ROOT/skills/orchestrator/SKILL.md" '^- \*\*Qué encontramos\*\*.*no se verificó' "orchestrator §8: parte Qué encontramos incluye lo no verificado"
+assert_contains "$REPO_ROOT/skills/orchestrator/SKILL.md" '^- \*\*Qué hicimos\*\*.*pendiente' "orchestrator §8: parte Qué hicimos incluye lo pendiente"
+assert_contains "$REPO_ROOT/skills/orchestrator/SKILL.md" 'Fase 5, tras el merge, es el mensaje final' "orchestrator §8: en Fase 5 es el mensaje final"
+assert_contains "$REPO_ROOT/skills/orchestrator/SKILL.md" 'el usuario solo ve esta síntesis' "orchestrator §8: reportes de subagentes son insumo"
+
 # --- /code-sweep tests ---
 
 # --- Resumen ---
