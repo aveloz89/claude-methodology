@@ -15,7 +15,8 @@ Detalle operativo del flujo de orchestration. **Lectura bajo demanda**: las inva
 7. [Comandos `gh` específicos](#comandos-gh-específicos)
 8. [Formato de reporte de review](#formato-de-reporte-de-review)
 9. [Pre-release E2E (Modo B del e2e-runner)](#pre-release-e2e-modo-b-del-e2e-runner)
-10. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
+10. [Auditoría UX pre-release](#auditoría-ux-pre-release)
+11. [Errores comunes y cómo manejarlos](#errores-comunes-y-cómo-manejarlos)
 
 ---
 
@@ -25,11 +26,11 @@ El proceso de brainstorming (Fase 0) vive en la skill `orchestrator`, sección 3
 
 ### Fase 0.5: Design system (si hay UI)
 
-Invoca `ui-ux` solo si no existe `design-system/<proyecto>/MASTER.md`, o si el brief introduce una página crítica o un patrón visual nuevo. Si `MASTER.md` ya existe y la UI del brief es chica, no lo invocas: el `architect` referencia `MASTER.md` en el brief y el `frontend-dev` lee `MASTER.md` y aplica sus constraints directamente, sin pasar por `ui-ux`.
+Invoca `ui-ux` solo si no existe `design-system/<proyecto>/MASTER.md`, o si el brief introduce una página crítica, un patrón visual nuevo o un control o interacción que `MASTER.md` no cubre (un estado que se alterna, una región que se anuncia, una confirmación, un arrastre, un respaldo cuando falla una acción; en este caso `ui-ux` define solo ese componente). Si `MASTER.md` ya existe y la UI del brief es chica y solo reusa componentes que `MASTER.md` ya define, no lo invocas: el `architect` referencia `MASTER.md` en el brief y el `frontend-dev` lee `MASTER.md` y aplica sus constraints directamente, sin pasar por `ui-ux`.
 
 **Cómo invocar `ui-ux`:** pásale solo el brief (`.planning/BRIEF.md` o el pasaje relevante), nombre del proyecto y el path a `design-system/` si ya existe — nunca historial ni diseños técnicos previos. Genera/extiende `design-system/<proyecto>/MASTER.md` (estilo, paleta, tipografía, componentes, anti-patterns) y `pages/<page>.md` para páginas críticas. Si te pide tono/audiencia/referencias que faltan en el brief, pregúntale al usuario y reenvía la respuesta. Copia el bloque "Para incluir en el brief al architect" a `### Design System` del `BRIEF.md` antes de invocar al architect.
 
-**Cuándo NO invocar `ui-ux`:** la tarea no tiene componente visual, o el cambio respeta el design system existente sin componentes ni páginas críticas nuevas.
+**Cuándo NO invocar `ui-ux`:** la tarea no tiene componente visual, o el cambio respeta el design system existente sin componentes, controles ni páginas críticas nuevas.
 
 ### Fase 1: Diseño
 
@@ -129,7 +130,7 @@ Si falla algún check: lee logs (`gh run view <run-id> --log-failed`), asigna el
 El review dual ya ocurrió en Fase 2.6: **el PR nació revisado**. Esta fase cubre solo lo que requiere el PR abierto:
 
 1. **Re-review condicional**: solo si la Fase 2.8 obligó fixes sobre código ya revisado. Acotado al delta, re-lanzando solo los reviewers de la capa afectada (skill `pr-workflow`, §2). Append al registro local. Si CI pasó a la primera, no-op
-2. **Si el PR es a `main`**: invoca `e2e-runner` Modo B antes de la verificación pre-merge (ver "Pre-release E2E"); opcionalmente `code-sweep` modo `bugs` sobre el diff: default el workflow `/methodology:code-sweep bugs pre-release <paths>` con los paths del diff (`git diff --name-only <base>...HEAD`, o los directorios que los contienen), invocado con la tool `Skill`/`Workflow` según lo exponga el harness; si el nombre no resuelve (`not found`: el registro de workflows de la sesión se arma al arrancar, y una sesión `-p` nueva no lista workflows con nombre, verificado el 2026-10-29), lánzalo con `scriptPath` apuntando al `workflows/code-sweep.js` del plugin (en el dev-loop, `~/.claude/skills/methodology/workflows/code-sweep.js`; en terceros, la ruta donde el harness instaló el plugin) y `args` como arreglo JSON (`["bugs","pre-release","hooks/"]`); fallback al agente `code-sweep` si el comando no figura o la invocación devuelve «Dynamic workflows are disabled by managed settings» / «Dynamic workflows are not enabled for this session» (el agente recibe la lista de archivos del diff). El marcador `BLOQUEANTE PRE-RELEASE` del workflow equivale al bloqueo del agente
+2. **Si el PR es a `main`**: invoca `e2e-runner` Modo B antes de la verificación pre-merge (ver "Pre-release E2E") y, si el release toca UI, `ui-ux` en modo audit acotado a las pantallas del release, en paralelo con el E2E (ver "Auditoría UX pre-release"); opcionalmente `code-sweep` modo `bugs` sobre el diff: default el workflow `/methodology:code-sweep bugs pre-release <paths>` con los paths del diff (`git diff --name-only <base>...HEAD`, o los directorios que los contienen), invocado con la tool `Skill`/`Workflow` según lo exponga el harness; si el nombre no resuelve (`not found`: el registro de workflows de la sesión se arma al arrancar, y una sesión `-p` nueva no lista workflows con nombre, verificado el 2026-10-29), lánzalo con `scriptPath` apuntando al `workflows/code-sweep.js` del plugin (en el dev-loop, `~/.claude/skills/methodology/workflows/code-sweep.js`; en terceros, la ruta donde el harness instaló el plugin) y `args` como arreglo JSON (`["bugs","pre-release","hooks/"]`); fallback al agente `code-sweep` si el comando no figura o la invocación devuelve «Dynamic workflows are disabled by managed settings» / «Dynamic workflows are not enabled for this session» (el agente recibe la lista de archivos del diff). El marcador `BLOQUEANTE PRE-RELEASE` del workflow equivale al bloqueo del agente
 3. Sin nada pendiente, avanza a **Fase 5**
 
 **PRs fuera del flujo** (sin review pre-push, señalado por `post-pr-create`): skill `review-pr`.
@@ -491,6 +492,17 @@ Antes de la verificación pre-merge: `docker compose up -d && docker compose ps`
 
 - El PR a main es solo configuración / docs (no hay cambios de código que afecten flujos de usuario)
 - El usuario explícitamente lo pide
+
+## Auditoría UX pre-release
+
+**Aplica a PRs a `main` cuyo diff toca UI** (clasificación por capa, arriba). Cada PR a `dev` se revisó por su diff; la deuda que sale al sumarlos (inconsistencias entre pantallas hermanas, anchos intermedios, patrones que divergen) solo se ve recorriendo el producto.
+
+1. Arma el scope: pantallas y chrome compartido que tocan los archivos de `gh pr view <PR> --json files --jq '.files[].path'`. Levanta el stack e invoca `ui-ux` en modo audit con path al repo, ese scope y la URL. Corre en paralelo con el E2E Modo B. Sin stack, el audit por código vale y el reporte lo declara.
+2. Lee `design-system/<proyecto>/audits/<fecha>.md`. **P1 bloquea el merge**: se arregla en el mismo release (un `feature/*` a `dev` con su PR; al mergearlo entra al PR del release) salvo que el usuario lo corte explícitamente. P2 y P3 van al usuario con `AskUserQuestion`: atender en este release, en un bloque posterior (issue `ux-debt`) o descartar.
+3. Con la decisión, invoca `ui-ux` en modo "Incorporar anti-patterns" con los findings que se atienden; el cambio a `MASTER.md` va en el PR que los arregla (o, si no hay, en un `feature/ux-anti-patterns` a `dev`). Así el `frontend-dev` y `qa-frontend` los aplican desde el siguiente lote.
+4. En el reporte del release al usuario, suma la lista corta de **prueba en dispositivo real** que el audit no cubre (gestos táctiles, teclado virtual, app instalada, Safari de iOS): qué pantalla y qué probar. No se marca como verificada hasta que el usuario lo confirma.
+
+**Cuándo NO correrla:** el release no toca UI, o el usuario lo pide explícitamente. El audit completo sin scope se recomienda aparte, cada ~10 features mergeadas.
 
 ---
 
